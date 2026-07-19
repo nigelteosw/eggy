@@ -10,11 +10,10 @@ import (
 )
 
 type ShippingService struct {
-	store        ports.StateStore
-	policy       ports.ApprovalPolicy
-	provider     ports.RepositoryProvider
-	repositories map[string]ports.Repository
-	requester    ApprovalRequester
+	store     ports.StateStore
+	policy    ports.ApprovalPolicy
+	provider  ports.RepositoryProvider
+	requester ApprovalRequester
 }
 
 func (s *ShippingService) SetApprovalRequester(requester ApprovalRequester) { s.requester = requester }
@@ -80,8 +79,8 @@ func (s *ShippingService) ExecuteApproved(ctx context.Context, approval approval
 	}
 }
 
-func NewShippingService(store ports.StateStore, policy ports.ApprovalPolicy, provider ports.RepositoryProvider, repositories map[string]ports.Repository) *ShippingService {
-	return &ShippingService{store: store, policy: policy, provider: provider, repositories: repositories}
+func NewShippingService(store ports.StateStore, policy ports.ApprovalPolicy, provider ports.RepositoryProvider) *ShippingService {
+	return &ShippingService{store: store, policy: policy, provider: provider}
 }
 
 type commitPayload struct{ RunID, Diff, Message string }
@@ -168,7 +167,7 @@ func (s *ShippingService) run(ctx context.Context, id string) (ports.CodingRun, 
 	if !ok {
 		return ports.CodingRun{}, ports.Repository{}, errors.New("coding run not found")
 	}
-	repository, ok := s.repositories[run.Repository]
+	repository, ok := state.Repositories[run.Repository]
 	if !ok {
 		return ports.CodingRun{}, ports.Repository{}, errors.New("repository is not registered")
 	}

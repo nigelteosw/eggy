@@ -15,7 +15,8 @@ func TestShippingRequiresIndependentExactApprovals(t *testing.T) {
 	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", Diff: "diff"}}
 	policy := &fakePolicy{}
 	repository := &fakeRepository{}
-	service := NewShippingService(store, policy, repository, map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}}})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	service := NewShippingService(store, policy, repository)
 
 	commit, err := service.Commit(context.Background(), "run-1", "feat: done", "approval-commit")
 	if err != nil || commit != "abc123" {
@@ -41,7 +42,8 @@ func TestShippingStopsBeforeSideEffectWhenApprovalFails(t *testing.T) {
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", Diff: "diff"}}
 	policy := &fakePolicy{err: approvals.ErrPayloadChanged}
 	repository := &fakeRepository{}
-	service := NewShippingService(store, policy, repository, map[string]ports.Repository{"eggy": {Name: "eggy"}})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	service := NewShippingService(store, policy, repository)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
@@ -55,7 +57,8 @@ func TestShippingInvalidatesCommitApprovalWhenWorkspaceDiffChanged(t *testing.T)
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Diff: "approved-diff"}}
 	policy := &fakePolicy{}
 	repository := &fakeRepository{diff: "changed-diff"}
-	service := NewShippingService(store, policy, repository, map[string]ports.Repository{"eggy": {Name: "eggy"}})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	service := NewShippingService(store, policy, repository)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
@@ -69,7 +72,8 @@ func TestShippingRejectsMovedLocalOrRemoteCommit(t *testing.T) {
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "approved"}}
 	policy := &fakePolicy{}
 	repository := &fakeRepository{head: "moved", remoteHead: "moved"}
-	service := NewShippingService(store, policy, repository, map[string]ports.Repository{"eggy": {Name: "eggy"}})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	service := NewShippingService(store, policy, repository)
 	if err := service.Push(context.Background(), "run", "eggy/run", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("push error=%v", err)
 	}
@@ -87,7 +91,8 @@ func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Diff: "diff"}}
 	gateway := &fakeShippingGateway{}
 	repository := &fakeRepository{}
-	service := NewShippingService(store, gateway, repository, map[string]ports.Repository{"eggy": {Name: "eggy"}})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	service := NewShippingService(store, gateway, repository)
 	service.SetApprovalRequester(gateway)
 	approval, err := service.RequestCommit(context.Background(), "run", "feat: done")
 	if err != nil {

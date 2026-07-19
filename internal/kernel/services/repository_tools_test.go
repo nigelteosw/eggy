@@ -11,14 +11,15 @@ import (
 )
 
 func TestRepositoryToolsListInspectAndModify(t *testing.T) {
-	repositories := map[string]ports.Repository{
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{
 		"zeta": {Name: "zeta", BaseBranch: "trunk", ProtectedBranches: []string{"trunk"}},
 		"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}},
 	}
 	worker := &fakeRepositoryWorker{}
 	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1", Action: approvals.Commit, Status: approvals.Pending}}
 	var delivered approvals.Approval
-	tools := NewRepositoryTools(repositories, worker, worker, requester, func() string { return "run-1" }, nil, func(_ context.Context, approval approvals.Approval) error {
+	tools := NewRepositoryTools(store, worker, worker, requester, func() string { return "run-1" }, nil, func(_ context.Context, approval approvals.Approval) error {
 		delivered = approval
 		return nil
 	})
@@ -44,11 +45,12 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 }
 
 func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
-	repositories := map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
 	worker := &fakeRepositoryWorker{}
 	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1"}}
 	var received []ports.CodingProgress
-	tools := NewRepositoryTools(repositories, worker, worker, requester, func() string { return "run-42" },
+	tools := NewRepositoryTools(store, worker, worker, requester, func() string { return "run-42" },
 		func(progress ports.CodingProgress) { received = append(received, progress) },
 		func(context.Context, approvals.Approval) error { return nil })
 	byName := map[string]ports.Tool{}
@@ -64,7 +66,7 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 }
 
 func TestRepositoryListReportsNotConfigured(t *testing.T) {
-	tools := NewRepositoryTools(nil, &fakeRepositoryWorker{}, &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
+	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
 	result, err := tools[0].Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil || !strings.Contains(string(result), `"status":"not_configured"`) {
 		t.Fatalf("result=%s err=%v", result, err)

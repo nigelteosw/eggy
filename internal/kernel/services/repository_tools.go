@@ -34,7 +34,7 @@ func (t repositoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.
 }
 
 func NewRepositoryTools(
-	repositories map[string]ports.Repository,
+	store ports.StateStore,
 	inspector RepositoryInspector,
 	modifier RepositoryModifier,
 	approvalRequester CommitApprovalRequester,
@@ -42,16 +42,15 @@ func NewRepositoryTools(
 	progress func(ports.CodingProgress),
 	deliverApproval func(context.Context, approvals.Approval) error,
 ) []ports.Tool {
-	registered := make(map[string]ports.Repository, len(repositories))
-	for name, repository := range repositories {
-		registered[name] = repository
-	}
-
 	list := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
 	}}
-	list.execute = func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		if err := decodeStrict(raw, &struct{}{}); err != nil {
+			return nil, err
+		}
+		registered, err := loadRepositories(ctx, store)
+		if err != nil {
 			return nil, err
 		}
 		if len(registered) == 0 {
@@ -86,6 +85,10 @@ func NewRepositoryTools(
 		if err := decodeStrict(raw, &input); err != nil {
 			return nil, err
 		}
+		registered, err := loadRepositories(ctx, store)
+		if err != nil {
+			return nil, err
+		}
 		repository, ok := registered[input.Repository]
 		if !ok {
 			return nil, fmt.Errorf("repository %q is not configured", input.Repository)
@@ -109,6 +112,10 @@ func NewRepositoryTools(
 			Instruction string `json:"instruction"`
 		}
 		if err := decodeStrict(raw, &input); err != nil {
+			return nil, err
+		}
+		registered, err := loadRepositories(ctx, store)
+		if err != nil {
 			return nil, err
 		}
 		repository, ok := registered[input.Repository]
@@ -142,4 +149,15 @@ func NewRepositoryTools(
 		return json.Marshal(map[string]string{"status": "awaiting_owner", "run_id": run.ID, "approval_id": approval.ID, "summary": result.Summary, "validation": result.Validation})
 	}
 	return []ports.Tool{list, inspect, modify}
+}
+
+func loadRepositories(ctx context.Context, store ports.StateStore) (map[string]ports.Repository, error) {
+	if store == nil {
+		return nil, nil
+	}
+	state, err := store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return state.Repositories, nil
 }

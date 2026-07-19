@@ -94,6 +94,10 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 	if len(requests) != 2 || requests[0]["parse_mode"] != nil {
 		t.Fatalf("requests=%#v", requests)
 	}
+	preview, ok := requests[0]["link_preview_options"].(map[string]any)
+	if !ok || preview["is_disabled"] != true {
+		t.Fatalf("ordinary delivery did not disable Telegram link previews: %#v", requests[0])
+	}
 	markup := requests[1]["reply_markup"].(map[string]any)
 	if markup["inline_keyboard"] == nil {
 		t.Fatalf("missing keyboard: %#v", requests[1])

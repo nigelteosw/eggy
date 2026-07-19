@@ -26,7 +26,11 @@ func NewClient(baseURL, token string, client *http.Client) *Client {
 }
 
 func (c *Client) Deliver(ctx context.Context, chatID, text string) error {
-	return c.send(ctx, map[string]any{"chat_id": chatID, "text": text})
+	return c.send(ctx, map[string]any{
+		"chat_id":              chatID,
+		"text":                 text,
+		"link_preview_options": map[string]bool{"is_disabled": true},
+	})
 }
 
 func (c *Client) DeliverApproval(ctx context.Context, chatID string, approval approvals.Approval) error {

@@ -20,8 +20,9 @@
 ### Task 1: Disable previews for ordinary Telegram delivery
 
 **Files:**
-- Modify: `internal/adapters/channels/telegram/client_test.go`
+- Modify: `internal/adapters/channels/telegram/telegram_test.go`
 - Modify: `internal/adapters/channels/telegram/client.go`
+- Modify only if full verification reproduces the existing contention failure: `internal/kernel/services/agent_runtime.go`
 
 **Interfaces:**
 - Consumes: `(*Client).Deliver(context.Context, string, string) error`
@@ -78,6 +79,8 @@ git diff --check
 ```
 
 Expected: all commands exit successfully.
+
+If the race suite reproduces `state update remained conflicted after 8 attempts` under the existing 16-writer usage test, raise the bounded optimistic-lock attempt budget to 32 and verify that exact race test repeatedly. Eight attempts cannot guarantee progress among 16 simultaneous valid writers.
 
 - [ ] **Step 5: Commit and merge**
 

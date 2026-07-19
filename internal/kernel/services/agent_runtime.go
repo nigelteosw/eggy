@@ -77,7 +77,8 @@ func (r *AgentRuntime) ResetUsage(ctx context.Context) error {
 }
 
 func (r *AgentRuntime) update(ctx context.Context, mutate func(*ports.State)) error {
-	for range 8 {
+	const maxAttempts = 32
+	for range maxAttempts {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -96,5 +97,5 @@ func (r *AgentRuntime) update(ctx context.Context, mutate func(*ports.State)) er
 			return err
 		}
 	}
-	return errors.New("state update remained conflicted after 8 attempts")
+	return fmt.Errorf("state update remained conflicted after %d attempts", maxAttempts)
 }

@@ -1,14 +1,14 @@
 # Eggy
 
-Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. DeepSeek handles ordinary assistant work; Codex owns repository inspection, editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
+Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Codex owns repository inspection, editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
 
 The MVP is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica.
 
 ## What is implemented
 
 - Telegram webhook authentication, owner allowlisting, update deduplication, messages, and approval callbacks.
-- DeepSeek Flash/Pro routing with a bounded tool loop and one-time deterministic escalation.
-- Atomic versioned `state.json`, controlled `MEMORY.md` updates, and bounded conversation history.
+- Named model aliases backed by configurable OpenAI-compatible providers, a bounded tool loop, persisted selection, and provider-reported usage totals.
+- Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
 - Codex `exec --json` execution with normalized Telegram progress.
@@ -27,7 +27,29 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `config.yaml`: set the public URL, Telegram owner ID, repository registry, quiet hours, and Calendar defaults. For local persistence, change `data_dir` to `./data`. Keep runner workspaces below `/tmp/runs` or another dedicated root.
+Edit `config.yaml`: set the public URL, numeric Telegram owner ID, provider/model aliases, repository registry, quiet hours, and Calendar defaults. For local persistence, change `data_dir` to `./data`. Keep runner workspaces below `/tmp/runs` or another dedicated root.
+
+Provider keys are named indirectly. Each `providers.<name>.api_key_env` value identifies an environment-variable name; the secret itself must never appear in YAML or Telegram. To add another OpenAI-compatible model, add its provider and alias, then define the referenced environment variable outside the config:
+
+```yaml
+providers:
+  openrouter:
+    adapter: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+models:
+  openrouter-pro:
+    provider: openrouter
+    model: your-provider-model-id
+```
+
+Eggy creates three private context files in `data_dir` and never overwrites existing content:
+
+- `SOUL.md` defines the agent's durable identity and is read-only to model tools.
+- `USER.md` stores stable owner preferences and facts.
+- `MEMORY.md` stores durable working knowledge selected by the agent.
+
+The agent can append or replace named sections in `USER.md` and `MEMORY.md`. Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
 
 Fill `.env`. Generate the 32-byte encryption key with:
 
@@ -67,7 +89,9 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, and `/new`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+
+`/status` is a deterministic local read and consumes no model tokens. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
 
 For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs Codex, captures the diff and validation, and then requests commit approval. A successful commit causes a separate push approval; a successful push causes a separate pull-request approval. Protected branches are denied regardless of approval. Eggy never merges.
 
@@ -93,11 +117,11 @@ Calendar reads run automatically. Creates use a deterministic event ID derived f
 
 1. Create a Railway service from this repository.
 2. Generate a public Railway domain and add a persistent volume mounted at `/data`.
-3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables.
+3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`.
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
-5. For coding support, set `EGGY_REPOSITORY_URL`. The name defaults to `eggy`, the base branch defaults to `main`, and that branch is protected by default. A configured repository also requires `GITHUB_TOKEN`.
+5. For coding support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
 6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
-7. On the first start, Eggy validates these values and creates `/data/config.yaml` with mode `0600`. Later starts use that file without overwriting it.
+7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `USER.md`, and `MEMORY.md` with mode `0600`. Later starts use those files without overwriting them.
 8. Open a shell in the running service and authorize the persisted Codex home:
 
 ```sh
@@ -108,6 +132,8 @@ codex login --device-auth
 Complete the device authorization in a browser. The Railway Volume preserves Codex-managed authentication across container replacement. Do not copy Codex credentials into `.env` or `state.json`.
 
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar-auth`.
+
+`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, edit the persisted YAML to change providers, aliases, repositories, or branches, then redeploy. API keys remain Railway variables and must not be copied into that file.
 
 `EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 
@@ -141,7 +167,7 @@ make smoke
 
 `make smoke` builds the production image, starts `eggyd` with fake external adapters and a temporary `/data` volume, checks readiness and liveness from inside the container, and removes the container and temporary data.
 
-Live credential tests are intentionally outside the default suite. Verify Telegram delivery, DeepSeek responses, a disposable repository branch/PR, and a disposable Calendar event before relying on a production deployment.
+Live credential tests are intentionally outside the default suite. Verify Telegram delivery, the configured reasoning provider, a disposable repository branch/PR, and a disposable Calendar event before relying on a production deployment.
 
 ## Security boundary
 

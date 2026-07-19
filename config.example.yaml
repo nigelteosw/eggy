@@ -7,11 +7,13 @@ data_dir: "/data"
 telegram:
   owner_id: 123456789
 agent:
+  # Telegram: /model changes the active alias; /model default restores this one.
   default_model: "deepseek-pro"
 providers:
   deepseek:
     adapter: "openai_compatible"
     base_url: "https://api.deepseek.com"
+    # This names an environment variable. Never place the key itself in YAML.
     api_key_env: "DEEPSEEK_API_KEY"
 models:
   deepseek-pro:

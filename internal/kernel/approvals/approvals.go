@@ -22,6 +22,7 @@ const (
 	CalendarCreate Action = "calendar_create"
 	CalendarUpdate Action = "calendar_update"
 	CalendarDelete Action = "calendar_delete"
+	AddRepository  Action = "add_repository"
 )
 
 type Status string

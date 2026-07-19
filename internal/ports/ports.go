@@ -118,6 +118,7 @@ type State struct {
 	Approvals           map[string]approvals.Approval `json:"approvals,omitempty"`
 	Schedules           map[string]Schedule           `json:"schedules,omitempty"`
 	CodingRuns          map[string]CodingRun          `json:"coding_runs,omitempty"`
+	Repositories        map[string]Repository         `json:"repositories,omitempty"`
 	ProcessedEvents     map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages   []time.Time                   `json:"proactive_messages,omitempty"`
 	Calendar            CalendarAuth                  `json:"calendar,omitempty"`
@@ -239,6 +240,10 @@ type Repository struct {
 type PullRequest struct {
 	URL    string
 	Number int
+}
+
+type RemoteChecker interface {
+	CheckRemote(context.Context, Repository, string) error
 }
 
 type RepositoryProvider interface {

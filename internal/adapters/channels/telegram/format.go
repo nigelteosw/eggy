@@ -19,9 +19,9 @@ var (
 // code blocks, links, headings, horizontal rules, and pipe tables) into
 // Telegram's HTML parse_mode dialect, escaping any other text so delivery
 // never breaks on stray '&', '<', or '>'. Telegram's HTML mode has no table
-// or heading elements at all, so tables render as a monospace block and
-// headings render as bold text rather than being dropped or shown as raw
-// markdown syntax.
+// or heading elements at all: headings render as bold text, and tables
+// render as one bullet per row (first cell bold, remaining cells joined
+// after an em dash) rather than a monospace dump of the raw table syntax.
 func toTelegramHTML(text string) string {
 	var placeholders []string
 	placeholder := func(html string) string {
@@ -40,12 +40,7 @@ func toTelegramHTML(text string) string {
 
 	withoutTables := markdownTable.ReplaceAllStringFunc(withoutFences, func(match string) string {
 		groups := markdownTable.FindStringSubmatch(match)
-		header, rows := groups[1], strings.TrimRight(groups[3], "\r\n")
-		content := header
-		if rows != "" {
-			content += "\n" + rows
-		}
-		return placeholder("<pre>" + escapeHTML(content) + "</pre>")
+		return renderTableRowsAsBullets(groups[3])
 	})
 
 	withoutInlineCode := inlineCode.ReplaceAllStringFunc(withoutTables, func(match string) string {
@@ -65,6 +60,47 @@ func toTelegramHTML(text string) string {
 		result = strings.ReplaceAll(result, "\x00"+string(rune(i))+"\x00", html)
 	}
 	return result
+}
+
+// renderTableRowsAsBullets turns each data row of a pipe table into a
+// bullet line instead of dumping the raw table syntax into a monospace
+// block. The result still contains raw markdown (e.g. "**cell**") so it
+// flows through the same escape/bold/link pass as the rest of the message.
+// The header row is dropped: for typical chat-shaped tables (an item name
+// followed by a few details) each row is self-descriptive without it.
+func renderTableRowsAsBullets(rows string) string {
+	rows = strings.TrimRight(rows, "\r\n")
+	if rows == "" {
+		return ""
+	}
+	var lines []string
+	for _, row := range strings.Split(rows, "\n") {
+		cells := splitTableRow(row)
+		if len(cells) == 0 {
+			continue
+		}
+		line := "• **" + cells[0] + "**"
+		if len(cells) > 1 {
+			line += " — " + strings.Join(cells[1:], " · ")
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func splitTableRow(row string) []string {
+	trimmed := strings.TrimSpace(row)
+	trimmed = strings.TrimPrefix(trimmed, "|")
+	trimmed = strings.TrimSuffix(trimmed, "|")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "|")
+	cells := make([]string, 0, len(parts))
+	for _, part := range parts {
+		cells = append(cells, strings.TrimSpace(part))
+	}
+	return cells
 }
 
 func escapeHTML(text string) string {

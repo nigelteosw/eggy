@@ -74,9 +74,17 @@ func TestToTelegramHTMLRemovesHorizontalRule(t *testing.T) {
 	}
 }
 
-func TestToTelegramHTMLRendersPipeTableAsPreformattedBlock(t *testing.T) {
+func TestToTelegramHTMLRendersPipeTableRowsAsBullets(t *testing.T) {
 	got := toTelegramHTML("| Event | Time |\n|-------|------|\n| Standup | 9 AM |")
-	want := "<pre>| Event | Time |\n| Standup | 9 AM |</pre>"
+	want := "• <b>Standup</b> — 9 AM"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestToTelegramHTMLRendersMultiRowTableAsOneBulletPerRow(t *testing.T) {
+	got := toTelegramHTML("| Event | Time | Calendar |\n|-------|------|----------|\n| Standup | 9 AM | Work |\n| Lunch | 12 PM | Personal |")
+	want := "• <b>Standup</b> — 9 AM · Work\n• <b>Lunch</b> — 12 PM · Personal"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
@@ -85,7 +93,7 @@ func TestToTelegramHTMLRendersPipeTableAsPreformattedBlock(t *testing.T) {
 func TestToTelegramHTMLHandlesCalendarStyleMessage(t *testing.T) {
 	input := "### \U0001F4C5 Mon July 20\n| Event | Time | Calendar |\n|-------|------|----------|\n| Standup | 8:30 PM – 10:00 PM | Work |\n\n---\n\n### \U0001F4C5 Tue July 21\nNothing scheduled."
 	got := toTelegramHTML(input)
-	want := "<b>\U0001F4C5 Mon July 20</b>\n<pre>| Event | Time | Calendar |\n| Standup | 8:30 PM – 10:00 PM | Work |</pre>\n\n<b>\U0001F4C5 Tue July 21</b>\nNothing scheduled."
+	want := "<b>\U0001F4C5 Mon July 20</b>\n• <b>Standup</b> — 8:30 PM – 10:00 PM · Work\n\n<b>\U0001F4C5 Tue July 21</b>\nNothing scheduled."
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}

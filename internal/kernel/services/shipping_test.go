@@ -133,6 +133,7 @@ func (p *fakePolicy) Authorize(_ context.Context, action approvals.Action, paylo
 type fakeRepository struct {
 	clones, branches, commits, pushes, prs int
 	diff, head, remoteHead                 string
+	guidance                               string
 }
 
 func (r *fakeRepository) Clone(context.Context, ports.Repository, string) error {
@@ -140,6 +141,9 @@ func (r *fakeRepository) Clone(context.Context, ports.Repository, string) error 
 	return nil
 }
 func (r *fakeRepository) Inspect(context.Context, string) (string, error) {
+	if r.guidance != "" {
+		return r.guidance, nil
+	}
 	return "Follow AGENTS.md", nil
 }
 func (r *fakeRepository) CreateBranch(context.Context, string, string) error {

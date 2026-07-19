@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,33 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	state, _ = store.Load(context.Background())
 	if state.CodingRuns["run"].Workspace != "" {
 		t.Fatalf("workspace retained in state: %#v", state.CodingRuns["run"])
+	}
+}
+
+func TestCodingServiceInspectIsReadOnlyEphemeralAndGuided(t *testing.T) {
+	store := newMemoryStore()
+	store.state.CodingRuns = map[string]ports.CodingRun{}
+	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/inspect-1"}
+	repository := &fakeRepository{guidance: "Follow AGENTS", diff: " "}
+	agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "Go standard library"}}
+	service := NewCodingService(store, runner, repository, agent, "/data/codex", time.Now)
+	result, err := service.Inspect(context.Background(), "inspect-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "what framework?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Summary != "Go standard library" || !agent.request.ReadOnly || !strings.Contains(agent.request.Instruction, "Follow AGENTS") || agent.request.Environment["CODEX_HOME"] != "/data/codex" {
+		t.Fatalf("result=%#v request=%#v", result, agent.request)
+	}
+	if !runner.created || !runner.destroyed || repository.clones != 1 || repository.branches != 0 {
+		t.Fatalf("runner=%#v repository=%#v", runner, repository)
+	}
+	state, _ := store.Load(context.Background())
+	if len(state.CodingRuns) != 0 {
+		t.Fatalf("inspection persisted runs=%#v", state.CodingRuns)
+	}
+	repository.diff = "unexpected diff"
+	if _, err := service.Inspect(context.Background(), "inspect-2", ports.Repository{Name: "eggy", BaseBranch: "main"}, "inspect"); err == nil || !strings.Contains(err.Error(), "modified") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

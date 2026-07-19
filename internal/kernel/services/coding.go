@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -68,6 +70,37 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 		return run, result, err
 	}
 	return run, result, nil
+}
+
+func (s *CodingService) Inspect(ctx context.Context, runID string, repository ports.Repository, question string) (ports.CodingResult, error) {
+	workspace, err := s.runner.Create(ctx, runID)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
+	defer s.runner.Destroy(context.Background(), workspace)
+	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
+		return ports.CodingResult{}, err
+	}
+	guidance, err := s.repository.Inspect(ctx, workspace)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
+	prompt := question
+	if guidance != "" {
+		prompt = fmt.Sprintf("Repository guidance from AGENTS.md:\n%s\n\nRead-only question:\n%s", guidance, question)
+	}
+	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, Environment: map[string]string{"CODEX_HOME": s.codexHome}, ReadOnly: true}, nil)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
+	diff, err := s.repository.Diff(ctx, workspace)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
+	if strings.TrimSpace(diff) != "" {
+		return ports.CodingResult{}, errors.New("read-only inspection modified the checkout")
+	}
+	return result, nil
 }
 
 func (s *CodingService) Stop(runID string) error { return s.agent.Interrupt(runID) }

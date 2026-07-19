@@ -39,6 +39,17 @@ func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
 	}
 }
 
+func TestAdapterUsesReadOnlySandbox(t *testing.T) {
+	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"inspected"}}`}}
+	adapter := New("codex", runner, 4096)
+	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "inspect-1", Workspace: "/tmp/inspect", Instruction: "inspect", ReadOnly: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if joined := strings.Join(runner.command.Argv, " "); !strings.Contains(joined, "--sandbox read-only") {
+		t.Fatalf("argv=%v", runner.command.Argv)
+	}
+}
+
 func TestCodexInterruptCancelsActiveRun(t *testing.T) {
 	runner := &fakeRunner{block: make(chan struct{}), started: make(chan struct{})}
 	adapter := New("codex", runner, 1024)

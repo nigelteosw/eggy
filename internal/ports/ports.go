@@ -185,6 +185,7 @@ type CodingRequest struct {
 	Workspace   string
 	Instruction string
 	Environment map[string]string
+	ReadOnly    bool
 }
 
 type CodingProgress struct {

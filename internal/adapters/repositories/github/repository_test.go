@@ -54,6 +54,10 @@ func TestGitRepositoryCloneInspectDiffCommitAndPush(t *testing.T) {
 	if err := adapter.Push(context.Background(), workspace, "feature"); err != nil {
 		t.Fatal(err)
 	}
+	revision, err := adapter.WorkspaceRevision(context.Background(), workspace)
+	if err != nil || revision.Branch != "feature" || revision.Head != commit {
+		t.Fatalf("revision=%#v err=%v", revision, err)
+	}
 	if output := git(t, remote, "branch", "--list", "feature"); !strings.Contains(output, "feature") {
 		t.Fatalf("remote branches=%q", output)
 	}
@@ -111,6 +115,17 @@ func TestGitHubCreatesPullRequestWithHeaderOnlyCredential(t *testing.T) {
 	encoded, _ := json.Marshal(gotBody)
 	if strings.Contains(string(encoded), "sensitive-token") {
 		t.Fatalf("token leaked in body: %s", encoded)
+	}
+}
+
+func TestRepositoryCapabilitiesReflectServerSideCredentialReadiness(t *testing.T) {
+	withoutToken := New(nil, "", "https://api.github.test", http.DefaultClient).RepositoryCapabilities()
+	if !withoutToken.Commit || withoutToken.Push || withoutToken.PullRequest {
+		t.Fatalf("without token=%#v", withoutToken)
+	}
+	withToken := New(nil, "sensitive-token", "https://api.github.test", http.DefaultClient).RepositoryCapabilities()
+	if !withToken.Commit || !withToken.Push || !withToken.PullRequest {
+		t.Fatalf("with token=%#v", withToken)
 	}
 }
 

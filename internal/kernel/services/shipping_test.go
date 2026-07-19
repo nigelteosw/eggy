@@ -10,13 +10,15 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+var fullRepositoryCapabilities = ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}
+
 func TestShippingRequiresIndependentExactApprovals(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", Diff: "diff"}}
+	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
 	policy := &fakePolicy{}
-	repository := &fakeRepository{}
+	repository := &fakeRepository{branch: "feature"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
-	service := NewShippingService(store, policy, repository)
+	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 
 	commit, err := service.Commit(context.Background(), "run-1", "feat: done", "approval-commit")
 	if err != nil || commit != "abc123" {
@@ -39,11 +41,11 @@ func TestShippingRequiresIndependentExactApprovals(t *testing.T) {
 
 func TestShippingStopsBeforeSideEffectWhenApprovalFails(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", Diff: "diff"}}
+	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
 	policy := &fakePolicy{err: approvals.ErrPayloadChanged}
-	repository := &fakeRepository{}
+	repository := &fakeRepository{branch: "feature"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository)
+	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
@@ -54,16 +56,41 @@ func TestShippingStopsBeforeSideEffectWhenApprovalFails(t *testing.T) {
 
 func TestShippingInvalidatesCommitApprovalWhenWorkspaceDiffChanged(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Diff: "approved-diff"}}
+	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "approved-diff"}}
 	policy := &fakePolicy{}
-	repository := &fakeRepository{diff: "changed-diff"}
+	repository := &fakeRepository{branch: "feature", diff: "changed-diff"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository)
+	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
 	if len(policy.actions) != 0 || repository.commits != 0 {
 		t.Fatalf("authorization/commit occurred: %#v %#v", policy, repository)
+	}
+}
+
+func TestShippingInvalidatesCommitApprovalWhenWorkspaceRevisionChanged(t *testing.T) {
+	for _, test := range []struct {
+		name, branch, head string
+	}{
+		{name: "branch", branch: "other", head: "abc123"},
+		{name: "head", branch: "feature", head: "moved"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newMemoryStore()
+			store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
+			store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+			policy := &fakePolicy{}
+			repository := &fakeRepository{branch: test.branch, head: test.head}
+			service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+
+			if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
+				t.Fatalf("error=%v", err)
+			}
+			if len(policy.actions) != 0 || repository.commits != 0 {
+				t.Fatalf("authorization/commit occurred: %#v %#v", policy, repository)
+			}
+		})
 	}
 }
 
@@ -73,7 +100,7 @@ func TestShippingRejectsMovedLocalOrRemoteCommit(t *testing.T) {
 	policy := &fakePolicy{}
 	repository := &fakeRepository{head: "moved", remoteHead: "moved"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository)
+	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if err := service.Push(context.Background(), "run", "eggy/run", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("push error=%v", err)
 	}
@@ -88,11 +115,11 @@ func TestShippingRejectsMovedLocalOrRemoteCommit(t *testing.T) {
 
 func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Diff: "diff"}}
+	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"}}
 	gateway := &fakeShippingGateway{}
-	repository := &fakeRepository{}
+	repository := &fakeRepository{branch: "eggy/run"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, gateway, repository)
+	service := NewShippingService(store, gateway, repository, repository, repository, repository, fullRepositoryCapabilities)
 	service.SetApprovalRequester(gateway)
 	approval, err := service.RequestCommit(context.Background(), "run", "feat: done")
 	if err != nil {
@@ -104,6 +131,32 @@ func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	}
 	if repository.commits != 1 || gateway.authorized != approvals.Commit {
 		t.Fatalf("repository=%#v gateway=%#v", repository, gateway)
+	}
+}
+
+func TestShippingRejectsUnavailablePushAndPullRequestCapabilities(t *testing.T) {
+	store := newMemoryStore()
+	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "abc123"}}
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	gateway := &fakeShippingGateway{}
+	repository := &fakeRepository{}
+	service := NewShippingService(store, gateway, repository, repository, repository, repository, ports.RepositoryCapabilities{Commit: true})
+	service.SetApprovalRequester(gateway)
+
+	if _, err := service.RequestPush(context.Background(), "run", "eggy/run"); !errors.Is(err, ErrRepositoryPushUnavailable) {
+		t.Fatalf("push request error=%v", err)
+	}
+	if _, err := service.RequestPullRequest(context.Background(), "run", "eggy/run", "title", "body"); !errors.Is(err, ErrPullRequestUnavailable) {
+		t.Fatalf("pull request error=%v", err)
+	}
+	if err := service.Push(context.Background(), "run", "eggy/run", "approval"); !errors.Is(err, ErrRepositoryPushUnavailable) {
+		t.Fatalf("push error=%v", err)
+	}
+	if _, err := service.CreatePullRequest(context.Background(), "run", "eggy/run", "title", "body", "approval"); !errors.Is(err, ErrPullRequestUnavailable) {
+		t.Fatalf("create pull request error=%v", err)
+	}
+	if repository.pushes != 0 || repository.prs != 0 {
+		t.Fatalf("unavailable side effect reached repository=%#v", repository)
 	}
 }
 
@@ -137,7 +190,7 @@ func (p *fakePolicy) Authorize(_ context.Context, action approvals.Action, paylo
 
 type fakeRepository struct {
 	clones, branches, commits, pushes, prs int
-	diff, head, remoteHead                 string
+	diff, head, remoteHead, branch         string
 	guidance                               string
 }
 
@@ -151,9 +204,21 @@ func (r *fakeRepository) Inspect(context.Context, string) (string, error) {
 	}
 	return "Follow AGENTS.md", nil
 }
-func (r *fakeRepository) CreateBranch(context.Context, string, string) error {
+func (r *fakeRepository) CreateBranch(_ context.Context, _, branch string) error {
 	r.branches++
+	r.branch = branch
 	return nil
+}
+func (r *fakeRepository) WorkspaceRevision(context.Context, string) (ports.WorkspaceRevision, error) {
+	head := r.head
+	if head == "" {
+		head = "abc123"
+	}
+	branch := r.branch
+	if branch == "" {
+		branch = "main"
+	}
+	return ports.WorkspaceRevision{Branch: branch, Head: head}, nil
 }
 func (r *fakeRepository) Head(context.Context, string) (string, error) {
 	if r.head != "" {

@@ -22,6 +22,12 @@ type Adapter struct {
 	http    *http.Client
 }
 
+var _ ports.CodingRepository = (*Adapter)(nil)
+var _ ports.RepositoryCommitter = (*Adapter)(nil)
+var _ ports.RepositoryPusher = (*Adapter)(nil)
+var _ ports.PullRequestProvider = (*Adapter)(nil)
+var _ ports.RepositoryCapabilityProvider = (*Adapter)(nil)
+
 var ErrDiffTooLarge = errors.New("repository diff exceeds configured output limit")
 
 func New(runner ports.Runner, token, apiBase string, client *http.Client) *Adapter {
@@ -29,6 +35,11 @@ func New(runner ports.Runner, token, apiBase string, client *http.Client) *Adapt
 		client = http.DefaultClient
 	}
 	return &Adapter{runner: runner, token: token, apiBase: strings.TrimRight(apiBase, "/"), http: client}
+}
+
+func (a *Adapter) RepositoryCapabilities() ports.RepositoryCapabilities {
+	writeReady := strings.TrimSpace(a.token) != ""
+	return ports.RepositoryCapabilities{Commit: true, Push: writeReady, PullRequest: writeReady}
 }
 
 func (a *Adapter) Clone(ctx context.Context, repository ports.Repository, workspace string) error {
@@ -75,6 +86,21 @@ func (a *Adapter) Head(ctx context.Context, workspace string) (string, error) {
 		return "", errors.New("git head output was truncated")
 	}
 	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (a *Adapter) WorkspaceRevision(ctx context.Context, workspace string) (ports.WorkspaceRevision, error) {
+	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "symbolic-ref", "--quiet", "--short", "HEAD"}, Dir: workspace})
+	if err != nil {
+		return ports.WorkspaceRevision{}, fmt.Errorf("read current branch: %w", err)
+	}
+	if result.OutputTruncated {
+		return ports.WorkspaceRevision{}, errors.New("git branch output was truncated")
+	}
+	head, err := a.Head(ctx, workspace)
+	if err != nil {
+		return ports.WorkspaceRevision{}, err
+	}
+	return ports.WorkspaceRevision{Branch: strings.TrimSpace(result.Stdout), Head: head}, nil
 }
 
 func (a *Adapter) RemoteHead(ctx context.Context, workspace, branch string) (string, error) {

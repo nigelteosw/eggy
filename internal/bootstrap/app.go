@@ -169,11 +169,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		return nil, err
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
+	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
 	codex := codexcli.New(options.CodexExecutable, runner, config.Runner.MaxOutputBytes)
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, codex, filepath.Join(config.DataDir, "codex"), options.Now)
-	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter)
+	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
 	app.shipping.SetApprovalRequester(app.approvals)
-	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, newRunID)
+	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID)
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
 		approvals.Commit:        app.shipping,
 		approvals.Push:          app.shipping,
@@ -264,7 +265,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
 	}
-	app.manifest = agent.CapabilityManifest{Tools: toolNames, CalendarEnabled: config.Calendar.Enabled}
+	app.manifest = agent.CapabilityManifest{
+		Tools: toolNames, CalendarEnabled: config.Calendar.Enabled,
+		RepositoryCommitReady: repositoryCapabilities.Commit,
+		RepositoryPushReady:   repositoryCapabilities.Push,
+		PullRequestReady:      repositoryCapabilities.PullRequest,
+	}
 	schedulerLocation, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load scheduler timezone: %w", err)
@@ -381,10 +387,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, turnLan
 	if err != nil {
 		return err
 	}
-	manifest := a.manifest
-	manifest.ActiveModel = alias
-	manifest.Repositories = repositoryNamesFromState(state)
-	manifest.CodexReady = len(state.Repositories) > 0
+	manifest := a.capabilityManifest(state, alias)
 	options := agent.RunOptions{Lane: turnLane}
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
@@ -451,6 +454,9 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		run := updated.CodingRuns[payload.RunID]
 		next, err := a.shipping.RequestPush(ctx, payload.RunID, run.Branch)
 		if err != nil {
+			if errors.Is(err, services.ErrRepositoryPushUnavailable) {
+				return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Committed %v. Push is unavailable for the configured repository provider.", result))
+			}
 			return err
 		}
 		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Committed %v.", result)); err != nil {
@@ -463,6 +469,9 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		_ = json.Unmarshal(approval.Payload, &payload)
 		next, err := a.shipping.RequestPullRequest(ctx, payload.RunID, payload.Branch, "Eggy: "+payload.Branch, "Automated by Eggy after explicit owner approvals.")
 		if err != nil {
+			if errors.Is(err, services.ErrPullRequestUnavailable) {
+				return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Push completed. Pull-request creation is unavailable for the configured repository provider.")
+			}
 			return err
 		}
 		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Push completed."); err != nil {
@@ -560,10 +569,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	manifest := a.manifest
-	manifest.ActiveModel = alias
-	manifest.Repositories = repositoryNamesFromState(state)
-	manifest.CodexReady = len(state.Repositories) > 0
+	manifest := a.capabilityManifest(state, alias)
 	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
 	options := agent.RunOptions{AllowedTools: allowed}
 	manifest.Tools = a.loop.ToolNames(options)
@@ -598,6 +604,18 @@ func repositoryNamesFromState(state ports.State) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func (a *App) capabilityManifest(state ports.State, activeModel string) agent.CapabilityManifest {
+	manifest := a.manifest
+	manifest.ActiveModel = activeModel
+	manifest.Repositories = repositoryNamesFromState(state)
+	configured := len(manifest.Repositories) > 0
+	manifest.CodexReady = configured
+	manifest.RepositoryCommitReady = configured && manifest.RepositoryCommitReady
+	manifest.RepositoryPushReady = configured && manifest.RepositoryPushReady
+	manifest.PullRequestReady = configured && manifest.PullRequestReady
+	return manifest
 }
 
 type staticModel struct{}

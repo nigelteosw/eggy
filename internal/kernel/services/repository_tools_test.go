@@ -36,7 +36,9 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 		t.Fatalf("inspected=%s worker=%#v err=%v", inspected, worker, err)
 	}
 	modified, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","instruction":"fix tests"}`))
-	if err != nil || !strings.Contains(string(modified), `"status":"awaiting_owner"`) || requester.runID != "run-1" || delivered.ID != "approval-1" {
+	var modifyResult map[string]any
+	_ = json.Unmarshal(modified, &modifyResult)
+	if err != nil || modifyResult["status"] != "awaiting_owner" || modifyResult["branch"] != "eggy/run-1" || modifyResult["base_revision"] != "abc123" || modifyResult["commit_created"] != false || modifyResult["next_action"] != "approve_commit" || modifyResult["approval_flow"] != "commit -> push -> pull_request" || requester.runID != "run-1" || delivered.ID != "approval-1" {
 		t.Fatalf("modified=%s requester=%#v delivered=%#v err=%v", modified, requester, delivered, err)
 	}
 	if _, err := byName["repository_inspect"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","question":"framework?"}`)); err == nil {
@@ -84,7 +86,7 @@ func (w *fakeRepositoryWorker) Start(_ context.Context, runID string, repository
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
 	}
-	return ports.CodingRun{ID: runID, Repository: repository.Name}, ports.CodingResult{Summary: "fixed", Validation: "tests pass", CommitMessage: "fix: tests"}, nil
+	return ports.CodingRun{ID: runID, Repository: repository.Name, Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "fixed", Validation: "tests pass", CommitMessage: "fix: tests", ChangedFiles: []string{"main.go"}}, nil
 }
 
 type fakeCommitRequester struct {

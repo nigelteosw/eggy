@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -13,6 +14,18 @@ import (
 )
 
 var ErrRunNotFound = errors.New("coding run not found")
+
+const resultSchema = `{
+  "type": "object",
+  "properties": {
+    "summary": {"type": "string"},
+    "validation": {"type": "string"},
+    "commit_message": {"type": "string"},
+    "changed_files": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["summary", "validation", "commit_message", "changed_files"],
+  "additionalProperties": false
+}`
 
 type Adapter struct {
 	executable string
@@ -40,12 +53,29 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 	a.active[request.RunID] = cancel
 	a.mu.Unlock()
 	defer func() { cancel(); a.mu.Lock(); delete(a.active, request.RunID); a.mu.Unlock() }()
+	schema, err := os.CreateTemp(request.Workspace, ".eggy-codex-result-*.schema.json")
+	if err != nil {
+		return ports.CodingResult{}, fmt.Errorf("create Codex result schema: %w", err)
+	}
+	schemaPath := schema.Name()
+	defer os.Remove(schemaPath)
+	if _, err := schema.WriteString(resultSchema); err != nil {
+		schema.Close()
+		return ports.CodingResult{}, fmt.Errorf("write Codex result schema: %w", err)
+	}
+	if err := schema.Close(); err != nil {
+		return ports.CodingResult{}, fmt.Errorf("close Codex result schema: %w", err)
+	}
+	sandbox := "workspace-write"
+	if request.ReadOnly {
+		sandbox = "read-only"
+	}
 	command := ports.Command{
-		Argv: []string{a.executable, "exec", "--json", "--sandbox", "danger-full-access", request.Instruction},
+		Argv: []string{a.executable, "exec", "--json", "--sandbox", sandbox, "--output-schema", schemaPath, request.Instruction},
 		Dir:  request.Workspace, Env: request.Environment, MaxOutput: a.maxOutput,
 	}
 	var result ports.CommandResult
-	var err error
+	err = nil
 	if streaming, ok := a.runner.(ports.StreamingRunner); ok {
 		result, err = streaming.ExecuteStreaming(runContext, command, func(line string) { emitProgressLine(line, progress) })
 	} else {
@@ -55,9 +85,9 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 		return ports.CodingResult{}, err
 	}
 	if _, ok := a.runner.(ports.StreamingRunner); ok {
-		return parseJSONL(result.Stdout, nil)
+		return parseJSONL(result.Stdout, nil, !request.ReadOnly)
 	}
-	return parseJSONL(result.Stdout, progress)
+	return parseJSONL(result.Stdout, progress, !request.ReadOnly)
 }
 
 func (a *Adapter) Interrupt(runID string) error {
@@ -71,9 +101,10 @@ func (a *Adapter) Interrupt(runID string) error {
 	return nil
 }
 
-func parseJSONL(output string, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+func parseJSONL(output string, progress func(ports.CodingProgress), requireCommitMessage bool) (ports.CodingResult, error) {
 	var result ports.CodingResult
 	var validations []string
+	var finalMessage string
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 	for scanner.Scan() {
@@ -98,8 +129,10 @@ func parseJSONL(output string, progress func(ports.CodingProgress)) (ports.Codin
 			validations = append(validations, strings.TrimSpace(validation))
 			emit(progress, ports.CodingProgress{Kind: "command", Message: event.Item.Command})
 		case event.Type == "item.completed" && event.Item.Type == "agent_message":
-			result.Summary = event.Item.Text
-			emit(progress, ports.CodingProgress{Kind: "message", Message: event.Item.Text})
+			finalMessage = event.Item.Text
+			if summary, ok := structuredSummary(event.Item.Text); ok {
+				emit(progress, ports.CodingProgress{Kind: "message", Message: summary})
+			}
 		case event.Type == "error":
 			return ports.CodingResult{}, errors.New(event.Message)
 		case event.Type == "turn.completed":
@@ -109,11 +142,31 @@ func parseJSONL(output string, progress func(ports.CodingProgress)) (ports.Codin
 	if err := scanner.Err(); err != nil {
 		return ports.CodingResult{}, err
 	}
-	if result.Summary == "" {
+	if finalMessage == "" {
 		return ports.CodingResult{}, errors.New("Codex produced no final message")
 	}
+	var structured struct {
+		Summary       string   `json:"summary"`
+		Validation    string   `json:"validation"`
+		CommitMessage string   `json:"commit_message"`
+		ChangedFiles  []string `json:"changed_files"`
+	}
+	if err := json.Unmarshal([]byte(finalMessage), &structured); err != nil {
+		return ports.CodingResult{}, fmt.Errorf("Codex produced an invalid structured result: %w", err)
+	}
+	if strings.TrimSpace(structured.Summary) == "" {
+		return ports.CodingResult{}, errors.New("Codex structured result summary is empty")
+	}
+	if requireCommitMessage && strings.TrimSpace(structured.CommitMessage) == "" {
+		return ports.CodingResult{}, errors.New("Codex structured result commit_message is empty")
+	}
+	result.Summary = structured.Summary
+	result.CommitMessage = structured.CommitMessage
+	result.ChangedFiles = append([]string(nil), structured.ChangedFiles...)
+	if strings.TrimSpace(structured.Validation) != "" {
+		validations = append([]string{strings.TrimSpace(structured.Validation)}, validations...)
+	}
 	result.Validation = strings.Join(validations, "\n\n")
-	result.CommitMessage = firstLine(result.Summary)
 	return result, nil
 }
 
@@ -143,16 +196,22 @@ func emitProgressLine(line string, progress func(ports.CodingProgress)) {
 	case event.Type == "item.completed" && event.Item.Type == "command_execution":
 		emit(progress, ports.CodingProgress{Kind: "command", Message: event.Item.Command})
 	case event.Type == "item.completed" && event.Item.Type == "agent_message":
-		emit(progress, ports.CodingProgress{Kind: "message", Message: event.Item.Text})
+		if summary, ok := structuredSummary(event.Item.Text); ok {
+			emit(progress, ports.CodingProgress{Kind: "message", Message: summary})
+		}
 	case event.Type == "turn.completed":
 		emit(progress, ports.CodingProgress{Kind: "completed", Message: "Codex turn completed"})
 	case event.Type == "error":
 		emit(progress, ports.CodingProgress{Kind: "error", Message: event.Message})
 	}
 }
-func firstLine(value string) string {
-	if index := strings.IndexByte(value, '\n'); index >= 0 {
-		value = value[:index]
+
+func structuredSummary(value string) (string, bool) {
+	var result struct {
+		Summary string `json:"summary"`
 	}
-	return strings.TrimSpace(value)
+	if err := json.Unmarshal([]byte(value), &result); err != nil || strings.TrimSpace(result.Summary) == "" {
+		return "", false
+	}
+	return result.Summary, true
 }

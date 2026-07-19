@@ -167,16 +167,17 @@ type TriggerSource interface {
 }
 
 type CodingRun struct {
-	ID         string    `json:"id"`
-	Repository string    `json:"repository"`
-	Workspace  string    `json:"workspace"`
-	Branch     string    `json:"branch"`
-	Commit     string    `json:"commit,omitempty"`
-	Status     string    `json:"status"`
-	Diff       string    `json:"diff,omitempty"`
-	Validation string    `json:"validation,omitempty"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at,omitempty"`
+	ID           string    `json:"id"`
+	Repository   string    `json:"repository"`
+	Workspace    string    `json:"workspace"`
+	Branch       string    `json:"branch"`
+	BaseRevision string    `json:"base_revision,omitempty"`
+	Commit       string    `json:"commit,omitempty"`
+	Status       string    `json:"status"`
+	Diff         string    `json:"diff,omitempty"`
+	Validation   string    `json:"validation,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	FinishedAt   time.Time `json:"finished_at,omitempty"`
 }
 
 type CodingRequest struct {
@@ -197,6 +198,7 @@ type CodingResult struct {
 	Summary       string
 	Validation    string
 	CommitMessage string
+	ChangedFiles  []string
 }
 
 type CodingAgent interface {
@@ -242,20 +244,60 @@ type PullRequest struct {
 	Number int
 }
 
+type WorkspaceRevision struct {
+	Branch string
+	Head   string
+}
+
+// WorkspaceInspector lets coding workflows verify repository control-plane
+// invariants without depending on a specific source-control provider.
+type WorkspaceInspector interface {
+	WorkspaceRevision(context.Context, string) (WorkspaceRevision, error)
+}
+
+type RepositoryCapabilities struct {
+	Commit      bool
+	Push        bool
+	PullRequest bool
+}
+
+// RepositoryCapabilityProvider reports adapter readiness without exposing
+// provider credentials or provider-specific types to the kernel.
+type RepositoryCapabilityProvider interface {
+	RepositoryCapabilities() RepositoryCapabilities
+}
+
 type RemoteChecker interface {
 	CheckRemote(context.Context, Repository, string) error
 }
 
-type RepositoryProvider interface {
+type RepositoryCheckout interface {
 	Clone(context.Context, Repository, string) error
 	Inspect(context.Context, string) (string, error)
 	CreateBranch(context.Context, string, string) error
-	Head(context.Context, string) (string, error)
-	RemoteHead(context.Context, string, string) (string, error)
+	Diff(context.Context, string) (string, error)
+}
+
+type RepositoryCommitter interface {
 	Diff(context.Context, string) (string, error)
 	Commit(context.Context, string, string) (string, error)
+}
+
+type RepositoryPusher interface {
+	Head(context.Context, string) (string, error)
 	Push(context.Context, string, string) error
+}
+
+type PullRequestProvider interface {
+	RemoteHead(context.Context, string, string) (string, error)
 	CreatePullRequest(context.Context, Repository, string, string, string) (PullRequest, error)
+}
+
+// CodingRepository is the complete repository contract required by the coding
+// workflow. New providers extend Eggy by implementing this port in an adapter.
+type CodingRepository interface {
+	RepositoryCheckout
+	WorkspaceInspector
 }
 
 type CalendarAuth struct {

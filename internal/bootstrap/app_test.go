@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
+	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/lane"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
@@ -29,6 +31,18 @@ func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
 	}
 	if got := eventLane(events.TypeSchedule, text); got != lane.Assistant {
 		t.Fatalf("schedule lane=%v, want assistant", got)
+	}
+}
+
+func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
+	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
+	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro")
+	if withoutRepository.CodexReady || withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
+		t.Fatalf("without repository=%#v", withoutRepository)
+	}
+	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
+	if !withRepository.CodexReady || !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
+		t.Fatalf("with repository=%#v", withRepository)
 	}
 }
 

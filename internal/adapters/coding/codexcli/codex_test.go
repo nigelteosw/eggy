@@ -3,6 +3,7 @@ package codexcli
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -10,26 +11,30 @@ import (
 )
 
 func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
+	workspace := t.TempDir()
 	runner := &fakeRunner{result: ports.CommandResult{Stdout: strings.Join([]string{
 		`{"type":"thread.started","thread_id":"thread-1"}`,
 		`not-json`,
 		`{"type":"item.completed","item":{"type":"command_execution","command":"go test ./...","aggregated_output":"ok","exit_code":0}}`,
-		`{"type":"item.completed","item":{"type":"agent_message","text":"Implemented and tested."}}`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"{\"summary\":\"Implemented and tested.\",\"validation\":\"go test ./... passed\",\"commit_message\":\"feat: implement change\",\"changed_files\":[\"main.go\"]}"}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4}}`,
 	}, "\n")}}
 	adapter := New("/usr/local/bin/codex", runner, 4096)
 	var progress []ports.CodingProgress
-	result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: "/tmp/runs/run-1", Instruction: "fix tests", Environment: map[string]string{"CODEX_HOME": "/data/codex"}}, func(update ports.CodingProgress) { progress = append(progress, update) })
+	result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: workspace, Instruction: "fix tests", Environment: map[string]string{"CODEX_HOME": "/data/codex"}}, func(update ports.CodingProgress) { progress = append(progress, update) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Summary != "Implemented and tested." || !strings.Contains(result.Validation, "go test ./...") {
+	if result.Summary != "Implemented and tested." || result.CommitMessage != "feat: implement change" || len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != "main.go" || !strings.Contains(result.Validation, "go test ./...") {
 		t.Fatalf("result=%#v", result)
 	}
 	command := runner.command
 	joined := strings.Join(command.Argv, " ")
-	if !strings.Contains(joined, "exec --json") || !strings.Contains(joined, "--sandbox danger-full-access") || command.Dir != "/tmp/runs/run-1" || command.Env["CODEX_HOME"] != "/data/codex" {
+	if !strings.Contains(joined, "exec --json") || !strings.Contains(joined, "--sandbox workspace-write") || !strings.Contains(joined, "--output-schema") || command.Dir != workspace || command.Env["CODEX_HOME"] != "/data/codex" {
 		t.Fatalf("command=%#v", command)
+	}
+	if !strings.Contains(runner.schema, `"commit_message"`) || !strings.Contains(runner.schema, `"changed_files"`) {
+		t.Fatalf("schema=%s", runner.schema)
 	}
 	if len(progress) < 3 {
 		t.Fatalf("progress=%#v", progress)
@@ -39,14 +44,22 @@ func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
 	}
 }
 
-func TestAdapterUsesFullAccessSandboxRegardlessOfReadOnly(t *testing.T) {
-	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"inspected"}}`}}
+func TestAdapterUsesReadOnlySandboxForInspection(t *testing.T) {
+	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"{\"summary\":\"inspected\",\"validation\":\"read only\",\"commit_message\":\"chore: no changes\",\"changed_files\":[]}"}}`}}
 	adapter := New("codex", runner, 4096)
-	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "inspect-1", Workspace: "/tmp/inspect", Instruction: "inspect", ReadOnly: true}, nil); err != nil {
+	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "inspect-1", Workspace: t.TempDir(), Instruction: "inspect", ReadOnly: true}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if joined := strings.Join(runner.command.Argv, " "); !strings.Contains(joined, "--sandbox danger-full-access") || strings.Contains(joined, "read-only") {
+	if joined := strings.Join(runner.command.Argv, " "); !strings.Contains(joined, "--sandbox read-only") || strings.Contains(joined, "danger-full-access") {
 		t.Fatalf("argv=%v", runner.command.Argv)
+	}
+}
+
+func TestAdapterRejectsUnstructuredFinalMessage(t *testing.T) {
+	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"The branch and commit are ready"}}`}}
+	adapter := New("codex", runner, 4096)
+	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: t.TempDir(), Instruction: "change it"}, nil); err == nil || !strings.Contains(err.Error(), "structured") {
+		t.Fatalf("error=%v", err)
 	}
 }
 
@@ -54,8 +67,9 @@ func TestCodexInterruptCancelsActiveRun(t *testing.T) {
 	runner := &fakeRunner{block: make(chan struct{}), started: make(chan struct{})}
 	adapter := New("codex", runner, 1024)
 	done := make(chan error, 1)
+	workspace := t.TempDir()
 	go func() {
-		_, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: "/tmp/run", Instruction: "wait"}, nil)
+		_, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: workspace, Instruction: "wait"}, nil)
 		done <- err
 	}()
 	<-runner.started
@@ -77,6 +91,7 @@ type fakeRunner struct {
 	block    chan struct{}
 	started  chan struct{}
 	streamed bool
+	schema   string
 }
 
 func (r *fakeRunner) ExecuteStreaming(ctx context.Context, command ports.Command, line func(string)) (ports.CommandResult, error) {
@@ -94,6 +109,12 @@ func (r *fakeRunner) Create(context.Context, string) (string, error) { return ""
 func (r *fakeRunner) Destroy(context.Context, string) error          { return nil }
 func (r *fakeRunner) Execute(ctx context.Context, command ports.Command) (ports.CommandResult, error) {
 	r.command = command
+	for index, argument := range command.Argv {
+		if argument == "--output-schema" && index+1 < len(command.Argv) {
+			data, _ := os.ReadFile(command.Argv[index+1])
+			r.schema = string(data)
+		}
+	}
 	if r.block != nil {
 		close(r.started)
 		select {

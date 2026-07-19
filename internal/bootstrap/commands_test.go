@@ -41,7 +41,7 @@ func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}
 	checker := &commandTestChecker{}
 	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
-	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, func() string { return "check-1" })
+	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" })
 	var delivered approvals.Approval
 	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
 	commands := &CommandService{store: store, repositories: repositories, channel: channel, owner: "42"}

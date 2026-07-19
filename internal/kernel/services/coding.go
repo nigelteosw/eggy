@@ -13,13 +13,13 @@ import (
 type CodingService struct {
 	store      ports.StateStore
 	runner     ports.Runner
-	repository ports.RepositoryProvider
+	repository ports.CodingRepository
 	agent      ports.CodingAgent
 	codexHome  string
 	now        func() time.Time
 }
 
-func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.RepositoryProvider, agent ports.CodingAgent, codexHome string, now func() time.Time) *CodingService {
+func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, agent ports.CodingAgent, codexHome string, now func() time.Time) *CodingService {
 	return &CodingService{store: store, runner: runner, repository: repository, agent: agent, codexHome: codexHome, now: now}
 }
 
@@ -46,6 +46,14 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 		return fail(err)
 	}
 	run.Branch = branch
+	expectedRevision, err := s.workspaceRevision(ctx, workspace)
+	if err != nil {
+		return fail(err)
+	}
+	if expectedRevision.Branch != branch {
+		return fail(fmt.Errorf("repository created unexpected branch %q", expectedRevision.Branch))
+	}
+	run.BaseRevision = expectedRevision.Head
 	if err := s.persistRun(ctx, run); err != nil {
 		return fail(err)
 	}
@@ -53,13 +61,23 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if err != nil {
 		return fail(err)
 	}
-	prompt := instruction
+	prompt := modifyingRunnerContract + "\n\nTask:\n" + instruction
 	if guidance != "" {
-		prompt = fmt.Sprintf("Repository guidance from AGENTS.md:\n%s\n\nTask:\n%s", guidance, instruction)
+		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nTask:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
 	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, Environment: map[string]string{"CODEX_HOME": s.codexHome}}, progress)
 	if err != nil {
 		return fail(err)
+	}
+	actualRevision, err := s.workspaceRevision(ctx, workspace)
+	if err != nil {
+		return fail(err)
+	}
+	if actualRevision.Branch != expectedRevision.Branch {
+		return fail(fmt.Errorf("coding agent changed branch from %q to %q", expectedRevision.Branch, actualRevision.Branch))
+	}
+	if actualRevision.Head != expectedRevision.Head {
+		return fail(errors.New("coding agent changed HEAD before commit approval"))
 	}
 	diff, err := s.repository.Diff(ctx, workspace)
 	if err != nil {
@@ -81,17 +99,28 @@ func (s *CodingService) Inspect(ctx context.Context, runID string, repository po
 	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
 		return ports.CodingResult{}, err
 	}
+	expectedRevision, err := s.workspaceRevision(ctx, workspace)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
 	guidance, err := s.repository.Inspect(ctx, workspace)
 	if err != nil {
 		return ports.CodingResult{}, err
 	}
-	prompt := question
+	prompt := readOnlyRunnerContract + "\n\nRead-only question:\n" + question
 	if guidance != "" {
-		prompt = fmt.Sprintf("Repository guidance from AGENTS.md:\n%s\n\nRead-only question:\n%s", guidance, question)
+		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nRead-only question:\n%s", readOnlyRunnerContract, guidance, question)
 	}
 	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, Environment: map[string]string{"CODEX_HOME": s.codexHome}, ReadOnly: true}, nil)
 	if err != nil {
 		return ports.CodingResult{}, err
+	}
+	actualRevision, err := s.workspaceRevision(ctx, workspace)
+	if err != nil {
+		return ports.CodingResult{}, err
+	}
+	if actualRevision != expectedRevision {
+		return ports.CodingResult{}, errors.New("read-only inspection changed repository branch or HEAD")
 	}
 	diff, err := s.repository.Diff(ctx, workspace)
 	if err != nil {
@@ -101,6 +130,21 @@ func (s *CodingService) Inspect(ctx context.Context, runID string, repository po
 		return ports.CodingResult{}, errors.New("read-only inspection modified the checkout")
 	}
 	return result, nil
+}
+
+const modifyingRunnerContract = `Eggy runner contract:
+- Work only in the current checkout and remain on the current branch.
+- Do not create, switch, rename, or delete branches.
+- Do not commit, push, or create pull requests; Eggy performs each action only after its independent owner approval.
+- Make the requested file changes and run validation, then return the requested structured result.`
+
+const readOnlyRunnerContract = `Eggy read-only runner contract:
+- Inspect only; do not modify files, branches, HEAD, remotes, configuration, or external state.
+- Do not commit, push, or create pull requests.
+- Return the requested structured result.`
+
+func (s *CodingService) workspaceRevision(ctx context.Context, workspace string) (ports.WorkspaceRevision, error) {
+	return s.repository.WorkspaceRevision(ctx, workspace)
 }
 
 func (s *CodingService) Stop(runID string) error { return s.agent.Interrupt(runID) }

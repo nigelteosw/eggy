@@ -17,16 +17,17 @@ var (
 )
 
 type RepositoriesService struct {
-	store     ports.StateStore
-	runner    ports.Runner
-	checker   ports.RemoteChecker
-	requester ApprovalRequester
-	policy    ports.ApprovalPolicy
-	newRunID  func() string
+	store        ports.StateStore
+	runner       ports.Runner
+	checker      ports.RemoteChecker
+	requester    ApprovalRequester
+	policy       ports.ApprovalPolicy
+	capabilities ports.RepositoryCapabilities
+	newRunID     func() string
 }
 
-func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester ApprovalRequester, policy ports.ApprovalPolicy, newRunID func() string) *RepositoriesService {
-	return &RepositoriesService{store: store, runner: runner, checker: checker, requester: requester, policy: policy, newRunID: newRunID}
+func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester ApprovalRequester, policy ports.ApprovalPolicy, capabilities ports.RepositoryCapabilities, newRunID func() string) *RepositoriesService {
+	return &RepositoriesService{store: store, runner: runner, checker: checker, requester: requester, policy: policy, capabilities: capabilities, newRunID: newRunID}
 }
 
 type addRepositoryPayload struct {
@@ -54,6 +55,9 @@ func (s *RepositoriesService) Get(ctx context.Context, name string) (ports.Repos
 }
 
 func (s *RepositoriesService) RequestAdd(ctx context.Context, name, cloneURL, baseBranch string, protectedBranches []string) (approvals.Approval, error) {
+	if !s.capabilities.Commit || !s.capabilities.Push || !s.capabilities.PullRequest {
+		return approvals.Approval{}, errors.New("repository provider must be ready for commit, push and pull-request creation")
+	}
 	if !repositoryNamePattern.MatchString(name) {
 		return approvals.Approval{}, errors.New("repository name is invalid")
 	}

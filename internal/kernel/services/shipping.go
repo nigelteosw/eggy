@@ -10,15 +10,28 @@ import (
 )
 
 type ShippingService struct {
-	store     ports.StateStore
-	policy    ports.ApprovalPolicy
-	provider  ports.RepositoryProvider
-	requester ApprovalRequester
+	store        ports.StateStore
+	policy       ports.ApprovalPolicy
+	workspace    ports.WorkspaceInspector
+	committer    ports.RepositoryCommitter
+	pusher       ports.RepositoryPusher
+	pullRequests ports.PullRequestProvider
+	capabilities ports.RepositoryCapabilities
+	requester    ApprovalRequester
 }
+
+var (
+	ErrRepositoryCommitUnavailable = errors.New("repository commit capability is unavailable")
+	ErrRepositoryPushUnavailable   = errors.New("repository push capability is unavailable")
+	ErrPullRequestUnavailable      = errors.New("pull-request capability is unavailable")
+)
 
 func (s *ShippingService) SetApprovalRequester(requester ApprovalRequester) { s.requester = requester }
 
 func (s *ShippingService) RequestCommit(ctx context.Context, runID, message string) (approvals.Approval, error) {
+	if !s.capabilities.Commit || s.workspace == nil || s.committer == nil {
+		return approvals.Approval{}, ErrRepositoryCommitUnavailable
+	}
 	run, _, err := s.run(ctx, runID)
 	if err != nil {
 		return approvals.Approval{}, err
@@ -26,11 +39,14 @@ func (s *ShippingService) RequestCommit(ctx context.Context, runID, message stri
 	if s.requester == nil {
 		return approvals.Approval{}, errors.New("approval requester is unavailable")
 	}
-	payload := commitPayload{RunID: runID, Diff: run.Diff, Message: message}
+	payload := commitPayload{RunID: runID, Branch: run.Branch, BaseRevision: run.BaseRevision, Diff: run.Diff, Message: message}
 	return s.requester.Request(ctx, approvals.Commit, payload, "Commit changes for "+runID)
 }
 
 func (s *ShippingService) RequestPush(ctx context.Context, runID, branch string) (approvals.Approval, error) {
+	if !s.capabilities.Push || s.pusher == nil {
+		return approvals.Approval{}, ErrRepositoryPushUnavailable
+	}
 	run, _, err := s.run(ctx, runID)
 	if err != nil {
 		return approvals.Approval{}, err
@@ -43,6 +59,9 @@ func (s *ShippingService) RequestPush(ctx context.Context, runID, branch string)
 }
 
 func (s *ShippingService) RequestPullRequest(ctx context.Context, runID, branch, title, body string) (approvals.Approval, error) {
+	if !s.capabilities.PullRequest || s.pullRequests == nil {
+		return approvals.Approval{}, ErrPullRequestUnavailable
+	}
 	run, _, err := s.run(ctx, runID)
 	if err != nil {
 		return approvals.Approval{}, err
@@ -79,31 +98,41 @@ func (s *ShippingService) ExecuteApproved(ctx context.Context, approval approval
 	}
 }
 
-func NewShippingService(store ports.StateStore, policy ports.ApprovalPolicy, provider ports.RepositoryProvider) *ShippingService {
-	return &ShippingService{store: store, policy: policy, provider: provider}
+func NewShippingService(store ports.StateStore, policy ports.ApprovalPolicy, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
+	return &ShippingService{store: store, policy: policy, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
 }
 
-type commitPayload struct{ RunID, Diff, Message string }
+type commitPayload struct{ RunID, Branch, BaseRevision, Diff, Message string }
 type pushPayload struct{ RunID, Branch, Commit string }
 type pullRequestPayload struct{ RunID, Branch, Commit, Title, Body string }
 
 func (s *ShippingService) Commit(ctx context.Context, runID, message, approvalID string) (string, error) {
+	if !s.capabilities.Commit || s.workspace == nil || s.committer == nil {
+		return "", ErrRepositoryCommitUnavailable
+	}
 	run, _, err := s.run(ctx, runID)
 	if err != nil {
 		return "", err
 	}
-	currentDiff, err := s.provider.Diff(ctx, run.Workspace)
+	currentRevision, err := s.workspace.WorkspaceRevision(ctx, run.Workspace)
+	if err != nil {
+		return "", err
+	}
+	if run.Branch == "" || run.BaseRevision == "" || currentRevision.Branch != run.Branch || currentRevision.Head != run.BaseRevision {
+		return "", approvals.ErrPayloadChanged
+	}
+	currentDiff, err := s.committer.Diff(ctx, run.Workspace)
 	if err != nil {
 		return "", err
 	}
 	if currentDiff != run.Diff {
 		return "", approvals.ErrPayloadChanged
 	}
-	payload := commitPayload{RunID: runID, Diff: run.Diff, Message: message}
+	payload := commitPayload{RunID: runID, Branch: run.Branch, BaseRevision: run.BaseRevision, Diff: run.Diff, Message: message}
 	if err := s.policy.Authorize(ctx, approvals.Commit, payload, approvalID); err != nil {
 		return "", err
 	}
-	commit, err := s.provider.Commit(ctx, run.Workspace, message)
+	commit, err := s.committer.Commit(ctx, run.Workspace, message)
 	if err != nil {
 		return "", err
 	}
@@ -121,12 +150,15 @@ func (s *ShippingService) Commit(ctx context.Context, runID, message, approvalID
 }
 
 func (s *ShippingService) Push(ctx context.Context, runID, branch, approvalID string) error {
+	if !s.capabilities.Push || s.pusher == nil {
+		return ErrRepositoryPushUnavailable
+	}
 	run, _, err := s.run(ctx, runID)
 	if err != nil {
 		return err
 	}
 	payload := pushPayload{RunID: runID, Branch: branch, Commit: run.Commit}
-	head, err := s.provider.Head(ctx, run.Workspace)
+	head, err := s.pusher.Head(ctx, run.Workspace)
 	if err != nil {
 		return err
 	}
@@ -136,16 +168,19 @@ func (s *ShippingService) Push(ctx context.Context, runID, branch, approvalID st
 	if err := s.policy.Authorize(ctx, approvals.Push, payload, approvalID); err != nil {
 		return err
 	}
-	return s.provider.Push(ctx, run.Workspace, branch)
+	return s.pusher.Push(ctx, run.Workspace, branch)
 }
 
 func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, title, body, approvalID string) (ports.PullRequest, error) {
+	if !s.capabilities.PullRequest || s.pullRequests == nil {
+		return ports.PullRequest{}, ErrPullRequestUnavailable
+	}
 	run, repository, err := s.run(ctx, runID)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
 	payload := pullRequestPayload{RunID: runID, Branch: branch, Commit: run.Commit, Title: title, Body: body}
-	remoteHead, err := s.provider.RemoteHead(ctx, run.Workspace, branch)
+	remoteHead, err := s.pullRequests.RemoteHead(ctx, run.Workspace, branch)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
@@ -155,7 +190,7 @@ func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, 
 	if err := s.policy.Authorize(ctx, approvals.CreatePR, payload, approvalID); err != nil {
 		return ports.PullRequest{}, err
 	}
-	return s.provider.CreatePullRequest(ctx, repository, branch, title, body)
+	return s.pullRequests.CreatePullRequest(ctx, repository, branch, title, body)
 }
 
 func (s *ShippingService) run(ctx context.Context, id string) (ports.CodingRun, ports.Repository, error) {

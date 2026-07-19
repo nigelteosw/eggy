@@ -104,7 +104,7 @@ func NewRepositoryTools(
 	}
 
 	modify := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs Codex and requests commit approval without committing, pushing, or creating a pull request automatically", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
+		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the coding adapter and requests commit approval. When provider capabilities are ready, Eggy automatically chains separate push and pull-request approvals; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
 	}}
 	modify.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -146,7 +146,11 @@ func NewRepositoryTools(
 				return nil, err
 			}
 		}
-		return json.Marshal(map[string]string{"status": "awaiting_owner", "run_id": run.ID, "approval_id": approval.ID, "summary": result.Summary, "validation": result.Validation})
+		return json.Marshal(map[string]any{
+			"status": "awaiting_owner", "run_id": run.ID, "branch": run.Branch, "base_revision": run.BaseRevision, "approval_id": approval.ID,
+			"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
+			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
+		})
 	}
 	return []ports.Tool{list, inspect, modify}
 }

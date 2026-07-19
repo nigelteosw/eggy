@@ -22,15 +22,43 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Status != "completed" || run.Diff != "diff" || run.Branch != "eggy/run-1" || result.CommitMessage != "feat: done" {
+	if run.Status != "completed" || run.Diff != "diff" || run.Branch != "eggy/run-1" || run.BaseRevision != "abc123" || result.CommitMessage != "feat: done" {
 		t.Fatalf("run=%#v result=%#v", run, result)
 	}
-	if !runner.created || repository.clones != 1 || repository.branches != 1 || agent.request.Environment["CODEX_HOME"] != "/data/codex" || agent.request.Workspace != runner.workspace {
+	if !runner.created || repository.clones != 1 || repository.branches != 1 || agent.request.Environment["CODEX_HOME"] != "/data/codex" || agent.request.Workspace != runner.workspace || !strings.Contains(agent.request.Instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(agent.request.Instruction, "Do not commit, push, or create pull requests") {
 		t.Fatalf("runner=%#v repository=%#v request=%#v", runner, repository, agent.request)
 	}
 	state, _ := store.Load(context.Background())
 	if state.CodingRuns["run-1"].Status != "completed" {
 		t.Fatalf("state=%#v", state.CodingRuns)
+	}
+}
+
+func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*fakeRepository)
+		want   string
+	}{
+		{name: "branch", mutate: func(repository *fakeRepository) { repository.branch = "feat/unapproved" }, want: "branch"},
+		{name: "head", mutate: func(repository *fakeRepository) { repository.head = "unapproved-commit" }, want: "HEAD"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newMemoryStore()
+			store.state.CodingRuns = map[string]ports.CodingRun{}
+			repository := &fakeRepository{}
+			agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
+			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, agent, "/data/codex", time.Now)
+
+			_, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", nil)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v", err)
+			}
+			state, _ := store.Load(context.Background())
+			if state.CodingRuns["run-1"].Status != "failed" {
+				t.Fatalf("run=%#v", state.CodingRuns["run-1"])
+			}
+		})
 	}
 }
 
@@ -103,12 +131,16 @@ func (r *fakeWorkspaceRunner) Destroy(context.Context, string) error { r.destroy
 type fakeCodingAgent struct {
 	request ports.CodingRequest
 	result  ports.CodingResult
+	onRun   func()
 }
 
 func (a *fakeCodingAgent) Run(_ context.Context, request ports.CodingRequest, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
 	a.request = request
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
+	}
+	if a.onRun != nil {
+		a.onRun()
 	}
 	return a.result, nil
 }

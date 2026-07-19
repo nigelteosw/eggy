@@ -92,12 +92,13 @@ Calendar reads run automatically. Creates use a deterministic event ID derived f
 ## Railway deployment
 
 1. Create a Railway service from this repository.
-2. Add a persistent volume mounted at `/data`.
-3. Upload or create `/data/config.yaml` from `config.example.yaml`.
-4. Add every value from `.env.example` as a Railway service variable.
-5. Keep exactly one replica while `state.json` is the operational store.
-6. Deploy and verify `/healthz` and `/readyz`.
-7. Open a shell in the running service and authorize the persisted Codex home:
+2. Generate a public Railway domain and add a persistent volume mounted at `/data`.
+3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables.
+4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
+5. For coding support, set `EGGY_REPOSITORY_URL`. The name defaults to `eggy`, the base branch defaults to `main`, and that branch is protected by default. A configured repository also requires `GITHUB_TOKEN`.
+6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
+7. On the first start, Eggy validates these values and creates `/data/config.yaml` with mode `0600`. Later starts use that file without overwriting it.
+8. Open a shell in the running service and authorize the persisted Codex home:
 
 ```sh
 export CODEX_HOME=/data/codex
@@ -105,6 +106,10 @@ codex login --device-auth
 ```
 
 Complete the device authorization in a browser. The Railway Volume preserves Codex-managed authentication across container replacement. Do not copy Codex credentials into `.env` or `state.json`.
+
+Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar-auth`.
+
+`EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 
 The image pins Codex CLI `0.144.5`; override the `CODEX_VERSION` build argument deliberately when upgrading and rerun the complete verification suite.
 

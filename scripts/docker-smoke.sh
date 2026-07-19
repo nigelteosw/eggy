@@ -11,18 +11,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-cp config.example.yaml "$data_dir/config.yaml"
 docker build --tag "$image" .
 docker run --detach --name "$container" \
   --env EGGY_FAKE_ADAPTERS=1 \
   --env EGGY_CONFIG=/data/config.yaml \
+  --env PORT=8080 \
+  --env EGGY_TELEGRAM_OWNER_ID=42 \
+  --env EGGY_PUBLIC_BASE_URL=https://eggy-smoke.example \
   --env TELEGRAM_BOT_TOKEN=fake \
   --env TELEGRAM_WEBHOOK_SECRET=fake-webhook \
   --env DEEPSEEK_API_KEY=fake \
-  --env GITHUB_TOKEN=fake \
-  --env GOOGLE_CLIENT_ID=fake \
-  --env GOOGLE_CLIENT_SECRET=fake \
-  --env EGGY_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= \
   --volume "$data_dir:/data" \
   "$image" >/dev/null
 
@@ -36,5 +34,7 @@ until docker exec "$container" curl --fail --silent http://127.0.0.1:8080/readyz
   sleep 1
 done
 
+docker exec "$container" test -s /data/config.yaml
+docker exec "$container" sh -c 'test "$(stat -c %a /data/config.yaml)" = 600'
 docker exec "$container" curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null
 echo "Eggy Docker smoke test passed"

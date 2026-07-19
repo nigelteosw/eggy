@@ -100,6 +100,31 @@ func (a *Adapter) RemoteHead(ctx context.Context, workspace, branch string) (str
 	return fields[0], nil
 }
 
+func (a *Adapter) CheckRemote(ctx context.Context, repository ports.Repository, workspace string) error {
+	if a.runner == nil {
+		return errors.New("repository runner is unavailable")
+	}
+	if !validBranch(repository.BaseBranch) {
+		return errors.New("invalid base branch")
+	}
+	cleanup, environment, err := a.askpass(filepath.Dir(workspace))
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	result, err := a.runner.Execute(ctx, ports.Command{
+		Argv: []string{"git", "ls-remote", "--exit-code", "--heads", repository.CloneURL, repository.BaseBranch},
+		Dir:  workspace, Env: environment,
+	})
+	if err != nil {
+		return fmt.Errorf("repository is not reachable: %w", err)
+	}
+	if strings.TrimSpace(result.Stdout) == "" {
+		return fmt.Errorf("base branch %q not found in %q", repository.BaseBranch, repository.Name)
+	}
+	return nil
+}
+
 func (a *Adapter) Diff(ctx context.Context, workspace string) (string, error) {
 	if _, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "add", "-A"}, Dir: workspace}); err != nil {
 		return "", err

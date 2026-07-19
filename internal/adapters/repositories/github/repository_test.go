@@ -63,6 +63,35 @@ func TestGitRepositoryCloneInspectDiffCommitAndPush(t *testing.T) {
 	}
 }
 
+func TestCheckRemoteValidatesReachabilityAndBaseBranch(t *testing.T) {
+	remote := createRemote(t)
+	root := filepath.Join(t.TempDir(), "runs")
+	runner, err := localprocess.New(root, []string{"PATH", "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT"}, 10*time.Second, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := New(runner, "sensitive-token", "https://api.github.test", http.DefaultClient)
+
+	workspace, _ := runner.Create(context.Background(), "check-1")
+	if err := adapter.CheckRemote(context.Background(), ports.Repository{Name: "repo", CloneURL: remote, BaseBranch: "main"}, workspace); err != nil {
+		t.Fatalf("expected reachable remote with main branch, got %v", err)
+	}
+	matches, _ := filepath.Glob(filepath.Join(root, ".eggy-askpass-*"))
+	if len(matches) != 0 {
+		t.Fatalf("askpass leaked: %v", matches)
+	}
+
+	workspace, _ = runner.Create(context.Background(), "check-2")
+	if err := adapter.CheckRemote(context.Background(), ports.Repository{Name: "repo", CloneURL: remote, BaseBranch: "does-not-exist"}, workspace); err == nil {
+		t.Fatal("expected error for missing base branch")
+	}
+
+	workspace, _ = runner.Create(context.Background(), "check-3")
+	if err := adapter.CheckRemote(context.Background(), ports.Repository{Name: "repo", CloneURL: filepath.Join(t.TempDir(), "nowhere"), BaseBranch: "main"}, workspace); err == nil {
+		t.Fatal("expected error for unreachable remote")
+	}
+}
+
 func TestGitHubCreatesPullRequestWithHeaderOnlyCredential(t *testing.T) {
 	var gotPath, gotAuthorization string
 	var gotBody map[string]any

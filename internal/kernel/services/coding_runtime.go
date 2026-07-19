@@ -86,6 +86,10 @@ func (r *CodingAgentRuntime) Run(ctx context.Context, request ports.CodingReques
 	}
 	agent := r.agents[alias]
 	r.mu.Lock()
+	if _, exists := r.activeRuns[request.RunID]; exists {
+		r.mu.Unlock()
+		return ports.CodingResult{}, fmt.Errorf("coding run %q is already active", request.RunID)
+	}
 	r.activeRuns[request.RunID] = agent
 	r.mu.Unlock()
 	defer func() {

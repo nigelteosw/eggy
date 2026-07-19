@@ -41,6 +41,9 @@ func TestMigratesSchemaOne(t *testing.T) {
 	if state.Agent.SelectedModel != "" || len(state.Agent.Usage) != 0 {
 		t.Fatalf("unexpected agent state = %#v", state.Agent)
 	}
+	if state.Coding.SelectedAgent != "" {
+		t.Fatalf("unexpected coding state = %#v", state.Coding)
+	}
 	persisted, err := os.ReadFile(path)
 	if err != nil || !strings.Contains(string(persisted), `"schema_version": 2`) {
 		t.Fatalf("persisted migration=%s err=%v", persisted, err)
@@ -72,12 +75,13 @@ func TestStoreCreatesAndAtomicallyUpdatesVersionedState(t *testing.T) {
 	}
 	updated, err := store.Update(context.Background(), 0, func(s *ports.State) error {
 		s.SelectedRepository = "eggy"
+		s.Coding.SelectedAgent = "agent-b"
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Version != 1 || updated.SelectedRepository != "eggy" {
+	if updated.Version != 1 || updated.SelectedRepository != "eggy" || updated.Coding.SelectedAgent != "agent-b" {
 		t.Fatalf("unexpected updated state %#v", updated)
 	}
 	onDisk, err := os.ReadFile(path)

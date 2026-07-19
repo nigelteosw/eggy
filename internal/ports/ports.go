@@ -123,11 +123,16 @@ type State struct {
 	ProactiveMessages   []time.Time                   `json:"proactive_messages,omitempty"`
 	Calendar            CalendarAuth                  `json:"calendar,omitempty"`
 	Agent               AgentRuntimeState             `json:"agent,omitempty"`
+	Coding              CodingRuntimeState            `json:"coding,omitempty"`
 }
 
 type AgentRuntimeState struct {
 	SelectedModel string                `json:"selected_model,omitempty"`
 	Usage         map[string]ModelUsage `json:"usage,omitempty"`
+}
+
+type CodingRuntimeState struct {
+	SelectedAgent string `json:"selected_agent,omitempty"`
 }
 
 type StateStore interface {

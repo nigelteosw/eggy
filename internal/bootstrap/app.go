@@ -182,7 +182,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
-	baseTools := []ports.Tool{services.NewStatusTool(stateStore)}
+	baseTools := []ports.Tool{services.NewStatusTool(stateStore), currentTimeTool(options.Now, location, timezone)}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	for _, tool := range baseTools {
 		if err := registry.Register(tool); err != nil {
@@ -218,7 +218,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, stateStore, key, options.Now)
-		for _, tool := range calendarTools(app.calendar, app.channel, strconv.FormatInt(config.Telegram.OwnerID, 10), config.Calendar.DefaultCalendar) {
+		for _, tool := range calendarTools(app.calendar, app.channel, strconv.FormatInt(config.Telegram.OwnerID, 10), config.Calendar.DefaultCalendar, options.Now, location, timezone) {
 			if err := registry.Register(tool); err != nil {
 				return nil, err
 			}

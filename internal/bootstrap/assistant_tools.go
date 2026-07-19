@@ -24,11 +24,23 @@ func (t bootstrapTool) Execute(ctx context.Context, raw json.RawMessage) (json.R
 	return t.execute(ctx, raw)
 }
 
-func calendarTools(calendar *services.CalendarService, channel ports.Channel, owner, defaultCalendar string) []ports.Tool {
-	list := bootstrapTool{definition: toolDefinition("calendar_list", "List Calendar events; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"],"additionalProperties":false}`)}
+func currentTimeTool(now func() time.Time, location *time.Location, timezone string) ports.Tool {
+	tool := bootstrapTool{definition: toolDefinition("current_time", "Return the trusted current time and owner timezone; use this instead of model knowledge for relative dates", `{"type":"object","additionalProperties":false}`)}
+	tool.execute = func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		if err := strictToolDecode(raw, &struct{}{}); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]string{"current_time": now().In(location).Format(time.RFC3339), "timezone": timezone})
+	}
+	return tool
+}
+
+func calendarTools(calendar *services.CalendarService, channel ports.Channel, owner, defaultCalendar string, now func() time.Time, location *time.Location, timezone string) []ports.Tool {
+	list := bootstrapTool{definition: toolDefinition("calendar_list", "List Calendar events; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			CalendarID string `json:"calendar_id"`
+			Range      string `json:"range"`
 			From       string `json:"from"`
 			To         string `json:"to"`
 		}
@@ -38,19 +50,21 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		if input.CalendarID == "" {
 			input.CalendarID = defaultCalendar
 		}
-		from, err := time.Parse(time.RFC3339, input.From)
+		from, to, err := resolveCalendarRange(input.Range, input.From, input.To, now(), location)
 		if err != nil {
-			return nil, fmt.Errorf("from must be RFC3339: %w", err)
-		}
-		to, err := time.Parse(time.RFC3339, input.To)
-		if err != nil {
-			return nil, fmt.Errorf("to must be RFC3339: %w", err)
+			return nil, err
 		}
 		events, err := calendar.List(ctx, input.CalendarID, from, to)
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(events)
+		return json.Marshal(struct {
+			CalendarID string                `json:"calendar_id"`
+			From       string                `json:"from"`
+			To         string                `json:"to"`
+			Timezone   string                `json:"timezone"`
+			Events     []ports.CalendarEvent `json:"events"`
+		}{CalendarID: input.CalendarID, From: from.Format(time.RFC3339), To: to.Format(time.RFC3339), Timezone: timezone, Events: events})
 	}
 	create := bootstrapTool{definition: toolDefinition("calendar_create", "Request approval to create an exact Calendar event", calendarMutationSchema(false))}
 	create.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -111,6 +125,44 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
 	}
 	return []ports.Tool{list, create, update, deleteTool}
+}
+
+func resolveCalendarRange(named, rawFrom, rawTo string, now time.Time, location *time.Location) (time.Time, time.Time, error) {
+	if named != "" {
+		if rawFrom != "" || rawTo != "" {
+			return time.Time{}, time.Time{}, errors.New("calendar range cannot be combined with from or to")
+		}
+		local := now.In(location)
+		start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+		switch named {
+		case "today":
+			return start, start.AddDate(0, 0, 1), nil
+		case "tomorrow":
+			start = start.AddDate(0, 0, 1)
+			return start, start.AddDate(0, 0, 1), nil
+		case "this_week":
+			daysSinceMonday := (int(start.Weekday()) + 6) % 7
+			start = start.AddDate(0, 0, -daysSinceMonday)
+			return start, start.AddDate(0, 0, 7), nil
+		default:
+			return time.Time{}, time.Time{}, fmt.Errorf("unknown calendar range %q", named)
+		}
+	}
+	if rawFrom == "" || rawTo == "" {
+		return time.Time{}, time.Time{}, errors.New("calendar list requires range or both from and to")
+	}
+	from, err := time.Parse(time.RFC3339, rawFrom)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("from must be RFC3339: %w", err)
+	}
+	to, err := time.Parse(time.RFC3339, rawTo)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("to must be RFC3339: %w", err)
+	}
+	if !to.After(from) {
+		return time.Time{}, time.Time{}, errors.New("calendar to must be after from")
+	}
+	return from, to, nil
 }
 
 func scheduleTools(scheduler *schedulerlocal.Scheduler, now func() time.Time) []ports.Tool {

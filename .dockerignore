@@ -1,0 +1,7 @@
+.git
+.worktrees
+.env
+data
+bin
+docs/superpowers
+README.md

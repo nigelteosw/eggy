@@ -1,0 +1,6 @@
+.env
+.worktrees/
+/bin/
+/data/
+*.out
+.DS_Store

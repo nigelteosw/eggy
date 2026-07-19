@@ -1,0 +1,41 @@
+version: 1
+server:
+  listen: ":8080"
+  public_base_url: "https://eggy.example.com"
+  telegram_webhook_path: "/webhooks/telegram"
+data_dir: "/data"
+telegram:
+  owner_id: 123456789
+models:
+  flash:
+    adapter: "deepseek"
+    id: "deepseek-v4-flash"
+  pro:
+    adapter: "deepseek"
+    id: "deepseek-v4-pro"
+  escalation:
+    tool_steps: 4
+    recoverable_failures: 2
+repositories:
+  - name: "eggy"
+    clone_url: "https://github.com/nigelteosw/eggy.git"
+    base_branch: "main"
+    protected_branches: ["main"]
+runner:
+  root: "/tmp/runs"
+  timeout: "45m"
+  retention: "30m"
+  max_output_bytes: 1048576
+  allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
+scheduler:
+  heartbeat_cadence: "30m"
+  quiet_hours:
+    start: "22:00"
+    end: "07:00"
+    timezone: "Asia/Singapore"
+  minimum_proactive_interval: "2h"
+  weekly_proactive_limit: 5
+calendar:
+  enabled: true
+  default_calendar: "primary"
+  timezone: "Asia/Singapore"

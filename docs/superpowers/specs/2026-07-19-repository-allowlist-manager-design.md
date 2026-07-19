@@ -43,7 +43,9 @@ This is the one deliberate edit to existing dispatch code. After it, registering
 
 ## Errors and Safety
 
-Reuses `approvals.ErrPayloadChanged`/`ErrNotAuthorized`/`ErrExpired` verbatim — no new error taxonomy. A registered-but-unauthenticated Codex/provider state is out of scope here (tracked separately); this feature only governs which repositories exist in the allowlist. State schema gains one field (`Repositories`); existing `state.json` files without it default to an empty map, matching how `Schedules`/`CodingRuns` already handle absence. No change to protected-branch push enforcement, which continues to read `protected_branches` off the (now state-backed) `ports.Repository`.
+Reuses `approvals.ErrPayloadChanged`/`ErrNotAuthorized`/`ErrExpired` verbatim — no new error taxonomy. A registered-but-unauthenticated Codex/provider state is out of scope here (tracked separately); this feature only governs which repositories exist in the allowlist. State schema gains one field (`Repositories`); existing `state.json` files without it default to an empty map, matching how `Schedules`/`CodingRuns` already handle absence.
+
+**Correction from initial draft:** `ApprovalService`'s protected-branch check is currently a static `[]string` baked in once at `NewApprovalService(...)` construction, computed from `config.Repositories` at boot (`app.go:140-144`). That's incompatible with runtime-added repositories — a branch protected only on a repo added after boot would never be in that static list, silently weakening the "protected branches remain unpushable" guarantee. `ApprovalService.Authorize` changes to compute the protected set from live `state.Repositories` on every `Push` authorization instead (it already holds `ports.StateStore`), and the `protectedBranches []string` constructor parameter is removed.
 
 ## Verification
 

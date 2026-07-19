@@ -29,10 +29,11 @@ func TestClaudeRunUsesStreamJSONEnvironmentAndNormalizesProgress(t *testing.T) {
 	if result.Summary != "Implemented and tested." || result.Validation != "go test ./... passed" || result.CommitMessage != "feat: implement change" || len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != "main.go" {
 		t.Fatalf("result=%#v", result)
 	}
-	wantArgv := []string{"/usr/local/bin/claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions", "fix tests"}
-	if strings.Join(runner.command.Argv, "\x00") != strings.Join(wantArgv, "\x00") || runner.command.Dir == "" || runner.command.MaxOutput != 4096 {
+	wantArgvPrefix := []string{"/usr/local/bin/claude", "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"}
+	if len(runner.command.Argv) != len(wantArgvPrefix)+1 || strings.Join(runner.command.Argv[:len(wantArgvPrefix)], "\x00") != strings.Join(wantArgvPrefix, "\x00") || runner.command.Dir == "" || runner.command.MaxOutput != 4096 {
 		t.Fatalf("command=%#v", runner.command)
 	}
+	assertResultContract(t, runner.command.Argv[len(runner.command.Argv)-1], "fix tests", "must be non-empty")
 	if len(runner.command.Env) != 2 || runner.command.Env["CLAUDE_CODE_OAUTH_TOKEN"] != "oauth-secret" || runner.command.Env["CLAUDE_CONFIG_DIR"] != "/data/claude" {
 		t.Fatalf("environment keys=%v", environmentKeys(runner.command.Env))
 	}
@@ -61,6 +62,24 @@ func TestClaudeReadOnlyUsesPlanAndDoesNotRequireCommitMessage(t *testing.T) {
 	}
 	if joined := strings.Join(runner.command.Argv, " "); !strings.Contains(joined, "--permission-mode plan") || strings.Contains(joined, "bypassPermissions") {
 		t.Fatalf("argv=%v", runner.command.Argv)
+	}
+	assertResultContract(t, runner.command.Argv[len(runner.command.Argv)-1], "inspect", "may be empty")
+}
+
+func assertResultContract(t *testing.T, instruction, task, commitRequirement string) {
+	t.Helper()
+	for _, want := range []string{
+		task,
+		"exactly these fields and types",
+		`"summary": string`,
+		`"validation": string`,
+		`"commit_message": string`,
+		`"changed_files": array of strings`,
+		commitRequirement,
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("instruction missing %q: %s", want, instruction)
+		}
 	}
 }
 
@@ -106,6 +125,21 @@ func TestClaudeRedactsCredentialFromErrors(t *testing.T) {
 			}
 			if test.name == "stream" && strings.Join(progressKinds(progress), ",") != "error" {
 				t.Fatalf("progress=%#v", progress)
+			}
+		})
+	}
+}
+
+func TestClaudeUnsuccessfulResultEmitsErrorProgress(t *testing.T) {
+	for _, subtype := range []string{"error_during_execution", "error_max_turns", "failed"} {
+		t.Run(subtype, func(t *testing.T) {
+			adapter := New("claude", &fakeRunner{}, 4096, "token", "/data/claude")
+			var progress []ports.CodingProgress
+			adapter.emitProgressLine(`{"type":"result","subtype":"`+subtype+`","result":"failure"}`, func(update ports.CodingProgress) {
+				progress = append(progress, update)
+			})
+			if got := strings.Join(progressKinds(progress), ","); got != "error" {
+				t.Fatalf("progress kinds=%q updates=%#v", got, progress)
 			}
 		})
 	}

@@ -15,6 +15,15 @@ var ErrRunNotFound = errors.New("coding run not found")
 
 const maxProgressMessage = 512
 
+const resultContract = `Coding result contract:
+Return only a single JSON object with exactly these fields and types:
+- "summary": string
+- "validation": string
+- "commit_message": string
+- "changed_files": array of strings
+The summary must be non-empty. The commit_message %s.
+Do not wrap the JSON in Markdown or include text outside the JSON object.`
+
 type Adapter struct {
 	executable string
 	runner     ports.Runner
@@ -57,9 +66,12 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 	}()
 
 	permissionMode := "bypassPermissions"
+	commitRequirement := "must be non-empty"
 	if request.ReadOnly {
 		permissionMode = "plan"
+		commitRequirement = "may be empty"
 	}
+	instruction := request.Instruction + "\n\n" + strings.Replace(resultContract, "%s", commitRequirement, 1)
 	command := ports.Command{
 		Argv: []string{
 			a.executable,
@@ -67,7 +79,7 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 			"--output-format", "stream-json",
 			"--verbose",
 			"--permission-mode", permissionMode,
-			request.Instruction,
+			instruction,
 		},
 		Dir: request.Workspace,
 		Env: map[string]string{
@@ -200,6 +212,8 @@ func (a *Adapter) emitEvent(event streamEvent, progress func(ports.CodingProgres
 				a.emit(progress, "tool", "Claude Code used "+block.Name)
 			}
 		}
+	case event.Type == "result" && event.Subtype != "" && event.Subtype != "success":
+		a.emit(progress, "error", "Claude Code run failed")
 	case event.Type == "result":
 		a.emit(progress, "completed", "Claude Code run completed")
 	case event.Type == "error" || event.Type == "system" && event.Subtype == "error":

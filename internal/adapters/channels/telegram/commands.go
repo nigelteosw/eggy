@@ -6,7 +6,7 @@ package telegram
 func Commands() []BotCommand {
 	return []BotCommand{
 		{Name: "status", Description: "Show operational status (no model tokens used)"},
-		{Name: "repositories", Description: "List configured repositories"},
+		{Name: "repositories", Description: "List, add, or remove configured repositories"},
 		{Name: "runs", Description: "List Codex coding runs"},
 		{Name: "stop", Description: "Stop a running Codex run: /stop <run-id>"},
 		{Name: "schedules", Description: "List scheduled instructions"},

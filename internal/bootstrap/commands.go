@@ -23,7 +23,10 @@ type CommandService struct {
 	context      ports.ContextStore
 	conversation *services.ConversationService
 	coding       *services.CodingService
+	repositories *services.RepositoriesService
 	agentRuntime *services.AgentRuntime
+	channel      ports.Channel
+	owner        string
 	defaultModel string
 	modelAliases []string
 	now          func() time.Time
@@ -39,15 +42,63 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		result, err := services.NewStatusTool(s.store).Execute(ctx, json.RawMessage(`{}`))
 		return string(result), true, err
 	case "/repositories":
-		names := make([]string, 0, len(s.config.Repositories))
-		for _, repository := range s.config.Repositories {
-			names = append(names, repository.Name)
+		if s.repositories == nil {
+			return "Repositories are not configured.", true, nil
 		}
-		sort.Strings(names)
-		if len(names) == 0 {
-			return "No repositories configured.", true, nil
+		if len(fields) == 1 {
+			registered, err := s.repositories.List(ctx)
+			if err != nil {
+				return "", true, err
+			}
+			names := make([]string, 0, len(registered))
+			for name := range registered {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			if len(names) == 0 {
+				return "No repositories configured.", true, nil
+			}
+			return strings.Join(names, "\n"), true, nil
 		}
-		return strings.Join(names, "\n"), true, nil
+		switch fields[1] {
+		case "add":
+			if len(fields) < 4 || len(fields) > 6 {
+				return "Usage: /repositories add <name> <clone_url> [base_branch] [protected_branches]", true, nil
+			}
+			name, cloneURL := fields[2], fields[3]
+			baseBranch := ""
+			if len(fields) >= 5 {
+				baseBranch = fields[4]
+			}
+			var protectedBranches []string
+			if len(fields) == 6 {
+				for _, branch := range strings.Split(fields[5], ",") {
+					if trimmed := strings.TrimSpace(branch); trimmed != "" {
+						protectedBranches = append(protectedBranches, trimmed)
+					}
+				}
+			}
+			approval, err := s.repositories.RequestAdd(ctx, name, cloneURL, baseBranch, protectedBranches)
+			if err != nil {
+				return err.Error(), true, nil
+			}
+			if s.channel != nil {
+				if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
+					return "", true, err
+				}
+			}
+			return "Add request for " + name + " staged, awaiting approval.", true, nil
+		case "remove":
+			if len(fields) != 3 {
+				return "Usage: /repositories remove <name>", true, nil
+			}
+			if err := s.repositories.Remove(ctx, fields[2]); err != nil {
+				return err.Error(), true, nil
+			}
+			return "Removed " + fields[2] + ".", true, nil
+		default:
+			return "Usage: /repositories [add <name> <clone_url> [base_branch] [protected_branches]|remove <name>]", true, nil
+		}
 	case "/runs":
 		state, err := s.store.Load(ctx)
 		if err != nil {

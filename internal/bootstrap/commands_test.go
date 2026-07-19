@@ -2,11 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
 	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -33,6 +35,97 @@ func TestCommandModelSelection(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 }
+
+func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
+	store := jsonfile.Open(t.TempDir() + "/state.json")
+	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}
+	checker := &commandTestChecker{}
+	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
+	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, func() string { return "check-1" })
+	var delivered approvals.Approval
+	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
+	commands := &CommandService{store: store, repositories: repositories, channel: channel, owner: "42"}
+	ctx := context.Background()
+
+	output, handled, err := commands.Execute(ctx, "/repositories")
+	if err != nil || !handled || output != "No repositories configured." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/repositories add eggy https://github.com/nigelteosw/eggy.git")
+	if err != nil || !handled || !strings.Contains(output, "awaiting approval") || delivered.ID != "approval-1" {
+		t.Fatalf("output=%q handled=%v err=%v delivered=%#v", output, handled, err, delivered)
+	}
+
+	approval := delivered
+	approval.Status = approvals.Approved
+	if _, err := repositories.ExecuteApproved(ctx, approval); err != nil {
+		t.Fatal(err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/repositories")
+	if err != nil || !handled || output != "eggy" {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/repositories remove eggy")
+	if err != nil || !handled || output != "Removed eggy." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/repositories remove eggy")
+	if err != nil || !handled || !strings.Contains(output, "not configured") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/repositories add")
+	if err != nil || !handled || !strings.Contains(output, "Usage:") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+type commandTestRunner struct{ workspace string }
+
+func (r *commandTestRunner) Create(context.Context, string) (string, error) { return r.workspace, nil }
+func (r *commandTestRunner) Execute(context.Context, ports.Command) (ports.CommandResult, error) {
+	return ports.CommandResult{}, nil
+}
+func (r *commandTestRunner) Destroy(context.Context, string) error { return nil }
+
+type commandTestChecker struct{}
+
+func (commandTestChecker) CheckRemote(context.Context, ports.Repository, string) error { return nil }
+
+type commandTestApprovalGateway struct {
+	approval   approvals.Approval
+	authorized approvals.Action
+}
+
+func (g *commandTestApprovalGateway) Request(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
+	data, _ := json.Marshal(payload)
+	g.approval.Payload = data
+	return g.approval, nil
+}
+func (g *commandTestApprovalGateway) Authorize(_ context.Context, action approvals.Action, _ any, _ string) error {
+	g.authorized = action
+	return nil
+}
+
+type commandTestChannel struct{ onApproval func(approvals.Approval) }
+
+func (c *commandTestChannel) Deliver(context.Context, string, string) error { return nil }
+func (c *commandTestChannel) DeliverApproval(_ context.Context, _ string, approval approvals.Approval) error {
+	if c.onApproval != nil {
+		c.onApproval(approval)
+	}
+	return nil
+}
+func (c *commandTestChannel) DeliverTrackable(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (c *commandTestChannel) EditText(context.Context, string, string, string) error { return nil }
+func (c *commandTestChannel) AnswerCallback(context.Context, string) error           { return nil }
+func (c *commandTestChannel) SendTyping(context.Context, string) error               { return nil }
 
 func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	dir := t.TempDir()

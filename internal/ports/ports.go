@@ -3,12 +3,15 @@ package ports
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/tasks"
 )
+
+var ErrStateVersionConflict = errors.New("state version conflict")
 
 type Role string
 
@@ -101,6 +104,12 @@ type State struct {
 	ProcessedEvents     map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages   []time.Time                   `json:"proactive_messages,omitempty"`
 	Calendar            CalendarAuth                  `json:"calendar,omitempty"`
+	Agent               AgentRuntimeState             `json:"agent,omitempty"`
+}
+
+type AgentRuntimeState struct {
+	SelectedModel string                `json:"selected_model,omitempty"`
+	Usage         map[string]ModelUsage `json:"usage,omitempty"`
 }
 
 type StateStore interface {

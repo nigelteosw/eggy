@@ -16,9 +16,9 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
-var ErrVersionConflict = errors.New("state version conflict")
+var ErrVersionConflict = ports.ErrStateVersionConflict
 
 type Store struct {
 	path string
@@ -62,7 +62,16 @@ func (s *Store) loadUnlocked() (ports.State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return ports.State{}, fmt.Errorf("decode state: %w", err)
 	}
-	if state.SchemaVersion != CurrentSchemaVersion {
+	if state.SchemaVersion == 1 {
+		state.SchemaVersion = CurrentSchemaVersion
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			return ports.State{}, fmt.Errorf("encode migrated state: %w", err)
+		}
+		if err := atomicWrite(s.path, append(data, '\n'), 0o600); err != nil {
+			return ports.State{}, fmt.Errorf("persist migrated state: %w", err)
+		}
+	} else if state.SchemaVersion != CurrentSchemaVersion {
 		return ports.State{}, fmt.Errorf("unsupported state schema %d", state.SchemaVersion)
 	}
 	return state, nil
@@ -81,7 +90,7 @@ func (s *Store) Update(ctx context.Context, expectedVersion uint64, mutate func(
 			return err
 		}
 		if state.Version != expectedVersion {
-			return fmt.Errorf("%w: expected %d, current %d", ErrVersionConflict, expectedVersion, state.Version)
+			return fmt.Errorf("%w: expected %d, current %d", ports.ErrStateVersionConflict, expectedVersion, state.Version)
 		}
 		copy, err := clone(state)
 		if err != nil {

@@ -85,12 +85,6 @@ type Channel interface {
 	DeliverApproval(context.Context, string, approvals.Approval) error
 }
 
-type MemoryStore interface {
-	Load(context.Context) (string, error)
-	Append(context.Context, string, string) error
-	ReplaceSection(context.Context, string, string) error
-}
-
 type AgentContext struct {
 	Soul   string `json:"soul"`
 	User   string `json:"user"`

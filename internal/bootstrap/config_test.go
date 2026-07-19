@@ -20,9 +20,6 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	if cfg.Runner.Timeout.Value() != 45*time.Minute || cfg.Server.Listen != ":8080" {
 		t.Fatalf("defaults/durations not loaded: %#v", cfg)
 	}
-	if secrets.DeepSeekAPIKey != env["DEEPSEEK_API_KEY"] {
-		t.Fatal("DeepSeek secret was not loaded")
-	}
 	if secrets.ProviderAPIKeys["deepseek"] != env["DEEPSEEK_API_KEY"] {
 		t.Fatal("provider secret was not loaded")
 	}
@@ -302,7 +299,7 @@ models:
 }
 
 func TestConfigRejectsUnsupportedModelAdapter(t *testing.T) {
-	cfg := Config{Version: 1, Server: ServerConfig{PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/hook"}, Telegram: TelegramConfig{OwnerID: 1}, Models: ModelsConfig{Flash: ModelConfig{Adapter: "unknown", ID: "flash"}, Pro: ModelConfig{Adapter: "deepseek", ID: "pro"}}, Runner: RunnerConfig{Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1}}
+	cfg := Config{Version: 1, Server: ServerConfig{PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/hook"}, Telegram: TelegramConfig{OwnerID: 1}, legacyModels: ModelsConfig{Flash: ModelConfig{Adapter: "unknown", ID: "flash"}, Pro: ModelConfig{Adapter: "deepseek", ID: "pro"}}, Runner: RunnerConfig{Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1}}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("error=%v", err)
 	}

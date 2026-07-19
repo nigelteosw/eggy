@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,8 +22,8 @@ import (
 	"github.com/nigelteosw/eggy/internal/adapters/calendar/google"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/adapters/coding/codexcli"
-	"github.com/nigelteosw/eggy/internal/adapters/memory/markdown"
-	"github.com/nigelteosw/eggy/internal/adapters/models/deepseek"
+	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
+	"github.com/nigelteosw/eggy/internal/adapters/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/internal/adapters/repositories/github"
 	"github.com/nigelteosw/eggy/internal/adapters/runner/localprocess"
 	schedulerlocal "github.com/nigelteosw/eggy/internal/adapters/scheduler/local"
@@ -37,25 +38,27 @@ import (
 type AppOptions struct {
 	HTTPClient       *http.Client
 	TelegramBaseURL  string
-	DeepSeekEndpoint string
+	ProviderBaseURLs map[string]string
 	GitHubAPIBase    string
 	GoogleAuthURL    string
 	GoogleTokenURL   string
 	GoogleAPIBase    string
 	CodexExecutable  string
 	Now              func() time.Time
+	Logger           *slog.Logger
 	FakeAdapters     bool
 }
 
 type App struct {
 	config       Config
 	store        ports.StateStore
-	memory       ports.MemoryStore
+	context      ports.ContextStore
 	channel      ports.Channel
 	dispatcher   *services.Dispatcher
 	httpHandler  http.Handler
 	loop         *agent.Loop
-	router       agent.Router
+	agentRuntime *services.AgentRuntime
+	manifest     agent.CapabilityManifest
 	commands     *CommandService
 	scheduler    *schedulerlocal.Scheduler
 	heartbeat    *services.HeartbeatPolicy
@@ -68,6 +71,8 @@ type App struct {
 	now          func() time.Time
 	eventQueue   chan events.Event
 	workers      sync.WaitGroup
+	readyLog     sync.Once
+	logger       *slog.Logger
 }
 
 func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
@@ -76,9 +81,6 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	if options.TelegramBaseURL == "" {
 		options.TelegramBaseURL = "https://api.telegram.org"
-	}
-	if options.DeepSeekEndpoint == "" {
-		options.DeepSeekEndpoint = "https://api.deepseek.com/chat/completions"
 	}
 	if options.GitHubAPIBase == "" {
 		options.GitHubAPIBase = "https://api.github.com"
@@ -103,6 +105,9 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
+	if options.Logger == nil {
+		options.Logger = slog.Default()
+	}
 	if err := os.MkdirAll(config.DataDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -110,8 +115,8 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		return nil, err
 	}
 	stateStore := jsonfile.Open(filepath.Join(config.DataDir, "state.json"))
-	memoryStore := markdown.Open(filepath.Join(config.DataDir, "MEMORY.md"))
-	app := &App{config: config, store: stateStore, memory: memoryStore, scheduler: schedulerlocal.New(stateStore), repositories: map[string]ports.Repository{}, now: options.Now, eventQueue: make(chan events.Event, 64)}
+	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
+	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), repositories: map[string]ports.Repository{}, now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger}
 	for _, configured := range config.Repositories {
 		app.repositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
 	}
@@ -138,15 +143,53 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	app.shipping.SetApprovalRequester(app.approvals)
 	app.conversation = services.NewConversationService(stateStore, 20)
 
-	var flash, pro ports.Model
-	if options.FakeAdapters {
-		flash, pro = staticModel{}, staticModel{}
-	} else {
-		model := deepseek.New(options.DeepSeekEndpoint, secrets.DeepSeekAPIKey, options.HTTPClient)
-		flash, pro = model, model
+	aliases := make([]string, 0, len(config.ModelAliases))
+	targets := make(map[string]agent.ModelTarget, len(config.ModelAliases))
+	providerModels := make(map[string]ports.Model, len(config.Providers))
+	for name, provider := range config.Providers {
+		if options.FakeAdapters {
+			providerModels[name] = staticModel{}
+			continue
+		}
+		baseURL := provider.BaseURL
+		if override := options.ProviderBaseURLs[name]; override != "" {
+			baseURL = override
+		}
+		providerModels[name] = openaicompat.New(baseURL, secrets.ProviderAPIKeys[name], options.HTTPClient)
 	}
+	for alias, configured := range config.ModelAliases {
+		model := providerModels[configured.Provider]
+		if model == nil {
+			return nil, fmt.Errorf("model alias %q provider %q is unavailable", alias, configured.Provider)
+		}
+		aliases = append(aliases, alias)
+		targets[alias] = agent.ModelTarget{Model: model, ModelID: configured.Model}
+	}
+	sort.Strings(aliases)
+	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases)
 	registry := services.NewToolRegistry()
-	for _, tool := range []ports.Tool{services.NewStatusTool(stateStore), services.NewMemoryLoadTool(memoryStore), services.NewMemoryAppendTool(memoryStore), services.NewMemoryReplaceTool(memoryStore)} {
+	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
+	for _, secret := range secrets.ProviderAPIKeys {
+		activeSecrets = append(activeSecrets, secret)
+	}
+	baseTools := []ports.Tool{services.NewStatusTool(stateStore)}
+	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
+	for _, tool := range baseTools {
+		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
+	for _, tool := range services.NewRepositoryTools(app.repositories, app.coding, app.coding, app.shipping, newRunID,
+		func(progress ports.CodingProgress) {
+			if progress.Message != "" {
+				_ = app.channel.Deliver(context.Background(), owner, progress.Message)
+			}
+		},
+		func(ctx context.Context, approval approvals.Approval) error {
+			return app.channel.DeliverApproval(ctx, owner, approval)
+		},
+	) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
@@ -176,12 +219,17 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 	}
-	app.loop = agent.NewLoop(flash, pro, registry.Tools(), agent.Config{FlashModel: config.Models.Flash.ID, ProModel: config.Models.Pro.ID, MaxToolSteps: 8, EscalateAfterSteps: config.Models.Escalation.ToolSteps, EscalateAfterFailures: config.Models.Escalation.RecoverableFailures})
+	registeredTools := registry.Tools()
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, 8)
 	repositoryNames := make([]string, 0, len(app.repositories))
 	for name := range app.repositories {
 		repositoryNames = append(repositoryNames, name)
 	}
-	app.router = agent.Router{Repositories: repositoryNames, ComplexityLength: 600}
+	toolNames := make([]string, 0, len(registeredTools))
+	for _, tool := range registeredTools {
+		toolNames = append(toolNames, tool.Definition().Name)
+	}
+	app.manifest = agent.CapabilityManifest{Repositories: repositoryNames, Tools: toolNames, CodexReady: len(app.repositories) > 0, CalendarEnabled: config.Calendar.Enabled}
 	location, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load scheduler timezone: %w", err)
@@ -190,8 +238,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, memory: memoryStore, conversation: app.conversation, coding: app.coding, now: options.Now}
-	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, agentRuntime: app.agentRuntime, defaultModel: config.Agent.DefaultModel, modelAliases: aliases, now: options.Now}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
@@ -208,9 +255,27 @@ func (a *App) Ready() error {
 	if _, err := a.store.Load(context.Background()); err != nil {
 		return err
 	}
-	if _, err := a.memory.Load(context.Background()); err != nil {
+	if _, err := a.context.Load(context.Background()); err != nil {
 		return err
 	}
+	a.readyLog.Do(func() {
+		alias := a.config.Agent.DefaultModel
+		provider := a.config.ModelAliases[alias].Provider
+		repositories := make([]string, 0, len(a.repositories))
+		for name := range a.repositories {
+			repositories = append(repositories, name)
+		}
+		sort.Strings(repositories)
+		integrations := []string{"telegram", "model_provider"}
+		if len(a.repositories) > 0 {
+			integrations = append(integrations, "codex", "github")
+		}
+		if a.config.Calendar.Enabled {
+			integrations = append(integrations, "google_calendar")
+		}
+		sort.Strings(integrations)
+		a.logger.Info("agent runtime ready", "model_alias", alias, "provider", provider, "repositories", repositories, "integrations", integrations, "context_files", []string{"SOUL.md", "USER.md", "MEMORY.md"})
+	})
 	return nil
 }
 func (a *App) HandleEvent(ctx context.Context, event events.Event) error {
@@ -259,31 +324,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 		}
 		return a.channel.Deliver(ctx, message.ChatID, output)
 	}
-	if repositoryName, coding := a.router.CodingIntent(message.Text); coding && repositoryName != "" {
-		repository := a.repositories[repositoryName]
-		runID := newRunID()
-		if err := a.channel.Deliver(ctx, message.ChatID, "Started coding run "+runID+" in "+repositoryName+"."); err != nil {
-			return err
-		}
-		run, result, err := a.coding.Start(ctx, runID, repository, message.Text, func(progress ports.CodingProgress) {
-			if progress.Message != "" {
-				_ = a.channel.Deliver(context.Background(), message.ChatID, progress.Message)
-			}
-		})
-		if err != nil {
-			_ = a.channel.Deliver(ctx, message.ChatID, "Coding run failed: "+err.Error())
-			return err
-		}
-		if err := a.channel.Deliver(ctx, message.ChatID, result.Summary+"\n\nValidation:\n"+result.Validation); err != nil {
-			return err
-		}
-		approval, err := a.shipping.RequestCommit(ctx, run.ID, result.CommitMessage)
-		if err != nil {
-			return err
-		}
-		return a.channel.DeliverApproval(ctx, message.ChatID, approval)
-	}
-	memory, err := a.memory.Load(ctx)
+	agentContext, err := a.context.Load(ctx)
 	if err != nil {
 		return err
 	}
@@ -291,23 +332,32 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 	if err != nil {
 		return err
 	}
-	history := []ports.Message{{Role: ports.RoleSystem, Content: "You are Eggy, a personal assistant. Current instructions override memory.\n\nDurable memory:\n" + memory}}
+	alias, err := a.agentRuntime.SelectedModel(ctx)
+	if err != nil {
+		return err
+	}
+	manifest := a.manifest
+	manifest.ActiveModel = alias
+	history := agent.BuildInstructions(agentContext, manifest)
 	if state.ConversationSummary != "" {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
 	}
 	history = append(history, state.RecentMessages...)
-	forcePro := strings.Contains(strings.ToLower(message.Text), "use pro") || a.router.ComplexNonCoding(message.Text)
-	response, err := a.loop.Run(ctx, message.Text, history, forcePro)
-	if err != nil {
-		return err
+	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, agent.RunOptions{})
+	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
+	if runErr != nil {
+		return runErr
+	}
+	if usageErr != nil {
+		return usageErr
 	}
 	if err := a.conversation.Record(ctx, ports.Message{Role: ports.RoleUser, Content: message.Text}); err != nil {
 		return err
 	}
-	if err := a.conversation.Record(ctx, response); err != nil {
+	if err := a.conversation.Record(ctx, result.Message); err != nil {
 		return err
 	}
-	return a.channel.Deliver(ctx, message.ChatID, response.Content)
+	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)
 }
 
 func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecision) error {
@@ -455,18 +505,34 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if !a.heartbeat.CanSend(state, a.now()) {
 		return nil
 	}
-	memory, err := a.memory.Load(ctx)
+	agentContext, err := a.context.Load(ctx)
 	if err != nil {
 		return err
 	}
-	response, err := a.loop.Run(ctx, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", []ports.Message{{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden.\n\n" + memory}}, false)
-	if err != nil || strings.TrimSpace(response.Content) == "" {
+	alias, err := a.agentRuntime.SelectedModel(ctx)
+	if err != nil {
 		return err
+	}
+	manifest := a.manifest
+	manifest.ActiveModel = alias
+	history := agent.BuildInstructions(agentContext, manifest)
+	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
+	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
+	result, runErr := a.loop.RunSelected(ctx, alias, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, agent.RunOptions{AllowedTools: allowed})
+	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
+	if runErr != nil {
+		return runErr
+	}
+	if usageErr != nil {
+		return usageErr
+	}
+	if strings.TrimSpace(result.Message.Content) == "" {
+		return nil
 	}
 	if err := a.heartbeat.Record(ctx, a.store, a.now()); err != nil {
 		return err
 	}
-	return a.channel.Deliver(ctx, strconv.FormatInt(a.config.Telegram.OwnerID, 10), response.Content)
+	return a.channel.Deliver(ctx, strconv.FormatInt(a.config.Telegram.OwnerID, 10), result.Message.Content)
 }
 
 func newRunID() string {

@@ -34,7 +34,6 @@ type Config struct {
 	Server       ServerConfig                `yaml:"server"`
 	DataDir      string                      `yaml:"data_dir"`
 	Telegram     TelegramConfig              `yaml:"telegram"`
-	Models       ModelsConfig                `yaml:"-"`
 	Agent        AgentConfig                 `yaml:"-"`
 	Providers    map[string]ProviderConfig   `yaml:"-"`
 	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
@@ -42,6 +41,7 @@ type Config struct {
 	Runner       RunnerConfig                `yaml:"runner"`
 	Scheduler    SchedulerConfig             `yaml:"scheduler"`
 	Calendar     CalendarConfig              `yaml:"calendar"`
+	legacyModels ModelsConfig
 }
 
 type AgentConfig struct {
@@ -122,7 +122,6 @@ type CalendarConfig struct {
 type Secrets struct {
 	TelegramBotToken      string
 	TelegramWebhookSecret string
-	DeepSeekAPIKey        string
 	ProviderAPIKeys       map[string]string
 	GitHubToken           string
 	GoogleClientID        string
@@ -193,7 +192,7 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	}
 	secrets := Secrets{
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
-		DeepSeekAPIKey: getenv("DEEPSEEK_API_KEY"), GitHubToken: getenv("GITHUB_TOKEN"),
+		GitHubToken:    getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
 		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
 		ProviderAPIKeys: map[string]string{},
@@ -217,7 +216,7 @@ func normalizeLegacyConfig(document legacyConfigDocument) Config {
 	common := document.commonConfigDocument
 	return Config{
 		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
-		Models: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
+		legacyModels: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
 		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: document.Models.Pro.ID}},
 		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
@@ -226,13 +225,9 @@ func normalizeLegacyConfig(document legacyConfigDocument) Config {
 
 func normalizeV2Config(document configV2Document) Config {
 	common := document.commonConfigDocument
-	legacy := ModelsConfig{Pro: ModelConfig{Adapter: "deepseek"}}
-	if model, ok := document.Models[document.Agent.DefaultModel]; ok {
-		legacy.Pro.ID = model.Model
-	}
 	return Config{
 		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
-		Models: legacy, Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
+		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
 		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
 	}
 }
@@ -245,7 +240,7 @@ func (c Config) MarshalYAML() (any, error) {
 	if c.Version == 2 {
 		return configV2Document{Version: 2, Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
 	}
-	return legacyConfigDocument{Version: c.Version, Models: c.Models, commonConfigDocument: c.commonDocument()}, nil
+	return legacyConfigDocument{Version: c.Version, Models: c.legacyModels, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -283,11 +278,11 @@ func (c *Config) applyDefaults() error {
 	if c.Runner.MaxOutputBytes == 0 {
 		c.Runner.MaxOutputBytes = 1 << 20
 	}
-	if c.Models.Escalation.ToolSteps == 0 {
-		c.Models.Escalation.ToolSteps = 4
+	if c.legacyModels.Escalation.ToolSteps == 0 {
+		c.legacyModels.Escalation.ToolSteps = 4
 	}
-	if c.Models.Escalation.RecoverableFailures == 0 {
-		c.Models.Escalation.RecoverableFailures = 2
+	if c.legacyModels.Escalation.RecoverableFailures == 0 {
+		c.legacyModels.Escalation.RecoverableFailures = 2
 	}
 	return nil
 }
@@ -313,13 +308,13 @@ func (c Config) Validate() error {
 		return errors.New("server.telegram_webhook_path must begin with /")
 	}
 	if c.Version == 1 {
-		if c.Models.Flash.ID == "" {
+		if c.legacyModels.Flash.ID == "" {
 			return errors.New("models.flash.id is required")
 		}
-		if c.Models.Pro.ID == "" {
+		if c.legacyModels.Pro.ID == "" {
 			return errors.New("models.pro.id is required")
 		}
-		if c.Models.Flash.Adapter != "deepseek" || c.Models.Pro.Adapter != "deepseek" {
+		if c.legacyModels.Flash.Adapter != "deepseek" || c.legacyModels.Pro.Adapter != "deepseek" {
 			return errors.New("unsupported model adapter: models.flash.adapter and models.pro.adapter must be deepseek")
 		}
 	} else if err := c.validateProviders(); err != nil {
@@ -410,17 +405,13 @@ func (c Config) validateSecrets(s Secrets) error {
 	required := []struct{ name, value string }{
 		{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken}, {"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret},
 	}
-	if c.Version == 1 {
-		required = append(required, struct{ name, value string }{"DEEPSEEK_API_KEY", s.DeepSeekAPIKey})
-	} else {
-		usedProviders := map[string]bool{}
-		for _, model := range c.ModelAliases {
-			usedProviders[model.Provider] = true
-		}
-		for providerName := range usedProviders {
-			provider := c.Providers[providerName]
-			required = append(required, struct{ name, value string }{provider.APIKeyEnv, s.ProviderAPIKeys[providerName]})
-		}
+	usedProviders := map[string]bool{}
+	for _, model := range c.ModelAliases {
+		usedProviders[model.Provider] = true
+	}
+	for providerName := range usedProviders {
+		provider := c.Providers[providerName]
+		required = append(required, struct{ name, value string }{provider.APIKeyEnv, s.ProviderAPIKeys[providerName]})
 	}
 	if len(c.Repositories) > 0 {
 		required = append(required, struct{ name, value string }{"GITHUB_TOKEN", s.GitHubToken})

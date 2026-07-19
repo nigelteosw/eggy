@@ -1,9 +1,11 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -18,10 +20,11 @@ import (
 func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T) {
 	dataDir := t.TempDir()
 	cfg := appTestConfig(dataDir)
-	secrets := Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", DeepSeekAPIKey: "deepseek"}
+	secrets := appTestSecrets("provider-secret")
 	var mu sync.Mutex
 	var telegramBodies [][]byte
 	var modelBody []byte
+	var startupLog bytes.Buffer
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if strings.Contains(request.URL.Path, "sendMessage") {
 			body, _ := io.ReadAll(request.Body)
@@ -32,16 +35,21 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 		}
 		if request.URL.Host == "deepseek.test" {
 			modelBody, _ = io.ReadAll(request.Body)
-			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Hello from Eggy."}}]}`), nil
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Hello from Eggy."}}],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}}`), nil
 		}
 		return appJSON(404, `{}`), nil
 	})}
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", DeepSeekEndpoint: "https://deepseek.test/chat", Now: time.Now})
+	logger := slog.New(slog.NewJSONHandler(&startupLog, nil))
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, Now: time.Now, Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := app.Ready(); err != nil {
 		t.Fatal(err)
+	}
+	logOutput := startupLog.String()
+	if !strings.Contains(logOutput, "agent runtime ready") || !strings.Contains(logOutput, "deepseek-pro") || !strings.Contains(logOutput, "SOUL.md") || strings.Contains(logOutput, secrets.ProviderAPIKeys["deepseek"]) || strings.Contains(logOutput, secrets.TelegramBotToken) {
+		t.Fatalf("unsafe or incomplete startup log: %s", logOutput)
 	}
 	statusPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "/status"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: statusPayload}); err != nil {
@@ -56,8 +64,12 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	if len(telegramBodies) != 2 || !strings.Contains(string(telegramBodies[0]), "pending_approvals") || !strings.Contains(string(telegramBodies[1]), "Hello from Eggy") {
 		t.Fatalf("telegram=%q", telegramBodies)
 	}
-	if !strings.Contains(string(modelBody), "Eggy Memory") {
-		t.Fatalf("memory missing from model request: %s", modelBody)
+	if !strings.Contains(string(modelBody), "Eggy Memory") || !strings.Contains(string(modelBody), "Hard runtime policy") || !strings.Contains(string(modelBody), "Capability manifest") || !strings.Contains(string(modelBody), `"model":"deepseek-v4-pro"`) {
+		t.Fatalf("unified context missing from model request: %s", modelBody)
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil || state.Agent.Usage["deepseek-pro"].TotalTokens != 14 {
+		t.Fatalf("usage=%#v err=%v", state.Agent.Usage, err)
 	}
 	if app.Handler() == nil {
 		t.Fatal("HTTP handler missing")
@@ -76,9 +88,57 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	}
 }
 
+func TestUnifiedAgentDefectTranscript(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	secrets := appTestSecrets("provider-secret")
+	secrets.GitHubToken = "github-secret"
+	var modelBodies [][]byte
+	var delivered []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.URL.Host == "deepseek.test":
+			body, _ := io.ReadAll(request.Body)
+			modelBodies = append(modelBodies, body)
+			if len(modelBodies) == 1 {
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"repos-1","type":"function","function":{"name":"repository_list","arguments":"{}"}}]}}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`), nil
+			}
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"I can work on the configured eggy repository."}}],"usage":{"prompt_tokens":8,"completion_tokens":4,"total_tokens":12}}`), nil
+		case strings.Contains(request.URL.Path, "sendMessage"):
+			delivered, _ = io.ReadAll(request.Body)
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		default:
+			return appJSON(404, `{}`), nil
+		}
+	})}
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "What repositories can you work on?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "repo-question", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(modelBodies) != 2 || !strings.Contains(string(modelBodies[1]), `\"status\":\"configured\"`) || !strings.Contains(string(modelBodies[1]), `\"name\":\"eggy\"`) {
+		t.Fatalf("repository tool result was not returned to the model: %q", modelBodies)
+	}
+	for _, body := range modelBodies {
+		if strings.Contains(string(body), "provider-secret") || strings.Contains(string(body), "github-secret") {
+			t.Fatalf("secret leaked into model request: %s", body)
+		}
+	}
+	if !strings.Contains(string(delivered), "configured eggy repository") {
+		t.Fatalf("telegram response=%s", delivered)
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil || state.Agent.Usage["deepseek-pro"].TotalTokens != 19 {
+		t.Fatalf("usage=%#v err=%v", state.Agent.Usage, err)
+	}
+}
+
 func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	app, err := NewApp(cfg, Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", DeepSeekAPIKey: "deepseek"}, AppOptions{FakeAdapters: true})
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +156,8 @@ func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	cfg.Calendar = CalendarConfig{Enabled: true, DefaultCalendar: "primary", Timezone: "UTC"}
-	secrets := Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", DeepSeekAPIKey: "deepseek", GoogleClientID: "client", GoogleClientSecret: "secret", EncryptionKey: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="}
+	secrets := appTestSecrets("deepseek")
+	secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey = "client", "secret", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, Now: func() time.Time { return now }})
 	if err != nil {
@@ -124,7 +185,7 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 		}
 		return appJSON(200, `{"ok":true,"result":{}}`), nil
 	})}
-	app, err := NewApp(cfg, Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", DeepSeekAPIKey: "key"}, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", DeepSeekEndpoint: "https://deepseek.test/chat"})
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,13 +213,19 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 
 func appTestConfig(dataDir string) Config {
 	return Config{
-		Version: 1, DataDir: dataDir,
-		Server:    ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
-		Telegram:  TelegramConfig{OwnerID: 42},
-		Models:    ModelsConfig{Flash: ModelConfig{Adapter: "deepseek", ID: "flash"}, Pro: ModelConfig{Adapter: "deepseek", ID: "pro"}, Escalation: EscalationConfig{ToolSteps: 3, RecoverableFailures: 2}},
-		Runner:    RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
-		Scheduler: SchedulerConfig{HeartbeatCadence: Duration(30 * time.Minute), QuietHours: QuietHoursConfig{Start: "22:00", End: "07:00", Timezone: "UTC"}, MinimumProactiveInterval: Duration(time.Hour), WeeklyProactiveLimit: 3},
+		Version: 2, DataDir: dataDir,
+		Server:       ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
+		Telegram:     TelegramConfig{OwnerID: 42},
+		Agent:        AgentConfig{DefaultModel: "deepseek-pro"},
+		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
+		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"}},
+		Runner:       RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
+		Scheduler:    SchedulerConfig{HeartbeatCadence: Duration(30 * time.Minute), QuietHours: QuietHoursConfig{Start: "22:00", End: "07:00", Timezone: "UTC"}, MinimumProactiveInterval: Duration(time.Hour), WeeklyProactiveLimit: 3},
 	}
+}
+
+func appTestSecrets(providerKey string) Secrets {
+	return Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", ProviderAPIKeys: map[string]string{"deepseek": providerKey}}
 }
 
 type appRoundTrip func(*http.Request) (*http.Response, error)

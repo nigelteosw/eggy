@@ -99,12 +99,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		},
 		DataDir:  "/data",
 		Telegram: TelegramConfig{OwnerID: ownerID},
-		Models: ModelsConfig{
-			Flash:      ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-flash"},
-			Pro:        ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-pro"},
-			Escalation: EscalationConfig{ToolSteps: 4, RecoverableFailures: 2},
-		},
-		Agent: AgentConfig{DefaultModel: "deepseek-pro"},
+		Agent:    AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers: map[string]ProviderConfig{
 			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},
 		},

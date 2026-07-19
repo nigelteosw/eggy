@@ -1,0 +1,274 @@
+# Eggy roadmap
+
+This checklist captures the practical lessons Eggy can adopt from OpenClaw,
+Hermes Agent, NanoClaw, Codex, and Claude Code. It preserves Eggy's Go
+ports-and-adapters architecture, file-backed state, trusted-repository model,
+and independent approval gates.
+
+## P0: Separate assistant work from implementation
+
+- [ ] Define two non-sticky capability lanes:
+  - everyday assistant work;
+  - explicit repository implementation.
+- [ ] Treat natural-language requests to implement, fix, change, add, remove,
+      refactor, or otherwise modify a repository as implementation authority for
+      that turn only.
+- [ ] Keep explain, inspect, investigate, review, plan, and diagnose requests in
+      the everyday assistant lane unless the owner also explicitly asks for a
+      change.
+- [ ] Ask for confirmation when a request is genuinely ambiguous about whether
+      repository changes are wanted.
+- [ ] Never carry implementation authority into a later Telegram message or a
+      scheduled/heartbeat turn.
+- [ ] Do not add a sticky coding mode.
+- [ ] Make coding-agent tools unavailable to the model unless the current owner
+      message has explicit implementation authority.
+- [ ] Enforce the implementation-authority check in provider-neutral kernel
+      policy, not only in a model prompt or tool description.
+- [ ] Bind implementation authority to the current event/turn so it cannot be
+      replayed for a different instruction or repository.
+- [ ] Add end-to-end routing tests covering explicit, read-only, ambiguous, and
+      mixed requests such as:
+  - "Explain how webhook authentication works.";
+  - "Review this design and report problems.";
+  - "Diagnose the failing test.";
+  - "Diagnose the failing test and fix it.";
+  - "Implement the approved design.".
+
+## P0: Keep read-only repository work in the assistant lane
+
+- [ ] Stop `repository_inspect` from launching Codex.
+- [ ] Replace it with narrow provider-neutral repository read capabilities:
+  - list configured repositories;
+  - list a bounded directory tree;
+  - search file names and text;
+  - read bounded file ranges;
+  - inspect status, branches, and diffs without mutation;
+  - read safe GitHub repository, issue, pull-request, and check metadata.
+- [ ] Keep clone credentials and other secrets outside model-visible tool
+      arguments and results.
+- [ ] Enforce repository roots, path validation, output bounds, timeouts, and
+      sanitized environments for every read tool.
+- [ ] Ensure read-only repository work creates no branch, leaves no diff, and
+      cannot invoke dependency installation or arbitrary shell commands.
+- [ ] Require successful read-tool evidence before Eggy claims facts about a
+      repository's implementation.
+- [ ] Return a truthful capability/setup response when repository reading is not
+      configured or available.
+
+## P1: Support Codex and Claude Code as coding-agent adapters
+
+- [ ] Keep a small provider-neutral `CodingAgent` port in `internal/ports`.
+- [ ] Define a shared coding request contract containing:
+  - run ID and repository identity;
+  - isolated workspace path and base revision;
+  - exact owner instruction;
+  - repository guidance discovered from `AGENTS.md` or `CLAUDE.md`;
+  - timeout, output, environment, and sandbox limits.
+- [ ] Define normalized progress events for planning, command execution, file
+      changes, validation, retry, completion, failure, and interruption.
+- [ ] Define a structured final result containing summary, validation evidence,
+      changed files, proposed commit message, provider session ID, usage, and
+      safe diagnostics.
+- [ ] Add coding-agent capability discovery so bootstrap can report which
+      executable, protocol features, and output formats are actually available.
+- [ ] Support a global default coding agent and an optional per-repository
+      override.
+- [ ] Add deterministic `/coder` commands to show and select configured coding
+      adapters without activating an implementation run.
+- [ ] Never silently fail over from one coding agent to another mid-run.
+- [ ] Persist the selected adapter and provider session ID with the coding run so
+      follow-up work resumes the correct agent.
+- [ ] Normalize both adapters behind the same progress, cancellation, result,
+      cleanup, and error contracts.
+- [ ] Add shared adapter contract tests and fake-executable process tests.
+
+### Codex adapter
+
+- [ ] Continue using `codex exec --json` for machine-readable streaming.
+- [ ] Pass explicit workspace-write sandbox and approval settings rather than
+      deprecated convenience flags.
+- [ ] Add an output schema for the final coding result instead of parsing an
+      unconstrained final message.
+- [ ] Capture the Codex thread ID and support explicit follow-up continuation for
+      the same coding run.
+- [ ] Feature-detect supported Codex behavior where possible and fail readiness
+      clearly when the pinned CLI is incompatible.
+- [ ] Keep Codex authentication in the persisted Codex home and out of prompts,
+      logs, state snapshots, and repository subprocess environments.
+
+### Claude Code adapter
+
+- [ ] Add a Claude Code CLI adapter using non-interactive `claude --bare -p`.
+- [ ] Use `stream-json`, verbose events, and partial-message support for progress.
+- [ ] Use a JSON Schema for the final normalized result.
+- [ ] Pass an explicit tool allowlist and permission mode appropriate to the
+      isolated implementation workspace.
+- [ ] Provide required repository context explicitly because bare mode skips
+      ambient hooks, skills, plugins, MCP servers, auto-memory, and instruction
+      discovery.
+- [ ] Capture the Claude session ID and support explicit follow-up continuation
+      for the same coding run.
+- [ ] Treat streamed capability metadata as feature detection instead of relying
+      only on version-string comparisons.
+- [ ] Keep Claude authentication in a dedicated persisted credential directory
+      and out of prompts, logs, state snapshots, and repository subprocess
+      environments.
+
+## P1: Preserve host authority over coding and shipping
+
+- [ ] Keep workspace creation, repository cloning, branch creation, diff capture,
+      and cleanup under Eggy rather than the coding-agent adapter.
+- [ ] Treat coding-agent output as an untrusted proposal until Eggy independently
+      captures and validates the resulting checkout state.
+- [ ] Record the base commit before execution and the final commit/diff state
+      afterward.
+- [ ] Reject changed, incomplete, or truncated approval material.
+- [ ] Preserve separate, expiring, payload-bound approvals for commit, push, and
+      pull-request creation.
+- [ ] Revalidate local and remote heads immediately before protected side
+      effects.
+- [ ] Keep protected branches unpushable even with approval.
+- [ ] Never let Codex or Claude Code merge a pull request.
+- [ ] Represent privileged requests and results as structured kernel data rather
+      than natural-language messages.
+- [ ] Add tests proving neither coding adapter can bypass Eggy's shipping policy.
+
+## P2: Improve memory without turning it into a transcript dump
+
+- [ ] Set explicit injected-size budgets for `USER.md` and `MEMORY.md`.
+- [ ] Keep `USER.md` for stable owner preferences and communication style.
+- [ ] Keep `MEMORY.md` for compact durable facts, decisions, and reusable lessons.
+- [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and invisible
+      Unicode content before memory writes.
+- [ ] Return a clear capacity error when curated memory is full instead of
+      silently truncating or dropping stored content.
+- [ ] Let the agent consolidate or remove stale entries through the existing
+      controlled, atomic memory tools.
+- [ ] Design bounded, file-backed conversation search before adding it; do not
+      introduce a database solely for transcript recall.
+- [ ] Keep recalled conversation excerpts bounded, redacted, and marked as stale
+      historical context rather than current authority.
+
+## P2: Separate durable facts from reusable procedures
+
+- [ ] Define a lightweight, Markdown-based procedural-skill format without adding
+      an agent framework, plugin runtime, or arbitrary native extension system.
+- [ ] Load full skill instructions only when the current task matches; keep only
+      compact skill metadata in ordinary context.
+- [ ] Store repeated workflows and troubleshooting procedures in skills rather
+      than expanding `MEMORY.md`.
+- [ ] Let Eggy propose a skill after a successful complex workflow, a recovered
+      failure, or an owner correction.
+- [ ] Require explicit owner approval before Eggy creates, edits, or deletes a
+      procedural skill.
+- [ ] Validate skill names, paths, size, referenced files, and forbidden secret
+      content.
+- [ ] Keep installed skills inspectable and removable through deterministic
+      commands.
+
+## P2: Make context and capabilities inspectable
+
+- [ ] Add a deterministic `/capabilities` view showing:
+  - selected reasoning model;
+  - registered assistant tools;
+  - configured repositories;
+  - enabled integrations;
+  - Codex and Claude Code readiness;
+  - the active coding-agent selection.
+- [ ] Add a deterministic `/context` view showing:
+  - injected bytes or estimated tokens per context file;
+  - conversation summary and recent-history sizes;
+  - tool-definition/schema overhead;
+  - truncation or omitted-context markers;
+  - the current context limit and remaining budget when known.
+- [ ] Add safe `/runs` detail for coding-agent name, base revision, current phase,
+      provider session ID, elapsed time, and validation status.
+- [ ] Report loaded/missing capabilities from actual bootstrap state rather than
+      model assumptions.
+- [ ] Never expose credentials, raw environment contents, or credential paths in
+      these diagnostics.
+
+## P2: Tighten heartbeat and scheduled work
+
+- [ ] Give heartbeat turns a small heartbeat-specific context instead of the full
+      conversational history by default.
+- [ ] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
+      quiet hours, limits, and prohibited actions in deterministic policy.
+- [ ] Run heartbeat evaluation in an isolated conversation context so old chat
+      instructions are not accidentally revived.
+- [ ] Skip or defer heartbeats while an implementation run or another protected
+      workflow is busy.
+- [ ] Keep active-hour and timezone checks deterministic.
+- [ ] Ensure "nothing useful to report" produces no Telegram message.
+- [ ] Distinguish deterministic scheduled commands from scheduled agent turns.
+- [ ] Run deterministic reminders, watchdogs, and already-rendered notifications
+      without spending a model call.
+- [ ] Require scheduled agent prompts to be self-contained and start them without
+      ambient chat history.
+- [ ] Keep coding-agent activation unavailable to heartbeats and scheduled turns,
+      even when their text resembles an implementation request.
+
+## P3: Improve execution isolation and recovery
+
+- [ ] Preserve strict workspace roots, path validation, environment allowlists,
+      timeouts, output limits, process-group cancellation, and cleanup.
+- [ ] Evaluate container-per-implementation-run isolation as a future hardening
+      step while keeping the current trusted-repository assumption explicit.
+- [ ] If containers are added, use a non-root user, explicit mounts, dropped
+      capabilities, bounded resources, and an explicit network policy.
+- [ ] Keep credentials outside coding workspaces and forward only the minimum
+      required environment to each subprocess.
+- [ ] Persist enough run state to mark interrupted work accurately after restart.
+- [ ] Keep resumable coding-agent sessions distinct from automatic replay: never
+      resume an interrupted modifying run without a new owner instruction.
+- [ ] Save a bounded patch/diff artifact before workspace cleanup so rejected or
+      interrupted work can be inspected without retaining the entire checkout.
+- [ ] Add cleanup and retention diagnostics for abandoned workspaces and provider
+      sessions.
+
+## P3: Add checkpoints and rollback-friendly artifacts
+
+- [ ] Treat the immutable base commit as the pre-implementation checkpoint.
+- [ ] Capture a complete post-run diff and validation report before requesting
+      approval.
+- [ ] Let the owner discard an implementation run without affecting the source
+      repository.
+- [ ] Consider an explicit "retry from base" operation rather than continuing a
+      contaminated or partially failed workspace.
+- [ ] Keep rollback local to the isolated branch/workspace; never implement
+      rollback with destructive operations against the owner's checkout.
+
+## P3: Keep the extension model small
+
+- [ ] Retain bootstrap-only adapter registration and provider-neutral kernel/port
+      boundaries.
+- [ ] Avoid copying OpenClaw's broad plugin surface or Hermes's large built-in
+      tool registry into Eggy.
+- [ ] Prefer a small capability manifest and focused tools over exposing every
+      integration to every turn.
+- [ ] Keep channel-specific formatting, provider payloads, credentials, and CLI
+      protocols inside adapters.
+- [ ] Add new providers through compiled adapters and explicit configuration, not
+      runtime-loaded native plugins.
+
+## Acceptance checklist
+
+- [ ] Ordinary conversation never launches Codex or Claude Code.
+- [ ] Repository explanation, inspection, review, planning, and diagnosis remain
+      read-only unless the owner explicitly requests implementation.
+- [ ] An explicit implementation request launches exactly the configured coding
+      agent in an isolated workspace.
+- [ ] Ambiguous requests pause for clarification before any modifying workflow.
+- [ ] Coding-agent progress is streamed through normalized, provider-neutral
+      events.
+- [ ] Eggy independently captures the final diff and validation evidence.
+- [ ] Commit, push, pull-request creation, and Calendar mutations retain separate
+      approval checks.
+- [ ] Heartbeats and schedules cannot activate a coding agent.
+- [ ] Context, memory, skills, and capability diagnostics remain bounded and
+      secret-free.
+- [ ] Existing `/data/state.json` files remain compatible or receive an explicit,
+      tested schema migration.
+- [ ] `make fmt vet test race build` passes.
+- [ ] `make smoke` passes when Docker is available.

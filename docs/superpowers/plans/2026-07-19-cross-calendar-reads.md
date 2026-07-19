@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Calendar reads complete across every accessible calendar and every API result page.
+**Goal:** Make Calendar reads complete across every non-hidden calendar with event-read access and every API result page.
 
 **Architecture:** Add provider-neutral calendar discovery to the Calendar port, implement fully paginated Google CalendarList and Events reads, and aggregate readable calendars in the kernel service. Keep explicit single-calendar reads and all mutation approvals unchanged.
 
@@ -31,7 +31,7 @@
 
 - [ ] **Step 1: Write failing adapter tests**
 
-Add a transport-backed test where CalendarList and Events each return `nextPageToken`; assert hidden calendars are requested and every item is returned.
+Add a transport-backed test where CalendarList and Events each return `nextPageToken`; assert hidden calendars are excluded and every visible item is returned.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -41,7 +41,7 @@ Expected: compilation fails because `ListCalendars` does not exist.
 
 - [ ] **Step 3: Implement the minimal adapter behavior**
 
-Add `CalendarInfo` with ID, name, access role, primary, and hidden fields. Page through `GET /users/me/calendarList?showHidden=true`; page through event results with `pageToken`; close every response body before the next request.
+Add `CalendarInfo` with ID, name, access role, primary, and hidden fields. Page through `GET /users/me/calendarList?showHidden=false`; page through event results with `pageToken`; close every response body before the next request.
 
 - [ ] **Step 4: Run the focused adapter package**
 
@@ -88,7 +88,7 @@ Expected: PASS.
 - Modify: `config.example.yaml`
 
 **Interfaces:**
-- Documents: omitted `calendar_id` means all readable calendars; `default_calendar` remains the mutation default and explicit-read fallback configuration.
+- Documents: omitted `calendar_id` means all non-hidden readable calendars; `default_calendar` remains the mutation default.
 
 - [ ] **Step 1: Update operator documentation**
 

@@ -36,7 +36,7 @@ func currentTimeTool(now func() time.Time, location *time.Location, timezone str
 }
 
 func calendarTools(calendar *services.CalendarService, channel ports.Channel, owner, defaultCalendar string, now func() time.Time, location *time.Location, timezone string) []ports.Tool {
-	list := bootstrapTool{definition: toolDefinition("calendar_list", "List events across all readable calendars by default; set calendar_id only to limit the read to one calendar; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
+	list := bootstrapTool{definition: toolDefinition("calendar_list", "List events across all non-hidden readable calendars by default; set calendar_id only to limit the read to one calendar; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			CalendarID string `json:"calendar_id"`
@@ -70,7 +70,7 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 			Events     []ports.CalendarEvent `json:"events"`
 		}{CalendarID: resultCalendarID, From: from.Format(time.RFC3339), To: to.Format(time.RFC3339), Timezone: timezone, Events: events})
 	}
-	calendars := bootstrapTool{definition: toolDefinition("calendar_calendars", "List every calendar available to the authenticated user, including IDs, names, access roles, primary status, and hidden status", `{"type":"object","additionalProperties":false}`)}
+	calendars := bootstrapTool{definition: toolDefinition("calendar_calendars", "List every non-hidden calendar available to the authenticated user, including IDs, names, access roles, and primary status", `{"type":"object","additionalProperties":false}`)}
 	calendars.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		if err := strictToolDecode(raw, &struct{}{}); err != nil {
 			return nil, err

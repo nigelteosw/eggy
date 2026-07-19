@@ -44,6 +44,7 @@ func TestCalendarListAllMergesReadableCalendarsInStableOrder(t *testing.T) {
 			{ID: "primary", AccessRole: "owner"},
 			{ID: "team", AccessRole: "reader"},
 			{ID: "shared", AccessRole: "writerWithoutPrivateAccess"},
+			{ID: "hidden", AccessRole: "reader", Hidden: true},
 			{ID: "availability", AccessRole: "freeBusyReader"},
 			{ID: "revoked", AccessRole: "none"},
 		},
@@ -51,6 +52,7 @@ func TestCalendarListAllMergesReadableCalendarsInStableOrder(t *testing.T) {
 			"primary": {{ID: "later", Start: start.Add(12 * time.Hour)}},
 			"team":    {{ID: "earlier", Start: start.Add(10 * time.Hour)}},
 			"shared":  {{ID: "same-time", Start: start.Add(12 * time.Hour)}},
+			"hidden":  {{ID: "private", Start: start.Add(8 * time.Hour)}},
 		},
 	}
 	service := NewCalendarService(provider, nil, nil)
@@ -67,8 +69,11 @@ func TestCalendarListAllMergesReadableCalendarsInStableOrder(t *testing.T) {
 	}
 }
 
-func TestCalendarCalendarsReturnsProviderMetadata(t *testing.T) {
-	provider := &fakeCalendar{calendars: []ports.CalendarInfo{{ID: "primary", Name: "Personal", AccessRole: "owner", Primary: true}}}
+func TestCalendarCalendarsReturnsOnlyVisibleProviderMetadata(t *testing.T) {
+	provider := &fakeCalendar{calendars: []ports.CalendarInfo{
+		{ID: "primary", Name: "Personal", AccessRole: "owner", Primary: true},
+		{ID: "hidden", Name: "Hidden", AccessRole: "reader", Hidden: true},
+	}}
 	service := NewCalendarService(provider, nil, nil)
 
 	calendars, err := service.Calendars(context.Background())

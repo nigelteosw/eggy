@@ -30,11 +30,21 @@ func (s *CalendarService) List(ctx context.Context, calendar string, start, end 
 }
 
 func (s *CalendarService) Calendars(ctx context.Context) ([]ports.CalendarInfo, error) {
-	return s.provider.ListCalendars(ctx)
+	calendars, err := s.provider.ListCalendars(ctx)
+	if err != nil {
+		return nil, err
+	}
+	visible := make([]ports.CalendarInfo, 0, len(calendars))
+	for _, calendar := range calendars {
+		if !calendar.Hidden {
+			visible = append(visible, calendar)
+		}
+	}
+	return visible, nil
 }
 
 func (s *CalendarService) ListAll(ctx context.Context, start, end time.Time) ([]ports.CalendarEvent, error) {
-	calendars, err := s.provider.ListCalendars(ctx)
+	calendars, err := s.Calendars(ctx)
 	if err != nil {
 		return nil, err
 	}

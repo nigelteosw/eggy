@@ -109,7 +109,7 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 	}
 }
 
-func TestAdapterListsAllCalendarsAndEventPages(t *testing.T) {
+func TestAdapterListsVisibleCalendarsAndAllEventPages(t *testing.T) {
 	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
 	encrypted, _ := cipher.EncryptToken("stored-refresh")
 	store := &calendarStateStore{state: ports.State{SchemaVersion: 1, Calendar: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}}
@@ -121,7 +121,7 @@ func TestAdapterListsAllCalendarsAndEventPages(t *testing.T) {
 		case "/calendar/v3/users/me/calendarList":
 			calendarQueries = append(calendarQueries, request.URL.Query())
 			if request.URL.Query().Get("pageToken") == "calendar-page-2" {
-				return calendarJSON(http.StatusOK, `{"items":[{"id":"team","summary":"Team","accessRole":"reader","hidden":true}]}`), nil
+				return calendarJSON(http.StatusOK, `{"items":[{"id":"team","summary":"Team","accessRole":"reader"}]}`), nil
 			}
 			return calendarJSON(http.StatusOK, `{"nextPageToken":"calendar-page-2","items":[{"id":"primary","summary":"Personal","accessRole":"owner","primary":true}]}`), nil
 		case "/calendar/v3/calendars/primary/events":
@@ -140,10 +140,10 @@ func TestAdapterListsAllCalendarsAndEventPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(calendars) != 2 || calendars[0].ID != "primary" || !calendars[0].Primary || calendars[1].ID != "team" || !calendars[1].Hidden {
+	if len(calendars) != 2 || calendars[0].ID != "primary" || !calendars[0].Primary || calendars[1].ID != "team" || calendars[1].Hidden {
 		t.Fatalf("calendars=%#v", calendars)
 	}
-	if len(calendarQueries) != 2 || calendarQueries[0].Get("showHidden") != "true" || calendarQueries[1].Get("pageToken") != "calendar-page-2" {
+	if len(calendarQueries) != 2 || calendarQueries[0].Get("showHidden") != "false" || calendarQueries[1].Get("pageToken") != "calendar-page-2" {
 		t.Fatalf("calendar queries=%v", calendarQueries)
 	}
 

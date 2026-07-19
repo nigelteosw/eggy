@@ -110,7 +110,8 @@ func TestCalendarCalendarsListsAccessibleCalendarMetadata(t *testing.T) {
 	location := time.UTC
 	provider := &recordingCalendarProvider{calendars: []ports.CalendarInfo{
 		{ID: "primary", Name: "Personal", AccessRole: "owner", Primary: true},
-		{ID: "team", Name: "Team", AccessRole: "reader", Hidden: true},
+		{ID: "team", Name: "Team", AccessRole: "reader"},
+		{ID: "hidden", Name: "Hidden", AccessRole: "reader", Hidden: true},
 	}}
 	calendar := services.NewCalendarService(provider, nil, nil)
 	tools := calendarTools(calendar, noopChannel{}, "42", "primary", time.Now, location, "UTC")
@@ -132,7 +133,7 @@ func TestCalendarCalendarsListsAccessibleCalendarMetadata(t *testing.T) {
 	if err := json.Unmarshal(result, &calendars); err != nil {
 		t.Fatal(err)
 	}
-	if len(calendars) != 2 || calendars[0].Name != "Personal" || calendars[1].ID != "team" || !calendars[1].Hidden {
+	if len(calendars) != 2 || calendars[0].Name != "Personal" || calendars[1].ID != "team" || calendars[1].Hidden {
 		t.Fatalf("calendars=%s", result)
 	}
 	if !strings.Contains(string(result), `"hidden":false`) || !strings.Contains(string(result), `"primary":false`) {

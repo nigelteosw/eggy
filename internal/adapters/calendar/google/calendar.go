@@ -134,7 +134,7 @@ func (a *Adapter) ListCalendars(ctx context.Context) ([]ports.CalendarInfo, erro
 	calendars := make([]ports.CalendarInfo, 0)
 	pageToken := ""
 	for {
-		query := url.Values{"maxResults": {"250"}, "showHidden": {"true"}}
+		query := url.Values{"maxResults": {"250"}, "showHidden": {"false"}}
 		if pageToken != "" {
 			query.Set("pageToken", pageToken)
 		}

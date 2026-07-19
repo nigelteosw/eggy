@@ -112,7 +112,7 @@ Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY`, deplo
 
 Open the short-lived, single-use enrollment URL Eggy returns. The bare `/auth/google` endpoint intentionally refuses unauthenticated enrollment attempts.
 
-Calendar reads run automatically. Eggy can list the IDs, names, access roles, primary status, and hidden status of calendars available to the authenticated user. A general Calendar question discovers every calendar in that Calendar list, including hidden entries, and merges events from every calendar with event-read access. Reads can still target one calendar by ID. Calendar and event result pages are followed completely; calendars that expose only free/busy information are not presented as detailed event sources.
+Calendar reads run automatically. Eggy can list the IDs, names, access roles, and primary status of non-hidden calendars available to the authenticated user. A general Calendar question merges events from every non-hidden calendar with event-read access, not only the primary calendar. Reads can still target one calendar by ID. Calendar and event result pages are followed completely; hidden calendars and calendars that expose only free/busy information are not presented as detailed event sources.
 
 Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
 

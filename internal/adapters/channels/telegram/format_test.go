@@ -58,6 +58,39 @@ func TestToTelegramHTMLConvertsLink(t *testing.T) {
 	}
 }
 
+func TestToTelegramHTMLConvertsHeadingToBold(t *testing.T) {
+	got := toTelegramHTML("### Mon July 20")
+	want := "<b>Mon July 20</b>"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestToTelegramHTMLRemovesHorizontalRule(t *testing.T) {
+	got := toTelegramHTML("before\n---\nafter")
+	want := "before\nafter"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestToTelegramHTMLRendersPipeTableAsPreformattedBlock(t *testing.T) {
+	got := toTelegramHTML("| Event | Time |\n|-------|------|\n| Standup | 9 AM |")
+	want := "<pre>| Event | Time |\n| Standup | 9 AM |</pre>"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestToTelegramHTMLHandlesCalendarStyleMessage(t *testing.T) {
+	input := "### \U0001F4C5 Mon July 20\n| Event | Time | Calendar |\n|-------|------|----------|\n| Standup | 8:30 PM – 10:00 PM | Work |\n\n---\n\n### \U0001F4C5 Tue July 21\nNothing scheduled."
+	got := toTelegramHTML(input)
+	want := "<b>\U0001F4C5 Mon July 20</b>\n<pre>| Event | Time | Calendar |\n| Standup | 8:30 PM – 10:00 PM | Work |</pre>\n\n<b>\U0001F4C5 Tue July 21</b>\nNothing scheduled."
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
 func TestToTelegramHTMLHandlesMixedContent(t *testing.T) {
 	got := toTelegramHTML("Status: **ok** — see `README.md` at 5 < 10")
 	want := "Status: <b>ok</b> — see <code>README.md</code> at 5 &lt; 10"

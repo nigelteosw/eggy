@@ -31,6 +31,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -258,7 +259,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, 8)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify"}, 8)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -383,7 +384,9 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 	}
 	history = append(history, state.RecentMessages...)
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
-	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, agent.RunOptions{})
+	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, agent.RunOptions{
+		Lane: lane.Detect(message.Text),
+	})
 	stopTyping()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {

@@ -16,14 +16,18 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOrCreateConfig() error = %v", err)
 	}
-	if cfg.Version != 1 || cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
+	if cfg.Version != 2 || cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
 		t.Fatalf("generated config = %#v", cfg)
 	}
 	if cfg.DataDir != "/data" || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || cfg.Calendar.Enabled || len(cfg.Repositories) != 0 {
 		t.Fatalf("unsafe generated defaults = %#v", cfg)
 	}
-	if cfg.Models.Flash != (ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-flash"}) || cfg.Models.Pro != (ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-pro"}) {
-		t.Fatalf("generated models = %#v", cfg.Models)
+	provider, model, err := cfg.ActiveModel("deepseek-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.DefaultModel != "deepseek-pro" || provider.APIKeyEnv != "DEEPSEEK_API_KEY" || model.Model != "deepseek-v4-pro" {
+		t.Fatalf("generated models = %#v %#v", provider, model)
 	}
 	info, err := os.Stat(path)
 	if err != nil {

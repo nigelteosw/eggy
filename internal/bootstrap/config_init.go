@@ -91,7 +91,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		publicBaseURL = "https://" + domain
 	}
 	cfg := Config{
-		Version: 1,
+		Version: 2,
 		Server: ServerConfig{
 			Listen:              ":8080",
 			PublicBaseURL:       publicBaseURL,
@@ -103,6 +103,13 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			Flash:      ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-flash"},
 			Pro:        ModelConfig{Adapter: "deepseek", ID: "deepseek-v4-pro"},
 			Escalation: EscalationConfig{ToolSteps: 4, RecoverableFailures: 2},
+		},
+		Agent: AgentConfig{DefaultModel: "deepseek-pro"},
+		Providers: map[string]ProviderConfig{
+			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},
+		},
+		ModelAliases: map[string]ModelAliasConfig{
+			"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"},
 		},
 		Repositories: []RepositoryConfig{},
 		Runner: RunnerConfig{

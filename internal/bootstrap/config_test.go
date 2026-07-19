@@ -14,7 +14,7 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if cfg.Telegram.OwnerID != 123456789 || cfg.Models.Flash.ID != "deepseek-v4-flash" {
+	if cfg.Telegram.OwnerID != 123456789 || cfg.Agent.DefaultModel != "deepseek-pro" {
 		t.Fatalf("unexpected config: %#v", cfg)
 	}
 	if cfg.Runner.Timeout.Value() != 45*time.Minute || cfg.Server.Listen != ":8080" {
@@ -23,6 +23,69 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	if secrets.DeepSeekAPIKey != env["DEEPSEEK_API_KEY"] {
 		t.Fatal("DeepSeek secret was not loaded")
 	}
+	if secrets.ProviderAPIKeys["deepseek"] != env["DEEPSEEK_API_KEY"] {
+		t.Fatal("provider secret was not loaded")
+	}
+}
+
+func TestLoadConfigVersion2(t *testing.T) {
+	cfg, secrets, err := loadText(t, validConfigV2(), testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, model, err := cfg.ActiveModel("deepseek-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Version != 2 || cfg.Agent.DefaultModel != "deepseek-pro" || provider.Adapter != "openai_compatible" || provider.BaseURL != "https://api.deepseek.com" || model.Model != "deepseek-v4-pro" {
+		t.Fatalf("normalized config = %#v provider=%#v model=%#v", cfg, provider, model)
+	}
+	if secrets.ProviderAPIKeys["deepseek"] != "deepseek-key" {
+		t.Fatalf("provider secrets = %#v", secrets.ProviderAPIKeys)
+	}
+}
+
+func TestLoadConfigVersion1Compatibility(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig(), testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, model, err := cfg.ActiveModel("deepseek-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.DefaultModel != "deepseek-pro" || provider.APIKeyEnv != "DEEPSEEK_API_KEY" || model.Model != "pro" {
+		t.Fatalf("v1 normalization = %#v provider=%#v model=%#v", cfg, provider, model)
+	}
+}
+
+func TestVersion2ProviderValidation(t *testing.T) {
+	tests := []struct {
+		name, old, replacement, want string
+	}{
+		{"adapter", "adapter: openai_compatible", "adapter: native", "unsupported provider adapter"},
+		{"base URL", "base_url: https://api.deepseek.com", "base_url: ftp://bad", "base_url"},
+		{"key env", "api_key_env: DEEPSEEK_API_KEY", "api_key_env: bad-key", "api_key_env"},
+		{"missing provider", "provider: deepseek", "provider: missing", "unknown provider"},
+		{"missing default", "default_model: deepseek-pro", "default_model: missing", "agent.default_model"},
+		{"empty model", "model: deepseek-v4-pro", "model: ''", "model is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := loadText(t, strings.Replace(validConfigV2(), tt.old, tt.replacement, 1), testSecrets())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want containing %q", err, tt.want)
+			}
+		})
+	}
+	t.Run("missing provider credential", func(t *testing.T) {
+		env := testSecrets()
+		delete(env, "DEEPSEEK_API_KEY")
+		_, _, err := loadText(t, validConfigV2(), env)
+		if err == nil || !strings.Contains(err.Error(), "DEEPSEEK_API_KEY") {
+			t.Fatalf("error=%v", err)
+		}
+	})
 }
 
 func TestLoadConfigUsesValidatedRuntimePort(t *testing.T) {
@@ -210,6 +273,32 @@ calendar:
   default_calendar: primary
   timezone: UTC
 `
+}
+
+func validConfigV2() string {
+	body := strings.Replace(validConfig(), "version: 1", "version: 2", 1)
+	legacyModels := `models:
+  flash:
+    adapter: deepseek
+    id: flash
+  pro:
+    adapter: deepseek
+    id: pro
+  escalation:
+    tool_steps: 4
+    recoverable_failures: 2`
+	v2Models := `agent:
+  default_model: deepseek-pro
+providers:
+  deepseek:
+    adapter: openai_compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+models:
+  deepseek-pro:
+    provider: deepseek
+    model: deepseek-v4-pro`
+	return strings.Replace(body, legacyModels, v2Models, 1)
 }
 
 func TestConfigRejectsUnsupportedModelAdapter(t *testing.T) {

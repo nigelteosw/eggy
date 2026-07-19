@@ -1,4 +1,4 @@
-version: 1
+version: 2
 server:
   listen: ":8080"
   public_base_url: "https://eggy.example.com"
@@ -6,16 +6,17 @@ server:
 data_dir: "/data"
 telegram:
   owner_id: 123456789
+agent:
+  default_model: "deepseek-pro"
+providers:
+  deepseek:
+    adapter: "openai_compatible"
+    base_url: "https://api.deepseek.com"
+    api_key_env: "DEEPSEEK_API_KEY"
 models:
-  flash:
-    adapter: "deepseek"
-    id: "deepseek-v4-flash"
-  pro:
-    adapter: "deepseek"
-    id: "deepseek-v4-pro"
-  escalation:
-    tool_steps: 4
-    recoverable_failures: 2
+  deepseek-pro:
+    provider: "deepseek"
+    model: "deepseek-v4-pro"
 repositories:
   - name: "eggy"
     clone_url: "https://github.com/nigelteosw/eggy.git"

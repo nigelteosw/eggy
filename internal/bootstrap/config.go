@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
@@ -29,15 +30,33 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 
 type Config struct {
-	Version      int                `yaml:"version"`
-	Server       ServerConfig       `yaml:"server"`
-	DataDir      string             `yaml:"data_dir"`
-	Telegram     TelegramConfig     `yaml:"telegram"`
-	Models       ModelsConfig       `yaml:"models"`
-	Repositories []RepositoryConfig `yaml:"repositories"`
-	Runner       RunnerConfig       `yaml:"runner"`
-	Scheduler    SchedulerConfig    `yaml:"scheduler"`
-	Calendar     CalendarConfig     `yaml:"calendar"`
+	Version      int                         `yaml:"version"`
+	Server       ServerConfig                `yaml:"server"`
+	DataDir      string                      `yaml:"data_dir"`
+	Telegram     TelegramConfig              `yaml:"telegram"`
+	Models       ModelsConfig                `yaml:"-"`
+	Agent        AgentConfig                 `yaml:"-"`
+	Providers    map[string]ProviderConfig   `yaml:"-"`
+	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
+	Repositories []RepositoryConfig          `yaml:"repositories"`
+	Runner       RunnerConfig                `yaml:"runner"`
+	Scheduler    SchedulerConfig             `yaml:"scheduler"`
+	Calendar     CalendarConfig              `yaml:"calendar"`
+}
+
+type AgentConfig struct {
+	DefaultModel string `yaml:"default_model"`
+}
+
+type ProviderConfig struct {
+	Adapter   string `yaml:"adapter"`
+	BaseURL   string `yaml:"base_url"`
+	APIKeyEnv string `yaml:"api_key_env"`
+}
+
+type ModelAliasConfig struct {
+	Provider string `yaml:"provider"`
+	Model    string `yaml:"model"`
 }
 
 type ServerConfig struct {
@@ -104,23 +123,64 @@ type Secrets struct {
 	TelegramBotToken      string
 	TelegramWebhookSecret string
 	DeepSeekAPIKey        string
+	ProviderAPIKeys       map[string]string
 	GitHubToken           string
 	GoogleClientID        string
 	GoogleClientSecret    string
 	EncryptionKey         string
 }
 
+type commonConfigDocument struct {
+	Server       ServerConfig       `yaml:"server"`
+	DataDir      string             `yaml:"data_dir"`
+	Telegram     TelegramConfig     `yaml:"telegram"`
+	Repositories []RepositoryConfig `yaml:"repositories"`
+	Runner       RunnerConfig       `yaml:"runner"`
+	Scheduler    SchedulerConfig    `yaml:"scheduler"`
+	Calendar     CalendarConfig     `yaml:"calendar"`
+}
+
+type legacyConfigDocument struct {
+	Version              int          `yaml:"version"`
+	Models               ModelsConfig `yaml:"models"`
+	commonConfigDocument `yaml:",inline"`
+}
+
+type configV2Document struct {
+	Version              int                         `yaml:"version"`
+	Agent                AgentConfig                 `yaml:"agent"`
+	Providers            map[string]ProviderConfig   `yaml:"providers"`
+	Models               map[string]ModelAliasConfig `yaml:"models"`
+	commonConfigDocument `yaml:",inline"`
+}
+
 func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error) {
 	var cfg Config
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return cfg, Secrets{}, fmt.Errorf("open config: %w", err)
 	}
-	defer f.Close()
-	decoder := yaml.NewDecoder(f)
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&cfg); err != nil {
+	var header struct {
+		Version int `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &header); err != nil {
 		return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
+	}
+	switch header.Version {
+	case 1:
+		var document legacyConfigDocument
+		if err := decodeKnownYAML(data, &document); err != nil {
+			return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
+		}
+		cfg = normalizeLegacyConfig(document)
+	case 2:
+		var document configV2Document
+		if err := decodeKnownYAML(data, &document); err != nil {
+			return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
+		}
+		cfg = normalizeV2Config(document)
+	default:
+		return cfg, Secrets{}, fmt.Errorf("version must be 1 or 2")
 	}
 	if err := cfg.applyDefaults(); err != nil {
 		return cfg, Secrets{}, err
@@ -135,12 +195,57 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
 		DeepSeekAPIKey: getenv("DEEPSEEK_API_KEY"), GitHubToken: getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey: getenv("EGGY_ENCRYPTION_KEY"),
+		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
+		ProviderAPIKeys: map[string]string{},
+	}
+	for name, provider := range cfg.Providers {
+		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
 	}
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return cfg, Secrets{}, err
 	}
 	return cfg, secrets, nil
+}
+
+func decodeKnownYAML(data []byte, destination any) error {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	return decoder.Decode(destination)
+}
+
+func normalizeLegacyConfig(document legacyConfigDocument) Config {
+	common := document.commonConfigDocument
+	return Config{
+		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
+		Models: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
+		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
+		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: document.Models.Pro.ID}},
+		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
+	}
+}
+
+func normalizeV2Config(document configV2Document) Config {
+	common := document.commonConfigDocument
+	legacy := ModelsConfig{Pro: ModelConfig{Adapter: "deepseek"}}
+	if model, ok := document.Models[document.Agent.DefaultModel]; ok {
+		legacy.Pro.ID = model.Model
+	}
+	return Config{
+		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
+		Models: legacy, Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
+		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
+	}
+}
+
+func (c Config) commonDocument() commonConfigDocument {
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, Scheduler: c.Scheduler, Calendar: c.Calendar}
+}
+
+func (c Config) MarshalYAML() (any, error) {
+	if c.Version == 2 {
+		return configV2Document{Version: 2, Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
+	}
+	return legacyConfigDocument{Version: c.Version, Models: c.Models, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -187,11 +292,15 @@ func (c *Config) applyDefaults() error {
 	return nil
 }
 
-var branchPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+var (
+	branchPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
+	configuredNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	environmentNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+)
 
 func (c Config) Validate() error {
-	if c.Version != 1 {
-		return fmt.Errorf("version must be 1")
+	if c.Version != 1 && c.Version != 2 {
+		return fmt.Errorf("version must be 1 or 2")
 	}
 	if c.Telegram.OwnerID <= 0 {
 		return errors.New("telegram.owner_id must be positive")
@@ -203,14 +312,18 @@ func (c Config) Validate() error {
 	if !strings.HasPrefix(c.Server.TelegramWebhookPath, "/") {
 		return errors.New("server.telegram_webhook_path must begin with /")
 	}
-	if c.Models.Flash.ID == "" {
-		return errors.New("models.flash.id is required")
-	}
-	if c.Models.Pro.ID == "" {
-		return errors.New("models.pro.id is required")
-	}
-	if c.Models.Flash.Adapter != "deepseek" || c.Models.Pro.Adapter != "deepseek" {
-		return errors.New("unsupported model adapter: models.flash.adapter and models.pro.adapter must be deepseek")
+	if c.Version == 1 {
+		if c.Models.Flash.ID == "" {
+			return errors.New("models.flash.id is required")
+		}
+		if c.Models.Pro.ID == "" {
+			return errors.New("models.pro.id is required")
+		}
+		if c.Models.Flash.Adapter != "deepseek" || c.Models.Pro.Adapter != "deepseek" {
+			return errors.New("unsupported model adapter: models.flash.adapter and models.pro.adapter must be deepseek")
+		}
+	} else if err := c.validateProviders(); err != nil {
+		return err
 	}
 	if c.Runner.Timeout.Value() <= 0 {
 		return errors.New("runner.timeout must be positive")
@@ -245,9 +358,69 @@ func (c Config) Validate() error {
 	return nil
 }
 
+func (c Config) validateProviders() error {
+	if !configuredNamePattern.MatchString(c.Agent.DefaultModel) {
+		return errors.New("agent.default_model must name a configured model alias")
+	}
+	for name, provider := range c.Providers {
+		if !configuredNamePattern.MatchString(name) {
+			return fmt.Errorf("invalid provider name %q", name)
+		}
+		if provider.Adapter != "openai_compatible" {
+			return fmt.Errorf("unsupported provider adapter %q", provider.Adapter)
+		}
+		u, err := url.Parse(provider.BaseURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return fmt.Errorf("provider %q base_url must be an HTTP(S) URL", name)
+		}
+		if !environmentNamePattern.MatchString(provider.APIKeyEnv) {
+			return fmt.Errorf("provider %q api_key_env is invalid", name)
+		}
+	}
+	for alias, model := range c.ModelAliases {
+		if !configuredNamePattern.MatchString(alias) {
+			return fmt.Errorf("invalid model alias %q", alias)
+		}
+		if strings.TrimSpace(model.Model) == "" {
+			return fmt.Errorf("model alias %q model is required", alias)
+		}
+		if _, ok := c.Providers[model.Provider]; !ok {
+			return fmt.Errorf("model alias %q references unknown provider %q", alias, model.Provider)
+		}
+	}
+	if _, ok := c.ModelAliases[c.Agent.DefaultModel]; !ok {
+		return fmt.Errorf("agent.default_model %q is not configured", c.Agent.DefaultModel)
+	}
+	return nil
+}
+
+func (c Config) ActiveModel(alias string) (ProviderConfig, ModelAliasConfig, error) {
+	model, ok := c.ModelAliases[alias]
+	if !ok {
+		return ProviderConfig{}, ModelAliasConfig{}, fmt.Errorf("model alias %q is not configured", alias)
+	}
+	provider, ok := c.Providers[model.Provider]
+	if !ok {
+		return ProviderConfig{}, ModelAliasConfig{}, fmt.Errorf("model alias %q references unknown provider %q", alias, model.Provider)
+	}
+	return provider, model, nil
+}
+
 func (c Config) validateSecrets(s Secrets) error {
 	required := []struct{ name, value string }{
-		{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken}, {"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret}, {"DEEPSEEK_API_KEY", s.DeepSeekAPIKey},
+		{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken}, {"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret},
+	}
+	if c.Version == 1 {
+		required = append(required, struct{ name, value string }{"DEEPSEEK_API_KEY", s.DeepSeekAPIKey})
+	} else {
+		usedProviders := map[string]bool{}
+		for _, model := range c.ModelAliases {
+			usedProviders[model.Provider] = true
+		}
+		for providerName := range usedProviders {
+			provider := c.Providers[providerName]
+			required = append(required, struct{ name, value string }{provider.APIKeyEnv, s.ProviderAPIKeys[providerName]})
+		}
 	}
 	if len(c.Repositories) > 0 {
 		required = append(required, struct{ name, value string }{"GITHUB_TOKEN", s.GitHubToken})

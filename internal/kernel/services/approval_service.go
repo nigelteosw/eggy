@@ -15,18 +15,13 @@ import (
 )
 
 type ApprovalService struct {
-	store     ports.StateStore
-	now       func() time.Time
-	ttl       time.Duration
-	protected map[string]bool
+	store ports.StateStore
+	now   func() time.Time
+	ttl   time.Duration
 }
 
-func NewApprovalService(store ports.StateStore, now func() time.Time, ttl time.Duration, protectedBranches []string) *ApprovalService {
-	protected := make(map[string]bool, len(protectedBranches))
-	for _, branch := range protectedBranches {
-		protected[branch] = true
-	}
-	return &ApprovalService{store: store, now: now, ttl: ttl, protected: protected}
+func NewApprovalService(store ports.StateStore, now func() time.Time, ttl time.Duration) *ApprovalService {
+	return &ApprovalService{store: store, now: now, ttl: ttl}
 }
 
 func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
@@ -82,7 +77,11 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) 
 
 func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action, payload any, approvalID string) error {
 	if action == approvals.Push {
-		if branch := payloadBranch(payload); branch != "" && s.protected[branch] {
+		state, err := s.store.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if branch := payloadBranch(payload); branch != "" && isProtectedBranch(state.Repositories, branch) {
 			return approvals.ErrProtectedBranch
 		}
 	}
@@ -143,6 +142,17 @@ func payloadBranch(payload any) string {
 		return ""
 	}
 	return value.Branch
+}
+
+func isProtectedBranch(repositories map[string]ports.Repository, branch string) bool {
+	for _, repository := range repositories {
+		for _, protected := range repository.ProtectedBranches {
+			if protected == branch {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func randomID() string {

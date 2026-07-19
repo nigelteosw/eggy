@@ -15,7 +15,8 @@ import (
 func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 19, 1, 0, 0, 0, time.UTC)
 	store := newMemoryStateStore()
-	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute, []string{"main"})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main"}}}
+	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute)
 	approval, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-1", "diff": "abc"}, "Commit abc")
 	if err != nil {
 		t.Fatal(err)
@@ -44,7 +45,8 @@ func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 
 func TestApprovalRejectsChangedPayloadAndProtectedPush(t *testing.T) {
 	store := newMemoryStateStore()
-	service := services.NewApprovalService(store, time.Now, time.Hour, []string{"main", "production"})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main", "production"}}}
+	service := services.NewApprovalService(store, time.Now, time.Hour)
 	approval, _ := service.Request(context.Background(), approvalspkg.Push, map[string]any{"branch": "feature", "commit": "abc"}, "Push feature")
 	_ = service.Decide(context.Background(), approval.ID, true)
 	if err := service.Authorize(context.Background(), approvalspkg.Push, map[string]any{"branch": "feature", "commit": "changed"}, approval.ID); !errors.Is(err, approvalspkg.ErrPayloadChanged) {

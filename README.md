@@ -100,7 +100,7 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/coding_agent`, `/coding_agent <alias>`, `/coding_agent default`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/coding_agent`, `/coding_agent <alias>`, `/coding_agent default`, `/config get <coding|providers|models>`, `/config set coding_agent <alias> <adapter> [credential_env]`, `/config set provider <name> <adapter> <base_url> <api_key_env>`, `/config set model <alias> <provider> <model_id>`, `/usage`, and `/usage reset`. Natural language remains the main interface.
 
 `/status` is a deterministic local read and consumes no model tokens. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
 
@@ -144,11 +144,11 @@ codex login --device-auth
 
 Complete the device authorization in a browser. The Railway Volume preserves Codex-managed authentication across container replacement. Do not copy Codex credentials into `.env` or `state.json`.
 
-To enable Claude Code instead of, or alongside, Codex, add a `claude` alias under `coding.agents` in the persisted `/data/config.yaml` with `credential_env: CLAUDE_CODE_OAUTH_TOKEN`, then generate a token locally with `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` as a Railway service variable — never in `config.yaml`. The token is valid for one year; renew it before expiry by running `claude setup-token` again and updating the Railway variable. Set `coding.default_agent` to `claude` to make it the default, or switch at runtime with `/coding_agent claude`.
+To enable Claude Code instead of, or alongside, Codex, generate a token locally with `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` as a Railway service variable — never in `config.yaml`. Then register the alias with the owner-only Telegram command `/config set coding_agent claude claude_cli CLAUDE_CODE_OAUTH_TOKEN` (or run `eggy config set coding_agent claude claude_cli CLAUDE_CODE_OAUTH_TOKEN` from a checkout with `-config` pointed at the same `config.yaml`) — no SSH session required. Restart the service for the new alias to take effect. The token is valid for one year; renew it before expiry by running `claude setup-token` again and updating the Railway variable. Set `coding.default_agent` to `claude` to make it the default, or switch at runtime with `/coding_agent claude`.
 
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
 
-`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, edit the persisted YAML to change providers, aliases, repositories, or branches, then redeploy. API keys remain Railway variables and must not be copied into that file.
+`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, use `/config set coding_agent`, `/config set provider`, or `/config set model` to register new entries in those sections, then restart. Other fields — branches, calendar settings, server URLs — still require editing the persisted YAML directly. API keys remain Railway variables and must not be copied into that file.
 
 `EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 

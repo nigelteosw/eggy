@@ -41,7 +41,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1"})
+	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: *configPath})
 	if err != nil {
 		return err
 	}

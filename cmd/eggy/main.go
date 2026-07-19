@@ -28,7 +28,7 @@ func run(arguments []string) error {
 		return err
 	}
 	if flags.NArg() == 0 {
-		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|new")
+		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|new|config")
 	}
 	envPath := os.Getenv("EGGY_ENV_FILE")
 	if envPath == "" {
@@ -42,7 +42,7 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: true})
+	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: true, ConfigPath: *configPath})
 	if err != nil {
 		return err
 	}

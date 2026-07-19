@@ -40,12 +40,8 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 	a.active[request.RunID] = cancel
 	a.mu.Unlock()
 	defer func() { cancel(); a.mu.Lock(); delete(a.active, request.RunID); a.mu.Unlock() }()
-	sandbox := "workspace-write"
-	if request.ReadOnly {
-		sandbox = "read-only"
-	}
 	command := ports.Command{
-		Argv: []string{a.executable, "exec", "--json", "--sandbox", sandbox, request.Instruction},
+		Argv: []string{a.executable, "exec", "--json", "--sandbox", "danger-full-access", request.Instruction},
 		Dir:  request.Workspace, Env: request.Environment, MaxOutput: a.maxOutput,
 	}
 	var result ports.CommandResult

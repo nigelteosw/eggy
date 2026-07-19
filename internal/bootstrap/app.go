@@ -73,6 +73,8 @@ type App struct {
 	workers      sync.WaitGroup
 	readyLog     sync.Once
 	logger       *slog.Logger
+	timezone     string
+	location     *time.Location
 }
 
 func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
@@ -108,6 +110,14 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
+	timezone := strings.TrimSpace(config.Calendar.Timezone)
+	if timezone == "" {
+		timezone = config.Scheduler.QuietHours.Timezone
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, fmt.Errorf("load owner timezone: %w", err)
+	}
 	if err := os.MkdirAll(config.DataDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -116,7 +126,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	stateStore := jsonfile.Open(filepath.Join(config.DataDir, "state.json"))
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
-	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), repositories: map[string]ports.Repository{}, now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger}
+	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), repositories: map[string]ports.Repository{}, now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
 	for _, configured := range config.Repositories {
 		app.repositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
 	}
@@ -230,11 +240,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		toolNames = append(toolNames, tool.Definition().Name)
 	}
 	app.manifest = agent.CapabilityManifest{Repositories: repositoryNames, Tools: toolNames, CodexReady: len(app.repositories) > 0, CalendarEnabled: config.Calendar.Enabled}
-	location, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
+	schedulerLocation, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load scheduler timezone: %w", err)
 	}
-	app.heartbeat, err = services.NewHeartbeatPolicy(config.Scheduler.QuietHours.Start, config.Scheduler.QuietHours.End, location, config.Scheduler.MinimumProactiveInterval.Value(), config.Scheduler.WeeklyProactiveLimit)
+	app.heartbeat, err = services.NewHeartbeatPolicy(config.Scheduler.QuietHours.Start, config.Scheduler.QuietHours.End, schedulerLocation, config.Scheduler.MinimumProactiveInterval.Value(), config.Scheduler.WeeklyProactiveLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +348,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 	}
 	manifest := a.manifest
 	manifest.ActiveModel = alias
-	history := agent.BuildInstructions(agentContext, manifest)
+	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	if state.ConversationSummary != "" {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
 	}
@@ -515,7 +525,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	}
 	manifest := a.manifest
 	manifest.ActiveModel = alias
-	history := agent.BuildInstructions(agentContext, manifest)
+	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
 	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
 	result, runErr := a.loop.RunSelected(ctx, alias, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, agent.RunOptions{AllowedTools: allowed})

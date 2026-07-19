@@ -20,11 +20,13 @@ import (
 func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T) {
 	dataDir := t.TempDir()
 	cfg := appTestConfig(dataDir)
+	cfg.Calendar.Timezone = "Asia/Singapore"
 	secrets := appTestSecrets("provider-secret")
 	var mu sync.Mutex
 	var telegramBodies [][]byte
 	var modelBody []byte
 	var startupLog bytes.Buffer
+	fixedNow := time.Date(2026, 7, 19, 12, 34, 56, 0, time.FixedZone("SGT", 8*60*60))
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if strings.Contains(request.URL.Path, "sendMessage") {
 			body, _ := io.ReadAll(request.Body)
@@ -40,7 +42,7 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 		return appJSON(404, `{}`), nil
 	})}
 	logger := slog.New(slog.NewJSONHandler(&startupLog, nil))
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, Now: time.Now, Logger: logger})
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, Now: func() time.Time { return fixedNow }, Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	if len(telegramBodies) != 2 || !strings.Contains(string(telegramBodies[0]), "pending_approvals") || !strings.Contains(string(telegramBodies[1]), "Hello from Eggy") {
 		t.Fatalf("telegram=%q", telegramBodies)
 	}
-	if !strings.Contains(string(modelBody), "Eggy Memory") || !strings.Contains(string(modelBody), "Hard runtime policy") || !strings.Contains(string(modelBody), "Capability manifest") || !strings.Contains(string(modelBody), `"model":"deepseek-v4-pro"`) {
+	if !strings.Contains(string(modelBody), "Eggy Memory") || !strings.Contains(string(modelBody), "Hard runtime policy") || !strings.Contains(string(modelBody), "Capability manifest") || !strings.Contains(string(modelBody), `"model":"deepseek-v4-pro"`) || !strings.Contains(string(modelBody), "2026-07-19T12:34:56+08:00") || !strings.Contains(string(modelBody), "Asia/Singapore") {
 		t.Fatalf("unified context missing from model request: %s", modelBody)
 	}
 	state, err := app.store.Load(context.Background())

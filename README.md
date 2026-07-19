@@ -1,18 +1,18 @@
 # Eggy
 
-Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Codex owns repository inspection, editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
+Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. A configurable coding agent — Codex CLI or Claude Code, selectable with `/coding_agent` — owns repository inspection, editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
 
 The MVP is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica.
 
 ## What is implemented
 
 - Telegram webhook authentication, owner allowlisting, update deduplication, messages, and approval callbacks.
-- Registered command suggestions, HTML-formatted replies with plain-text fallback, long-message splitting, typing indicators, and in-place message edits for approval outcomes and Codex run progress.
+- Registered command suggestions, HTML-formatted replies with plain-text fallback, long-message splitting, typing indicators, and in-place message edits for approval outcomes and coding-agent run progress.
 - Named model aliases backed by configurable OpenAI-compatible providers, a bounded tool loop, persisted selection, and provider-reported usage totals.
 - Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
-- Codex `exec --json` execution with normalized Telegram progress.
+- Configurable coding-agent runtime: Codex `exec --json` or Claude Code `-p --output-format stream-json`, persisted selection, both normalized to the same Telegram progress.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
@@ -20,7 +20,7 @@ The MVP is a Go ports-and-adapters modular monolith with file-backed state. It s
 
 ## Local setup
 
-Requirements: Go 1.26, Git, Codex CLI, and Docker for the container smoke test.
+Requirements: Go 1.26, Git, Codex CLI and/or Claude Code CLI, and Docker for the container smoke test.
 
 ```sh
 brew install go
@@ -66,6 +66,16 @@ export CODEX_HOME="$PWD/data/codex"
 codex login --device-auth
 ```
 
+Claude Code is optional; configure it in `coding.agents` alongside or instead of Codex. Install it and generate a long-lived token with `claude setup-token`, then set `CLAUDE_CODE_OAUTH_TOKEN` (never in YAML) and point `CLAUDE_CONFIG_DIR` at persisted storage:
+
+```sh
+npm install -g @anthropic-ai/claude-code
+export CLAUDE_CONFIG_DIR="$PWD/data/claude"
+claude setup-token
+```
+
+`claude setup-token` prints a token that is valid for one year; export it as `CLAUDE_CODE_OAUTH_TOKEN` and renew it before expiry. Switch the active coding agent at runtime with the owner-only Telegram command `/coding_agent <alias>` (or `/coding_agent default` to restore `coding.default_agent`).
+
 Run and verify:
 
 ```sh
@@ -90,11 +100,11 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/coding_agent`, `/coding_agent <alias>`, `/coding_agent default`, `/usage`, and `/usage reset`. Natural language remains the main interface.
 
 `/status` is a deterministic local read and consumes no model tokens. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
 
-For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs Codex, captures the diff and validation, and then requests commit approval. A successful commit causes a separate push approval; a successful push causes a separate pull-request approval. Protected branches are denied regardless of approval. Eggy never merges.
+For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs the selected coding agent, captures the diff and validation, and then requests commit approval. A successful commit causes a separate push approval; a successful push causes a separate pull-request approval. Protected branches are denied regardless of approval. Eggy never merges.
 
 ## Google Calendar
 
@@ -134,13 +144,15 @@ codex login --device-auth
 
 Complete the device authorization in a browser. The Railway Volume preserves Codex-managed authentication across container replacement. Do not copy Codex credentials into `.env` or `state.json`.
 
+To enable Claude Code instead of, or alongside, Codex, add a `claude` alias under `coding.agents` in the persisted `/data/config.yaml` with `credential_env: CLAUDE_CODE_OAUTH_TOKEN`, then generate a token locally with `claude setup-token` and set `CLAUDE_CODE_OAUTH_TOKEN` as a Railway service variable — never in `config.yaml`. The token is valid for one year; renew it before expiry by running `claude setup-token` again and updating the Railway variable. Set `coding.default_agent` to `claude` to make it the default, or switch at runtime with `/coding_agent claude`.
+
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
 
 `EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, edit the persisted YAML to change providers, aliases, repositories, or branches, then redeploy. API keys remain Railway variables and must not be copied into that file.
 
 `EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 
-The image pins Codex CLI `0.144.5`; override the `CODEX_VERSION` build argument deliberately when upgrading and rerun the complete verification suite.
+The image pins Codex CLI `0.144.5` and Claude Code `2.1.215`; override the `CODEX_VERSION` or `CLAUDE_CODE_VERSION` build argument deliberately when upgrading either, and rerun the complete verification suite.
 
 Register the Telegram webhook and complete Google OAuth after the public Railway domain is assigned. `railway.toml` configures the Docker build, liveness check, restart policy, and single replica; the volume mount and secrets are configured in Railway.
 

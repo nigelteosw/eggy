@@ -11,9 +11,10 @@ import (
 
 type CapabilityManifest struct {
 	ActiveModel           string
+	ActiveCodingAgent     string
 	Repositories          []string
 	Tools                 []string
-	CodexReady            bool
+	CodingAgentReady      bool
 	RepositoryCommitReady bool
 	RepositoryPushReady   bool
 	PullRequestReady      bool
@@ -42,8 +43,8 @@ func BuildInstructions(context ports.AgentContext, capability CapabilityManifest
 	tools := append([]string(nil), capability.Tools...)
 	sort.Strings(repositories)
 	sort.Strings(tools)
-	manifest := fmt.Sprintf("Capability manifest\nactive_model: %s\nrepositories: [%s]\ntools: [%s]\ncodex_ready: %t\nrepository_commit_ready: %t\nrepository_push_ready: %t\npull_request_ready: %t\nshipping_approval_flow: commit -> push -> pull_request\ncalendar_enabled: %t",
-		capability.ActiveModel, strings.Join(repositories, ", "), strings.Join(tools, ", "), capability.CodexReady, capability.RepositoryCommitReady, capability.RepositoryPushReady, capability.PullRequestReady, capability.CalendarEnabled)
+	manifest := fmt.Sprintf("Capability manifest\nactive_model: %s\nactive_coding_agent: %s\nrepositories: [%s]\ntools: [%s]\ncoding_agent_ready: %t\nrepository_commit_ready: %t\nrepository_push_ready: %t\npull_request_ready: %t\nshipping_approval_flow: commit -> push -> pull_request\ncalendar_enabled: %t",
+		capability.ActiveModel, capability.ActiveCodingAgent, strings.Join(repositories, ", "), strings.Join(tools, ", "), capability.CodingAgentReady, capability.RepositoryCommitReady, capability.RepositoryPushReady, capability.PullRequestReady, capability.CalendarEnabled)
 	temporalContext := fmt.Sprintf("Trusted temporal context\ncurrent_time: %s\ntimezone: %s", temporal.Now.Format(time.RFC3339), temporal.Timezone)
 	return []ports.Message{
 		{Role: ports.RoleSystem, Content: hardRuntimePolicy},

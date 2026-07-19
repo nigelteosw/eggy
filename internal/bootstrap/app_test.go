@@ -35,14 +35,118 @@ func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
 }
 
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
-	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
+	app := &App{config: Config{Coding: CodingConfig{DefaultAgent: "codex"}}, codingAliases: []string{"codex"}, manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
 	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro")
-	if withoutRepository.CodexReady || withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
+	if withoutRepository.CodingAgentReady || withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
 		t.Fatalf("without repository=%#v", withoutRepository)
 	}
 	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
-	if !withRepository.CodexReady || !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
+	if withRepository.ActiveCodingAgent != "codex" || !withRepository.CodingAgentReady || !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
 		t.Fatalf("with repository=%#v", withRepository)
+	}
+}
+
+func TestCodingAgentBootstrapPreservesCodexOnlyCompatibility(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, handled, err := app.ExecuteCommand(context.Background(), "/coding_agent")
+	if err != nil || !handled || output != "Active coding agent: codex\nAvailable coding agents:\ncodex" {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+func TestCodingAgentBootstrapRegistersCredentialReadyClaudeAndSwitchesGlobally(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Coding = CodingConfig{DefaultAgent: "codex", Agents: map[string]CodingAgentConfig{
+		"codex":  {Adapter: "codex_cli"},
+		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
+	}}
+	secrets := appTestSecrets("key")
+	secrets.CodingAgentCredentials = map[string]string{"claude": "railway-secret"}
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex", ClaudeExecutable: "/missing/claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent claude"); err != nil || output != "Coding agent set to claude." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent")
+	if err != nil || output != "Active coding agent: claude\nAvailable coding agents:\nclaude\ncodex" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := app.capabilityManifest(ports.State{Coding: state.Coding, Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
+	if manifest.ActiveCodingAgent != "claude" || !manifest.CodingAgentReady {
+		t.Fatalf("manifest=%#v", manifest)
+	}
+}
+
+func TestCodingAgentBootstrapSkipsClaudeWithoutOptionalCredential(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Coding = CodingConfig{DefaultAgent: "codex", Agents: map[string]CodingAgentConfig{
+		"codex":  {Adapter: "codex_cli"},
+		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
+	}}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex", ClaudeExecutable: "/missing/claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent")
+	if err != nil || strings.Contains(output, "claude") || !strings.Contains(output, "codex") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestCodingAgentBootstrapRejectsUnavailableDefault(t *testing.T) {
+	for _, test := range []struct {
+		name, credential, executable, want string
+	}{
+		{name: "missing credential", executable: "/usr/bin/true", want: "CLAUDE_CODE_OAUTH_TOKEN"},
+		{name: "missing executable", credential: "railway-secret", executable: "/definitely/missing/claude", want: "claude"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := appTestConfig(t.TempDir())
+			if test.name == "missing executable" {
+				cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
+			}
+			cfg.Coding = CodingConfig{DefaultAgent: "claude", Agents: map[string]CodingAgentConfig{
+				"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
+			}}
+			secrets := appTestSecrets("key")
+			secrets.CodingAgentCredentials = map[string]string{"claude": test.credential}
+			_, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: test.name == "missing credential", ClaudeExecutable: test.executable})
+			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "default coding agent") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestCodingAgentReadinessReportsAvailableAliasWithoutCredentials(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
+	cfg.Coding = CodingConfig{DefaultAgent: "claude", Agents: map[string]CodingAgentConfig{
+		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
+	}}
+	secrets := appTestSecrets("key")
+	secrets.CodingAgentCredentials = map[string]string{"claude": "railway-secret"}
+	var startupLog bytes.Buffer
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, ClaudeExecutable: "/missing/claude", Logger: slog.New(slog.NewJSONHandler(&startupLog, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	output := startupLog.String()
+	if !strings.Contains(output, `"integrations":["claude","github","model_provider","telegram"]`) || strings.Contains(output, "codex") || strings.Contains(output, "railway-secret") {
+		t.Fatalf("readiness log=%s", output)
 	}
 }
 

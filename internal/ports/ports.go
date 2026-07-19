@@ -91,6 +91,25 @@ type MemoryStore interface {
 	ReplaceSection(context.Context, string, string) error
 }
 
+type AgentContext struct {
+	Soul   string `json:"soul"`
+	User   string `json:"user"`
+	Memory string `json:"memory"`
+}
+
+type ContextDocument string
+
+const (
+	ContextUser   ContextDocument = "user"
+	ContextMemory ContextDocument = "memory"
+)
+
+type ContextStore interface {
+	Load(context.Context) (AgentContext, error)
+	Append(context.Context, ContextDocument, string, string) error
+	ReplaceSection(context.Context, ContextDocument, string, string) error
+}
+
 type State struct {
 	SchemaVersion       int                           `json:"schema_version"`
 	Version             uint64                        `json:"version"`

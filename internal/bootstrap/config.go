@@ -25,6 +25,8 @@ func (d *Duration) UnmarshalYAML(node *yaml.Node) error {
 
 func (d Duration) Value() time.Duration { return time.Duration(d) }
 
+func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
+
 type Config struct {
 	Version      int                `yaml:"version"`
 	Server       ServerConfig       `yaml:"server"`

@@ -15,11 +15,13 @@ RUN apt-get update \
     && npm install --global "@openai/codex@${CODEX_VERSION}" \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/go /usr/local/go
 COPY --from=builder /out/eggyd /usr/local/bin/eggyd
 COPY --from=builder /out/eggy /usr/local/bin/eggy
 RUN mkdir -p /data/codex /tmp/runs
 ENV CODEX_HOME=/data/codex \
-    EGGY_CONFIG=/data/config.yaml
+    EGGY_CONFIG=/data/config.yaml \
+    PATH="/usr/local/go/bin:${PATH}"
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["eggyd"]

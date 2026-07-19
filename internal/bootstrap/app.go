@@ -50,31 +50,36 @@ type AppOptions struct {
 }
 
 type App struct {
-	config       Config
-	store        ports.StateStore
-	context      ports.ContextStore
-	channel      ports.Channel
-	dispatcher   *services.Dispatcher
-	httpHandler  http.Handler
-	loop         *agent.Loop
-	agentRuntime *services.AgentRuntime
-	manifest     agent.CapabilityManifest
-	commands     *CommandService
-	scheduler    *schedulerlocal.Scheduler
-	heartbeat    *services.HeartbeatPolicy
-	approvals    *services.ApprovalService
-	coding       *services.CodingService
-	shipping     *services.ShippingService
-	calendar     *services.CalendarService
-	conversation *services.ConversationService
-	repositories map[string]ports.Repository
-	now          func() time.Time
-	eventQueue   chan events.Event
-	workers      sync.WaitGroup
-	readyLog     sync.Once
-	logger       *slog.Logger
-	timezone     string
-	location     *time.Location
+	config              Config
+	store               ports.StateStore
+	context             ports.ContextStore
+	channel             ports.Channel
+	dispatcher          *services.Dispatcher
+	httpHandler         http.Handler
+	loop                *agent.Loop
+	agentRuntime        *services.AgentRuntime
+	manifest            agent.CapabilityManifest
+	commands            *CommandService
+	scheduler           *schedulerlocal.Scheduler
+	heartbeat           *services.HeartbeatPolicy
+	approvals           *services.ApprovalService
+	approvalExecutors   map[approvals.Action]ApprovalExecutor
+	coding              *services.CodingService
+	shipping            *services.ShippingService
+	calendar            *services.CalendarService
+	repositoriesService *services.RepositoriesService
+	conversation        *services.ConversationService
+	now                 func() time.Time
+	eventQueue          chan events.Event
+	workers             sync.WaitGroup
+	readyLog            sync.Once
+	logger              *slog.Logger
+	timezone            string
+	location            *time.Location
+}
+
+type ApprovalExecutor interface {
+	ExecuteApproved(context.Context, approvals.Approval) (any, error)
 }
 
 func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
@@ -124,11 +129,29 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err := os.MkdirAll(filepath.Join(config.DataDir, "codex"), 0o700); err != nil {
 		return nil, err
 	}
-	stateStore := jsonfile.Open(filepath.Join(config.DataDir, "state.json"))
+	statePath := filepath.Join(config.DataDir, "state.json")
+	_, statErr := os.Stat(statePath)
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("stat state: %w", statErr)
+	}
+	stateStore := jsonfile.Open(statePath)
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
-	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), repositories: map[string]ports.Repository{}, now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
-	for _, configured := range config.Repositories {
-		app.repositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
+	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
+	if errors.Is(statErr, os.ErrNotExist) && len(config.Repositories) > 0 {
+		seeded := map[string]ports.Repository{}
+		for _, configured := range config.Repositories {
+			seeded[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
+		}
+		initial, err := stateStore.Load(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		if _, err := stateStore.Update(context.Background(), initial.Version, func(state *ports.State) error {
+			state.Repositories = seeded
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("seed first-boot repositories: %w", err)
+		}
 	}
 	var telegramClient *telegram.Client
 	if options.FakeAdapters {
@@ -137,11 +160,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
 		app.channel = telegramClient
 	}
-	protected := make([]string, 0)
-	for _, repository := range app.repositories {
-		protected = append(protected, repository.ProtectedBranches...)
-	}
-	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, protected)
+	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "CODEX_HOME", "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
 	runner, err := localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
@@ -151,8 +170,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
 	codex := codexcli.New(options.CodexExecutable, runner, config.Runner.MaxOutputBytes)
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, codex, filepath.Join(config.DataDir, "codex"), options.Now)
-	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, app.repositories)
+	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter)
 	app.shipping.SetApprovalRequester(app.approvals)
+	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, newRunID)
+	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
+		approvals.Commit:        app.shipping,
+		approvals.Push:          app.shipping,
+		approvals.CreatePR:      app.shipping,
+		approvals.AddRepository: app.repositoriesService,
+	}
 	app.conversation = services.NewConversationService(stateStore, 20)
 
 	aliases := make([]string, 0, len(config.ModelAliases))
@@ -193,7 +219,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
 	progress := telegram.NewProgressTracker(app.channel, owner)
-	for _, tool := range services.NewRepositoryTools(app.repositories, app.coding, app.coding, app.shipping, newRunID,
+	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.coding, app.shipping, newRunID,
 		progress.Deliver,
 		func(ctx context.Context, approval approvals.Approval) error {
 			return app.channel.DeliverApproval(ctx, owner, approval)
@@ -212,6 +238,9 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 		googleAdapter := google.NewAdapter(google.AdapterConfig{ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret, RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback", AuthURL: options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase, Cipher: cipher, Store: stateStore, HTTPClient: options.HTTPClient})
 		app.calendar = services.NewCalendarService(googleAdapter, app.approvals, app.approvals)
+		app.approvalExecutors[approvals.CalendarCreate] = app.calendar
+		app.approvalExecutors[approvals.CalendarUpdate] = app.calendar
+		app.approvalExecutors[approvals.CalendarDelete] = app.calendar
 		key, err := base64.StdEncoding.DecodeString(secrets.EncryptionKey)
 		if err != nil {
 			return nil, err
@@ -230,15 +259,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	registeredTools := registry.Tools()
 	app.loop = agent.NewSelectedLoop(targets, registeredTools, 8)
-	repositoryNames := make([]string, 0, len(app.repositories))
-	for name := range app.repositories {
-		repositoryNames = append(repositoryNames, name)
-	}
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
 	}
-	app.manifest = agent.CapabilityManifest{Repositories: repositoryNames, Tools: toolNames, CodexReady: len(app.repositories) > 0, CalendarEnabled: config.Calendar.Enabled}
+	app.manifest = agent.CapabilityManifest{Tools: toolNames, CalendarEnabled: config.Calendar.Enabled}
 	schedulerLocation, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load scheduler timezone: %w", err)
@@ -247,7 +272,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, agentRuntime: app.agentRuntime, defaultModel: config.Agent.DefaultModel, modelAliases: aliases, now: options.Now}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, modelAliases: aliases, now: options.Now}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
@@ -266,7 +291,8 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 	return a.commands.Execute(ctx, command)
 }
 func (a *App) Ready() error {
-	if _, err := a.store.Load(context.Background()); err != nil {
+	state, err := a.store.Load(context.Background())
+	if err != nil {
 		return err
 	}
 	if _, err := a.context.Load(context.Background()); err != nil {
@@ -275,13 +301,10 @@ func (a *App) Ready() error {
 	a.readyLog.Do(func() {
 		alias := a.config.Agent.DefaultModel
 		provider := a.config.ModelAliases[alias].Provider
-		repositories := make([]string, 0, len(a.repositories))
-		for name := range a.repositories {
-			repositories = append(repositories, name)
-		}
+		repositories := repositoryNamesFromState(state)
 		sort.Strings(repositories)
 		integrations := []string{"telegram", "model_provider"}
-		if len(a.repositories) > 0 {
+		if len(state.Repositories) > 0 {
 			integrations = append(integrations, "codex", "github")
 		}
 		if a.config.Calendar.Enabled {
@@ -352,6 +375,8 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 	}
 	manifest := a.manifest
 	manifest.ActiveModel = alias
+	manifest.Repositories = repositoryNamesFromState(state)
+	manifest.CodexReady = len(state.Repositories) > 0
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	if state.ConversationSummary != "" {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
@@ -401,18 +426,11 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		return err
 	}
 	approval := state.Approvals[decision.ApprovalID]
-	var result any
-	switch approval.Action {
-	case approvals.Commit, approvals.Push, approvals.CreatePR:
-		result, err = a.shipping.ExecuteApproved(ctx, approval)
-	case approvals.CalendarCreate, approvals.CalendarUpdate, approvals.CalendarDelete:
-		if a.calendar == nil {
-			return errors.New("Calendar is unavailable")
-		}
-		result, err = a.calendar.ExecuteApproved(ctx, approval)
-	default:
+	executor, ok := a.approvalExecutors[approval.Action]
+	if !ok {
 		return errors.New("unknown approval action")
 	}
+	result, err := executor.ExecuteApproved(ctx, approval)
 	if err != nil {
 		return err
 	}
@@ -534,6 +552,8 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	}
 	manifest := a.manifest
 	manifest.ActiveModel = alias
+	manifest.Repositories = repositoryNamesFromState(state)
+	manifest.CodexReady = len(state.Repositories) > 0
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
 	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
@@ -558,6 +578,14 @@ func newRunID() string {
 	data := make([]byte, 6)
 	_, _ = rand.Read(data)
 	return hex.EncodeToString(data)
+}
+
+func repositoryNamesFromState(state ports.State) []string {
+	names := make([]string, 0, len(state.Repositories))
+	for name := range state.Repositories {
+		names = append(names, name)
+	}
+	return names
 }
 
 type staticModel struct{}

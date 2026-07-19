@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -303,6 +305,71 @@ func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) 
 	}
 	close(release)
 	<-done
+}
+
+func TestRepositoriesAddApprovalFlowReachesLiveState(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	secrets := appTestSecrets("provider-secret")
+	secrets.GitHubToken = "github-secret"
+	remote := createLocalGitRemote(t)
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		return appJSON(200, `{"ok":true,"result":{}}`), nil
+	})}
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output, handled, err := app.commands.Execute(context.Background(), "/repositories add eggy "+remote)
+	if err != nil || !handled || !strings.Contains(output, "awaiting approval") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	state, err := app.store.Load(context.Background())
+	if err != nil || len(state.Approvals) != 1 {
+		t.Fatalf("approvals=%#v err=%v", state.Approvals, err)
+	}
+	var approvalID string
+	for id := range state.Approvals {
+		approvalID = id
+	}
+
+	decisionPayload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approvalID, Approved: true})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "decide-1", Type: events.TypeApproval, Owner: "42", Payload: decisionPayload}); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err = app.store.Load(context.Background())
+	if err != nil || state.Repositories["eggy"].CloneURL != remote {
+		t.Fatalf("repositories=%#v err=%v", state.Repositories, err)
+	}
+}
+
+func createLocalGitRemote(t *testing.T) string {
+	t.Helper()
+	source := filepath.Join(t.TempDir(), "source")
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGit(t, "", "init", "-b", "main", source)
+	runGit(t, source, "config", "user.name", "Test")
+	runGit(t, source, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("initial\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, source, "add", ".")
+	runGit(t, source, "commit", "-m", "initial")
+	runGit(t, "", "clone", "--bare", source, remote)
+	return remote
+}
+
+func runGit(t *testing.T, directory string, arguments ...string) {
+	t.Helper()
+	command := exec.Command("git", arguments...)
+	if directory != "" {
+		command.Dir = directory
+	}
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", arguments, err, output)
+	}
 }
 
 func appTestConfig(dataDir string) Config {

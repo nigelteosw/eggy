@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
@@ -90,6 +92,46 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	}
 }
 
+func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var setCommandsBody []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if strings.Contains(request.URL.Path, "setMyCommands") {
+			setCommandsBody, _ = io.ReadAll(request.Body)
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":{}}`), nil
+	})}
+	_, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setCommandsBody == nil {
+		t.Fatal("expected NewApp to call setMyCommands on boot")
+	}
+	var payload struct {
+		Commands []struct {
+			Command     string `json:"command"`
+			Description string `json:"description"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(setCommandsBody, &payload); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, command := range payload.Commands {
+		if command.Description == "" {
+			t.Fatalf("command %q has no description", command.Command)
+		}
+		names[command.Command] = true
+	}
+	for _, want := range []string{"status", "repositories", "runs", "stop", "schedules", "memory", "model", "usage", "new", "calendar_auth"} {
+		if !names[want] {
+			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
+		}
+	}
+}
+
 func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
@@ -109,6 +151,8 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 		case strings.Contains(request.URL.Path, "sendMessage"):
 			delivered, _ = io.ReadAll(request.Body)
 			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		case strings.Contains(request.URL.Path, "setMyCommands"):
+			return appJSON(200, `{"ok":true,"result":true}`), nil
 		default:
 			return appJSON(404, `{}`), nil
 		}
@@ -150,6 +194,20 @@ func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 			t.Fatalf("%s output=%q handled=%v err=%v", command, output, handled, err)
 		}
 	}
+}
+
+func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range telegram.Commands() {
+		_, handled, err := app.commands.Execute(context.Background(), "/"+command.Name)
+		if err != nil || !handled {
+			t.Fatalf("registered command %q was not handled by CommandService: handled=%v err=%v", command.Name, handled, err)
+		}
+	}
 	if _, handled, _ := app.commands.Execute(context.Background(), "/unknown"); handled {
 		t.Fatal("unknown command handled")
 	}
@@ -165,7 +223,7 @@ func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, handled, err := app.ExecuteCommand(context.Background(), "/calendar-auth")
+	output, handled, err := app.ExecuteCommand(context.Background(), "/calendar_auth")
 	if err != nil || !handled || !strings.Contains(output, "/auth/google?enrollment=") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
@@ -211,6 +269,40 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	}
 	<-started
 	close(release)
+}
+
+func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var typingCalls int32
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			close(started)
+			<-release
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`), nil
+		}
+		if strings.Contains(request.URL.Path, "sendChatAction") {
+			atomic.AddInt32(&typingCalls, 1)
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "slow turn"})
+	done := make(chan struct{})
+	go func() {
+		_ = app.HandleEvent(context.Background(), events.Event{ID: "typing-1", Type: events.TypeMessage, Owner: "42", Payload: payload})
+		close(done)
+	}()
+	<-started
+	if atomic.LoadInt32(&typingCalls) < 1 {
+		t.Fatal("expected a typing indicator to be sent before the slow model call returned")
+	}
+	close(release)
+	<-done
 }
 
 func appTestConfig(dataDir string) Config {

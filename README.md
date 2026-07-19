@@ -7,6 +7,7 @@ The MVP is a Go ports-and-adapters modular monolith with file-backed state. It s
 ## What is implemented
 
 - Telegram webhook authentication, owner allowlisting, update deduplication, messages, and approval callbacks.
+- Registered command suggestions, HTML-formatted replies with plain-text fallback, long-message splitting, typing indicators, and in-place message edits for approval outcomes and Codex run progress.
 - Named model aliases backed by configurable OpenAI-compatible providers, a bounded tool loop, persisted selection, and provider-reported usage totals.
 - Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
@@ -106,12 +107,14 @@ https://YOUR_HOST/auth/google/callback
 Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY`, deploy, then send Eggy this owner-only Telegram command:
 
 ```text
-/calendar-auth
+/calendar_auth
 ```
 
 Open the short-lived, single-use enrollment URL Eggy returns. The bare `/auth/google` endpoint intentionally refuses unauthenticated enrollment attempts.
 
-Calendar reads run automatically. Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
+Calendar reads run automatically. Eggy can list the IDs, names, access roles, primary status, and hidden status of calendars available to the authenticated user. A general Calendar question discovers every calendar in that Calendar list, including hidden entries, and merges events from every calendar with event-read access. Reads can still target one calendar by ID. Calendar and event result pages are followed completely; calendars that expose only free/busy information are not presented as detailed event sources.
+
+Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
 
 ## Railway deployment
 
@@ -131,7 +134,7 @@ codex login --device-auth
 
 Complete the device authorization in a browser. The Railway Volume preserves Codex-managed authentication across container replacement. Do not copy Codex credentials into `.env` or `state.json`.
 
-Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar-auth`.
+Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
 
 `EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, edit the persisted YAML to change providers, aliases, repositories, or branches, then redeploy. API keys remain Railway variables and must not be copied into that file.
 

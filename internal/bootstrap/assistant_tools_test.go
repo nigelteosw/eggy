@@ -34,10 +34,10 @@ func TestCalendarListRangesResolveInOwnerTimezone(t *testing.T) {
 	tests := []struct {
 		name, input, from, to string
 	}{
-		{"today", `{"range":"today"}`, "2026-07-19T00:00:00+08:00", "2026-07-20T00:00:00+08:00"},
-		{"tomorrow", `{"range":"tomorrow"}`, "2026-07-20T00:00:00+08:00", "2026-07-21T00:00:00+08:00"},
-		{"this week", `{"range":"this_week"}`, "2026-07-13T00:00:00+08:00", "2026-07-20T00:00:00+08:00"},
-		{"explicit", `{"from":"2026-08-01T09:00:00+08:00","to":"2026-08-01T17:00:00+08:00"}`, "2026-08-01T09:00:00+08:00", "2026-08-01T17:00:00+08:00"},
+		{"today", `{"calendar_id":"primary","range":"today"}`, "2026-07-19T00:00:00+08:00", "2026-07-20T00:00:00+08:00"},
+		{"tomorrow", `{"calendar_id":"primary","range":"tomorrow"}`, "2026-07-20T00:00:00+08:00", "2026-07-21T00:00:00+08:00"},
+		{"this week", `{"calendar_id":"primary","range":"this_week"}`, "2026-07-13T00:00:00+08:00", "2026-07-20T00:00:00+08:00"},
+		{"explicit", `{"calendar_id":"primary","from":"2026-08-01T09:00:00+08:00","to":"2026-08-01T17:00:00+08:00"}`, "2026-08-01T09:00:00+08:00", "2026-08-01T17:00:00+08:00"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,17 +76,90 @@ func TestCalendarListRangesResolveInOwnerTimezone(t *testing.T) {
 	}
 }
 
+func TestCalendarListReadsAcrossAllCalendarsWhenCalendarIDOmitted(t *testing.T) {
+	location, _ := time.LoadLocation("Asia/Singapore")
+	provider := &recordingCalendarProvider{
+		calendars: []ports.CalendarInfo{{ID: "primary", AccessRole: "owner"}, {ID: "team", AccessRole: "reader"}},
+		eventsByCalendar: map[string][]ports.CalendarEvent{
+			"primary": {{ID: "personal", Start: time.Date(2026, 7, 20, 12, 0, 0, 0, location)}},
+			"team":    {{ID: "work", Start: time.Date(2026, 7, 20, 9, 0, 0, 0, location)}},
+		},
+	}
+	calendar := services.NewCalendarService(provider, nil, nil)
+	list := calendarTools(calendar, noopChannel{}, "42", "primary", func() time.Time {
+		return time.Date(2026, 7, 20, 8, 0, 0, 0, location)
+	}, location, "Asia/Singapore")[0]
+
+	result, err := list.Execute(context.Background(), json.RawMessage(`{"range":"today"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		CalendarID string                `json:"calendar_id"`
+		Events     []ports.CalendarEvent `json:"events"`
+	}
+	if err := json.Unmarshal(result, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.CalendarID != "all" || len(envelope.Events) != 2 || envelope.Events[0].ID != "work" {
+		t.Fatalf("envelope=%s", result)
+	}
+}
+
+func TestCalendarCalendarsListsAccessibleCalendarMetadata(t *testing.T) {
+	location := time.UTC
+	provider := &recordingCalendarProvider{calendars: []ports.CalendarInfo{
+		{ID: "primary", Name: "Personal", AccessRole: "owner", Primary: true},
+		{ID: "team", Name: "Team", AccessRole: "reader", Hidden: true},
+	}}
+	calendar := services.NewCalendarService(provider, nil, nil)
+	tools := calendarTools(calendar, noopChannel{}, "42", "primary", time.Now, location, "UTC")
+	var discovery ports.Tool
+	for _, tool := range tools {
+		if tool.Definition().Name == "calendar_calendars" {
+			discovery = tool
+			break
+		}
+	}
+	if discovery == nil {
+		t.Fatal("calendar_calendars tool is missing")
+	}
+	result, err := discovery.Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calendars []ports.CalendarInfo
+	if err := json.Unmarshal(result, &calendars); err != nil {
+		t.Fatal(err)
+	}
+	if len(calendars) != 2 || calendars[0].Name != "Personal" || calendars[1].ID != "team" || !calendars[1].Hidden {
+		t.Fatalf("calendars=%s", result)
+	}
+	if !strings.Contains(string(result), `"hidden":false`) || !strings.Contains(string(result), `"primary":false`) {
+		t.Fatalf("calendar statuses must be explicit: %s", result)
+	}
+}
+
 type recordingCalendarProvider struct {
-	from, to time.Time
-	events   []ports.CalendarEvent
+	from, to         time.Time
+	events           []ports.CalendarEvent
+	calendars        []ports.CalendarInfo
+	eventsByCalendar map[string][]ports.CalendarEvent
 }
 
 func (p *recordingCalendarProvider) AuthorizationURL(string) string { return "" }
 func (p *recordingCalendarProvider) ExchangeCode(context.Context, string) (ports.CalendarAuth, error) {
 	return ports.CalendarAuth{}, nil
 }
-func (p *recordingCalendarProvider) List(_ context.Context, _ string, from, to time.Time) ([]ports.CalendarEvent, error) {
+
+func (p *recordingCalendarProvider) ListCalendars(context.Context) ([]ports.CalendarInfo, error) {
+	return p.calendars, nil
+}
+func (p *recordingCalendarProvider) List(_ context.Context, calendarID string, from, to time.Time) ([]ports.CalendarEvent, error) {
 	p.from, p.to = from, to
+	if p.eventsByCalendar != nil {
+		return p.eventsByCalendar[calendarID], nil
+	}
 	return p.events, nil
 }
 func (p *recordingCalendarProvider) Create(_ context.Context, event ports.CalendarEvent) (ports.CalendarEvent, error) {

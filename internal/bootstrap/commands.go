@@ -160,7 +160,7 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			return "", true, err
 		}
 		return "Started a new conversation. Durable memory is unchanged.", true, nil
-	case "/calendar-auth":
+	case "/calendar_auth":
 		if !s.config.Calendar.Enabled {
 			return "Calendar is not configured.", true, nil
 		}

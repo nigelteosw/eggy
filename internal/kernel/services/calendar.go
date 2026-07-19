@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -26,6 +27,50 @@ func NewCalendarService(provider ports.CalendarProvider, requester ApprovalReque
 
 func (s *CalendarService) List(ctx context.Context, calendar string, start, end time.Time) ([]ports.CalendarEvent, error) {
 	return s.provider.List(ctx, calendar, start, end)
+}
+
+func (s *CalendarService) Calendars(ctx context.Context) ([]ports.CalendarInfo, error) {
+	return s.provider.ListCalendars(ctx)
+}
+
+func (s *CalendarService) ListAll(ctx context.Context, start, end time.Time) ([]ports.CalendarEvent, error) {
+	calendars, err := s.provider.ListCalendars(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]ports.CalendarEvent, 0)
+	for _, calendar := range calendars {
+		if !calendarEventsReadable(calendar.AccessRole) {
+			continue
+		}
+		calendarEvents, err := s.provider.List(ctx, calendar.ID, start, end)
+		if err != nil {
+			return nil, fmt.Errorf("list calendar %q: %w", calendar.ID, err)
+		}
+		for index := range calendarEvents {
+			calendarEvents[index].CalendarID = calendar.ID
+		}
+		events = append(events, calendarEvents...)
+	}
+	sort.SliceStable(events, func(left, right int) bool {
+		if !events[left].Start.Equal(events[right].Start) {
+			return events[left].Start.Before(events[right].Start)
+		}
+		if events[left].CalendarID != events[right].CalendarID {
+			return events[left].CalendarID < events[right].CalendarID
+		}
+		return events[left].ID < events[right].ID
+	})
+	return events, nil
+}
+
+func calendarEventsReadable(accessRole string) bool {
+	switch accessRole {
+	case "reader", "writer", "writerWithoutPrivateAccess", "owner":
+		return true
+	default:
+		return false
+	}
 }
 
 type calendarMutationPayload struct {

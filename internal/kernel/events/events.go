@@ -32,6 +32,8 @@ type Message struct {
 }
 
 type ApprovalDecision struct {
-	ApprovalID string `json:"approval_id"`
-	Approved   bool   `json:"approved"`
+	ApprovalID      string `json:"approval_id"`
+	Approved        bool   `json:"approved"`
+	CallbackQueryID string `json:"callback_query_id"`
+	MessageID       string `json:"message_id"`
 }

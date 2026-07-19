@@ -36,7 +36,7 @@ func currentTimeTool(now func() time.Time, location *time.Location, timezone str
 }
 
 func calendarTools(calendar *services.CalendarService, channel ports.Channel, owner, defaultCalendar string, now func() time.Time, location *time.Location, timezone string) []ports.Tool {
-	list := bootstrapTool{definition: toolDefinition("calendar_list", "List Calendar events; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
+	list := bootstrapTool{definition: toolDefinition("calendar_list", "List events across all readable calendars by default; set calendar_id only to limit the read to one calendar; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			CalendarID string `json:"calendar_id"`
@@ -47,14 +47,18 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		if err := strictToolDecode(raw, &input); err != nil {
 			return nil, err
 		}
-		if input.CalendarID == "" {
-			input.CalendarID = defaultCalendar
-		}
 		from, to, err := resolveCalendarRange(input.Range, input.From, input.To, now(), location)
 		if err != nil {
 			return nil, err
 		}
-		events, err := calendar.List(ctx, input.CalendarID, from, to)
+		resultCalendarID := input.CalendarID
+		var events []ports.CalendarEvent
+		if input.CalendarID == "" {
+			resultCalendarID = "all"
+			events, err = calendar.ListAll(ctx, from, to)
+		} else {
+			events, err = calendar.List(ctx, input.CalendarID, from, to)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +68,18 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 			To         string                `json:"to"`
 			Timezone   string                `json:"timezone"`
 			Events     []ports.CalendarEvent `json:"events"`
-		}{CalendarID: input.CalendarID, From: from.Format(time.RFC3339), To: to.Format(time.RFC3339), Timezone: timezone, Events: events})
+		}{CalendarID: resultCalendarID, From: from.Format(time.RFC3339), To: to.Format(time.RFC3339), Timezone: timezone, Events: events})
+	}
+	calendars := bootstrapTool{definition: toolDefinition("calendar_calendars", "List every calendar available to the authenticated user, including IDs, names, access roles, primary status, and hidden status", `{"type":"object","additionalProperties":false}`)}
+	calendars.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		if err := strictToolDecode(raw, &struct{}{}); err != nil {
+			return nil, err
+		}
+		available, err := calendar.Calendars(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(available)
 	}
 	create := bootstrapTool{definition: toolDefinition("calendar_create", "Request approval to create an exact Calendar event", calendarMutationSchema(false))}
 	create.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
@@ -124,7 +139,7 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		}
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
 	}
-	return []ports.Tool{list, create, update, deleteTool}
+	return []ports.Tool{list, calendars, create, update, deleteTool}
 }
 
 func resolveCalendarRange(named, rawFrom, rawTo string, now time.Time, location *time.Location) (time.Time, time.Time, error) {

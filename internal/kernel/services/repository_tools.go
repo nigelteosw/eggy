@@ -119,7 +119,14 @@ func NewRepositoryTools(
 			return nil, errors.New("repository modification is unavailable")
 		}
 		runID := newRunID()
-		run, result, err := modifier.Start(ctx, runID, repository, input.Instruction, progress)
+		trackedProgress := progress
+		if progress != nil {
+			trackedProgress = func(event ports.CodingProgress) {
+				event.RunID = runID
+				progress(event)
+			}
+		}
+		run, result, err := modifier.Start(ctx, runID, repository, input.Instruction, trackedProgress)
 		if err != nil {
 			return nil, err
 		}

@@ -109,6 +109,56 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 	}
 }
 
+func TestAdapterListsAllCalendarsAndEventPages(t *testing.T) {
+	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
+	encrypted, _ := cipher.EncryptToken("stored-refresh")
+	store := &calendarStateStore{state: ports.State{SchemaVersion: 1, Calendar: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}}
+	var calendarQueries, eventQueries []url.Values
+	client := &http.Client{Transport: calendarRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/token":
+			return calendarJSON(http.StatusOK, `{"access_token":"access","expires_in":3600}`), nil
+		case "/calendar/v3/users/me/calendarList":
+			calendarQueries = append(calendarQueries, request.URL.Query())
+			if request.URL.Query().Get("pageToken") == "calendar-page-2" {
+				return calendarJSON(http.StatusOK, `{"items":[{"id":"team","summary":"Team","accessRole":"reader","hidden":true}]}`), nil
+			}
+			return calendarJSON(http.StatusOK, `{"nextPageToken":"calendar-page-2","items":[{"id":"primary","summary":"Personal","accessRole":"owner","primary":true}]}`), nil
+		case "/calendar/v3/calendars/primary/events":
+			eventQueries = append(eventQueries, request.URL.Query())
+			if request.URL.Query().Get("pageToken") == "event-page-2" {
+				return calendarJSON(http.StatusOK, `{"items":[{"id":"event-2","summary":"Dinner","start":{"dateTime":"2026-07-20T18:00:00Z"},"end":{"dateTime":"2026-07-20T19:00:00Z"}}]}`), nil
+			}
+			return calendarJSON(http.StatusOK, `{"nextPageToken":"event-page-2","items":[{"id":"event-1","summary":"Lunch","start":{"dateTime":"2026-07-20T12:00:00Z"},"end":{"dateTime":"2026-07-20T13:00:00Z"}}]}`), nil
+		default:
+			return calendarJSON(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	adapter := NewAdapter(AdapterConfig{TokenURL: "https://calendar.test/token", APIBase: "https://calendar.test/calendar/v3", Cipher: cipher, Store: store, HTTPClient: client})
+
+	calendars, err := adapter.ListCalendars(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calendars) != 2 || calendars[0].ID != "primary" || !calendars[0].Primary || calendars[1].ID != "team" || !calendars[1].Hidden {
+		t.Fatalf("calendars=%#v", calendars)
+	}
+	if len(calendarQueries) != 2 || calendarQueries[0].Get("showHidden") != "true" || calendarQueries[1].Get("pageToken") != "calendar-page-2" {
+		t.Fatalf("calendar queries=%v", calendarQueries)
+	}
+
+	events, err := adapter.List(context.Background(), "primary", time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].ID != "event-1" || events[1].ID != "event-2" {
+		t.Fatalf("events=%#v", events)
+	}
+	if len(eventQueries) != 2 || eventQueries[1].Get("pageToken") != "event-page-2" {
+		t.Fatalf("event queries=%v", eventQueries)
+	}
+}
+
 func TestOAuthHandlersSignStateAndPersistEncryptedToken(t *testing.T) {
 	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
 	enrollmentToken := "owner-enrollment-token"

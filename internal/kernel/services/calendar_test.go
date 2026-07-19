@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,49 @@ func TestCalendarReadsAutomaticallyAndMutationsUseExactApprovalPayload(t *testin
 		if !contains(string(payload), exact) {
 			t.Fatalf("payload %s missing %q", payload, exact)
 		}
+	}
+}
+
+func TestCalendarListAllMergesReadableCalendarsInStableOrder(t *testing.T) {
+	start := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	provider := &fakeCalendar{
+		calendars: []ports.CalendarInfo{
+			{ID: "primary", AccessRole: "owner"},
+			{ID: "team", AccessRole: "reader"},
+			{ID: "shared", AccessRole: "writerWithoutPrivateAccess"},
+			{ID: "availability", AccessRole: "freeBusyReader"},
+			{ID: "revoked", AccessRole: "none"},
+		},
+		eventsByCalendar: map[string][]ports.CalendarEvent{
+			"primary": {{ID: "later", Start: start.Add(12 * time.Hour)}},
+			"team":    {{ID: "earlier", Start: start.Add(10 * time.Hour)}},
+			"shared":  {{ID: "same-time", Start: start.Add(12 * time.Hour)}},
+		},
+	}
+	service := NewCalendarService(provider, nil, nil)
+
+	events, err := service.ListAll(context.Background(), start, start.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 || events[0].ID != "earlier" || events[1].CalendarID != "primary" || events[2].CalendarID != "shared" {
+		t.Fatalf("events=%#v", events)
+	}
+	if got := strings.Join(provider.listedCalendars, ","); got != "primary,team,shared" {
+		t.Fatalf("listed calendars=%s", got)
+	}
+}
+
+func TestCalendarCalendarsReturnsProviderMetadata(t *testing.T) {
+	provider := &fakeCalendar{calendars: []ports.CalendarInfo{{ID: "primary", Name: "Personal", AccessRole: "owner", Primary: true}}}
+	service := NewCalendarService(provider, nil, nil)
+
+	calendars, err := service.Calendars(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calendars) != 1 || calendars[0].Name != "Personal" || !calendars[0].Primary {
+		t.Fatalf("calendars=%#v", calendars)
 	}
 }
 
@@ -73,6 +117,9 @@ func TestCalendarResumesPersistedApprovedMutation(t *testing.T) {
 
 type fakeCalendar struct {
 	events                    []ports.CalendarEvent
+	calendars                 []ports.CalendarInfo
+	eventsByCalendar          map[string][]ports.CalendarEvent
+	listedCalendars           []string
 	creates, updates, deletes int
 }
 
@@ -80,7 +127,15 @@ func (f *fakeCalendar) AuthorizationURL(string) string { return "" }
 func (f *fakeCalendar) ExchangeCode(context.Context, string) (ports.CalendarAuth, error) {
 	return ports.CalendarAuth{}, nil
 }
-func (f *fakeCalendar) List(context.Context, string, time.Time, time.Time) ([]ports.CalendarEvent, error) {
+
+func (f *fakeCalendar) ListCalendars(context.Context) ([]ports.CalendarInfo, error) {
+	return f.calendars, nil
+}
+func (f *fakeCalendar) List(_ context.Context, calendarID string, _ time.Time, _ time.Time) ([]ports.CalendarEvent, error) {
+	f.listedCalendars = append(f.listedCalendars, calendarID)
+	if f.eventsByCalendar != nil {
+		return f.eventsByCalendar[calendarID], nil
+	}
 	return f.events, nil
 }
 func (f *fakeCalendar) Create(_ context.Context, event ports.CalendarEvent) (ports.CalendarEvent, error) {

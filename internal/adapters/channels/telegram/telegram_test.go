@@ -60,7 +60,7 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	var got events.Event
 	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil })
-	body := `{"update_id":8,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:abc:approve","message":{"chat":{"id":99}}}}`
+	body := `{"update_id":8,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":99}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -70,7 +70,7 @@ func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	}
 	var decision events.ApprovalDecision
 	_ = json.Unmarshal(got.Payload, &decision)
-	if decision.ApprovalID != "abc" || !decision.Approved {
+	if decision.ApprovalID != "abc" || !decision.Approved || decision.CallbackQueryID != "cb" || decision.MessageID != "123" {
 		t.Fatalf("decision=%#v", decision)
 	}
 }
@@ -91,7 +91,7 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 	if err := client.DeliverApproval(context.Background(), "99", approval); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 2 || requests[0]["parse_mode"] != nil {
+	if len(requests) != 2 || requests[0]["parse_mode"] != "HTML" || requests[0]["text"] != `&lt;ready&gt; &amp; "safe"` {
 		t.Fatalf("requests=%#v", requests)
 	}
 	preview, ok := requests[0]["link_preview_options"].(map[string]any)

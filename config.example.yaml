@@ -40,5 +40,6 @@ scheduler:
   weekly_proactive_limit: 5
 calendar:
   enabled: true
+  # Default for mutations when no calendar ID is supplied; general reads cover all readable calendars.
   default_calendar: "primary"
   timezone: "Asia/Singapore"

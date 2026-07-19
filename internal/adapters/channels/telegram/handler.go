@@ -38,7 +38,8 @@ type update struct {
 		From    user   `json:"from"`
 		Data    string `json:"data"`
 		Message struct {
-			Chat chat `json:"chat"`
+			MessageID int64 `json:"message_id"`
+			Chat      chat  `json:"chat"`
 		} `json:"message"`
 	} `json:"callback_query"`
 }
@@ -97,7 +98,12 @@ func normalize(incoming update) (events.Event, int64, error) {
 		if len(parts) != 3 || parts[0] != "approval" || (parts[2] != "approve" && parts[2] != "reject") {
 			return events.Event{}, 0, fmt.Errorf("invalid approval callback")
 		}
-		payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: parts[1], Approved: parts[2] == "approve"})
+		payload, _ := json.Marshal(events.ApprovalDecision{
+			ApprovalID:      parts[1],
+			Approved:        parts[2] == "approve",
+			CallbackQueryID: incoming.Callback.ID,
+			MessageID:       strconv.FormatInt(incoming.Callback.Message.MessageID, 10),
+		})
 		base.Type, base.Owner, base.Payload = events.TypeApproval, strconv.FormatInt(incoming.Callback.From.ID, 10), payload
 		return base, incoming.Callback.From.ID, nil
 	}

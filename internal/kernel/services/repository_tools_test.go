@@ -43,6 +43,26 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 	}
 }
 
+func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
+	repositories := map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	worker := &fakeRepositoryWorker{}
+	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1"}}
+	var received []ports.CodingProgress
+	tools := NewRepositoryTools(repositories, worker, worker, requester, func() string { return "run-42" },
+		func(progress ports.CodingProgress) { received = append(received, progress) },
+		func(context.Context, approvals.Approval) error { return nil })
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+	if _, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","instruction":"fix tests"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 1 || received[0].RunID != "run-42" || received[0].Message != "working" {
+		t.Fatalf("received=%#v", received)
+	}
+}
+
 func TestRepositoryListReportsNotConfigured(t *testing.T) {
 	tools := NewRepositoryTools(nil, &fakeRepositoryWorker{}, &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
 	result, err := tools[0].Execute(context.Background(), json.RawMessage(`{}`))

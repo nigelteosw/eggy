@@ -122,28 +122,84 @@ type googleEventTime struct {
 	TimeZone string `json:"timeZone,omitempty"`
 }
 
-func (a *Adapter) List(ctx context.Context, calendarID string, from, to time.Time) ([]ports.CalendarEvent, error) {
-	query := url.Values{"timeMin": {from.Format(time.RFC3339)}, "timeMax": {to.Format(time.RFC3339)}, "singleEvents": {"true"}, "orderBy": {"startTime"}}
-	response, err := a.calendarRequest(ctx, http.MethodGet, "/calendars/"+url.PathEscape(calendarID)+"/events?"+query.Encode(), nil, "")
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	var result struct {
-		Items []googleEvent `json:"items"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-	events := make([]ports.CalendarEvent, 0, len(result.Items))
-	for _, item := range result.Items {
-		event, err := fromGoogleEvent(calendarID, item)
+type googleCalendar struct {
+	ID         string `json:"id"`
+	Summary    string `json:"summary"`
+	AccessRole string `json:"accessRole"`
+	Primary    bool   `json:"primary"`
+	Hidden     bool   `json:"hidden"`
+}
+
+func (a *Adapter) ListCalendars(ctx context.Context) ([]ports.CalendarInfo, error) {
+	calendars := make([]ports.CalendarInfo, 0)
+	pageToken := ""
+	for {
+		query := url.Values{"maxResults": {"250"}, "showHidden": {"true"}}
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
+		}
+		response, err := a.calendarRequest(ctx, http.MethodGet, "/users/me/calendarList?"+query.Encode(), nil, "")
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, event)
+		var result struct {
+			NextPageToken string           `json:"nextPageToken"`
+			Items         []googleCalendar `json:"items"`
+		}
+		decodeErr := json.NewDecoder(response.Body).Decode(&result)
+		closeErr := response.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		for _, item := range result.Items {
+			calendars = append(calendars, ports.CalendarInfo{ID: item.ID, Name: item.Summary, AccessRole: item.AccessRole, Primary: item.Primary, Hidden: item.Hidden})
+		}
+		if result.NextPageToken == "" {
+			return calendars, nil
+		}
+		pageToken = result.NextPageToken
 	}
-	return events, nil
+}
+
+func (a *Adapter) List(ctx context.Context, calendarID string, from, to time.Time) ([]ports.CalendarEvent, error) {
+	events := make([]ports.CalendarEvent, 0)
+	pageToken := ""
+	for {
+		query := url.Values{"maxResults": {"2500"}, "timeMin": {from.Format(time.RFC3339)}, "timeMax": {to.Format(time.RFC3339)}, "singleEvents": {"true"}, "orderBy": {"startTime"}}
+		if pageToken != "" {
+			query.Set("pageToken", pageToken)
+		}
+		response, err := a.calendarRequest(ctx, http.MethodGet, "/calendars/"+url.PathEscape(calendarID)+"/events?"+query.Encode(), nil, "")
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			NextPageToken string        `json:"nextPageToken"`
+			Items         []googleEvent `json:"items"`
+		}
+		decodeErr := json.NewDecoder(response.Body).Decode(&result)
+		closeErr := response.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		for _, item := range result.Items {
+			event, err := fromGoogleEvent(calendarID, item)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, event)
+		}
+		if result.NextPageToken == "" {
+			return events, nil
+		}
+		pageToken = result.NextPageToken
+	}
 }
 
 func (a *Adapter) Create(ctx context.Context, event ports.CalendarEvent) (ports.CalendarEvent, error) {

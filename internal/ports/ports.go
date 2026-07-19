@@ -83,6 +83,10 @@ type Tool interface {
 type Channel interface {
 	Deliver(context.Context, string, string) error
 	DeliverApproval(context.Context, string, approvals.Approval) error
+	DeliverTrackable(ctx context.Context, chatID, text string) (messageID string, err error)
+	EditText(ctx context.Context, chatID, messageID, text string) error
+	AnswerCallback(ctx context.Context, callbackQueryID string) error
+	SendTyping(ctx context.Context, chatID string) error
 }
 
 type AgentContext struct {
@@ -185,6 +189,7 @@ type CodingRequest struct {
 type CodingProgress struct {
 	Kind    string
 	Message string
+	RunID   string
 }
 
 type CodingResult struct {
@@ -267,9 +272,18 @@ type CalendarEvent struct {
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`
 }
 
+type CalendarInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	AccessRole string `json:"access_role"`
+	Primary    bool   `json:"primary"`
+	Hidden     bool   `json:"hidden"`
+}
+
 type CalendarProvider interface {
 	AuthorizationURL(string) string
 	ExchangeCode(context.Context, string) (CalendarAuth, error)
+	ListCalendars(context.Context) ([]CalendarInfo, error)
 	List(context.Context, string, time.Time, time.Time) ([]CalendarEvent, error)
 	Create(context.Context, CalendarEvent) (CalendarEvent, error)
 	Update(context.Context, CalendarEvent) (CalendarEvent, error)

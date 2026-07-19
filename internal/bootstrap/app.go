@@ -130,10 +130,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	for _, configured := range config.Repositories {
 		app.repositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
 	}
+	var telegramClient *telegram.Client
 	if options.FakeAdapters {
 		app.channel = noopChannel{}
 	} else {
-		app.channel = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
+		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
+		app.channel = telegramClient
 	}
 	protected := make([]string, 0)
 	for _, repository := range app.repositories {
@@ -190,12 +192,9 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
+	progress := telegram.NewProgressTracker(app.channel, owner)
 	for _, tool := range services.NewRepositoryTools(app.repositories, app.coding, app.coding, app.shipping, newRunID,
-		func(progress ports.CodingProgress) {
-			if progress.Message != "" {
-				_ = app.channel.Deliver(context.Background(), owner, progress.Message)
-			}
-		},
+		progress.Deliver,
 		func(ctx context.Context, approval approvals.Approval) error {
 			return app.channel.DeliverApproval(ctx, owner, approval)
 		},
@@ -254,6 +253,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	})
 	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback)
+	if telegramClient != nil {
+		if err := telegramClient.SetCommands(context.Background(), telegram.Commands()); err != nil {
+			app.logger.Warn("failed to register Telegram command suggestions", "error", err)
+		}
+	}
 	return app, nil
 }
 
@@ -353,7 +357,9 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
 	}
 	history = append(history, state.RecentMessages...)
+	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, agent.RunOptions{})
+	stopTyping()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr
@@ -372,6 +378,9 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 
 func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecision) error {
 	chatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
+	if decision.CallbackQueryID != "" {
+		_ = a.channel.AnswerCallback(ctx, decision.CallbackQueryID)
+	}
 	if err := a.approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
 		return err
 	}
@@ -385,7 +394,7 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 				_ = a.coding.Cleanup(ctx, payload.RunID)
 			}
 		}
-		return a.channel.Deliver(ctx, chatID, "Action rejected.")
+		return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Action rejected.")
 	}
 	state, err := a.store.Load(ctx)
 	if err != nil {
@@ -416,7 +425,7 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		if err != nil {
 			return err
 		}
-		if err := a.channel.Deliver(ctx, chatID, fmt.Sprintf("Committed %v.", result)); err != nil {
+		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Committed %v.", result)); err != nil {
 			return err
 		}
 		return a.channel.DeliverApproval(ctx, chatID, next)
@@ -428,7 +437,7 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		if err != nil {
 			return err
 		}
-		if err := a.channel.Deliver(ctx, chatID, "Push completed."); err != nil {
+		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Push completed."); err != nil {
 			return err
 		}
 		return a.channel.DeliverApproval(ctx, chatID, next)
@@ -440,7 +449,7 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 			_ = a.coding.Cleanup(ctx, payload.RunID)
 		}
 	}
-	return a.channel.Deliver(ctx, chatID, fmt.Sprintf("Approved action completed: %v", result))
+	return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -561,3 +570,7 @@ type noopChannel struct{}
 
 func (noopChannel) Deliver(context.Context, string, string) error                     { return nil }
 func (noopChannel) DeliverApproval(context.Context, string, approvals.Approval) error { return nil }
+func (noopChannel) DeliverTrackable(context.Context, string, string) (string, error)  { return "", nil }
+func (noopChannel) EditText(context.Context, string, string, string) error            { return nil }
+func (noopChannel) AnswerCallback(context.Context, string) error                      { return nil }
+func (noopChannel) SendTyping(context.Context, string) error                          { return nil }

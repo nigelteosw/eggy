@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -124,6 +125,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err := cfg.applyDefaults(); err != nil {
 		return cfg, Secrets{}, err
 	}
+	if err := applyRuntimeOverrides(&cfg, getenv); err != nil {
+		return cfg, Secrets{}, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, Secrets{}, err
 	}
@@ -137,6 +141,19 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		return cfg, Secrets{}, err
 	}
 	return cfg, secrets, nil
+}
+
+func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
+	raw := strings.TrimSpace(getenv("PORT"))
+	if raw == "" {
+		return nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port < 1 || port > 65535 {
+		return errors.New("PORT must be an integer between 1 and 65535")
+	}
+	cfg.Server.Listen = ":" + strconv.Itoa(port)
+	return nil
 }
 
 func (c *Config) applyDefaults() error {

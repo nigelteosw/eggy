@@ -25,6 +25,39 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	}
 }
 
+func TestLoadConfigUsesValidatedRuntimePort(t *testing.T) {
+	tests := []struct {
+		port       string
+		wantListen string
+		wantError  string
+	}{
+		{"4317", ":4317", ""},
+		{"", ":8080", ""},
+		{"0", "", "PORT must be an integer between 1 and 65535"},
+		{"65536", "", "PORT must be an integer between 1 and 65535"},
+		{"http", "", "PORT must be an integer between 1 and 65535"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.port, func(t *testing.T) {
+			env := testSecrets()
+			env["PORT"] = tt.port
+			cfg, _, err := loadText(t, validConfig(), env)
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Server.Listen != tt.wantListen {
+				t.Fatalf("server listen = %q, want %q", cfg.Server.Listen, tt.wantListen)
+			}
+		})
+	}
+}
+
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	_, _, err := loadText(t, validConfig()+"unknown: true\n", testSecrets())
 	if err == nil || !strings.Contains(err.Error(), "field unknown") {

@@ -38,7 +38,7 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	config, secrets, err := bootstrap.LoadConfig(*configPath, getenv)
+	config, secrets, err := bootstrap.LoadOrCreateConfig(*configPath, getenv)
 	if err != nil {
 		return err
 	}

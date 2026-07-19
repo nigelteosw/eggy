@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -21,6 +22,7 @@ type ModelTarget struct {
 
 type RunOptions struct {
 	AllowedTools map[string]bool
+	Lane         lane.Lane
 }
 
 type RunResult struct {
@@ -29,13 +31,14 @@ type RunResult struct {
 }
 
 type Loop struct {
-	tools            map[string]ports.Tool
-	defs             []ports.ToolDefinition
-	selected         map[string]ModelTarget
-	selectedMaxSteps int
+	tools               map[string]ports.Tool
+	defs                []ports.ToolDefinition
+	selected            map[string]ModelTarget
+	selectedMaxSteps    int
+	implementationTools map[string]bool
 }
 
-func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, maxToolSteps int) *Loop {
+func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, implementationToolNames []string, maxToolSteps int) *Loop {
 	if maxToolSteps <= 0 {
 		maxToolSteps = 4
 	}
@@ -50,7 +53,17 @@ func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, maxToolS
 	for alias, target := range models {
 		targets[alias] = target
 	}
-	return &Loop{tools: registry, defs: definitions, selected: targets, selectedMaxSteps: maxToolSteps}
+	implTools := make(map[string]bool, len(implementationToolNames))
+	for _, name := range implementationToolNames {
+		implTools[name] = true
+	}
+	return &Loop{
+		tools:               registry,
+		defs:                definitions,
+		selected:            targets,
+		selectedMaxSteps:    maxToolSteps,
+		implementationTools: implTools,
+	}
 }
 
 func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []ports.Message, options RunOptions) (RunResult, error) {
@@ -58,7 +71,7 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 	if !ok || target.Model == nil || target.ModelID == "" {
 		return RunResult{}, fmt.Errorf("model alias %q is not configured", alias)
 	}
-	definitions := l.filteredDefinitions(options.AllowedTools)
+	definitions := l.filteredDefinitions(options)
 	messages := append([]ports.Message(nil), history...)
 	messages = append(messages, ports.Message{Role: ports.RoleUser, Content: input})
 	result := RunResult{}
@@ -80,7 +93,13 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 		messages = append(messages, assistant)
 		for _, call := range assistant.ToolCalls {
 			tool, ok := l.tools[call.Name]
-			if !ok || (options.AllowedTools != nil && !options.AllowedTools[call.Name]) {
+			if !ok {
+				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+			}
+			if options.AllowedTools != nil && !options.AllowedTools[call.Name] {
+				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+			}
+			if options.Lane != lane.Implementation && l.implementationTools[call.Name] {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
 			output, toolErr := tool.Execute(ctx, call.Arguments)
@@ -93,15 +112,41 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 	}
 }
 
-func (l *Loop) filteredDefinitions(allowed map[string]bool) []ports.ToolDefinition {
-	if allowed == nil {
-		return append([]ports.ToolDefinition(nil), l.defs...)
+// ToolNames returns the tools available for a turn after applying the same
+// lane and allowlist filters used for the model request.
+func (l *Loop) ToolNames(options RunOptions) []string {
+	definitions := l.filteredDefinitions(options)
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, definition.Name)
 	}
-	definitions := make([]ports.ToolDefinition, 0, len(l.defs))
-	for _, definition := range l.defs {
-		if allowed[definition.Name] {
-			definitions = append(definitions, definition)
+	return names
+}
+
+func (l *Loop) filteredDefinitions(options RunOptions) []ports.ToolDefinition {
+	defs := append([]ports.ToolDefinition(nil), l.defs...)
+
+	// Filter out implementation tools when not in implementation lane.
+	if options.Lane != lane.Implementation {
+		filtered := make([]ports.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if !l.implementationTools[d.Name] {
+				filtered = append(filtered, d)
+			}
 		}
+		defs = filtered
 	}
-	return definitions
+
+	// Apply explicit tool allowlist.
+	if options.AllowedTools != nil {
+		filtered := make([]ports.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if options.AllowedTools[d.Name] {
+				filtered = append(filtered, d)
+			}
+		}
+		defs = filtered
+	}
+
+	return defs
 }

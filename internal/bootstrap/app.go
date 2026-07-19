@@ -31,6 +31,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -258,7 +259,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, 8)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify"}, 8)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -340,7 +341,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if message.ChatID == "" {
 			message.ChatID = strconv.FormatInt(a.config.Telegram.OwnerID, 10)
 		}
-		return a.handleMessage(ctx, message)
+		return a.handleMessage(ctx, message, eventLane(event.Type, message.Text))
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {
@@ -354,7 +355,14 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	}
 }
 
-func (a *App) handleMessage(ctx context.Context, message events.Message) error {
+func eventLane(eventType events.Type, text string) lane.Lane {
+	if eventType != events.TypeMessage {
+		return lane.Assistant
+	}
+	return lane.Detect(text)
+}
+
+func (a *App) handleMessage(ctx context.Context, message events.Message, turnLane lane.Lane) error {
 	if output, handled, err := a.commands.Execute(ctx, message.Text); handled {
 		if err != nil {
 			return err
@@ -377,13 +385,15 @@ func (a *App) handleMessage(ctx context.Context, message events.Message) error {
 	manifest.ActiveModel = alias
 	manifest.Repositories = repositoryNamesFromState(state)
 	manifest.CodexReady = len(state.Repositories) > 0
+	options := agent.RunOptions{Lane: turnLane}
+	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	if state.ConversationSummary != "" {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
 	}
 	history = append(history, state.RecentMessages...)
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
-	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, agent.RunOptions{})
+	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, options)
 	stopTyping()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
@@ -554,10 +564,12 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	manifest.ActiveModel = alias
 	manifest.Repositories = repositoryNamesFromState(state)
 	manifest.CodexReady = len(state.Repositories) > 0
+	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
+	options := agent.RunOptions{AllowedTools: allowed}
+	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
-	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
-	result, runErr := a.loop.RunSelected(ctx, alias, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, agent.RunOptions{AllowedTools: allowed})
+	result, runErr := a.loop.RunSelected(ctx, alias, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr

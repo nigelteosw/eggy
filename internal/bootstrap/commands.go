@@ -18,18 +18,20 @@ import (
 )
 
 type CommandService struct {
-	config       Config
-	store        ports.StateStore
-	context      ports.ContextStore
-	conversation *services.ConversationService
-	coding       *services.CodingService
-	repositories *services.RepositoriesService
-	agentRuntime *services.AgentRuntime
-	channel      ports.Channel
-	owner        string
-	defaultModel string
-	modelAliases []string
-	now          func() time.Time
+	config             Config
+	store              ports.StateStore
+	context            ports.ContextStore
+	conversation       *services.ConversationService
+	coding             *services.CodingService
+	repositories       *services.RepositoriesService
+	agentRuntime       *services.AgentRuntime
+	codingRuntime      *services.CodingAgentRuntime
+	channel            ports.Channel
+	owner              string
+	defaultModel       string
+	defaultCodingAgent string
+	modelAliases       []string
+	now                func() time.Time
 }
 
 func (s *CommandService) Execute(ctx context.Context, input string) (string, bool, error) {
@@ -180,6 +182,31 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			return err.Error() + ". Configured models: " + strings.Join(aliases, ", "), true, nil
 		}
 		return "Model set to " + fields[1] + ".", true, nil
+	case "/coding_agent":
+		if s.codingRuntime == nil {
+			return "Coding agent selection is not configured.", true, nil
+		}
+		aliases := s.codingRuntime.Aliases()
+		if len(fields) == 1 {
+			active, err := s.codingRuntime.Selected(ctx)
+			if err != nil {
+				return "", true, err
+			}
+			return "Active coding agent: " + active + "\nAvailable coding agents:\n" + strings.Join(aliases, "\n"), true, nil
+		}
+		if len(fields) != 2 {
+			return "Usage: /coding_agent [alias|default]", true, nil
+		}
+		if fields[1] == "default" {
+			if err := s.codingRuntime.Select(ctx, ""); err != nil {
+				return "", true, err
+			}
+			return "Coding agent reset to " + s.defaultCodingAgent + ".", true, nil
+		}
+		if err := s.codingRuntime.Select(ctx, fields[1]); err != nil {
+			return err.Error() + ". Available coding agents: " + strings.Join(aliases, ", "), true, nil
+		}
+		return "Coding agent set to " + fields[1] + ".", true, nil
 	case "/usage":
 		if s.agentRuntime == nil {
 			return "Usage tracking is not configured.", true, nil

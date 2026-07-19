@@ -36,6 +36,56 @@ func TestCommandModelSelection(t *testing.T) {
 	}
 }
 
+func TestCommandCodingAgentListsSelectsAndResets(t *testing.T) {
+	store := jsonfile.Open(t.TempDir() + "/state.json")
+	runtime, err := services.NewCodingAgentRuntime(store, "codex", map[string]ports.CodingAgent{
+		"zeta":  &commandTestCodingAgent{},
+		"codex": &commandTestCodingAgent{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := &CommandService{store: store, codingRuntime: runtime, defaultCodingAgent: "codex"}
+	ctx := context.Background()
+
+	output, handled, err := commands.Execute(ctx, "/coding_agent")
+	if err != nil || !handled || output != "Active coding agent: codex\nAvailable coding agents:\ncodex\nzeta" {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	output, _, err = commands.Execute(ctx, "/coding_agent zeta")
+	if err != nil || output != "Coding agent set to zeta." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/coding_agent default")
+	if err != nil || output != "Coding agent reset to codex." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/coding_agent missing")
+	if err != nil || !strings.Contains(output, "not configured") || !strings.Contains(output, "codex, zeta") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/coding_agent codex extra")
+	if err != nil || output != "Usage: /coding_agent [alias|default]" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestCommandCodingAgentReportsUnconfiguredRuntime(t *testing.T) {
+	commands := &CommandService{}
+	output, handled, err := commands.Execute(context.Background(), "/coding_agent")
+	if err != nil || !handled || output != "Coding agent selection is not configured." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+type commandTestCodingAgent struct{}
+
+func (*commandTestCodingAgent) Run(context.Context, ports.CodingRequest, func(ports.CodingProgress)) (ports.CodingResult, error) {
+	return ports.CodingResult{}, nil
+}
+
+func (*commandTestCodingAgent) Interrupt(string) error { return nil }
+
 func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	store := jsonfile.Open(t.TempDir() + "/state.json")
 	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}

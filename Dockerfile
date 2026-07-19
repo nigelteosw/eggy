@@ -20,7 +20,6 @@ COPY --from=builder /out/eggy /usr/local/bin/eggy
 RUN mkdir -p /data/codex /tmp/runs
 ENV CODEX_HOME=/data/codex \
     EGGY_CONFIG=/data/config.yaml
-VOLUME ["/data"]
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["eggyd"]

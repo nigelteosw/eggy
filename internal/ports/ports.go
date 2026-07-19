@@ -46,7 +46,26 @@ type ModelRequest struct {
 }
 
 type ModelResponse struct {
-	Message Message `json:"message"`
+	Message Message    `json:"message"`
+	Usage   ModelUsage `json:"usage,omitempty"`
+}
+
+type ModelUsage struct {
+	PromptTokens       int64 `json:"prompt_tokens"`
+	CompletionTokens   int64 `json:"completion_tokens"`
+	TotalTokens        int64 `json:"total_tokens"`
+	CachedPromptTokens int64 `json:"cached_prompt_tokens,omitempty"`
+	ReasoningTokens    int64 `json:"reasoning_tokens,omitempty"`
+}
+
+func (u ModelUsage) Add(other ModelUsage) ModelUsage {
+	return ModelUsage{
+		PromptTokens:       u.PromptTokens + other.PromptTokens,
+		CompletionTokens:   u.CompletionTokens + other.CompletionTokens,
+		TotalTokens:        u.TotalTokens + other.TotalTokens,
+		CachedPromptTokens: u.CachedPromptTokens + other.CachedPromptTokens,
+		ReasoningTokens:    u.ReasoningTokens + other.ReasoningTokens,
+	}
 }
 
 type Model interface {

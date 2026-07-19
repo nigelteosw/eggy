@@ -31,15 +31,16 @@ type Adapter struct {
 	executable string
 	runner     ports.Runner
 	maxOutput  int64
+	home       string
 	mu         sync.Mutex
 	active     map[string]context.CancelFunc
 }
 
-func New(executable string, runner ports.Runner, maxOutput int64) *Adapter {
+func New(executable string, runner ports.Runner, maxOutput int64, home string) *Adapter {
 	if maxOutput <= 0 {
 		maxOutput = 1 << 20
 	}
-	return &Adapter{executable: executable, runner: runner, maxOutput: maxOutput, active: map[string]context.CancelFunc{}}
+	return &Adapter{executable: executable, runner: runner, maxOutput: maxOutput, home: home, active: map[string]context.CancelFunc{}}
 }
 
 func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
@@ -72,7 +73,7 @@ func (a *Adapter) Run(ctx context.Context, request ports.CodingRequest, progress
 	}
 	command := ports.Command{
 		Argv: []string{a.executable, "exec", "--json", "--sandbox", sandbox, "--output-schema", schemaPath, request.Instruction},
-		Dir:  request.Workspace, Env: request.Environment, MaxOutput: a.maxOutput,
+		Dir:  request.Workspace, Env: map[string]string{"CODEX_HOME": a.home}, MaxOutput: a.maxOutput,
 	}
 	var result ports.CommandResult
 	err = nil

@@ -15,12 +15,11 @@ type CodingService struct {
 	runner     ports.Runner
 	repository ports.CodingRepository
 	agent      ports.CodingAgent
-	codexHome  string
 	now        func() time.Time
 }
 
-func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, agent ports.CodingAgent, codexHome string, now func() time.Time) *CodingService {
-	return &CodingService{store: store, runner: runner, repository: repository, agent: agent, codexHome: codexHome, now: now}
+func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, agent ports.CodingAgent, now func() time.Time) *CodingService {
+	return &CodingService{store: store, runner: runner, repository: repository, agent: agent, now: now}
 }
 
 func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
@@ -65,7 +64,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nTask:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
-	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, Environment: map[string]string{"CODEX_HOME": s.codexHome}}, progress)
+	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt}, progress)
 	if err != nil {
 		return fail(err)
 	}
@@ -111,7 +110,7 @@ func (s *CodingService) Inspect(ctx context.Context, runID string, repository po
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nRead-only question:\n%s", readOnlyRunnerContract, guidance, question)
 	}
-	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, Environment: map[string]string{"CODEX_HOME": s.codexHome}, ReadOnly: true}, nil)
+	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, ReadOnly: true}, nil)
 	if err != nil {
 		return ports.CodingResult{}, err
 	}

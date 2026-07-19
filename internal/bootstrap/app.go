@@ -170,8 +170,8 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
 	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
-	codex := codexcli.New(options.CodexExecutable, runner, config.Runner.MaxOutputBytes)
-	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, codex, filepath.Join(config.DataDir, "codex"), options.Now)
+	codex := codexcli.New(options.CodexExecutable, runner, config.Runner.MaxOutputBytes, filepath.Join(config.DataDir, "codex"))
+	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, codex, options.Now)
 	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
 	app.shipping.SetApprovalRequester(app.approvals)
 	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID)

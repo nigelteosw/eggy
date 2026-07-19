@@ -19,9 +19,9 @@ func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
 		`{"type":"item.completed","item":{"type":"agent_message","text":"{\"summary\":\"Implemented and tested.\",\"validation\":\"go test ./... passed\",\"commit_message\":\"feat: implement change\",\"changed_files\":[\"main.go\"]}"}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4}}`,
 	}, "\n")}}
-	adapter := New("/usr/local/bin/codex", runner, 4096)
+	adapter := New("/usr/local/bin/codex", runner, 4096, "/data/codex")
 	var progress []ports.CodingProgress
-	result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: workspace, Instruction: "fix tests", Environment: map[string]string{"CODEX_HOME": "/data/codex"}}, func(update ports.CodingProgress) { progress = append(progress, update) })
+	result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: workspace, Instruction: "fix tests", Environment: map[string]string{"UNTRUSTED": "ignored"}}, func(update ports.CodingProgress) { progress = append(progress, update) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
 	}
 	command := runner.command
 	joined := strings.Join(command.Argv, " ")
-	if !strings.Contains(joined, "exec --json") || !strings.Contains(joined, "--sandbox workspace-write") || !strings.Contains(joined, "--output-schema") || command.Dir != workspace || command.Env["CODEX_HOME"] != "/data/codex" {
+	if !strings.Contains(joined, "exec --json") || !strings.Contains(joined, "--sandbox workspace-write") || !strings.Contains(joined, "--output-schema") || command.Dir != workspace || len(command.Env) != 1 || command.Env["CODEX_HOME"] != "/data/codex" {
 		t.Fatalf("command=%#v", command)
 	}
 	if !strings.Contains(runner.schema, `"commit_message"`) || !strings.Contains(runner.schema, `"changed_files"`) {
@@ -46,7 +46,7 @@ func TestCodexRunUsesJSONWorkspaceSandboxAndNormalizesProgress(t *testing.T) {
 
 func TestAdapterUsesReadOnlySandboxForInspection(t *testing.T) {
 	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"{\"summary\":\"inspected\",\"validation\":\"read only\",\"commit_message\":\"chore: no changes\",\"changed_files\":[]}"}}`}}
-	adapter := New("codex", runner, 4096)
+	adapter := New("codex", runner, 4096, "/data/codex")
 	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "inspect-1", Workspace: t.TempDir(), Instruction: "inspect", ReadOnly: true}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestAdapterUsesReadOnlySandboxForInspection(t *testing.T) {
 
 func TestAdapterRejectsUnstructuredFinalMessage(t *testing.T) {
 	runner := &fakeRunner{result: ports.CommandResult{Stdout: `{"type":"item.completed","item":{"type":"agent_message","text":"The branch and commit are ready"}}`}}
-	adapter := New("codex", runner, 4096)
+	adapter := New("codex", runner, 4096, "/data/codex")
 	if _, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: "run-1", Workspace: t.TempDir(), Instruction: "change it"}, nil); err == nil || !strings.Contains(err.Error(), "structured") {
 		t.Fatalf("error=%v", err)
 	}
@@ -65,7 +65,7 @@ func TestAdapterRejectsUnstructuredFinalMessage(t *testing.T) {
 
 func TestCodexInterruptCancelsActiveRun(t *testing.T) {
 	runner := &fakeRunner{block: make(chan struct{}), started: make(chan struct{})}
-	adapter := New("codex", runner, 1024)
+	adapter := New("codex", runner, 1024, "/data/codex")
 	done := make(chan error, 1)
 	workspace := t.TempDir()
 	go func() {

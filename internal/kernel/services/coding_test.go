@@ -16,7 +16,7 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 	repository := &fakeRepository{}
 	agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "done", Validation: "tests pass", CommitMessage: "feat: done"}}
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	service := NewCodingService(store, runner, repository, agent, "/data/codex", func() time.Time { return now })
+	service := NewCodingService(store, runner, repository, agent, func() time.Time { return now })
 	var updates []ports.CodingProgress
 	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(progress ports.CodingProgress) { updates = append(updates, progress) })
 	if err != nil {
@@ -25,7 +25,7 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 	if run.Status != "completed" || run.Diff != "diff" || run.Branch != "eggy/run-1" || run.BaseRevision != "abc123" || result.CommitMessage != "feat: done" {
 		t.Fatalf("run=%#v result=%#v", run, result)
 	}
-	if !runner.created || repository.clones != 1 || repository.branches != 1 || agent.request.Environment["CODEX_HOME"] != "/data/codex" || agent.request.Workspace != runner.workspace || !strings.Contains(agent.request.Instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(agent.request.Instruction, "Do not commit, push, or create pull requests") {
+	if !runner.created || repository.clones != 1 || repository.branches != 1 || len(agent.request.Environment) != 0 || agent.request.Workspace != runner.workspace || !strings.Contains(agent.request.Instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(agent.request.Instruction, "Do not commit, push, or create pull requests") {
 		t.Fatalf("runner=%#v repository=%#v request=%#v", runner, repository, agent.request)
 	}
 	state, _ := store.Load(context.Background())
@@ -48,7 +48,7 @@ func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
 			store.state.CodingRuns = map[string]ports.CodingRun{}
 			repository := &fakeRepository{}
 			agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
-			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, agent, "/data/codex", time.Now)
+			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, agent, time.Now)
 
 			_, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -66,7 +66,7 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	store := newMemoryStore()
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Workspace: "/tmp/runs/run", Status: "running"}}
 	runner := &fakeWorkspaceRunner{}
-	service := NewCodingService(store, runner, &fakeRepository{}, &fakeCodingAgent{}, "/data/codex", time.Now)
+	service := NewCodingService(store, runner, &fakeRepository{}, &fakeCodingAgent{}, time.Now)
 	count, err := service.RecoverInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
@@ -93,12 +93,12 @@ func TestCodingServiceInspectIsReadOnlyEphemeralAndGuided(t *testing.T) {
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/inspect-1"}
 	repository := &fakeRepository{guidance: "Follow AGENTS", diff: " "}
 	agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "Go standard library"}}
-	service := NewCodingService(store, runner, repository, agent, "/data/codex", time.Now)
+	service := NewCodingService(store, runner, repository, agent, time.Now)
 	result, err := service.Inspect(context.Background(), "inspect-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "what framework?")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Summary != "Go standard library" || !agent.request.ReadOnly || !strings.Contains(agent.request.Instruction, "Follow AGENTS") || agent.request.Environment["CODEX_HOME"] != "/data/codex" {
+	if result.Summary != "Go standard library" || !agent.request.ReadOnly || !strings.Contains(agent.request.Instruction, "Follow AGENTS") || len(agent.request.Environment) != 0 {
 		t.Fatalf("result=%#v request=%#v", result, agent.request)
 	}
 	if !runner.created || !runner.destroyed || repository.clones != 1 || repository.branches != 0 {

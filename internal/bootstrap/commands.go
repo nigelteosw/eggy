@@ -30,6 +30,7 @@ type CommandService struct {
 	owner              string
 	defaultModel       string
 	defaultCodingAgent string
+	configPath         string
 	modelAliases       []string
 	now                func() time.Time
 }
@@ -207,6 +208,82 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			return err.Error() + ". Available coding agents: " + strings.Join(aliases, ", "), true, nil
 		}
 		return "Coding agent set to " + fields[1] + ".", true, nil
+	case "/config":
+		if s.configPath == "" {
+			return "Config file management is not configured.", true, nil
+		}
+		if len(fields) < 2 {
+			return "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ...", true, nil
+		}
+		switch fields[1] {
+		case "get":
+			if len(fields) != 3 {
+				return "Usage: /config get <coding|providers|models>", true, nil
+			}
+			switch fields[2] {
+			case "coding":
+				text, err := getCodingConfigText(s.configPath)
+				if err != nil {
+					return err.Error(), true, nil
+				}
+				return text, true, nil
+			case "providers":
+				text, err := getProvidersConfigText(s.configPath)
+				if err != nil {
+					return err.Error(), true, nil
+				}
+				return text, true, nil
+			case "models":
+				text, err := getModelAliasesConfigText(s.configPath)
+				if err != nil {
+					return err.Error(), true, nil
+				}
+				return text, true, nil
+			default:
+				return "Usage: /config get <coding|providers|models>", true, nil
+			}
+		case "set":
+			if len(fields) < 3 {
+				return "Usage: /config set <coding_agent|provider|model> ...", true, nil
+			}
+			switch fields[2] {
+			case "coding_agent":
+				if len(fields) < 5 || len(fields) > 6 {
+					return "Usage: /config set coding_agent <alias> <adapter> [credential_env]", true, nil
+				}
+				alias, adapter := fields[3], fields[4]
+				credentialEnv := ""
+				if len(fields) == 6 {
+					credentialEnv = fields[5]
+				}
+				if err := setCodingAgent(s.configPath, alias, adapter, credentialEnv); err != nil {
+					return err.Error(), true, nil
+				}
+				return "Set coding agent " + alias + ". Restart Eggy for this to take effect.", true, nil
+			case "provider":
+				if len(fields) != 7 {
+					return "Usage: /config set provider <name> <adapter> <base_url> <api_key_env>", true, nil
+				}
+				name, adapter, baseURL, apiKeyEnv := fields[3], fields[4], fields[5], fields[6]
+				if err := setProvider(s.configPath, name, adapter, baseURL, apiKeyEnv); err != nil {
+					return err.Error(), true, nil
+				}
+				return "Set provider " + name + ". Restart Eggy for this to take effect.", true, nil
+			case "model":
+				if len(fields) != 6 {
+					return "Usage: /config set model <alias> <provider> <model_id>", true, nil
+				}
+				alias, provider, modelID := fields[3], fields[4], fields[5]
+				if err := setModelAlias(s.configPath, alias, provider, modelID); err != nil {
+					return err.Error(), true, nil
+				}
+				return "Set model " + alias + ". Restart Eggy for this to take effect.", true, nil
+			default:
+				return "Usage: /config set <coding_agent|provider|model> ...", true, nil
+			}
+		default:
+			return "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ...", true, nil
+		}
 	case "/usage":
 		if s.agentRuntime == nil {
 			return "Usage tracking is not configured.", true, nil

@@ -47,6 +47,7 @@ type AppOptions struct {
 	GoogleAPIBase    string
 	CodexExecutable  string
 	ClaudeExecutable string
+	ConfigPath       string
 	Now              func() time.Time
 	Logger           *slog.Logger
 	FakeAdapters     bool
@@ -352,7 +353,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, codingRuntime: app.codingRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, defaultCodingAgent: config.Coding.DefaultAgent, modelAliases: aliases, now: options.Now}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, codingRuntime: app.codingRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, defaultCodingAgent: config.Coding.DefaultAgent, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})

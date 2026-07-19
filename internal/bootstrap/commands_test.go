@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +77,92 @@ func TestCommandCodingAgentReportsUnconfiguredRuntime(t *testing.T) {
 	output, handled, err := commands.Execute(context.Background(), "/coding_agent")
 	if err != nil || !handled || output != "Coding agent selection is not configured." {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+func TestCommandConfigReportsUnconfigured(t *testing.T) {
+	commands := &CommandService{}
+	output, handled, err := commands.Execute(context.Background(), "/config get coding")
+	if err != nil || !handled || output != "Config file management is not configured." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := &CommandService{configPath: path}
+	ctx := context.Background()
+
+	output, handled, err := commands.Execute(ctx, "/config get coding")
+	if err != nil || !handled || output != "default_agent: codex\ncodex  adapter=codex_cli" {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set coding_agent claude claude_cli CLAUDE_CODE_OAUTH_TOKEN")
+	if err != nil || output != "Set coding agent claude. Restart Eggy for this to take effect." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get coding")
+	if err != nil || output != "default_agent: codex\nclaude  adapter=claude_cli  credential_env=CLAUDE_CODE_OAUTH_TOKEN\ncodex  adapter=codex_cli" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set coding_agent claude bad_adapter")
+	if err != nil || !strings.Contains(output, "unsupported coding agent adapter") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set provider openrouter openai_compatible https://openrouter.ai/api/v1 OPENROUTER_API_KEY")
+	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get providers")
+	if err != nil || !strings.Contains(output, "openrouter  adapter=openai_compatible  base_url=https://openrouter.ai/api/v1  api_key_env=OPENROUTER_API_KEY") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set model openrouter-pro openrouter your-model-id")
+	if err != nil || output != "Set model openrouter-pro. Restart Eggy for this to take effect." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get models")
+	if err != nil || !strings.Contains(output, "openrouter-pro  provider=openrouter  model=your-model-id") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set model orphan missing-provider some-model")
+	if err != nil || !strings.Contains(output, "unknown provider") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestCommandConfigUsageErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := &CommandService{configPath: path}
+	ctx := context.Background()
+	tests := []struct{ input, want string }{
+		{"/config", "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ..."},
+		{"/config get", "Usage: /config get <coding|providers|models>"},
+		{"/config get unknown", "Usage: /config get <coding|providers|models>"},
+		{"/config set", "Usage: /config set <coding_agent|provider|model> ..."},
+		{"/config set coding_agent claude", "Usage: /config set coding_agent <alias> <adapter> [credential_env]"},
+		{"/config set provider openrouter openai_compatible", "Usage: /config set provider <name> <adapter> <base_url> <api_key_env>"},
+		{"/config set model openrouter-pro openrouter", "Usage: /config set model <alias> <provider> <model_id>"},
+	}
+	for _, tt := range tests {
+		output, handled, err := commands.Execute(ctx, tt.input)
+		if err != nil || !handled || output != tt.want {
+			t.Fatalf("input=%q output=%q handled=%v err=%v", tt.input, output, handled, err)
+		}
 	}
 }
 

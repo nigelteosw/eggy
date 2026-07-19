@@ -22,6 +22,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"gopkg.in/yaml.v3"
 )
 
 func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
@@ -84,6 +85,34 @@ func TestCodingAgentBootstrapRegistersCredentialReadyClaudeAndSwitchesGlobally(t
 	manifest := app.capabilityManifest(ports.State{Coding: state.Coding, Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
 	if manifest.ActiveCodingAgent != "claude" || !manifest.CodingAgentReady {
 		t.Fatalf("manifest=%#v", manifest)
+	}
+}
+
+func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
+	dataDir := t.TempDir()
+	configPath := filepath.Join(dataDir, "config.yaml")
+	cfg := appTestConfig(dataDir)
+	body, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, ConfigPath: configPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider openrouter openai_compatible https://openrouter.ai/api/v1 OPENROUTER_API_KEY")
+	if err != nil || !handled || output != "Set provider openrouter. Restart Eggy for this to take effect." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	reloaded, _, err := LoadConfig(configPath, mapEnv(map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.Providers["openrouter"]; !ok {
+		t.Fatalf("providers = %#v", reloaded.Providers)
 	}
 }
 

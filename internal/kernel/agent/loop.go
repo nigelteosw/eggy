@@ -112,6 +112,17 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 	}
 }
 
+// ToolNames returns the tools available for a turn after applying the same
+// lane and allowlist filters used for the model request.
+func (l *Loop) ToolNames(options RunOptions) []string {
+	definitions := l.filteredDefinitions(options)
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, definition.Name)
+	}
+	return names
+}
+
 func (l *Loop) filteredDefinitions(options RunOptions) []ports.ToolDefinition {
 	defs := append([]ports.ToolDefinition(nil), l.defs...)
 

@@ -19,7 +19,52 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/kernel/lane"
 )
+
+func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
+	text := "Implement the approved design"
+	if got := eventLane(events.TypeMessage, text); got != lane.Implementation {
+		t.Fatalf("message lane=%v, want implementation", got)
+	}
+	if got := eventLane(events.TypeSchedule, text); got != lane.Assistant {
+		t.Fatalf("schedule lane=%v, want assistant", got)
+	}
+}
+
+func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	var modelBodies [][]byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			body, _ := io.ReadAll(request.Body)
+			modelBodies = append(modelBodies, body)
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "Implement the approved design"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "message", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "schedule", Type: events.TypeSchedule, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(modelBodies) != 2 {
+		t.Fatalf("model requests=%d, want 2", len(modelBodies))
+	}
+	if !strings.Contains(string(modelBodies[0]), "repository_modify") {
+		t.Fatalf("implementation turn did not advertise repository_modify: %s", modelBodies[0])
+	}
+	if strings.Contains(string(modelBodies[1]), "repository_modify") {
+		t.Fatalf("scheduled turn advertised repository_modify: %s", modelBodies[1])
+	}
+}
 
 func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T) {
 	dataDir := t.TempDir()

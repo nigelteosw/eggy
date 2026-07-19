@@ -74,6 +74,25 @@ func TestLoopAllowsImplementationToolsByLane(t *testing.T) {
 	}
 }
 
+func TestLoopToolNamesMatchFilteredDefinitions(t *testing.T) {
+	loop := NewSelectedLoop(nil, []ports.Tool{
+		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
+	}, []string{"repository_modify"}, 4)
+
+	assistantNames := loop.ToolNames(RunOptions{})
+	if len(assistantNames) != 1 || assistantNames[0] != "status" {
+		t.Fatalf("assistant names=%v", assistantNames)
+	}
+	implementationNames := loop.ToolNames(RunOptions{Lane: lane.Implementation})
+	if len(implementationNames) != 2 || implementationNames[0] != "status" || implementationNames[1] != "repository_modify" {
+		t.Fatalf("implementation names=%v", implementationNames)
+	}
+	allowedNames := loop.ToolNames(RunOptions{Lane: lane.Implementation, AllowedTools: map[string]bool{"status": true}})
+	if len(allowedNames) != 1 || allowedNames[0] != "status" {
+		t.Fatalf("allowed names=%v", allowedNames)
+	}
+}
+
 func TestLoopRejectsImplementationToolCallOutsideImplementationLane(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{ToolCalls: []ports.ToolCall{{ID: "1", Name: "repository_modify"}}}}}}
 	tool := &fakeTool{name: "repository_modify"}

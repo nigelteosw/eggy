@@ -50,7 +50,10 @@ func TestNativeImplementerInterruptCancelsActiveRun(t *testing.T) {
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
 	done := make(chan error, 1)
-	go func() { _, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil); done <- err }()
+	go func() {
+		_, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil)
+		done <- err
+	}()
 	<-block.started
 	if err := implementer.Interrupt("run-1"); err != nil {
 		t.Fatal(err)

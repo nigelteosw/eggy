@@ -69,7 +69,7 @@ func NewRepositoryTools(
 	}
 
 	modify := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the coding adapter and requests commit approval. When provider capabilities are ready, Eggy automatically chains separate push and pull-request approvals; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
+		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the bounded implementation loop and requests commit approval. When provider capabilities are ready, Eggy automatically chains separate push and pull-request approvals; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
 	}}
 	modify.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {

@@ -9,14 +9,14 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
+func TestCodingServiceRunsImplementerCapturesDiffAndPersistsResult(t *testing.T) {
 	store := newMemoryStore()
 	store.state.CodingRuns = map[string]ports.CodingRun{}
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}
 	repository := &fakeRepository{}
-	agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "done", Validation: "tests pass", CommitMessage: "feat: done"}}
+	implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", Validation: "tests pass", CommitMessage: "feat: done"}}
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	service := NewCodingService(store, runner, repository, agent, func() time.Time { return now })
+	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now })
 	var updates []ports.CodingProgress
 	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(progress ports.CodingProgress) { updates = append(updates, progress) })
 	if err != nil {
@@ -25,8 +25,8 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 	if run.Status != "completed" || run.Diff != "diff" || run.Branch != "eggy/run-1" || run.BaseRevision != "abc123" || result.CommitMessage != "feat: done" {
 		t.Fatalf("run=%#v result=%#v", run, result)
 	}
-	if !runner.created || repository.clones != 1 || repository.branches != 1 || len(agent.request.Environment) != 0 || agent.request.Workspace != runner.workspace || !strings.Contains(agent.request.Instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(agent.request.Instruction, "Do not commit, push, or create pull requests") {
-		t.Fatalf("runner=%#v repository=%#v request=%#v", runner, repository, agent.request)
+	if !runner.created || repository.clones != 1 || repository.branches != 1 || implementer.runID != "run-1" || implementer.workspace != runner.workspace || !strings.Contains(implementer.instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(implementer.instruction, "Do not commit, push, or create pull requests") {
+		t.Fatalf("runner=%#v repository=%#v implementer=%#v", runner, repository, implementer)
 	}
 	state, _ := store.Load(context.Background())
 	if state.CodingRuns["run-1"].Status != "completed" {
@@ -42,7 +42,7 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 		"Preparing an isolated workspace for eggy",
 		"Cloning eggy@main",
 		"Creating branch eggy/run-1",
-		"Starting the coding agent",
+		"Starting the implementation run",
 		"Capturing diff and validation evidence",
 	}
 	if strings.Join(checkpoints, "|") != strings.Join(wantCheckpoints, "|") {
@@ -63,8 +63,8 @@ func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
 			store := newMemoryStore()
 			store.state.CodingRuns = map[string]ports.CodingRun{}
 			repository := &fakeRepository{}
-			agent := &fakeCodingAgent{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
-			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, agent, time.Now)
+			implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
+			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, implementer, time.Now)
 
 			_, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -82,7 +82,7 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	store := newMemoryStore()
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Workspace: "/tmp/runs/run", Status: "running"}}
 	runner := &fakeWorkspaceRunner{}
-	service := NewCodingService(store, runner, &fakeRepository{}, &fakeCodingAgent{}, time.Now)
+	service := NewCodingService(store, runner, &fakeRepository{}, &fakeImplementer{}, time.Now)
 	count, err := service.RecoverInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
@@ -117,14 +117,14 @@ func (r *fakeWorkspaceRunner) Execute(context.Context, ports.Command) (ports.Com
 }
 func (r *fakeWorkspaceRunner) Destroy(context.Context, string) error { r.destroyed = true; return nil }
 
-type fakeCodingAgent struct {
-	request ports.CodingRequest
-	result  ports.CodingResult
-	onRun   func()
+type fakeImplementer struct {
+	runID, workspace, instruction string
+	result                        ports.CodingResult
+	onRun                         func()
 }
 
-func (a *fakeCodingAgent) Run(_ context.Context, request ports.CodingRequest, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
-	a.request = request
+func (a *fakeImplementer) Implement(_ context.Context, runID, workspace, instruction string, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+	a.runID, a.workspace, a.instruction = runID, workspace, instruction
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
 	}
@@ -133,4 +133,4 @@ func (a *fakeCodingAgent) Run(_ context.Context, request ports.CodingRequest, pr
 	}
 	return a.result, nil
 }
-func (a *fakeCodingAgent) Interrupt(string) error { return nil }
+func (a *fakeImplementer) Interrupt(string) error { return nil }

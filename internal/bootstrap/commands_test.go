@@ -38,51 +38,9 @@ func TestCommandModelSelection(t *testing.T) {
 	}
 }
 
-func TestCommandCodingAgentListsSelectsAndResets(t *testing.T) {
-	store := jsonfile.Open(t.TempDir() + "/state.json")
-	runtime, err := services.NewCodingAgentRuntime(store, "codex", map[string]ports.CodingAgent{
-		"zeta":  &commandTestCodingAgent{},
-		"codex": &commandTestCodingAgent{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	commands := &CommandService{store: store, codingRuntime: runtime, defaultCodingAgent: "codex"}
-	ctx := context.Background()
-
-	output, handled, err := commands.Execute(ctx, "/coding_agent")
-	if err != nil || !handled || output != "Active coding agent: codex\nAvailable coding agents:\ncodex\nzeta" {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-	output, _, err = commands.Execute(ctx, "/coding_agent zeta")
-	if err != nil || output != "Coding agent set to zeta." {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, _, err = commands.Execute(ctx, "/coding_agent default")
-	if err != nil || output != "Coding agent reset to codex." {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, _, err = commands.Execute(ctx, "/coding_agent missing")
-	if err != nil || !strings.Contains(output, "not configured") || !strings.Contains(output, "codex, zeta") {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, _, err = commands.Execute(ctx, "/coding_agent codex extra")
-	if err != nil || output != "Usage: /coding_agent [alias|default]" {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-}
-
-func TestCommandCodingAgentReportsUnconfiguredRuntime(t *testing.T) {
-	commands := &CommandService{}
-	output, handled, err := commands.Execute(context.Background(), "/coding_agent")
-	if err != nil || !handled || output != "Coding agent selection is not configured." {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-}
-
 func TestCommandConfigReportsUnconfigured(t *testing.T) {
 	commands := &CommandService{}
-	output, handled, err := commands.Execute(context.Background(), "/config get coding")
+	output, handled, err := commands.Execute(context.Background(), "/config get providers")
 	if err != nil || !handled || output != "Config file management is not configured." {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
@@ -96,27 +54,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	commands := &CommandService{configPath: path}
 	ctx := context.Background()
 
-	output, handled, err := commands.Execute(ctx, "/config get coding")
-	if err != nil || !handled || output != "default_agent: codex\ncodex  adapter=codex_cli" {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, _, err = commands.Execute(ctx, "/config set coding_agent alias=claude adapter=claude_cli credential_env=CLAUDE_CODE_OAUTH_TOKEN")
-	if err != nil || output != "Set coding agent claude. Restart Eggy for this to take effect." {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-
-	output, _, err = commands.Execute(ctx, "/config get coding")
-	if err != nil || output != "default_agent: codex\nclaude  adapter=claude_cli  credential_env=CLAUDE_CODE_OAUTH_TOKEN\ncodex  adapter=codex_cli" {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-
-	output, _, err = commands.Execute(ctx, "/config set coding_agent alias=claude adapter=bad_adapter")
-	if err != nil || !strings.Contains(output, "unsupported coding agent adapter") {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-
-	output, _, err = commands.Execute(ctx, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
+	output, _, err := commands.Execute(ctx, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
 	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
@@ -170,13 +108,10 @@ func TestCommandConfigUsageErrors(t *testing.T) {
 	commands := &CommandService{configPath: path}
 	ctx := context.Background()
 	tests := []struct{ input, want string }{
-		{"/config", "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ..."},
-		{"/config get", "Usage: /config get <coding|providers|models|calendar|path>"},
-		{"/config get unknown", "Usage: /config get <coding|providers|models|calendar|path>"},
-		{"/config set", "Usage: /config set <coding_agent|provider|model|calendar> ..."},
-		{"/config set coding_agent alias=claude", "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"},
-		{"/config set coding_agent alias=claude adapter=claude_cli unknown=x", "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"},
-		{"/config set coding_agent notkeyvalue", `invalid flag "notkeyvalue": expected key=value`},
+		{"/config", "Usage: /config get <providers|models|calendar|path>|set <provider|model|calendar> ..."},
+		{"/config get", "Usage: /config get <providers|models|calendar|path>"},
+		{"/config get unknown", "Usage: /config get <providers|models|calendar|path>"},
+		{"/config set", "Usage: /config set <provider|model|calendar> ..."},
 		{"/config set provider name=openrouter adapter=openai_compatible", "Usage: /config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>"},
 		{"/config set model alias=openrouter-pro provider=openrouter", "Usage: /config set model alias=<alias> provider=<provider> model=<model_id>"},
 		{"/config set calendar badkey=x", "Usage: /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]"},
@@ -189,14 +124,6 @@ func TestCommandConfigUsageErrors(t *testing.T) {
 		}
 	}
 }
-
-type commandTestCodingAgent struct{}
-
-func (*commandTestCodingAgent) Run(context.Context, ports.CodingRequest, func(ports.CodingProgress)) (ports.CodingResult, error) {
-	return ports.CodingResult{}, nil
-}
-
-func (*commandTestCodingAgent) Interrupt(string) error { return nil }
 
 func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	store := jsonfile.Open(t.TempDir() + "/state.json")

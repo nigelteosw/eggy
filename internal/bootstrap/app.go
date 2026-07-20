@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -21,8 +20,6 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/calendar/google"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
-	"github.com/nigelteosw/eggy/internal/adapters/coding/claudecli"
-	"github.com/nigelteosw/eggy/internal/adapters/coding/codexcli"
 	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
 	"github.com/nigelteosw/eggy/internal/adapters/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/internal/adapters/repositories/github"
@@ -45,8 +42,6 @@ type AppOptions struct {
 	GoogleAuthURL    string
 	GoogleTokenURL   string
 	GoogleAPIBase    string
-	CodexExecutable  string
-	ClaudeExecutable string
 	ConfigPath       string
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -61,6 +56,7 @@ type App struct {
 	dispatcher          *services.Dispatcher
 	httpHandler         http.Handler
 	loop                *agent.Loop
+	implementationLoop  *agent.Loop
 	agentRuntime        *services.AgentRuntime
 	manifest            agent.CapabilityManifest
 	commands            *CommandService
@@ -69,8 +65,6 @@ type App struct {
 	approvals           *services.ApprovalService
 	approvalExecutors   map[approvals.Action]ApprovalExecutor
 	coding              *services.CodingService
-	codingRuntime       *services.CodingAgentRuntime
-	codingAliases       []string
 	shipping            *services.ShippingService
 	calendar            *services.CalendarService
 	repositoriesService *services.RepositoriesService
@@ -107,56 +101,6 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if options.GoogleAPIBase == "" {
 		options.GoogleAPIBase = "https://www.googleapis.com/calendar/v3"
 	}
-	if options.CodexExecutable == "" {
-		options.CodexExecutable = "codex"
-	}
-	if options.ClaudeExecutable == "" {
-		options.ClaudeExecutable = "claude"
-	}
-	if config.Coding.DefaultAgent == "" && len(config.Coding.Agents) == 0 {
-		config.Coding = defaultCodingConfig()
-	}
-	availableCoding := make(map[string]CodingAgentConfig, len(config.Coding.Agents))
-	codingExecutables := make(map[string]string, len(config.Coding.Agents))
-	codingAliases := make([]string, 0, len(config.Coding.Agents))
-	configuredAliases := make([]string, 0, len(config.Coding.Agents))
-	for alias := range config.Coding.Agents {
-		configuredAliases = append(configuredAliases, alias)
-	}
-	sort.Strings(configuredAliases)
-	for _, alias := range configuredAliases {
-		configured := config.Coding.Agents[alias]
-		credential := secrets.CodingAgentCredentials[alias]
-		if configured.CredentialEnv != "" && strings.TrimSpace(credential) == "" {
-			if alias == config.Coding.DefaultAgent {
-				return nil, fmt.Errorf("default coding agent %q is unavailable: required credential %s is missing", alias, configured.CredentialEnv)
-			}
-			continue
-		}
-		var executable string
-		switch configured.Adapter {
-		case "codex_cli":
-			executable = options.CodexExecutable
-		case "claude_cli":
-			executable = options.ClaudeExecutable
-		default:
-			return nil, fmt.Errorf("coding agent alias %q uses unsupported adapter %q", alias, configured.Adapter)
-		}
-		if !options.FakeAdapters && len(config.Repositories) > 0 {
-			if _, err := exec.LookPath(executable); err != nil {
-				if alias == config.Coding.DefaultAgent {
-					return nil, fmt.Errorf("default coding agent %q is unavailable: executable %q: %w", alias, executable, err)
-				}
-				continue
-			}
-		}
-		availableCoding[alias] = configured
-		codingExecutables[alias] = executable
-		codingAliases = append(codingAliases, alias)
-	}
-	if _, ok := availableCoding[config.Coding.DefaultAgent]; !ok {
-		return nil, fmt.Errorf("default coding agent %q is unavailable", config.Coding.DefaultAgent)
-	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
@@ -173,15 +117,6 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	if err := os.MkdirAll(config.DataDir, 0o700); err != nil {
 		return nil, err
-	}
-	for _, alias := range codingAliases {
-		directory := "codex"
-		if availableCoding[alias].Adapter == "claude_cli" {
-			directory = "claude"
-		}
-		if err := os.MkdirAll(filepath.Join(config.DataDir, directory), 0o700); err != nil {
-			return nil, err
-		}
 	}
 	statePath := filepath.Join(config.DataDir, "state.json")
 	_, statErr := os.Stat(statePath)
@@ -217,35 +152,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
-	for _, alias := range codingAliases {
-		switch availableCoding[alias].Adapter {
-		case "codex_cli":
-			allowedEnvironment = append(allowedEnvironment, "CODEX_HOME")
-		case "claude_cli":
-			allowedEnvironment = append(allowedEnvironment, "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR")
-		}
-	}
 	runner, err := localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
 	if err != nil {
 		return nil, err
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
 	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
-	codingAgents := make(map[string]ports.CodingAgent, len(codingAliases))
-	for _, alias := range codingAliases {
-		switch availableCoding[alias].Adapter {
-		case "codex_cli":
-			codingAgents[alias] = codexcli.New(codingExecutables[alias], runner, config.Runner.MaxOutputBytes, filepath.Join(config.DataDir, "codex"))
-		case "claude_cli":
-			codingAgents[alias] = claudecli.New(codingExecutables[alias], runner, config.Runner.MaxOutputBytes, secrets.CodingAgentCredentials[alias], filepath.Join(config.DataDir, "claude"))
-		}
-	}
-	app.codingRuntime, err = services.NewCodingAgentRuntime(stateStore, config.Coding.DefaultAgent, codingAgents)
-	if err != nil {
-		return nil, err
-	}
-	app.codingAliases = app.codingRuntime.Aliases()
-	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, app.codingRuntime, options.Now)
 	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
 	app.shipping.SetApprovalRequester(app.approvals)
 	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID)
@@ -281,6 +193,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	sort.Strings(aliases)
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases)
+	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), nil, 24)
+	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
+		return app.agentRuntime.SelectedModel(ctx)
+	})
+	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now)
 	registry := services.NewToolRegistry()
 	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
 	for _, secret := range secrets.ProviderAPIKeys {
@@ -358,7 +275,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, codingRuntime: app.codingRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, defaultCodingAgent: config.Coding.DefaultAgent, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
@@ -391,7 +308,6 @@ func (a *App) Ready() error {
 		sort.Strings(repositories)
 		integrations := []string{"telegram", "model_provider"}
 		if len(state.Repositories) > 0 {
-			integrations = append(integrations, a.codingAliases...)
 			integrations = append(integrations, "github")
 		}
 		if a.config.Calendar.Enabled {
@@ -652,7 +568,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	manifest := a.capabilityManifest(state, alias)
 	allowed := map[string]bool{
 		"status": true, "repository_list": true, "calendar_list": true,
-		"repository_tree": true, "repository_search": true, "repository_read": true, "repository_status": true, "repository_github": true,
+		"read_file": true, "terminal": true, "repository_github": true,
 	}
 	options := agent.RunOptions{AllowedTools: allowed}
 	manifest.Tools = a.loop.ToolNames(options)
@@ -692,20 +608,8 @@ func repositoryNamesFromState(state ports.State) []string {
 func (a *App) capabilityManifest(state ports.State, activeModel string) agent.CapabilityManifest {
 	manifest := a.manifest
 	manifest.ActiveModel = activeModel
-	manifest.ActiveCodingAgent = state.Coding.SelectedAgent
-	if manifest.ActiveCodingAgent == "" {
-		manifest.ActiveCodingAgent = a.config.Coding.DefaultAgent
-	}
 	manifest.Repositories = repositoryNamesFromState(state)
 	configured := len(manifest.Repositories) > 0
-	available := false
-	for _, alias := range a.codingAliases {
-		if alias == manifest.ActiveCodingAgent {
-			available = true
-			break
-		}
-	}
-	manifest.CodingAgentReady = configured && available
 	manifest.RepositoryCommitReady = configured && manifest.RepositoryCommitReady
 	manifest.RepositoryPushReady = configured && manifest.RepositoryPushReady
 	manifest.PullRequestReady = configured && manifest.PullRequestReady

@@ -88,7 +88,10 @@ func (r *fakeReadWorkspaceRunner) Execute(_ context.Context, command ports.Comma
 	r.command = command
 	return r.commandResult, nil
 }
-func (r *fakeReadWorkspaceRunner) Destroy(context.Context, string) error { r.destroyed = true; return nil }
+func (r *fakeReadWorkspaceRunner) Destroy(context.Context, string) error {
+	r.destroyed = true
+	return nil
+}
 
 type fakeRepositoryReader struct {
 	cloned   int

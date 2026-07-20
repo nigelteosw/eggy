@@ -10,7 +10,9 @@ This supersedes the Codex-delegation sections of `2026-07-19-unified-agent-runti
 
 `Loop.RunSelected` (`internal/kernel/agent/loop.go`) is already a generic, bounded, multi-step tool-calling loop over any `ports.Model`. Hermes Agent (`github.com/NousResearch/hermes-agent`, already cited as a reference architecture in the prior design) validates the same shape at a larger scale: one `AIAgent` class handles CLI sessions, chat, and cron jobs with no separate coding subsystem, using typed tools (`read_file`, `patch`, `terminal`, `process`) dispatched through the same loop that handles everything else. Eggy adopts Hermes's tool naming directly, since there is no reason to invent different names for the same concepts. Eggy does not adopt Hermes's pluggable sandbox backends (Docker/SSH/Modal/etc.) — Eggy already has a single, simpler sandboxing primitive (`ports.Runner`, workspace-scoped, env-allowlisted, timeout- and output-bounded) that every tool below reuses unchanged.
 
-The one deliberate departure from Hermes: Eggy keeps its clone → branch → diff → independent approval (commit → push → pull request) pipeline. Hermes has no equivalent — its docs don't list git operations among its tools, and it relies on backend isolation (e.g. its SSH backend, "recommended for security — agent can't modify its own code") rather than an approval gate. Eggy needs the approval gate because it runs unsupervised against real repositories with real push/PR credentials on a single owner's behalf; that scaffolding is unchanged by this design.
+Pi (`github.com/badlogic/pi-mono`, package `coding-agent`) converges on the same tool shape independently: `read`, `write`, `edit`, `bash` — the same four operations as Hermes's `read_file`/`patch`/`terminal` set, under different names. Two unrelated projects landing on the same minimal tool set is a good sign this is the right surface, not an arbitrary one.
+
+The one deliberate departure from both: Eggy keeps its clone → branch → diff → independent approval (commit → push → pull request) pipeline. Neither Hermes nor Pi has an equivalent. Pi's README says so explicitly — "No permission popups. Run in a container, or build your own confirmation flow with extensions" — and Hermes leans on backend isolation (e.g. its SSH backend, "recommended for security — agent can't modify its own code") instead of an approval gate. Both treat this as the embedder's responsibility, not the harness's; Eggy's approval chain is exactly that responsibility being exercised, not a deviation from either project's philosophy. Eggy needs it because it runs unsupervised against real repositories with real push/PR credentials on a single owner's behalf; that scaffolding is unchanged by this design.
 
 ## Tool inventory
 
@@ -91,10 +93,14 @@ Before completion: `make fmt vet test race build`, and `make smoke` when Docker 
 
 ## Scope limits
 
-No session continuity (`--resume`-equivalent) across turns — each `repository_modify` call is still one bounded run, same lifecycle as today's coding runs. No MCP bridge, no change to how memory/calendar/scheduling tools work, no change to `/model` semantics beyond `/coding_agent` no longer existing. This does not add a web framework, ORM, database, agent framework, or native plugin runtime, per `AGENTS.md`.
+No session continuity across turns in this pass — each `repository_modify` call is still one bounded run, same lifecycle as today's coding runs. If a later change wants multi-turn "keep working on the same branch" sessions, Pi's approach is the concrete reference: sessions persisted as JSONL with a tree structure (branching without duplicating history) plus automatic context compaction as the transcript grows. Not designed here; named so the fast-follow isn't starting from a blank page.
+
+No MCP bridge, no change to how memory/calendar/scheduling tools work, no change to `/model` semantics beyond `/coding_agent` no longer existing. This does not add a web framework, ORM, database, agent framework, or native plugin runtime, per `AGENTS.md`.
 
 ## References
 
 - Hermes Agent architecture: <https://hermes-agent.nousresearch.com/docs/developer-guide/architecture>
 - Hermes Agent tools: <https://hermes-agent.nousresearch.com/docs/user-guide/features/tools>
+- Pi coding agent: <https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md>
+- Pi harness philosophy: <https://github.com/badlogic/pi-mono/blob/main/README.md>
 - Supersedes (repository-delegation sections of): `2026-07-19-unified-agent-runtime-design.md`, `2026-07-19-configurable-coding-agent-design.md`

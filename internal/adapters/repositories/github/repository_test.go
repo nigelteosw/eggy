@@ -136,6 +136,141 @@ func TestDiffRejectsTruncatedApprovalMaterial(t *testing.T) {
 	}
 }
 
+func TestReadOnlyWorkspaceOperationsListSearchReadStatusAndBranches(t *testing.T) {
+	remote := createRemote(t)
+	root := filepath.Join(t.TempDir(), "runs")
+	runner, err := localprocess.New(root, []string{"PATH", "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT"}, 10*time.Second, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, _ := runner.Create(context.Background(), "read-1")
+	adapter := New(runner, "token", "https://api.github.test", http.DefaultClient)
+	repository := ports.Repository{Name: "repo", CloneURL: remote, BaseBranch: "main"}
+	if err := adapter.Clone(context.Background(), repository, workspace); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := adapter.ListTree(context.Background(), workspace, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawReadme, sawGit bool
+	for _, entry := range entries {
+		if entry.Path == "README.md" {
+			sawReadme = true
+		}
+		if strings.HasPrefix(entry.Path, ".git") {
+			sawGit = true
+		}
+	}
+	if !sawReadme || sawGit {
+		t.Fatalf("entries=%#v", entries)
+	}
+
+	matches, err := adapter.Search(context.Background(), workspace, "initial", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Path != "README.md" || matches[0].Line != 1 {
+		t.Fatalf("matches=%#v", matches)
+	}
+
+	content, err := adapter.ReadFile(context.Background(), workspace, "README.md", 0, 0)
+	if err != nil || content != "initial\n" {
+		t.Fatalf("content=%q err=%v", content, err)
+	}
+
+	if _, err := adapter.ReadFile(context.Background(), workspace, "../outside.md", 0, 0); err == nil {
+		t.Fatal("expected path traversal to be rejected")
+	}
+	if _, err := adapter.ReadFile(context.Background(), workspace, "/etc/passwd", 0, 0); err == nil {
+		t.Fatal("expected absolute escape to be rejected")
+	}
+
+	status, err := adapter.Status(context.Background(), workspace)
+	if err != nil {
+		t.Fatalf("status err=%v", err)
+	}
+	if !strings.Contains(status, "## main") {
+		t.Fatalf("status=%q", status)
+	}
+
+	branches, err := adapter.Branches(context.Background(), workspace)
+	if err != nil || len(branches) == 0 {
+		t.Fatalf("branches=%v err=%v", branches, err)
+	}
+}
+
+func TestGitHubMetadataReadsRepositoryIssuePullRequestAndChecks(t *testing.T) {
+	repository := ports.Repository{CloneURL: "https://github.com/acme/repo.git"}
+	for _, test := range []struct {
+		name       string
+		wantPath   string
+		call       func(adapter *Adapter) error
+		body       string
+	}{
+		{
+			name: "repository", wantPath: "/repos/acme/repo",
+			body: `{"description":"desc","default_branch":"main","private":true,"html_url":"https://github.com/acme/repo"}`,
+			call: func(adapter *Adapter) error {
+				summary, err := adapter.RepositorySummary(context.Background(), repository)
+				if err == nil && (summary.DefaultBranch != "main" || !summary.Private) {
+					t.Fatalf("summary=%#v", summary)
+				}
+				return err
+			},
+		},
+		{
+			name: "issue", wantPath: "/repos/acme/repo/issues/7",
+			body: `{"number":7,"title":"Bug","state":"open","body":"details","html_url":"https://github.com/acme/repo/issues/7"}`,
+			call: func(adapter *Adapter) error {
+				summary, err := adapter.Issue(context.Background(), repository, 7)
+				if err == nil && (summary.Number != 7 || summary.Title != "Bug") {
+					t.Fatalf("summary=%#v", summary)
+				}
+				return err
+			},
+		},
+		{
+			name: "pull_request", wantPath: "/repos/acme/repo/pulls/9",
+			body: `{"number":9,"title":"Feature","state":"open","body":"details","html_url":"https://github.com/acme/repo/pull/9"}`,
+			call: func(adapter *Adapter) error {
+				summary, err := adapter.PullRequestSummary(context.Background(), repository, 9)
+				if err == nil && (summary.Number != 9 || summary.Title != "Feature") {
+					t.Fatalf("summary=%#v", summary)
+				}
+				return err
+			},
+		},
+		{
+			name: "checks", wantPath: "/repos/acme/repo/commits/abc123/check-runs",
+			body: `{"check_runs":[{"name":"build","status":"completed","conclusion":"success","html_url":"https://github.com/acme/repo/runs/1"}]}`,
+			call: func(adapter *Adapter) error {
+				checks, err := adapter.Checks(context.Background(), repository, "abc123")
+				if err == nil && (len(checks) != 1 || checks[0].Name != "build" || checks[0].Conclusion != "success") {
+					t.Fatalf("checks=%#v", checks)
+				}
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var gotPath, gotAuthorization string
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				gotPath, gotAuthorization = request.URL.Path, request.Header.Get("Authorization")
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(test.body))}, nil
+			})}
+			adapter := New(nil, "sensitive-token", "https://api.github.test", client)
+			if err := test.call(adapter); err != nil {
+				t.Fatal(err)
+			}
+			if gotPath != test.wantPath || gotAuthorization != "Bearer sensitive-token" {
+				t.Fatalf("path=%q auth=%q", gotPath, gotAuthorization)
+			}
+		})
+	}
+}
+
 func createRemote(t *testing.T) string {
 	t.Helper()
 	source := filepath.Join(t.TempDir(), "source")

@@ -4,16 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
-
-type RepositoryInspector interface {
-	Inspect(context.Context, string, ports.Repository, string) (ports.CodingResult, error)
-}
 
 type RepositoryModifier interface {
 	Start(context.Context, string, ports.Repository, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
@@ -35,7 +30,6 @@ func (t repositoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.
 
 func NewRepositoryTools(
 	store ports.StateStore,
-	inspector RepositoryInspector,
 	modifier RepositoryModifier,
 	approvalRequester CommitApprovalRequester,
 	newRunID func() string,
@@ -74,35 +68,6 @@ func NewRepositoryTools(
 		return json.Marshal(map[string]any{"status": "configured", "repositories": result})
 	}
 
-	inspect := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_inspect", Description: "Answer a read-only question using the owner's currently selected coding agent in an isolated checkout; creates no branch or approval and must be used before claiming repository implementation facts", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"question":{"type":"string","minLength":1}},"required":["repository","question"],"additionalProperties":false}`),
-	}}
-	inspect.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		var input struct {
-			Repository string `json:"repository"`
-			Question   string `json:"question"`
-		}
-		if err := decodeStrict(raw, &input); err != nil {
-			return nil, err
-		}
-		registered, err := loadRepositories(ctx, store)
-		if err != nil {
-			return nil, err
-		}
-		repository, ok := registered[input.Repository]
-		if !ok {
-			return nil, fmt.Errorf("repository %q is not configured", input.Repository)
-		}
-		if inspector == nil || newRunID == nil {
-			return nil, errors.New("repository inspection is unavailable")
-		}
-		result, err := inspector.Inspect(ctx, "inspect-"+newRunID(), repository, input.Question)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(map[string]string{"repository": repository.Name, "summary": result.Summary, "validation": result.Validation})
-	}
-
 	modify := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the coding adapter and requests commit approval. When provider capabilities are ready, Eggy automatically chains separate push and pull-request approvals; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
 	}}
@@ -114,13 +79,9 @@ func NewRepositoryTools(
 		if err := decodeStrict(raw, &input); err != nil {
 			return nil, err
 		}
-		registered, err := loadRepositories(ctx, store)
+		repository, err := lookupRepository(ctx, store, input.Repository)
 		if err != nil {
 			return nil, err
-		}
-		repository, ok := registered[input.Repository]
-		if !ok {
-			return nil, fmt.Errorf("repository %q is not configured", input.Repository)
 		}
 		if modifier == nil || approvalRequester == nil || newRunID == nil {
 			return nil, errors.New("repository modification is unavailable")
@@ -152,7 +113,7 @@ func NewRepositoryTools(
 			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
 		})
 	}
-	return []ports.Tool{list, inspect, modify}
+	return []ports.Tool{list, modify}
 }
 
 func loadRepositories(ctx context.Context, store ports.StateStore) (map[string]ports.Repository, error) {

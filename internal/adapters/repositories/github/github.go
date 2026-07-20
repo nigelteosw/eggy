@@ -1,11 +1,14 @@
 package github
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,8 +30,16 @@ var _ ports.RepositoryCommitter = (*Adapter)(nil)
 var _ ports.RepositoryPusher = (*Adapter)(nil)
 var _ ports.PullRequestProvider = (*Adapter)(nil)
 var _ ports.RepositoryCapabilityProvider = (*Adapter)(nil)
+var _ ports.RepositoryReader = (*Adapter)(nil)
 
 var ErrDiffTooLarge = errors.New("repository diff exceeds configured output limit")
+
+var errStopWalk = errors.New("stop walk")
+
+const (
+	maxScannedFileBytes = 1 << 20
+	maxSearchLineLength = 300
+)
 
 func New(runner ports.Runner, token, apiBase string, client *http.Client) *Adapter {
 	if client == nil {
@@ -165,6 +176,214 @@ func (a *Adapter) Diff(ctx context.Context, workspace string) (string, error) {
 	return result.Stdout, nil
 }
 
+func (a *Adapter) Status(ctx context.Context, workspace string) (string, error) {
+	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "status", "--porcelain=v1", "--branch"}, Dir: workspace})
+	if err != nil {
+		return "", err
+	}
+	if result.OutputTruncated {
+		return "", errors.New("git status output was truncated")
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
+
+func (a *Adapter) Branches(ctx context.Context, workspace string) ([]string, error) {
+	result, err := a.runner.Execute(ctx, ports.Command{
+		Argv: []string{"git", "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"}, Dir: workspace,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result.OutputTruncated {
+		return nil, errors.New("git branch output was truncated")
+	}
+	var branches []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
+func (a *Adapter) ListTree(ctx context.Context, workspace, path string, maxEntries int) ([]ports.WorkspaceEntry, error) {
+	root, err := safeWorkspacePath(workspace, path)
+	if err != nil {
+		return nil, err
+	}
+	if maxEntries <= 0 {
+		maxEntries = 200
+	}
+	var entries []ports.WorkspaceEntry
+	walkErr := filepath.WalkDir(root, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if current == root {
+			return nil
+		}
+		if entry.IsDir() && entry.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		relative, err := filepath.Rel(workspace, current)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, ports.WorkspaceEntry{Path: relative, IsDir: entry.IsDir()})
+		if len(entries) >= maxEntries {
+			return errStopWalk
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errStopWalk) {
+		return nil, walkErr
+	}
+	return entries, nil
+}
+
+func (a *Adapter) Search(ctx context.Context, workspace, query string, maxMatches int) ([]ports.WorkspaceMatch, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, errors.New("search query is empty")
+	}
+	if maxMatches <= 0 {
+		maxMatches = 50
+	}
+	var matches []ports.WorkspaceMatch
+	walkErr := filepath.WalkDir(workspace, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relative, err := filepath.Rel(workspace, current)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(relative, query) {
+			matches = append(matches, ports.WorkspaceMatch{Path: relative})
+			if len(matches) >= maxMatches {
+				return errStopWalk
+			}
+		}
+		if matched, stop := searchFileContents(current, relative, query, maxMatches, &matches); matched && stop {
+			return errStopWalk
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, errStopWalk) {
+		return nil, walkErr
+	}
+	return matches, nil
+}
+
+func searchFileContents(absolute, relative, query string, maxMatches int, matches *[]ports.WorkspaceMatch) (matched, stop bool) {
+	info, err := os.Stat(absolute)
+	if err != nil || info.Size() > maxScannedFileBytes {
+		return false, false
+	}
+	file, err := os.Open(absolute)
+	if err != nil {
+		return false, false
+	}
+	defer file.Close()
+	if isLikelyBinary(file) {
+		return false, false
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), maxScannedFileBytes)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Text()
+		if strings.Contains(line, query) {
+			*matches = append(*matches, ports.WorkspaceMatch{Path: relative, Line: lineNumber, Text: truncateText(strings.TrimSpace(line), maxSearchLineLength)})
+			if len(*matches) >= maxMatches {
+				return true, true
+			}
+		}
+	}
+	return false, false
+}
+
+func isLikelyBinary(file *os.File) bool {
+	defer file.Seek(0, io.SeekStart)
+	buffer := make([]byte, 512)
+	n, _ := file.Read(buffer)
+	return bytes.IndexByte(buffer[:n], 0) != -1
+}
+
+func (a *Adapter) ReadFile(ctx context.Context, workspace, path string, startLine, endLine int) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", errors.New("path is required")
+	}
+	target, err := safeWorkspacePath(workspace, path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", errors.New("path is a directory")
+	}
+	const maxReadLines = 2000
+	if startLine <= 0 {
+		startLine = 1
+	}
+	if endLine <= 0 || endLine < startLine || endLine-startLine+1 > maxReadLines {
+		endLine = startLine + maxReadLines - 1
+	}
+	file, err := os.Open(target)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), maxScannedFileBytes)
+	var builder strings.Builder
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		if lineNumber < startLine {
+			continue
+		}
+		if lineNumber > endLine {
+			break
+		}
+		builder.WriteString(scanner.Text())
+		builder.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
+}
+
+func safeWorkspacePath(workspace, relative string) (string, error) {
+	relative = strings.TrimPrefix(relative, "/")
+	if relative == "" {
+		relative = "."
+	}
+	cleanWorkspace := filepath.Clean(workspace)
+	cleanJoined := filepath.Clean(filepath.Join(cleanWorkspace, relative))
+	if cleanJoined != cleanWorkspace && !strings.HasPrefix(cleanJoined, cleanWorkspace+string(filepath.Separator)) {
+		return "", errors.New("path escapes repository workspace")
+	}
+	return cleanJoined, nil
+}
+
+func truncateText(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "...(truncated)"
+}
+
 func (a *Adapter) Commit(ctx context.Context, workspace, message string) (string, error) {
 	if strings.TrimSpace(message) == "" {
 		return "", errors.New("commit message is empty")
@@ -221,6 +440,100 @@ func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Reposi
 		return ports.PullRequest{}, err
 	}
 	return ports.PullRequest{URL: result.URL, Number: result.Number}, nil
+}
+
+func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Repository) (ports.RepositorySummary, error) {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return ports.RepositorySummary{}, err
+	}
+	var payload struct {
+		Description   string `json:"description"`
+		DefaultBranch string `json:"default_branch"`
+		Private       bool   `json:"private"`
+		HTMLURL       string `json:"html_url"`
+	}
+	if err := a.githubGet(ctx, "/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(name), &payload); err != nil {
+		return ports.RepositorySummary{}, err
+	}
+	return ports.RepositorySummary{Body: payload.Description, DefaultBranch: payload.DefaultBranch, Private: payload.Private, URL: payload.HTMLURL}, nil
+}
+
+func (a *Adapter) Issue(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return ports.RepositorySummary{}, err
+	}
+	return a.issueLikeSummary(ctx, fmt.Sprintf("/repos/%s/%s/issues/%d", url.PathEscape(owner), url.PathEscape(name), number))
+}
+
+func (a *Adapter) PullRequestSummary(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return ports.RepositorySummary{}, err
+	}
+	return a.issueLikeSummary(ctx, fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(name), number))
+}
+
+func (a *Adapter) issueLikeSummary(ctx context.Context, path string) (ports.RepositorySummary, error) {
+	var payload struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		State   string `json:"state"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := a.githubGet(ctx, path, &payload); err != nil {
+		return ports.RepositorySummary{}, err
+	}
+	return ports.RepositorySummary{Number: payload.Number, Title: payload.Title, State: payload.State, Body: payload.Body, URL: payload.HTMLURL}, nil
+}
+
+func (a *Adapter) Checks(ctx context.Context, repository ports.Repository, ref string) ([]ports.CheckRun, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, errors.New("ref is required")
+	}
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		CheckRuns []struct {
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			HTMLURL    string `json:"html_url"`
+		} `json:"check_runs"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", url.PathEscape(owner), url.PathEscape(name), url.PathEscape(ref))
+	if err := a.githubGet(ctx, path, &payload); err != nil {
+		return nil, err
+	}
+	runs := make([]ports.CheckRun, 0, len(payload.CheckRuns))
+	for _, run := range payload.CheckRuns {
+		runs = append(runs, ports.CheckRun{Name: run.Name, Status: run.Status, Conclusion: run.Conclusion, URL: run.HTMLURL})
+	}
+	return runs, nil
+}
+
+func (a *Adapter) githubGet(ctx context.Context, path string, out any) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.apiBase+path, nil)
+	if err != nil {
+		return err
+	}
+	if a.token != "" {
+		request.Header.Set("Authorization", "Bearer "+a.token)
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	response, err := a.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("GitHub request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)
+	}
+	return json.NewDecoder(response.Body).Decode(out)
 }
 
 func (a *Adapter) askpass(directory string) (func(), map[string]string, error) {

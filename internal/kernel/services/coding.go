@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -101,58 +100,11 @@ func checkpoint(progress func(ports.CodingProgress), message string) {
 	progress(ports.CodingProgress{Kind: "checkpoint", Message: message})
 }
 
-func (s *CodingService) Inspect(ctx context.Context, runID string, repository ports.Repository, question string) (ports.CodingResult, error) {
-	workspace, err := s.runner.Create(ctx, runID)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	defer s.runner.Destroy(context.Background(), workspace)
-	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
-		return ports.CodingResult{}, err
-	}
-	expectedRevision, err := s.workspaceRevision(ctx, workspace)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	guidance, err := s.repository.Inspect(ctx, workspace)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	prompt := readOnlyRunnerContract + "\n\nRead-only question:\n" + question
-	if guidance != "" {
-		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nRead-only question:\n%s", readOnlyRunnerContract, guidance, question)
-	}
-	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt, ReadOnly: true}, nil)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	actualRevision, err := s.workspaceRevision(ctx, workspace)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	if actualRevision != expectedRevision {
-		return ports.CodingResult{}, errors.New("read-only inspection changed repository branch or HEAD")
-	}
-	diff, err := s.repository.Diff(ctx, workspace)
-	if err != nil {
-		return ports.CodingResult{}, err
-	}
-	if strings.TrimSpace(diff) != "" {
-		return ports.CodingResult{}, errors.New("read-only inspection modified the checkout")
-	}
-	return result, nil
-}
-
 const modifyingRunnerContract = `Eggy runner contract:
 - Work only in the current checkout and remain on the current branch.
 - Do not create, switch, rename, or delete branches.
 - Do not commit, push, or create pull requests; Eggy performs each action only after its independent owner approval.
 - Make the requested file changes and run validation, then return the requested structured result.`
-
-const readOnlyRunnerContract = `Eggy read-only runner contract:
-- Inspect only; do not modify files, branches, HEAD, remotes, configuration, or external state.
-- Do not commit, push, or create pull requests.
-- Return the requested structured result.`
 
 func (s *CodingService) workspaceRevision(ctx context.Context, workspace string) (ports.WorkspaceRevision, error) {
 	return s.repository.WorkspaceRevision(ctx, workspace)

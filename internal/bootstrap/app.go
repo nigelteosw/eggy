@@ -295,12 +295,17 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
 	progress := telegram.NewProgressTracker(app.channel, owner)
-	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.coding, app.shipping, newRunID,
+	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID,
 		progress.Deliver,
 		func(ctx context.Context, approval approvals.Approval) error {
 			return app.channel.DeliverApproval(ctx, owner, approval)
 		},
 	) {
+		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	for _, tool := range services.NewRepositoryReadTools(stateStore, runner, repositoryAdapter, repositoryAdapter, newRunID) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
@@ -645,7 +650,10 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 		return err
 	}
 	manifest := a.capabilityManifest(state, alias)
-	allowed := map[string]bool{"status": true, "repository_list": true, "repository_inspect": true, "calendar_list": true}
+	allowed := map[string]bool{
+		"status": true, "repository_list": true, "calendar_list": true,
+		"repository_tree": true, "repository_search": true, "repository_read": true, "repository_status": true, "repository_github": true,
+	}
 	options := agent.RunOptions{AllowedTools: allowed}
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})

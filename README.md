@@ -1,6 +1,6 @@
 # Eggy
 
-Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. A configurable coding agent — Codex CLI or Claude Code, selectable with `/coding_agent` — owns repository inspection, editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
+Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Read-only repository questions (browsing files, searching, checking status/branches, reading GitHub issue/PR/check metadata) are answered directly, without launching a coding agent. A configurable coding agent — Codex CLI or Claude Code, selectable with `/coding_agent` — owns editing, testing, and debugging. Commit, push, pull-request creation, and Calendar writes each require a separate Telegram approval.
 
 The MVP is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica.
 
@@ -13,6 +13,7 @@ The MVP is a Go ports-and-adapters modular monolith with file-backed state. It s
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
 - Configurable coding-agent runtime: Codex `exec --json` or Claude Code `-p --output-format stream-json`, persisted selection, both normalized to the same Telegram progress.
+- Narrow, provider-neutral read-only repository tools (bounded directory tree, file/text search, bounded file reads, git status/branches, GitHub repository/issue/pull-request/check-run metadata) that never launch a coding agent, create a branch, or leave a diff.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.

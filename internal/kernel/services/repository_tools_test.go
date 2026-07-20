@@ -19,7 +19,7 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 	worker := &fakeRepositoryWorker{}
 	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1", Action: approvals.Commit, Status: approvals.Pending}}
 	var delivered approvals.Approval
-	tools := NewRepositoryTools(store, worker, worker, requester, func() string { return "run-1" }, nil, func(_ context.Context, approval approvals.Approval) error {
+	tools := NewRepositoryTools(store, worker, requester, func() string { return "run-1" }, nil, func(_ context.Context, approval approvals.Approval) error {
 		delivered = approval
 		return nil
 	})
@@ -31,17 +31,13 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 	if err != nil || strings.Index(string(listed), `"eggy"`) > strings.Index(string(listed), `"zeta"`) || strings.Contains(string(listed), "CloneURL") {
 		t.Fatalf("listed=%s err=%v", listed, err)
 	}
-	inspected, err := byName["repository_inspect"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","question":"framework?"}`))
-	if err != nil || !strings.Contains(string(inspected), "Go standard library") || worker.inspected != "eggy:framework?" {
-		t.Fatalf("inspected=%s worker=%#v err=%v", inspected, worker, err)
-	}
 	modified, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","instruction":"fix tests"}`))
 	var modifyResult map[string]any
 	_ = json.Unmarshal(modified, &modifyResult)
 	if err != nil || modifyResult["status"] != "awaiting_owner" || modifyResult["branch"] != "eggy/run-1" || modifyResult["base_revision"] != "abc123" || modifyResult["commit_created"] != false || modifyResult["next_action"] != "approve_commit" || modifyResult["approval_flow"] != "commit -> push -> pull_request" || requester.runID != "run-1" || delivered.ID != "approval-1" {
 		t.Fatalf("modified=%s requester=%#v delivered=%#v err=%v", modified, requester, delivered, err)
 	}
-	if _, err := byName["repository_inspect"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","question":"framework?"}`)); err == nil {
+	if _, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","instruction":"fix tests"}`)); err == nil {
 		t.Fatal("expected unknown repository error")
 	}
 }
@@ -52,7 +48,7 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 	worker := &fakeRepositoryWorker{}
 	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1"}}
 	var received []ports.CodingProgress
-	tools := NewRepositoryTools(store, worker, worker, requester, func() string { return "run-42" },
+	tools := NewRepositoryTools(store, worker, requester, func() string { return "run-42" },
 		func(progress ports.CodingProgress) { received = append(received, progress) },
 		func(context.Context, approvals.Approval) error { return nil })
 	byName := map[string]ports.Tool{}
@@ -68,19 +64,14 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 }
 
 func TestRepositoryListReportsNotConfigured(t *testing.T) {
-	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
+	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
 	result, err := tools[0].Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil || !strings.Contains(string(result), `"status":"not_configured"`) {
 		t.Fatalf("result=%s err=%v", result, err)
 	}
 }
 
-type fakeRepositoryWorker struct{ inspected string }
-
-func (w *fakeRepositoryWorker) Inspect(_ context.Context, _ string, repository ports.Repository, question string) (ports.CodingResult, error) {
-	w.inspected = repository.Name + ":" + question
-	return ports.CodingResult{Summary: "Go standard library", Validation: "clean"}, nil
-}
+type fakeRepositoryWorker struct{}
 
 func (w *fakeRepositoryWorker) Start(_ context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
 	if progress != nil {

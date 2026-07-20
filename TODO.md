@@ -37,23 +37,27 @@ and independent approval gates.
 
 ## P0: Keep read-only repository work in the assistant lane
 
-- [ ] Stop `repository_inspect` from launching Codex.
+- [x] Stop `repository_inspect` from launching Codex.
 - [ ] Replace it with narrow provider-neutral repository read capabilities:
-  - list configured repositories;
-  - list a bounded directory tree;
-  - search file names and text;
-  - read bounded file ranges;
-  - inspect status, branches, and diffs without mutation;
-  - read safe GitHub repository, issue, pull-request, and check metadata.
-- [ ] Keep clone credentials and other secrets outside model-visible tool
+  - [x] list configured repositories;
+  - [x] list a bounded directory tree;
+  - [x] search file names and text;
+  - [x] read bounded file ranges;
+  - [x] inspect status and branches without mutation;
+  - [ ] inspect diffs without mutation (not meaningful yet: read tools clone a
+        fresh checkout per call, so there is never a pending diff to show);
+  - [x] read safe GitHub repository, issue, pull-request, and check metadata.
+- [x] Keep clone credentials and other secrets outside model-visible tool
       arguments and results.
-- [ ] Enforce repository roots, path validation, output bounds, timeouts, and
+- [x] Enforce repository roots, path validation, output bounds, timeouts, and
       sanitized environments for every read tool.
-- [ ] Ensure read-only repository work creates no branch, leaves no diff, and
+- [x] Ensure read-only repository work creates no branch, leaves no diff, and
       cannot invoke dependency installation or arbitrary shell commands.
 - [ ] Require successful read-tool evidence before Eggy claims facts about a
-      repository's implementation.
-- [ ] Return a truthful capability/setup response when repository reading is not
+      repository's implementation. (tool descriptions hint at this; nothing
+      enforces it at the kernel policy level yet — see the "Separate assistant
+      work from implementation" P0 above.)
+- [x] Return a truthful capability/setup response when repository reading is not
       configured or available.
 
 ## P1: Support Codex and Claude Code as coding-agent adapters

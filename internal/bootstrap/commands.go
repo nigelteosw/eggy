@@ -18,21 +18,19 @@ import (
 )
 
 type CommandService struct {
-	config             Config
-	store              ports.StateStore
-	context            ports.ContextStore
-	conversation       *services.ConversationService
-	coding             *services.CodingService
-	repositories       *services.RepositoriesService
-	agentRuntime       *services.AgentRuntime
-	codingRuntime      *services.CodingAgentRuntime
-	channel            ports.Channel
-	owner              string
-	defaultModel       string
-	defaultCodingAgent string
-	configPath         string
-	modelAliases       []string
-	now                func() time.Time
+	config       Config
+	store        ports.StateStore
+	context      ports.ContextStore
+	conversation *services.ConversationService
+	coding       *services.CodingService
+	repositories *services.RepositoriesService
+	agentRuntime *services.AgentRuntime
+	channel      ports.Channel
+	owner        string
+	defaultModel string
+	configPath   string
+	modelAliases []string
+	now          func() time.Time
 }
 
 func (s *CommandService) Execute(ctx context.Context, input string) (string, bool, error) {
@@ -238,50 +236,19 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			return err.Error() + ". Configured models: " + strings.Join(aliases, ", "), true, nil
 		}
 		return "Model set to " + fields[1] + ".", true, nil
-	case "/coding_agent":
-		if s.codingRuntime == nil {
-			return "Coding agent selection is not configured.", true, nil
-		}
-		aliases := s.codingRuntime.Aliases()
-		if len(fields) == 1 {
-			active, err := s.codingRuntime.Selected(ctx)
-			if err != nil {
-				return "", true, err
-			}
-			return "Active coding agent: " + active + "\nAvailable coding agents:\n" + strings.Join(aliases, "\n"), true, nil
-		}
-		if len(fields) != 2 {
-			return "Usage: /coding_agent [alias|default]", true, nil
-		}
-		if fields[1] == "default" {
-			if err := s.codingRuntime.Select(ctx, ""); err != nil {
-				return "", true, err
-			}
-			return "Coding agent reset to " + s.defaultCodingAgent + ".", true, nil
-		}
-		if err := s.codingRuntime.Select(ctx, fields[1]); err != nil {
-			return err.Error() + ". Available coding agents: " + strings.Join(aliases, ", "), true, nil
-		}
-		return "Coding agent set to " + fields[1] + ".", true, nil
 	case "/config":
 		if s.configPath == "" {
 			return "Config file management is not configured.", true, nil
 		}
 		if len(fields) < 2 {
-			return "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ...", true, nil
+			return "Usage: /config get <providers|models|calendar|path>|set <provider|model|calendar> ...", true, nil
 		}
 		switch fields[1] {
 		case "get":
 			if len(fields) != 3 {
-				return "Usage: /config get <coding|providers|models|calendar|path>", true, nil
+				return "Usage: /config get <providers|models|calendar|path>", true, nil
 			}
 			switch fields[2] {
-			case "coding":
-				text, err := GetCodingConfigText(s.configPath)
-				if err != nil {
-					return err.Error(), true, nil
-				}
-				return text, true, nil
 			case "providers":
 				text, err := GetProvidersConfigText(s.configPath)
 				if err != nil {
@@ -303,32 +270,13 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			case "path":
 				return s.configPath, true, nil
 			default:
-				return "Usage: /config get <coding|providers|models|calendar|path>", true, nil
+				return "Usage: /config get <providers|models|calendar|path>", true, nil
 			}
 		case "set":
 			if len(fields) < 3 {
-				return "Usage: /config set <coding_agent|provider|model|calendar> ...", true, nil
+				return "Usage: /config set <provider|model|calendar> ...", true, nil
 			}
 			switch fields[2] {
-			case "coding_agent":
-				values, err := parseConfigFlags(fields[3:])
-				if err != nil {
-					return err.Error(), true, nil
-				}
-				usage := "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"
-				for key := range values {
-					if key != "alias" && key != "adapter" && key != "credential_env" {
-						return usage, true, nil
-					}
-				}
-				alias, adapter := values["alias"], values["adapter"]
-				if alias == "" || adapter == "" {
-					return usage, true, nil
-				}
-				if err := SetCodingAgent(s.configPath, alias, adapter, values["credential_env"]); err != nil {
-					return err.Error(), true, nil
-				}
-				return "Set coding agent " + alias + ". Restart Eggy for this to take effect.", true, nil
 			case "provider":
 				values, err := parseConfigFlags(fields[3:])
 				if err != nil {
@@ -382,10 +330,10 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 				}
 				return "Set calendar. Restart Eggy for this to take effect.", true, nil
 			default:
-				return "Usage: /config set <coding_agent|provider|model|calendar> ...", true, nil
+				return "Usage: /config set <provider|model|calendar> ...", true, nil
 			}
 		default:
-			return "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ...", true, nil
+			return "Usage: /config get <providers|models|calendar|path>|set <provider|model|calendar> ...", true, nil
 		}
 	case "/usage":
 		if s.agentRuntime == nil {

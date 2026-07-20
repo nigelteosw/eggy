@@ -7,43 +7,36 @@ import (
 	"testing"
 )
 
-func TestDockerfilePinsClaudeCodeAndConfiguresDataDir(t *testing.T) {
+func TestDockerfileHasNoCLICodingAgentAndKeepsGoToolchainForValidation(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
 	}
 	dockerfile := string(body)
 
-	if !strings.Contains(dockerfile, "ARG CLAUDE_CODE_VERSION=2.1.215") {
-		t.Fatalf("Dockerfile missing pinned Claude Code version: %s", dockerfile)
+	for _, unwanted := range []string{"codex", "claude", "CODEX", "CLAUDE"} {
+		if strings.Contains(dockerfile, unwanted) {
+			t.Fatalf("Dockerfile still references a CLI coding agent (%q): %s", unwanted, dockerfile)
+		}
 	}
-	if !strings.Contains(dockerfile, "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}") {
-		t.Fatalf("Dockerfile missing Claude Code package install: %s", dockerfile)
-	}
-	if !strings.Contains(dockerfile, "/data/claude") {
-		t.Fatalf("Dockerfile missing /data/claude directory: %s", dockerfile)
-	}
-	if !strings.Contains(dockerfile, "CLAUDE_CONFIG_DIR") {
-		t.Fatalf("Dockerfile missing CLAUDE_CONFIG_DIR: %s", dockerfile)
-	}
-	if strings.Contains(dockerfile, "CLAUDE_CODE_OAUTH_TOKEN=") {
-		t.Fatalf("Dockerfile must not embed a CLAUDE_CODE_OAUTH_TOKEN value: %s", dockerfile)
+	if !strings.Contains(dockerfile, "COPY --from=builder /usr/local/go /usr/local/go") {
+		t.Fatalf("Dockerfile missing Go toolchain needed by the terminal tool's build/test validation: %s", dockerfile)
 	}
 }
 
-func TestReadmeDocumentsClaudeCodeRailwaySetup(t *testing.T) {
+func TestReadmeDoesNotDocumentCLICodingAgentSetup(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
 	}
 	readme := string(body)
 
-	for _, want := range []string{"claude setup-token", "CLAUDE_CODE_OAUTH_TOKEN", "/coding_agent"} {
-		if !strings.Contains(readme, want) {
-			t.Fatalf("README.md missing %q", want)
+	for _, unwanted := range []string{"claude setup-token", "CLAUDE_CODE_OAUTH_TOKEN", "/coding_agent", "codex login", "CODEX_HOME"} {
+		if strings.Contains(readme, unwanted) {
+			t.Fatalf("README.md still documents a CLI coding agent (%q)", unwanted)
 		}
 	}
-	if strings.Contains(readme, "CLAUDE_CODE_OAUTH_TOKEN=") {
-		t.Fatalf("README.md must not embed a CLAUDE_CODE_OAUTH_TOKEN value: %s", readme)
+	if !strings.Contains(readme, "read_file") || !strings.Contains(readme, "terminal") {
+		t.Fatalf("README.md should document the native implementation tools: %s", readme)
 	}
 }

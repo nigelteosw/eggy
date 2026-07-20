@@ -41,7 +41,6 @@ type Config struct {
 	Runner       RunnerConfig                `yaml:"runner"`
 	Scheduler    SchedulerConfig             `yaml:"scheduler"`
 	Calendar     CalendarConfig              `yaml:"calendar"`
-	Coding       CodingConfig                `yaml:"coding"`
 	legacyModels ModelsConfig
 }
 
@@ -58,16 +57,6 @@ type ProviderConfig struct {
 type ModelAliasConfig struct {
 	Provider string `yaml:"provider"`
 	Model    string `yaml:"model"`
-}
-
-type CodingConfig struct {
-	DefaultAgent string                       `yaml:"default_agent"`
-	Agents       map[string]CodingAgentConfig `yaml:"agents"`
-}
-
-type CodingAgentConfig struct {
-	Adapter       string `yaml:"adapter"`
-	CredentialEnv string `yaml:"credential_env,omitempty"`
 }
 
 type ServerConfig struct {
@@ -131,14 +120,13 @@ type CalendarConfig struct {
 }
 
 type Secrets struct {
-	TelegramBotToken       string
-	TelegramWebhookSecret  string
-	ProviderAPIKeys        map[string]string
-	GitHubToken            string
-	GoogleClientID         string
-	GoogleClientSecret     string
-	EncryptionKey          string
-	CodingAgentCredentials map[string]string
+	TelegramBotToken      string
+	TelegramWebhookSecret string
+	ProviderAPIKeys       map[string]string
+	GitHubToken           string
+	GoogleClientID        string
+	GoogleClientSecret    string
+	EncryptionKey         string
 }
 
 type commonConfigDocument struct {
@@ -162,7 +150,6 @@ type configV2Document struct {
 	Agent                AgentConfig                 `yaml:"agent"`
 	Providers            map[string]ProviderConfig   `yaml:"providers"`
 	Models               map[string]ModelAliasConfig `yaml:"models"`
-	Coding               CodingConfig                `yaml:"coding,omitempty"`
 	commonConfigDocument `yaml:",inline"`
 }
 
@@ -207,17 +194,11 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
 		GitHubToken:    getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:          getenv("EGGY_ENCRYPTION_KEY"),
-		ProviderAPIKeys:        map[string]string{},
-		CodingAgentCredentials: map[string]string{},
+		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
+		ProviderAPIKeys: map[string]string{},
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
-	}
-	for alias, agent := range cfg.Coding.Agents {
-		if agent.CredentialEnv != "" {
-			secrets.CodingAgentCredentials[alias] = getenv(agent.CredentialEnv)
-		}
 	}
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return cfg, Secrets{}, err
@@ -236,7 +217,6 @@ func normalizeLegacyConfig(document legacyConfigDocument) Config {
 	return Config{
 		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
 		legacyModels: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
-		Coding:       defaultCodingConfig(),
 		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
 		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: document.Models.Pro.ID}},
 		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
@@ -245,19 +225,11 @@ func normalizeLegacyConfig(document legacyConfigDocument) Config {
 
 func normalizeV2Config(document configV2Document) Config {
 	common := document.commonConfigDocument
-	cfg := Config{
+	return Config{
 		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
-		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Coding: document.Coding,
+		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
 		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
 	}
-	if cfg.Coding.DefaultAgent == "" && len(cfg.Coding.Agents) == 0 {
-		cfg.Coding = defaultCodingConfig()
-	}
-	return cfg
-}
-
-func defaultCodingConfig() CodingConfig {
-	return CodingConfig{DefaultAgent: "codex", Agents: map[string]CodingAgentConfig{"codex": {Adapter: "codex_cli"}}}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
@@ -266,7 +238,7 @@ func (c Config) commonDocument() commonConfigDocument {
 
 func (c Config) MarshalYAML() (any, error) {
 	if c.Version == 2 {
-		return configV2Document{Version: 2, Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, Coding: c.Coding, commonConfigDocument: c.commonDocument()}, nil
+		return configV2Document{Version: 2, Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
 	}
 	return legacyConfigDocument{Version: c.Version, Models: c.legacyModels, commonConfigDocument: c.commonDocument()}, nil
 }
@@ -348,9 +320,6 @@ func (c Config) Validate() error {
 	} else if err := c.validateProviders(); err != nil {
 		return err
 	}
-	if err := c.validateCoding(); err != nil {
-		return err
-	}
 	if c.Runner.Timeout.Value() <= 0 {
 		return errors.New("runner.timeout must be positive")
 	}
@@ -380,30 +349,6 @@ func (c Config) Validate() error {
 	}
 	if c.Calendar.Enabled && c.Calendar.DefaultCalendar == "" {
 		return errors.New("calendar.default_calendar is required")
-	}
-	return nil
-}
-
-func (c Config) validateCoding() error {
-	if c.Coding.DefaultAgent == "" && len(c.Coding.Agents) == 0 {
-		return nil
-	}
-	if !configuredNamePattern.MatchString(c.Coding.DefaultAgent) {
-		return errors.New("coding.default_agent must name a configured coding agent alias")
-	}
-	for alias, agent := range c.Coding.Agents {
-		if !configuredNamePattern.MatchString(alias) {
-			return fmt.Errorf("invalid coding agent alias %q", alias)
-		}
-		if agent.Adapter != "codex_cli" && agent.Adapter != "claude_cli" {
-			return fmt.Errorf("unsupported coding agent adapter %q for alias %q", agent.Adapter, alias)
-		}
-		if agent.CredentialEnv != "" && !environmentNamePattern.MatchString(agent.CredentialEnv) {
-			return fmt.Errorf("coding agent alias %q credential_env is invalid", alias)
-		}
-	}
-	if _, ok := c.Coding.Agents[c.Coding.DefaultAgent]; !ok {
-		return fmt.Errorf("coding.default_agent %q is not configured", c.Coding.DefaultAgent)
 	}
 	return nil
 }
@@ -475,9 +420,6 @@ func (c Config) validateSecrets(s Secrets) error {
 		required = append(required,
 			struct{ name, value string }{"GOOGLE_CLIENT_ID", s.GoogleClientID}, struct{ name, value string }{"GOOGLE_CLIENT_SECRET", s.GoogleClientSecret},
 			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
-	}
-	if agent, ok := c.Coding.Agents[c.Coding.DefaultAgent]; ok && agent.CredentialEnv != "" {
-		required = append(required, struct{ name, value string }{agent.CredentialEnv, s.CodingAgentCredentials[c.Coding.DefaultAgent]})
 	}
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

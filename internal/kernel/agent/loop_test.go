@@ -107,6 +107,116 @@ func TestLoopRejectsImplementationToolCallOutsideImplementationLane(t *testing.T
 	}
 }
 
+func TestRunImplementationReturnsTerminalToolArguments(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
+		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
+	}, nil, 4)
+
+	raw, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Summary       string `json:"summary"`
+		CommitMessage string `json:"commit_message"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || result.Summary != "done" || result.CommitMessage != "feat: done" {
+		t.Fatalf("raw=%s err=%v", raw, err)
+	}
+}
+
+func TestRunImplementationRetriesAfterTerminalToolValidationError(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "finish_implementation", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
+	}}
+	finish := &sequencedTool{name: "finish_implementation", errs: []error{errors.New("summary must not be empty"), nil}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{finish}, nil, 4)
+
+	raw, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finish.calls != 2 {
+		t.Fatalf("calls=%d, want 2", finish.calls)
+	}
+	var result struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil || result.Summary != "done" {
+		t.Fatalf("raw=%s err=%v", raw, err)
+	}
+}
+
+func TestRunImplementationFailsWhenStepLimitReachedWithoutTerminalTool(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
+	}, nil, 1)
+
+	_, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	if !errors.Is(err, ErrToolStepLimit) {
+		t.Fatalf("err=%v, want ErrToolStepLimit", err)
+	}
+}
+
+func TestRunImplementationReportsUnknownModelAlias(t *testing.T) {
+	loop := NewSelectedLoop(nil, nil, nil, 4)
+	if _, _, err := loop.RunImplementation(context.Background(), "missing", nil, "finish_implementation", nil); err == nil {
+		t.Fatal("expected unknown alias error")
+	}
+}
+
+func TestRunImplementationInvokesOnToolCallForNonTerminalTools(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "terminal", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "terminal", result: json.RawMessage(`{}`)},
+		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{}`)},
+	}, nil, 4)
+	var called []string
+	if _, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(name string) { called = append(called, name) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(called) != 1 || called[0] != "terminal" {
+		t.Fatalf("called=%v", called)
+	}
+}
+
+type sequencedTool struct {
+	name    string
+	results []json.RawMessage
+	errs    []error
+	calls   int
+}
+
+func (t *sequencedTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{Name: t.name, Schema: json.RawMessage(`{"type":"object"}`)}
+}
+func (t *sequencedTool) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {
+	i := t.calls
+	t.calls++
+	var result json.RawMessage
+	var err error
+	if i < len(t.results) {
+		result = t.results[i]
+	}
+	if i < len(t.errs) {
+		err = t.errs[i]
+	}
+	return result, err
+}
+
 type queuedModel struct {
 	responses []ports.ModelResponse
 	requests  []ports.ModelRequest

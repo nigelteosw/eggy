@@ -10,7 +10,7 @@ import (
 
 func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 	messages := BuildInstructions(ports.AgentContext{Soul: "SOUL-CONTENT", User: "USER-CONTENT", Memory: "MEMORY-CONTENT"}, CapabilityManifest{
-		ActiveModel: "deepseek-pro", ActiveCodingAgent: "claude", Repositories: []string{"zeta", "eggy"}, Tools: []string{"status", "repository_list"}, CodingAgentReady: true,
+		ActiveModel: "deepseek-pro", Repositories: []string{"zeta", "eggy"}, Tools: []string{"status", "repository_list"},
 		RepositoryCommitReady: true, RepositoryPushReady: true, PullRequestReady: true, CalendarEnabled: false,
 	}, TemporalContext{Now: time.Date(2026, 7, 19, 12, 34, 56, 0, time.FixedZone("SGT", 8*60*60)), Timezone: "Asia/Singapore"})
 	if len(messages) != 6 {
@@ -25,7 +25,7 @@ func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 		t.Fatalf("temporal context=%s", temporal)
 	}
 	manifest := messages[1].Content
-	if !strings.Contains(manifest, "deepseek-pro") || strings.Index(manifest, "eggy") > strings.Index(manifest, "zeta") || !strings.Contains(manifest, "active_coding_agent: claude") || !strings.Contains(manifest, "coding_agent_ready: true") || strings.Contains(manifest, "codex_ready") || !strings.Contains(manifest, "repository_commit_ready: true") || !strings.Contains(manifest, "repository_push_ready: true") || !strings.Contains(manifest, "pull_request_ready: true") || !strings.Contains(manifest, "calendar_enabled: false") {
+	if !strings.Contains(manifest, "deepseek-pro") || strings.Index(manifest, "eggy") > strings.Index(manifest, "zeta") || !strings.Contains(manifest, "repository_commit_ready: true") || !strings.Contains(manifest, "repository_push_ready: true") || !strings.Contains(manifest, "pull_request_ready: true") || !strings.Contains(manifest, "calendar_enabled: false") {
 		t.Fatalf("manifest=%s", manifest)
 	}
 	policy := messages[0].Content

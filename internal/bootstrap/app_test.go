@@ -19,6 +19,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -36,55 +37,14 @@ func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
 }
 
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
-	app := &App{config: Config{Coding: CodingConfig{DefaultAgent: "codex"}}, codingAliases: []string{"codex"}, manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
+	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
 	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro")
-	if withoutRepository.CodingAgentReady || withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
+	if withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
 		t.Fatalf("without repository=%#v", withoutRepository)
 	}
 	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
-	if withRepository.ActiveCodingAgent != "codex" || !withRepository.CodingAgentReady || !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
+	if !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
 		t.Fatalf("with repository=%#v", withRepository)
-	}
-}
-
-func TestCodingAgentBootstrapPreservesCodexOnlyCompatibility(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, handled, err := app.ExecuteCommand(context.Background(), "/coding_agent")
-	if err != nil || !handled || output != "Active coding agent: codex\nAvailable coding agents:\ncodex" {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-}
-
-func TestCodingAgentBootstrapRegistersCredentialReadyClaudeAndSwitchesGlobally(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Coding = CodingConfig{DefaultAgent: "codex", Agents: map[string]CodingAgentConfig{
-		"codex":  {Adapter: "codex_cli"},
-		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
-	}}
-	secrets := appTestSecrets("key")
-	secrets.CodingAgentCredentials = map[string]string{"claude": "railway-secret"}
-	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex", ClaudeExecutable: "/missing/claude"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent claude"); err != nil || output != "Coding agent set to claude." {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent")
-	if err != nil || output != "Active coding agent: claude\nAvailable coding agents:\nclaude\ncodex" {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	state, err := app.store.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest := app.capabilityManifest(ports.State{Coding: state.Coding, Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
-	if manifest.ActiveCodingAgent != "claude" || !manifest.CodingAgentReady {
-		t.Fatalf("manifest=%#v", manifest)
 	}
 }
 
@@ -116,69 +76,6 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 	}
 }
 
-func TestCodingAgentBootstrapSkipsClaudeWithoutOptionalCredential(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Coding = CodingConfig{DefaultAgent: "codex", Agents: map[string]CodingAgentConfig{
-		"codex":  {Adapter: "codex_cli"},
-		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
-	}}
-	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, CodexExecutable: "/missing/codex", ClaudeExecutable: "/missing/claude"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, _, err := app.ExecuteCommand(context.Background(), "/coding_agent")
-	if err != nil || strings.Contains(output, "claude") || !strings.Contains(output, "codex") {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-}
-
-func TestCodingAgentBootstrapRejectsUnavailableDefault(t *testing.T) {
-	for _, test := range []struct {
-		name, credential, executable, want string
-	}{
-		{name: "missing credential", executable: "/usr/bin/true", want: "CLAUDE_CODE_OAUTH_TOKEN"},
-		{name: "missing executable", credential: "railway-secret", executable: "/definitely/missing/claude", want: "claude"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cfg := appTestConfig(t.TempDir())
-			if test.name == "missing executable" {
-				cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
-			}
-			cfg.Coding = CodingConfig{DefaultAgent: "claude", Agents: map[string]CodingAgentConfig{
-				"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
-			}}
-			secrets := appTestSecrets("key")
-			secrets.CodingAgentCredentials = map[string]string{"claude": test.credential}
-			_, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: test.name == "missing credential", ClaudeExecutable: test.executable})
-			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), "default coding agent") {
-				t.Fatalf("error=%v", err)
-			}
-		})
-	}
-}
-
-func TestCodingAgentReadinessReportsAvailableAliasWithoutCredentials(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
-	cfg.Coding = CodingConfig{DefaultAgent: "claude", Agents: map[string]CodingAgentConfig{
-		"claude": {Adapter: "claude_cli", CredentialEnv: "CLAUDE_CODE_OAUTH_TOKEN"},
-	}}
-	secrets := appTestSecrets("key")
-	secrets.CodingAgentCredentials = map[string]string{"claude": "railway-secret"}
-	var startupLog bytes.Buffer
-	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, ClaudeExecutable: "/missing/claude", Logger: slog.New(slog.NewJSONHandler(&startupLog, nil))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := app.Ready(); err != nil {
-		t.Fatal(err)
-	}
-	output := startupLog.String()
-	if !strings.Contains(output, `"integrations":["claude","github","model_provider","telegram"]`) || strings.Contains(output, "codex") || strings.Contains(output, "railway-secret") {
-		t.Fatalf("readiness log=%s", output)
-	}
-}
-
 func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
@@ -191,7 +88,7 @@ func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) 
 		}
 		return appJSON(200, `{"ok":true,"result":true}`), nil
 	})}
-	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,12 +102,36 @@ func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) 
 	if len(modelBodies) != 2 {
 		t.Fatalf("model requests=%d, want 2", len(modelBodies))
 	}
-	if !strings.Contains(string(modelBodies[0]), "repository_modify") {
+	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
 		t.Fatalf("implementation turn did not advertise repository_modify: %s", modelBodies[0])
 	}
-	if strings.Contains(string(modelBodies[1]), "repository_modify") {
+	if requestedToolNames(t, modelBodies[1])["repository_modify"] {
 		t.Fatalf("scheduled turn advertised repository_modify: %s", modelBodies[1])
 	}
+}
+
+// requestedToolNames parses the tools array out of a serialized model
+// request body. It deliberately does not use a raw substring search over
+// the whole body — the hard runtime policy's prose legitimately mentions
+// tool names like "repository_modify" regardless of which tools are
+// actually offered, so a substring check would false-positive on that text.
+func requestedToolNames(t *testing.T, body []byte) map[string]bool {
+	t.Helper()
+	var decoded struct {
+		Tools []struct {
+			Function struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	names := make(map[string]bool, len(decoded.Tools))
+	for _, tool := range decoded.Tools {
+		names[tool.Function.Name] = true
+	}
+	return names
 }
 
 func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T) {
@@ -351,7 +272,7 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 			return appJSON(404, `{}`), nil
 		}
 	})}
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,6 +294,98 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	state, err := app.store.Load(context.Background())
 	if err != nil || state.Agent.Usage["deepseek-pro"].TotalTokens != 19 {
 		t.Fatalf("usage=%#v err=%v", state.Agent.Usage, err)
+	}
+}
+
+// TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer proves
+// the full native path end to end with no CLI subprocess and no real
+// model/GitHub call: an explicit implementation request clones a real local
+// git remote, the model calls repository_modify, the bounded implementation
+// loop reads a file and then calls finish_implementation, and Eggy reaches
+// a pending commit approval from that structured result.
+func TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	remote := createLocalGitRemote(t)
+	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	secrets := appTestSecrets("provider-secret")
+	secrets.GitHubToken = "github-secret"
+	var modelBodies [][]byte
+	var delivered [][]byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.URL.Host == "deepseek.test":
+			body, _ := io.ReadAll(request.Body)
+			modelBodies = append(modelBodies, body)
+			switch len(modelBodies) {
+			case 1:
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"repository_modify","arguments":"{\"repository\":\"eggy\",\"instruction\":\"note that the repo was reviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+			case 2:
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-2","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+			case 3:
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-3","type":"function","function":{"name":"finish_implementation","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"none needed\",\"commit_message\":\"docs: note reviewed\",\"changed_files\":[]}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+			default:
+				// The outer loop asks once more for a final reply after
+				// seeing the repository_modify tool result; this is that
+				// wrap-up turn, not part of the implementation loop.
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Implemented and awaiting your approval."}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+			}
+		case strings.Contains(request.URL.Path, "sendMessage"):
+			body, _ := io.ReadAll(request.Body)
+			delivered = append(delivered, body)
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		case strings.Contains(request.URL.Path, "setMyCommands"):
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		default:
+			return appJSON(404, `{}`), nil
+		}
+	})}
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "implement a note that the repo was reviewed"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "implement-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(modelBodies) != 4 {
+		t.Fatalf("model requests=%d, want 4 (repository_modify, read_file, finish_implementation, wrap-up reply): %q", len(modelBodies), modelBodies)
+	}
+	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
+		t.Fatalf("first turn did not offer repository_modify: %s", modelBodies[0])
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.CodingRuns) != 1 {
+		t.Fatalf("coding runs=%#v", state.CodingRuns)
+	}
+	var run ports.CodingRun
+	for _, candidate := range state.CodingRuns {
+		run = candidate
+	}
+	if run.Status != "completed" || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") {
+		t.Fatalf("run=%#v", run)
+	}
+	pending := 0
+	var commitApprovalID string
+	for id, approval := range state.Approvals {
+		if approval.Action == approvals.Commit && approval.Status == approvals.Pending {
+			pending++
+			commitApprovalID = id
+		}
+	}
+	if pending != 1 {
+		t.Fatalf("expected exactly one pending commit approval, got %d: %#v", pending, state.Approvals)
+	}
+	foundApproval := false
+	for _, message := range delivered {
+		if strings.Contains(string(message), "approval:"+commitApprovalID+":approve") {
+			foundApproval = true
+		}
+	}
+	if !foundApproval {
+		t.Fatalf("no delivered Telegram message offered to approve commit approval %q: %q", commitApprovalID, delivered)
 	}
 }
 
@@ -507,7 +520,7 @@ func TestRepositoriesAddApprovalFlowReachesLiveState(t *testing.T) {
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		return appJSON(200, `{"ok":true,"result":{}}`), nil
 	})}
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}, CodexExecutable: "/usr/bin/true"})
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
 	if err != nil {
 		t.Fatal(err)
 	}

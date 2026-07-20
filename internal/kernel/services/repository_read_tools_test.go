@@ -13,15 +13,11 @@ import (
 func TestRepositoryReadToolsCloneIntoEphemeralWorkspaceAndDestroyIt(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
-	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/read-1"}
+	runner := &fakeReadWorkspaceRunner{workspace: "/tmp/runs/read-1", commandResult: ports.CommandResult{Stdout: "README.md\n"}}
 	reader := &fakeRepositoryReader{
-		entries:  []ports.WorkspaceEntry{{Path: "README.md"}},
-		matches:  []ports.WorkspaceMatch{{Path: "README.md", Line: 1, Text: "hello"}},
-		content:  "line one\n",
-		status:   "## main",
-		branches: []string{"main"},
-		summary:  ports.RepositorySummary{Title: "eggy", DefaultBranch: "main"},
-		checks:   []ports.CheckRun{{Name: "build", Status: "completed", Conclusion: "success"}},
+		content: "line one\n",
+		summary: ports.RepositorySummary{Title: "eggy", DefaultBranch: "main"},
+		checks:  []ports.CheckRun{{Name: "build", Status: "completed", Conclusion: "success"}},
 	}
 	tools := NewRepositoryReadTools(store, runner, reader, reader, func() string { return "run-1" })
 	byName := map[string]ports.Tool{}
@@ -29,21 +25,16 @@ func TestRepositoryReadToolsCloneIntoEphemeralWorkspaceAndDestroyIt(t *testing.T
 		byName[tool.Definition().Name] = tool
 	}
 
-	tree, err := byName["repository_tree"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy"}`))
-	if err != nil || !strings.Contains(string(tree), "README.md") {
-		t.Fatalf("tree=%s err=%v", tree, err)
-	}
-	search, err := byName["repository_search"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","query":"hello"}`))
-	if err != nil || !strings.Contains(string(search), "hello") {
-		t.Fatalf("search=%s err=%v", search, err)
-	}
-	read, err := byName["repository_read"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","path":"README.md"}`))
+	read, err := byName["read_file"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","path":"README.md"}`))
 	if err != nil || !strings.Contains(string(read), "line one") {
 		t.Fatalf("read=%s err=%v", read, err)
 	}
-	status, err := byName["repository_status"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy"}`))
-	if err != nil || !strings.Contains(string(status), "## main") {
-		t.Fatalf("status=%s err=%v", status, err)
+	terminal, err := byName["terminal"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","command":"ls"}`))
+	if err != nil || !strings.Contains(string(terminal), "README.md") {
+		t.Fatalf("terminal=%s err=%v", terminal, err)
+	}
+	if runner.command.Dir != "/tmp/runs/read-1" || runner.command.Argv[0] != "sh" {
+		t.Fatalf("command=%#v", runner.command)
 	}
 	summary, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"repository"}`))
 	if err != nil || !strings.Contains(string(summary), "eggy") {
@@ -53,8 +44,8 @@ func TestRepositoryReadToolsCloneIntoEphemeralWorkspaceAndDestroyIt(t *testing.T
 	if err != nil || !strings.Contains(string(checks), "build") {
 		t.Fatalf("checks=%s err=%v", checks, err)
 	}
-	if reader.cloned != 4 {
-		t.Fatalf("expected 4 clones for the workspace-bound tools (tree, search, read, status); repository_github must not clone, got %d", reader.cloned)
+	if reader.cloned != 2 {
+		t.Fatalf("expected 2 clones for read_file and terminal; repository_github must not clone, got %d", reader.cloned)
 	}
 	if !runner.created || !runner.destroyed {
 		t.Fatalf("runner=%#v", runner)
@@ -63,14 +54,14 @@ func TestRepositoryReadToolsCloneIntoEphemeralWorkspaceAndDestroyIt(t *testing.T
 
 func TestRepositoryReadToolsRejectUnknownRepositoryAndUnsupportedKind(t *testing.T) {
 	store := newMemoryStore()
-	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/read-2"}
+	runner := &fakeReadWorkspaceRunner{workspace: "/tmp/runs/read-2"}
 	reader := &fakeRepositoryReader{}
 	tools := NewRepositoryReadTools(store, runner, reader, reader, func() string { return "run-2" })
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
 	}
-	if _, err := byName["repository_tree"].Execute(context.Background(), json.RawMessage(`{"repository":"missing"}`)); err == nil {
+	if _, err := byName["read_file"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","path":"README.md"}`)); err == nil {
 		t.Fatal("expected unknown repository error")
 	}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
@@ -80,6 +71,26 @@ func TestRepositoryReadToolsRejectUnknownRepositoryAndUnsupportedKind(t *testing
 	if _, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"bogus"}`)); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
 		t.Fatalf("error=%v", err)
 	}
+}
+
+type fakeReadWorkspaceRunner struct {
+	workspace          string
+	created, destroyed bool
+	command            ports.Command
+	commandResult      ports.CommandResult
+}
+
+func (r *fakeReadWorkspaceRunner) Create(context.Context, string) (string, error) {
+	r.created = true
+	return r.workspace, nil
+}
+func (r *fakeReadWorkspaceRunner) Execute(_ context.Context, command ports.Command) (ports.CommandResult, error) {
+	r.command = command
+	return r.commandResult, nil
+}
+func (r *fakeReadWorkspaceRunner) Destroy(context.Context, string) error {
+	r.destroyed = true
+	return nil
 }
 
 type fakeRepositoryReader struct {

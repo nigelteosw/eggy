@@ -56,33 +56,9 @@ calendar:
 
 func TestConfigMainGetSections(t *testing.T) {
 	path := writeTestConfig(t, t.TempDir())
-	output, err := configMain(path, []string{"get", "coding"})
-	if err != nil || output != "default_agent: codex\ncodex  adapter=codex_cli" {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, err = configMain(path, []string{"get", "path"})
+	output, err := configMain(path, []string{"get", "path"})
 	if err != nil || output != path {
 		t.Fatalf("output=%q err=%v", output, err)
-	}
-}
-
-func TestConfigMainSetCodingAgent(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir())
-	output, err := configMain(path, []string{"set", "coding-agent", "--alias=claude", "--adapter=claude_cli", "--credential-env=CLAUDE_CODE_OAUTH_TOKEN"})
-	if err != nil || output != "Set coding agent claude. Restart Eggy for this to take effect." {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-	output, err = configMain(path, []string{"get", "coding"})
-	if err != nil || output != "default_agent: codex\nclaude  adapter=claude_cli  credential_env=CLAUDE_CODE_OAUTH_TOKEN\ncodex  adapter=codex_cli" {
-		t.Fatalf("output=%q err=%v", output, err)
-	}
-}
-
-func TestConfigMainSetCodingAgentMissingRequiredFlag(t *testing.T) {
-	path := writeTestConfig(t, t.TempDir())
-	_, err := configMain(path, []string{"set", "coding-agent", "--alias=claude"})
-	if err == nil || !strings.Contains(err.Error(), "usage: eggy config set coding-agent") {
-		t.Fatalf("err=%v", err)
 	}
 }
 

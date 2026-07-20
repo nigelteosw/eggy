@@ -77,26 +77,6 @@ func writeConfigUnlocked(path string, cfg Config) error {
 	return os.Rename(temporaryPath, path)
 }
 
-func SetCodingAgent(path, alias, adapter, credentialEnv string) error {
-	return filelock.With(path, func() error {
-		cfg, version, err := loadConfigDocument(path)
-		if err != nil {
-			return err
-		}
-		if version != 2 {
-			return errConfigSetRequiresVersion2
-		}
-		if cfg.Coding.Agents == nil {
-			cfg.Coding.Agents = map[string]CodingAgentConfig{}
-		}
-		cfg.Coding.Agents[alias] = CodingAgentConfig{Adapter: adapter, CredentialEnv: credentialEnv}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
-	})
-}
-
 func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	return filelock.With(path, func() error {
 		cfg, version, err := loadConfigDocument(path)
@@ -170,29 +150,6 @@ func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
 		}
 		return writeConfigUnlocked(path, cfg)
 	})
-}
-
-func GetCodingConfigText(path string) (string, error) {
-	cfg, _, err := loadConfigDocument(path)
-	if err != nil {
-		return "", err
-	}
-	aliases := make([]string, 0, len(cfg.Coding.Agents))
-	for alias := range cfg.Coding.Agents {
-		aliases = append(aliases, alias)
-	}
-	sort.Strings(aliases)
-	lines := make([]string, 0, len(aliases)+1)
-	lines = append(lines, "default_agent: "+cfg.Coding.DefaultAgent)
-	for _, alias := range aliases {
-		agent := cfg.Coding.Agents[alias]
-		line := alias + "  adapter=" + agent.Adapter
-		if agent.CredentialEnv != "" {
-			line += "  credential_env=" + agent.CredentialEnv
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n"), nil
 }
 
 func GetProvidersConfigText(path string) (string, error) {

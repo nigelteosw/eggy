@@ -10,15 +10,15 @@ import (
 )
 
 type CodingService struct {
-	store      ports.StateStore
-	runner     ports.Runner
-	repository ports.CodingRepository
-	agent      ports.CodingAgent
-	now        func() time.Time
+	store       ports.StateStore
+	runner      ports.Runner
+	repository  ports.CodingRepository
+	implementer Implementer
+	now         func() time.Time
 }
 
-func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, agent ports.CodingAgent, now func() time.Time) *CodingService {
-	return &CodingService{store: store, runner: runner, repository: repository, agent: agent, now: now}
+func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, implementer Implementer, now func() time.Time) *CodingService {
+	return &CodingService{store: store, runner: runner, repository: repository, implementer: implementer, now: now}
 }
 
 func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
@@ -66,8 +66,8 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nTask:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
-	checkpoint(progress, "Starting the coding agent")
-	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt}, progress)
+	checkpoint(progress, "Starting the implementation run")
+	result, err := s.implementer.Implement(ctx, runID, workspace, prompt, progress)
 	if err != nil {
 		return fail(err)
 	}
@@ -110,7 +110,7 @@ func (s *CodingService) workspaceRevision(ctx context.Context, workspace string)
 	return s.repository.WorkspaceRevision(ctx, workspace)
 }
 
-func (s *CodingService) Stop(runID string) error { return s.agent.Interrupt(runID) }
+func (s *CodingService) Stop(runID string) error { return s.implementer.Interrupt(runID) }
 
 func (s *CodingService) RecoverInterrupted(ctx context.Context) (int, error) {
 	state, err := s.store.Load(ctx)

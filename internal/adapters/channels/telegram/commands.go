@@ -12,7 +12,6 @@ func Commands() []BotCommand {
 		{Name: "schedules", Description: "List scheduled instructions"},
 		{Name: "memory", Description: "Show durable memory"},
 		{Name: "model", Description: "Show or change the active model alias"},
-		{Name: "coding_agent", Description: "Show or change the active coding-agent alias"},
 		{Name: "usage", Description: "Show or reset local token usage counters"},
 		{Name: "new", Description: "Start a new conversation"},
 		{Name: "calendar_auth", Description: "Start Google Calendar enrollment"},

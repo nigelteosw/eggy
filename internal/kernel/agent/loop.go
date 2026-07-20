@@ -112,6 +112,63 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 	}
 }
 
+// ErrTerminalToolNotCalled is returned when RunImplementation exhausts a
+// model turn without any tool call, before the terminal tool was ever
+// successfully called.
+var ErrTerminalToolNotCalled = errors.New("implementation run ended without a terminal tool call")
+
+// RunImplementation drives the loop until the model successfully calls
+// terminalTool, returning that call's raw arguments, or the step limit is
+// reached first. Every tool registered on l is available unconditionally —
+// callers construct a Loop instance scoped to exactly the tools an
+// implementation run should have, rather than relying on lane filtering.
+// onToolCall, if non-nil, fires after each successful non-terminal tool call
+// for progress reporting; it does not fire for the terminal tool itself.
+func (l *Loop) RunImplementation(ctx context.Context, alias string, messages []ports.Message, terminalTool string, onToolCall func(name string)) (json.RawMessage, ports.ModelUsage, error) {
+	target, ok := l.selected[alias]
+	if !ok || target.Model == nil || target.ModelID == "" {
+		return nil, ports.ModelUsage{}, fmt.Errorf("model alias %q is not configured", alias)
+	}
+	messages = append([]ports.Message(nil), messages...)
+	usage := ports.ModelUsage{}
+	steps := 0
+	for {
+		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: l.defs})
+		if err != nil {
+			return nil, usage, err
+		}
+		usage = usage.Add(response.Usage)
+		assistant := response.Message
+		if len(assistant.ToolCalls) == 0 {
+			return nil, usage, ErrTerminalToolNotCalled
+		}
+		if steps >= l.selectedMaxSteps {
+			return nil, usage, ErrToolStepLimit
+		}
+		messages = append(messages, assistant)
+		for _, call := range assistant.ToolCalls {
+			tool, ok := l.tools[call.Name]
+			if !ok {
+				return nil, usage, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+			}
+			output, toolErr := tool.Execute(ctx, call.Arguments)
+			if toolErr != nil {
+				output, _ = json.Marshal(map[string]string{"error": toolErr.Error()})
+				messages = append(messages, ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)})
+				continue
+			}
+			if call.Name == terminalTool {
+				return call.Arguments, usage, nil
+			}
+			if onToolCall != nil {
+				onToolCall(call.Name)
+			}
+			messages = append(messages, ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)})
+		}
+		steps++
+	}
+}
+
 // ToolNames returns the tools available for a turn after applying the same
 // lane and allowlist filters used for the model request.
 func (l *Loop) ToolNames(options RunOptions) []string {

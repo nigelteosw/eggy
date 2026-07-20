@@ -204,10 +204,10 @@ func TestReadOnlyWorkspaceOperationsListSearchReadStatusAndBranches(t *testing.T
 func TestGitHubMetadataReadsRepositoryIssuePullRequestAndChecks(t *testing.T) {
 	repository := ports.Repository{CloneURL: "https://github.com/acme/repo.git"}
 	for _, test := range []struct {
-		name       string
-		wantPath   string
-		call       func(adapter *Adapter) error
-		body       string
+		name     string
+		wantPath string
+		call     func(adapter *Adapter) error
+		body     string
 	}{
 		{
 			name: "repository", wantPath: "/repos/acme/repo",

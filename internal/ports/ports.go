@@ -196,14 +196,6 @@ type CodingRun struct {
 	FinishedAt   time.Time `json:"finished_at,omitempty"`
 }
 
-type CodingRequest struct {
-	RunID       string
-	Workspace   string
-	Instruction string
-	Environment map[string]string
-	ReadOnly    bool
-}
-
 type CodingProgress struct {
 	Kind    string
 	Message string
@@ -215,11 +207,6 @@ type CodingResult struct {
 	Validation    string
 	CommitMessage string
 	ChangedFiles  []string
-}
-
-type CodingAgent interface {
-	Run(context.Context, CodingRequest, func(CodingProgress)) (CodingResult, error)
-	Interrupt(string) error
 }
 
 type Command struct {

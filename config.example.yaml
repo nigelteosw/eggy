@@ -19,16 +19,6 @@ models:
   deepseek-pro:
     provider: "deepseek"
     model: "deepseek-v4-pro"
-coding:
-  # Telegram: /coding_agent changes the active alias; /coding_agent default restores this one.
-  default_agent: "codex"
-  agents:
-    codex:
-      adapter: "codex_cli"
-    claude:
-      adapter: "claude_cli"
-      # This names an environment variable. Never place the credential itself in YAML.
-      credential_env: "CLAUDE_CODE_OAUTH_TOKEN"
 repositories:
   - name: "eggy"
     clone_url: "https://github.com/nigelteosw/eggy.git"

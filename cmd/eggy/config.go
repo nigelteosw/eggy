@@ -8,7 +8,7 @@ import (
 )
 
 func configMain(configPath string, arguments []string) (string, error) {
-	usage := "usage: eggy config get <coding|providers|models|calendar|path>|show|set <coding-agent|provider|model|calendar> ..."
+	usage := "usage: eggy config get <providers|models|calendar|path>|show|set <provider|model|calendar> ..."
 	if len(arguments) == 0 {
 		return "", fmt.Errorf("%s", usage)
 	}
@@ -25,13 +25,11 @@ func configMain(configPath string, arguments []string) (string, error) {
 }
 
 func configGet(configPath string, arguments []string) (string, error) {
-	usage := "usage: eggy config get <coding|providers|models|calendar|path>"
+	usage := "usage: eggy config get <providers|models|calendar|path>"
 	if len(arguments) != 1 {
 		return "", fmt.Errorf("%s", usage)
 	}
 	switch arguments[0] {
-	case "coding":
-		return bootstrap.GetCodingConfigText(configPath)
 	case "providers":
 		return bootstrap.GetProvidersConfigText(configPath)
 	case "models":
@@ -46,13 +44,11 @@ func configGet(configPath string, arguments []string) (string, error) {
 }
 
 func configSet(configPath string, arguments []string) (string, error) {
-	usage := "usage: eggy config set <coding-agent|provider|model|calendar> ..."
+	usage := "usage: eggy config set <provider|model|calendar> ..."
 	if len(arguments) == 0 {
 		return "", fmt.Errorf("%s", usage)
 	}
 	switch arguments[0] {
-	case "coding-agent":
-		return configSetCodingAgent(configPath, arguments[1:])
 	case "provider":
 		return configSetProvider(configPath, arguments[1:])
 	case "model":
@@ -62,23 +58,6 @@ func configSet(configPath string, arguments []string) (string, error) {
 	default:
 		return "", fmt.Errorf("%s", usage)
 	}
-}
-
-func configSetCodingAgent(configPath string, arguments []string) (string, error) {
-	flags := flag.NewFlagSet("config set coding-agent", flag.ContinueOnError)
-	alias := flags.String("alias", "", "coding agent alias")
-	adapter := flags.String("adapter", "", "adapter: codex_cli or claude_cli")
-	credentialEnv := flags.String("credential-env", "", "environment variable name holding the credential (optional)")
-	if err := flags.Parse(arguments); err != nil {
-		return "", err
-	}
-	if *alias == "" || *adapter == "" {
-		return "", fmt.Errorf("usage: eggy config set coding-agent --alias=<alias> --adapter=<codex_cli|claude_cli> [--credential-env=<ENV_NAME>]")
-	}
-	if err := bootstrap.SetCodingAgent(configPath, *alias, *adapter, *credentialEnv); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Set coding agent %s. Restart Eggy for this to take effect.", *alias), nil
 }
 
 func configSetProvider(configPath string, arguments []string) (string, error) {

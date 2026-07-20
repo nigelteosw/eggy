@@ -1,14 +1,11 @@
 package bootstrap
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 func TestLoadConfigAcceptsExample(t *testing.T) {
@@ -56,111 +53,6 @@ func TestLoadConfigVersion1Compatibility(t *testing.T) {
 	}
 	if cfg.Agent.DefaultModel != "deepseek-pro" || provider.APIKeyEnv != "DEEPSEEK_API_KEY" || model.Model != "pro" {
 		t.Fatalf("v1 normalization = %#v provider=%#v model=%#v", cfg, provider, model)
-	}
-}
-
-func TestCodingConfigDefaultsForVersion1AndOmittedVersion2(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		body string
-	}{
-		{name: "version 1", body: validConfig()},
-		{name: "version 2", body: validConfigV2()},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			cfg, secrets, err := loadText(t, test.body, testSecrets())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if cfg.Coding.DefaultAgent != "codex" || len(cfg.Coding.Agents) != 1 || cfg.Coding.Agents["codex"].Adapter != "codex_cli" {
-				t.Fatalf("coding config = %#v", cfg.Coding)
-			}
-			if len(secrets.CodingAgentCredentials) != 0 {
-				t.Fatalf("coding agent credentials = %#v", secrets.CodingAgentCredentials)
-			}
-		})
-	}
-}
-
-func TestCodingConfigLoadsCredentialsWithoutPersistingThem(t *testing.T) {
-	body := strings.Replace(validConfigV2(), "repositories:", `coding:
-  default_agent: codex
-  agents:
-    codex:
-      adapter: codex_cli
-    claude:
-      adapter: claude_cli
-      credential_env: CLAUDE_CODE_OAUTH_TOKEN
-repositories:`, 1)
-	env := testSecrets()
-	env["CLAUDE_CODE_OAUTH_TOKEN"] = "secret-claude-token"
-	cfg, secrets, err := loadText(t, body, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Coding.DefaultAgent != "codex" || cfg.Coding.Agents["claude"].CredentialEnv != "CLAUDE_CODE_OAUTH_TOKEN" {
-		t.Fatalf("coding config = %#v", cfg.Coding)
-	}
-	if secrets.CodingAgentCredentials["claude"] != "secret-claude-token" {
-		t.Fatalf("coding agent credentials = %#v", secrets.CodingAgentCredentials)
-	}
-	encoded, err := yaml.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(encoded, []byte("secret-claude-token")) {
-		t.Fatalf("secret persisted in config:\n%s", encoded)
-	}
-}
-
-func TestCodingConfigValidation(t *testing.T) {
-	base := strings.Replace(validConfigV2(), "repositories:", `coding:
-  default_agent: codex
-  agents:
-    codex:
-      adapter: codex_cli
-    claude:
-      adapter: claude_cli
-      credential_env: CLAUDE_CODE_OAUTH_TOKEN
-repositories:`, 1)
-	tests := []struct {
-		name, old, replacement, want string
-	}{
-		{"unsupported adapter", "adapter: claude_cli", "adapter: shell", "unsupported coding agent adapter"},
-		{"invalid credential environment", "credential_env: CLAUDE_CODE_OAUTH_TOKEN", "credential_env: bad-token", "credential_env"},
-		{"invalid alias", "    claude:", "    'bad alias':", "invalid coding agent alias"},
-		{"unknown default", "default_agent: codex", "default_agent: missing", "coding.default_agent"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := loadText(t, strings.Replace(base, tt.old, tt.replacement, 1), testSecrets())
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("error = %v, want containing %q", err, tt.want)
-			}
-		})
-	}
-}
-
-func TestCodingConfigRequiresOnlyDefaultAgentCredential(t *testing.T) {
-	base := strings.Replace(validConfigV2(), "repositories:", `coding:
-  default_agent: codex
-  agents:
-    codex:
-      adapter: codex_cli
-    claude:
-      adapter: claude_cli
-      credential_env: CLAUDE_CODE_OAUTH_TOKEN
-repositories:`, 1)
-	if _, secrets, err := loadText(t, base, testSecrets()); err != nil {
-		t.Fatalf("missing optional credential rejected: %v", err)
-	} else if value, ok := secrets.CodingAgentCredentials["claude"]; !ok || value != "" {
-		t.Fatalf("optional credential loading = %#v", secrets.CodingAgentCredentials)
-	}
-
-	claudeDefault := strings.Replace(base, "default_agent: codex", "default_agent: claude", 1)
-	_, _, err := loadText(t, claudeDefault, testSecrets())
-	if err == nil || !strings.Contains(err.Error(), "CLAUDE_CODE_OAUTH_TOKEN") {
-		t.Fatalf("error = %v", err)
 	}
 }
 

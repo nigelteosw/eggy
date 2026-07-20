@@ -213,76 +213,124 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			return "Config file management is not configured.", true, nil
 		}
 		if len(fields) < 2 {
-			return "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ...", true, nil
+			return "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ...", true, nil
 		}
 		switch fields[1] {
 		case "get":
 			if len(fields) != 3 {
-				return "Usage: /config get <coding|providers|models>", true, nil
+				return "Usage: /config get <coding|providers|models|calendar|path>", true, nil
 			}
 			switch fields[2] {
 			case "coding":
-				text, err := getCodingConfigText(s.configPath)
+				text, err := GetCodingConfigText(s.configPath)
 				if err != nil {
 					return err.Error(), true, nil
 				}
 				return text, true, nil
 			case "providers":
-				text, err := getProvidersConfigText(s.configPath)
+				text, err := GetProvidersConfigText(s.configPath)
 				if err != nil {
 					return err.Error(), true, nil
 				}
 				return text, true, nil
 			case "models":
-				text, err := getModelAliasesConfigText(s.configPath)
+				text, err := GetModelAliasesConfigText(s.configPath)
 				if err != nil {
 					return err.Error(), true, nil
 				}
 				return text, true, nil
+			case "calendar":
+				text, err := GetCalendarConfigText(s.configPath)
+				if err != nil {
+					return err.Error(), true, nil
+				}
+				return text, true, nil
+			case "path":
+				return s.configPath, true, nil
 			default:
-				return "Usage: /config get <coding|providers|models>", true, nil
+				return "Usage: /config get <coding|providers|models|calendar|path>", true, nil
 			}
 		case "set":
 			if len(fields) < 3 {
-				return "Usage: /config set <coding_agent|provider|model> ...", true, nil
+				return "Usage: /config set <coding_agent|provider|model|calendar> ...", true, nil
 			}
 			switch fields[2] {
 			case "coding_agent":
-				if len(fields) < 5 || len(fields) > 6 {
-					return "Usage: /config set coding_agent <alias> <adapter> [credential_env]", true, nil
+				values, err := parseConfigFlags(fields[3:])
+				if err != nil {
+					return err.Error(), true, nil
 				}
-				alias, adapter := fields[3], fields[4]
-				credentialEnv := ""
-				if len(fields) == 6 {
-					credentialEnv = fields[5]
+				usage := "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"
+				for key := range values {
+					if key != "alias" && key != "adapter" && key != "credential_env" {
+						return usage, true, nil
+					}
 				}
-				if err := setCodingAgent(s.configPath, alias, adapter, credentialEnv); err != nil {
+				alias, adapter := values["alias"], values["adapter"]
+				if alias == "" || adapter == "" {
+					return usage, true, nil
+				}
+				if err := SetCodingAgent(s.configPath, alias, adapter, values["credential_env"]); err != nil {
 					return err.Error(), true, nil
 				}
 				return "Set coding agent " + alias + ". Restart Eggy for this to take effect.", true, nil
 			case "provider":
-				if len(fields) != 7 {
-					return "Usage: /config set provider <name> <adapter> <base_url> <api_key_env>", true, nil
+				values, err := parseConfigFlags(fields[3:])
+				if err != nil {
+					return err.Error(), true, nil
 				}
-				name, adapter, baseURL, apiKeyEnv := fields[3], fields[4], fields[5], fields[6]
-				if err := setProvider(s.configPath, name, adapter, baseURL, apiKeyEnv); err != nil {
+				usage := "Usage: /config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>"
+				for key := range values {
+					if key != "name" && key != "adapter" && key != "base_url" && key != "api_key_env" {
+						return usage, true, nil
+					}
+				}
+				name, adapter, baseURL, apiKeyEnv := values["name"], values["adapter"], values["base_url"], values["api_key_env"]
+				if name == "" || adapter == "" || baseURL == "" || apiKeyEnv == "" {
+					return usage, true, nil
+				}
+				if err := SetProvider(s.configPath, name, adapter, baseURL, apiKeyEnv); err != nil {
 					return err.Error(), true, nil
 				}
 				return "Set provider " + name + ". Restart Eggy for this to take effect.", true, nil
 			case "model":
-				if len(fields) != 6 {
-					return "Usage: /config set model <alias> <provider> <model_id>", true, nil
+				values, err := parseConfigFlags(fields[3:])
+				if err != nil {
+					return err.Error(), true, nil
 				}
-				alias, provider, modelID := fields[3], fields[4], fields[5]
-				if err := setModelAlias(s.configPath, alias, provider, modelID); err != nil {
+				usage := "Usage: /config set model alias=<alias> provider=<provider> model=<model_id>"
+				for key := range values {
+					if key != "alias" && key != "provider" && key != "model" {
+						return usage, true, nil
+					}
+				}
+				alias, provider, modelID := values["alias"], values["provider"], values["model"]
+				if alias == "" || provider == "" || modelID == "" {
+					return usage, true, nil
+				}
+				if err := SetModelAlias(s.configPath, alias, provider, modelID); err != nil {
 					return err.Error(), true, nil
 				}
 				return "Set model " + alias + ". Restart Eggy for this to take effect.", true, nil
+			case "calendar":
+				values, err := parseConfigFlags(fields[3:])
+				if err != nil {
+					return err.Error(), true, nil
+				}
+				for key := range values {
+					if key != "enabled" && key != "default_calendar" && key != "timezone" {
+						return "Usage: /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]", true, nil
+					}
+				}
+				if err := SetCalendar(s.configPath, values["enabled"], values["default_calendar"], values["timezone"]); err != nil {
+					return err.Error(), true, nil
+				}
+				return "Set calendar. Restart Eggy for this to take effect.", true, nil
 			default:
-				return "Usage: /config set <coding_agent|provider|model> ...", true, nil
+				return "Usage: /config set <coding_agent|provider|model|calendar> ...", true, nil
 			}
 		default:
-			return "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ...", true, nil
+			return "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ...", true, nil
 		}
 	case "/usage":
 		if s.agentRuntime == nil {
@@ -345,4 +393,19 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	default:
 		return "", false, nil
 	}
+}
+
+// parseConfigFlags parses "key=value" tokens into a map, splitting each on
+// the first "=" only so a value containing "=" (a base_url query string,
+// for instance) still parses correctly.
+func parseConfigFlags(tokens []string) (map[string]string, error) {
+	values := make(map[string]string, len(tokens))
+	for _, token := range tokens {
+		key, value, ok := strings.Cut(token, "=")
+		if !ok || key == "" {
+			return nil, fmt.Errorf("invalid flag %q: expected key=value", token)
+		}
+		values[key] = value
+	}
+	return values, nil
 }

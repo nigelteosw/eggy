@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
@@ -76,7 +77,7 @@ func writeConfigUnlocked(path string, cfg Config) error {
 	return os.Rename(temporaryPath, path)
 }
 
-func setCodingAgent(path, alias, adapter, credentialEnv string) error {
+func SetCodingAgent(path, alias, adapter, credentialEnv string) error {
 	return filelock.With(path, func() error {
 		cfg, version, err := loadConfigDocument(path)
 		if err != nil {
@@ -96,7 +97,7 @@ func setCodingAgent(path, alias, adapter, credentialEnv string) error {
 	})
 }
 
-func setProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
+func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	return filelock.With(path, func() error {
 		cfg, version, err := loadConfigDocument(path)
 		if err != nil {
@@ -116,7 +117,7 @@ func setProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	})
 }
 
-func setModelAlias(path, alias, provider, modelID string) error {
+func SetModelAlias(path, alias, provider, modelID string) error {
 	return filelock.With(path, func() error {
 		cfg, version, err := loadConfigDocument(path)
 		if err != nil {
@@ -136,7 +137,42 @@ func setModelAlias(path, alias, provider, modelID string) error {
 	})
 }
 
-func getCodingConfigText(path string) (string, error) {
+// SetCalendar patches CalendarConfig field-by-field: an empty string for
+// enabled, defaultCalendar, or timezone means "leave that field unchanged."
+// At least one must be non-empty.
+func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
+	if enabled == "" && defaultCalendar == "" && timezone == "" {
+		return errors.New("at least one of enabled, default_calendar, or timezone is required")
+	}
+	return filelock.With(path, func() error {
+		cfg, version, err := loadConfigDocument(path)
+		if err != nil {
+			return err
+		}
+		if version != 2 {
+			return errConfigSetRequiresVersion2
+		}
+		if enabled != "" {
+			parsed, err := strconv.ParseBool(enabled)
+			if err != nil {
+				return fmt.Errorf("enabled must be true or false: %w", err)
+			}
+			cfg.Calendar.Enabled = parsed
+		}
+		if defaultCalendar != "" {
+			cfg.Calendar.DefaultCalendar = defaultCalendar
+		}
+		if timezone != "" {
+			cfg.Calendar.Timezone = timezone
+		}
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+func GetCodingConfigText(path string) (string, error) {
 	cfg, _, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
@@ -159,7 +195,7 @@ func getCodingConfigText(path string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func getProvidersConfigText(path string) (string, error) {
+func GetProvidersConfigText(path string) (string, error) {
 	cfg, _, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
@@ -180,7 +216,7 @@ func getProvidersConfigText(path string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-func getModelAliasesConfigText(path string) (string, error) {
+func GetModelAliasesConfigText(path string) (string, error) {
 	cfg, _, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
@@ -199,4 +235,27 @@ func getModelAliasesConfigText(path string) (string, error) {
 		lines = append(lines, fmt.Sprintf("%s  provider=%s  model=%s", alias, model.Provider, model.Model))
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func GetCalendarConfigText(path string) (string, error) {
+	cfg, _, err := loadConfigDocument(path)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("enabled=%t  default_calendar=%s  timezone=%s", cfg.Calendar.Enabled, cfg.Calendar.DefaultCalendar, cfg.Calendar.Timezone), nil
+}
+
+// ShowConfigText re-marshals the whole config as YAML. Safe to expose in
+// full: config.yaml never holds secret values, only environment-variable
+// names (api_key_env, credential_env).
+func ShowConfigText(path string) (string, error) {
+	cfg, _, err := loadConfigDocument(path)
+	if err != nil {
+		return "", err
+	}
+	body, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal config: %w", err)
+	}
+	return string(body), nil
 }

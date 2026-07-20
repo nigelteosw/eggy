@@ -103,7 +103,7 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider openrouter openai_compatible https://openrouter.ai/api/v1 OPENROUTER_API_KEY")
+	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
 	if err != nil || !handled || output != "Set provider openrouter. Restart Eggy for this to take effect." {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}

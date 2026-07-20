@@ -101,7 +101,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
-	output, _, err = commands.Execute(ctx, "/config set coding_agent claude claude_cli CLAUDE_CODE_OAUTH_TOKEN")
+	output, _, err = commands.Execute(ctx, "/config set coding_agent alias=claude adapter=claude_cli credential_env=CLAUDE_CODE_OAUTH_TOKEN")
 	if err != nil || output != "Set coding agent claude. Restart Eggy for this to take effect." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
@@ -111,12 +111,12 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
-	output, _, err = commands.Execute(ctx, "/config set coding_agent claude bad_adapter")
+	output, _, err = commands.Execute(ctx, "/config set coding_agent alias=claude adapter=bad_adapter")
 	if err != nil || !strings.Contains(output, "unsupported coding agent adapter") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
-	output, _, err = commands.Execute(ctx, "/config set provider openrouter openai_compatible https://openrouter.ai/api/v1 OPENROUTER_API_KEY")
+	output, _, err = commands.Execute(ctx, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
 	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
@@ -126,7 +126,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
-	output, _, err = commands.Execute(ctx, "/config set model openrouter-pro openrouter your-model-id")
+	output, _, err = commands.Execute(ctx, "/config set model alias=openrouter-pro provider=openrouter model=your-model-id")
 	if err != nil || output != "Set model openrouter-pro. Restart Eggy for this to take effect." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
@@ -136,8 +136,28 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
-	output, _, err = commands.Execute(ctx, "/config set model orphan missing-provider some-model")
+	output, _, err = commands.Execute(ctx, "/config set model alias=orphan provider=missing-provider model=some-model")
 	if err != nil || !strings.Contains(output, "unknown provider") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get calendar")
+	if err != nil || output != "enabled=true  default_calendar=primary  timezone=UTC" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config set calendar timezone=Asia/Singapore")
+	if err != nil || output != "Set calendar. Restart Eggy for this to take effect." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get calendar")
+	if err != nil || output != "enabled=true  default_calendar=primary  timezone=Asia/Singapore" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+
+	output, _, err = commands.Execute(ctx, "/config get path")
+	if err != nil || output != path {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 }
@@ -150,13 +170,17 @@ func TestCommandConfigUsageErrors(t *testing.T) {
 	commands := &CommandService{configPath: path}
 	ctx := context.Background()
 	tests := []struct{ input, want string }{
-		{"/config", "Usage: /config get <coding|providers|models>|set <coding_agent|provider|model> ..."},
-		{"/config get", "Usage: /config get <coding|providers|models>"},
-		{"/config get unknown", "Usage: /config get <coding|providers|models>"},
-		{"/config set", "Usage: /config set <coding_agent|provider|model> ..."},
-		{"/config set coding_agent claude", "Usage: /config set coding_agent <alias> <adapter> [credential_env]"},
-		{"/config set provider openrouter openai_compatible", "Usage: /config set provider <name> <adapter> <base_url> <api_key_env>"},
-		{"/config set model openrouter-pro openrouter", "Usage: /config set model <alias> <provider> <model_id>"},
+		{"/config", "Usage: /config get <coding|providers|models|calendar|path>|set <coding_agent|provider|model|calendar> ..."},
+		{"/config get", "Usage: /config get <coding|providers|models|calendar|path>"},
+		{"/config get unknown", "Usage: /config get <coding|providers|models|calendar|path>"},
+		{"/config set", "Usage: /config set <coding_agent|provider|model|calendar> ..."},
+		{"/config set coding_agent alias=claude", "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"},
+		{"/config set coding_agent alias=claude adapter=claude_cli unknown=x", "Usage: /config set coding_agent alias=<alias> adapter=<codex_cli|claude_cli> [credential_env=<ENV_NAME>]"},
+		{"/config set coding_agent notkeyvalue", `invalid flag "notkeyvalue": expected key=value`},
+		{"/config set provider name=openrouter adapter=openai_compatible", "Usage: /config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>"},
+		{"/config set model alias=openrouter-pro provider=openrouter", "Usage: /config set model alias=<alias> provider=<provider> model=<model_id>"},
+		{"/config set calendar badkey=x", "Usage: /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]"},
+		{"/config set calendar", "at least one of enabled, default_calendar, or timezone is required"},
 	}
 	for _, tt := range tests {
 		output, handled, err := commands.Execute(ctx, tt.input)

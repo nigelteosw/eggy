@@ -19,7 +19,7 @@ func TestNativeImplementerReturnsStructuredResultAndReportsToolProgress(t *testi
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
 	var updates []ports.CodingProgress
-	result, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", func(p ports.CodingProgress) { updates = append(updates, p) })
+	result, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, func(p ports.CodingProgress) { updates = append(updates, p) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +47,11 @@ func TestNativeImplementerRejectsConcurrentRunsWithSameID(t *testing.T) {
 	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
-	go func() { _, _ = implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil) }()
+	go func() {
+		_, _ = implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, nil)
+	}()
 	<-block.started
-	if _, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil); err == nil {
+	if _, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, nil); err == nil {
 		t.Fatal("expected already-active error")
 	}
 	close(block.unblock)
@@ -62,7 +64,7 @@ func TestNativeImplementerInterruptCancelsActiveRun(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil)
+		_, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, nil)
 		done <- err
 	}()
 	<-block.started
@@ -80,7 +82,7 @@ func TestNativeImplementerInterruptCancelsActiveRun(t *testing.T) {
 func TestNativeImplementerFailsWhenAliasResolutionFails(t *testing.T) {
 	loop := agent.NewSelectedLoop(nil, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "", errors.New("no model selected") })
-	if _, err := implementer.Implement(context.Background(), "run-1", "/tmp/run-1", "fix the bug", nil); err == nil {
+	if _, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, nil); err == nil {
 		t.Fatal("expected alias resolution error")
 	}
 }

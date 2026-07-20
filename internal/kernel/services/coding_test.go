@@ -16,7 +16,7 @@ func TestCodingServiceRunsImplementerCapturesDiffAndPersistsResult(t *testing.T)
 	repository := &fakeRepository{}
 	implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", Validation: "tests pass", CommitMessage: "feat: done"}}
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now })
+	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now }, nil)
 	var updates []ports.CodingProgress
 	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(progress ports.CodingProgress) { updates = append(updates, progress) })
 	if err != nil {
@@ -64,7 +64,7 @@ func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
 			store.state.CodingRuns = map[string]ports.CodingRun{}
 			repository := &fakeRepository{}
 			implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
-			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, implementer, time.Now)
+			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, implementer, time.Now, nil)
 
 			_, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -82,7 +82,7 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	store := newMemoryStore()
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Workspace: "/tmp/runs/run", Status: "running"}}
 	runner := &fakeWorkspaceRunner{}
-	service := NewCodingService(store, runner, &fakeRepository{}, &fakeImplementer{}, time.Now)
+	service := NewCodingService(store, runner, &fakeRepository{}, &fakeImplementer{}, time.Now, nil)
 	count, err := service.RecoverInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
@@ -103,6 +103,33 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	}
 }
 
+func TestCodingServiceResumeUsesPersistedWorkspaceAndContext(t *testing.T) {
+	store := newMemoryStore()
+	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {
+		ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: "interrupted",
+	}}
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	sessionStore := newMemorySessionStore()
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{ContextBudgetChars: 1000, RecentMessages: 4, OutputExcerptChars: 200}, time.Now)
+	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Instruction: "add sessions", Status: ports.SessionInterrupted, Context: ports.SessionContext{Summary: "Inspected: README.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: resume"}}
+	repository := &fakeRepository{branch: "eggy/run-1", head: "abc123"}
+	service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/data/runs/run-1"}, repository, implementer, time.Now, sessions)
+
+	run, _, err := service.Resume(context.Background(), "run-1", "fix the test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ID != "run-1" || repository.clones != 0 || repository.branches != 0 || implementer.workspace != "/data/runs/run-1" {
+		t.Fatalf("run=%#v repository=%#v implementer=%#v", run, repository, implementer)
+	}
+	if len(implementer.history) == 0 || !strings.Contains(implementer.history[0].Content, "Previous implementation session") {
+		t.Fatalf("history=%#v", implementer.history)
+	}
+}
+
 type fakeWorkspaceRunner struct {
 	workspace          string
 	created, destroyed bool
@@ -119,12 +146,13 @@ func (r *fakeWorkspaceRunner) Destroy(context.Context, string) error { r.destroy
 
 type fakeImplementer struct {
 	runID, workspace, instruction string
+	history                       []ports.Message
 	result                        ports.CodingResult
 	onRun                         func()
 }
 
-func (a *fakeImplementer) Implement(_ context.Context, runID, workspace, instruction string, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
-	a.runID, a.workspace, a.instruction = runID, workspace, instruction
+func (a *fakeImplementer) Implement(_ context.Context, request ImplementationRequest, _ func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+	a.runID, a.workspace, a.instruction, a.history = request.RunID, request.Workspace, request.Instruction, request.History
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
 	}

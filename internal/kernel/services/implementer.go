@@ -22,8 +22,13 @@ const implementationSystemPrompt = `Eggy implementation contract
 // Implementer runs the bounded, tool-driven implementation loop against an
 // already-prepared workspace and returns its structured result.
 type Implementer interface {
-	Implement(ctx context.Context, runID, workspace, instruction string, progress func(ports.CodingProgress)) (ports.CodingResult, error)
+	Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error)
 	Interrupt(runID string) error
+}
+
+type ImplementationRequest struct {
+	RunID, Workspace, Instruction string
+	History                       []ports.Message
 }
 
 // NativeImplementer drives agent.Loop.RunImplementation with Eggy's own
@@ -40,7 +45,8 @@ func NewNativeImplementer(loop *agent.Loop, aliasFor func(context.Context) (stri
 	return &NativeImplementer{loop: loop, aliasFor: aliasFor, active: map[string]context.CancelFunc{}}
 }
 
-func (n *NativeImplementer) Implement(ctx context.Context, runID, workspace, instruction string, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+func (n *NativeImplementer) Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+	runID, workspace, instruction := request.RunID, request.Workspace, request.Instruction
 	runContext, cancel := context.WithCancel(ctx)
 	n.mu.Lock()
 	if _, exists := n.active[runID]; exists {
@@ -66,7 +72,13 @@ func (n *NativeImplementer) Implement(ctx context.Context, runID, workspace, ins
 		{Role: ports.RoleSystem, Content: implementationSystemPrompt},
 		{Role: ports.RoleUser, Content: instruction},
 	}
+	if len(request.History) > 0 {
+		messages = append(messages[:1], append(request.History, messages[1])...)
+	}
 	runResult, err := n.loop.RunImplementationWithEvents(runContext, alias, messages, "finish_implementation", func(event agent.ImplementationEvent) {
+		if onEvent != nil {
+			onEvent(implementationSessionEvent(event))
+		}
 		if progress == nil {
 			return
 		}
@@ -90,6 +102,25 @@ func (n *NativeImplementer) Implement(ctx context.Context, runID, workspace, ins
 		return ports.CodingResult{}, errors.New("finish_implementation produced an invalid result")
 	}
 	return ports.CodingResult{Summary: structured.Summary, Validation: structured.Validation, CommitMessage: structured.CommitMessage, ChangedFiles: structured.ChangedFiles}, nil
+}
+
+func implementationSessionEvent(event agent.ImplementationEvent) ports.ImplementationSessionEvent {
+	result := ports.ImplementationSessionEvent{ToolName: event.Call.Name, Content: event.Output, ModelMessage: event.Message}
+	switch event.Kind {
+	case "assistant_message":
+		result.Kind = ports.SessionAssistantMessage
+	case "tool_start":
+		result.Kind = ports.SessionToolStart
+	case "tool_end":
+		result.Kind, result.Message = ports.SessionToolResult, implementationProgressMessage(event)
+	case "tool_error":
+		result.Kind, result.Message = ports.SessionToolError, implementationProgressMessage(event)
+	case "terminal":
+		result.Kind, result.Message = ports.SessionTerminal, "Implementation result received"
+	default:
+		result.Kind = event.Kind
+	}
+	return result
 }
 
 func implementationProgressMessage(event agent.ImplementationEvent) string {

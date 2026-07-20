@@ -197,7 +197,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
 		return app.agentRuntime.SelectedModel(ctx)
 	})
-	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now)
+	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, nil)
 	registry := services.NewToolRegistry()
 	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
 	for _, secret := range secrets.ProviderAPIKeys {

@@ -74,6 +74,17 @@ func Detect(text string) Lane {
 		}
 	}
 
+	// Resumption is an explicit owner-controlled implementation lifecycle
+	// request only when it names a coding run or session. Everyday requests to
+	// continue an explanation remain in the assistant lane.
+	if hasAnyToken(tokens, "run", "session") {
+		for i, token := range tokens {
+			if (token == "continue" || token == "resume") && !negated(tokens, i) {
+				return Implementation
+			}
+		}
+	}
+
 	// Implement and refactor are strong signals, but only when affirmative.
 	for i, token := range tokens {
 		if (token == "implement" || token == "refactor") && !negated(tokens, i) {

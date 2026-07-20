@@ -25,11 +25,15 @@ repositories:
     base_branch: "main"
     protected_branches: ["main"]
 runner:
-  root: "/tmp/runs"
+  root: "/data/runs"
   timeout: "45m"
   retention: "30m"
   max_output_bytes: 1048576
   allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
+implementation_sessions:
+  context_budget_chars: 96000
+  recent_messages: 16
+  output_excerpt_chars: 8192
 scheduler:
   heartbeat_cadence: "30m"
   quiet_hours:

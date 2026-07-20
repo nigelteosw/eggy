@@ -46,6 +46,13 @@ func TestCommandConfigReportsUnconfigured(t *testing.T) {
 	}
 }
 
+func TestCommandContinueRequiresConfiguredCoding(t *testing.T) {
+	output, handled, err := (&CommandService{}).Execute(context.Background(), "/continue")
+	if err != nil || !handled || output != "Coding is not configured." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
 func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {

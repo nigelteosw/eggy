@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -77,6 +78,24 @@ func (s *ImplementationSessions) Load(ctx context.Context, id string) (ports.Imp
 		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
 	}
 	return s.store.Load(ctx, id)
+}
+
+func (s *ImplementationSessions) ListResumable(ctx context.Context) ([]ports.ImplementationSession, error) {
+	if s.store == nil {
+		return nil, errors.New("implementation session store is unavailable")
+	}
+	sessions, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ports.ImplementationSession, 0, len(sessions))
+	for _, session := range sessions {
+		if resumableStatus(session.Status) {
+			result = append(result, session)
+		}
+	}
+	sort.SliceStable(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
+	return result, nil
 }
 
 func (s *ImplementationSessions) Append(ctx context.Context, id string, event ports.ImplementationSessionEvent) (ports.ImplementationSession, error) {
@@ -210,6 +229,10 @@ func (s *ImplementationSessions) redact(content string) string {
 	return content
 }
 
+// RedactProgress removes configured credentials before implementation activity
+// is exposed through a channel adapter.
+func (s *ImplementationSessions) RedactProgress(content string) string { return s.redact(content) }
+
 func sessionTitle(instruction string) string {
 	line := strings.TrimSpace(strings.Split(instruction, "\n")[0])
 	return truncateRunes(line, 80)
@@ -238,9 +261,6 @@ func summarizeMessage(message ports.Message) string {
 
 func truncateMessage(message ports.Message, limit int) ports.Message {
 	message.Content = truncateRunes(message.Content, limit)
-	for i := range message.ToolCalls {
-		message.ToolCalls[i].Arguments = []byte(truncateRunes(string(message.ToolCalls[i].Arguments), limit))
-	}
 	return message
 }
 

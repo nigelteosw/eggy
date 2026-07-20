@@ -29,7 +29,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `config.yaml`: set the public URL, numeric Telegram owner ID, provider/model aliases, repository registry, quiet hours, and Calendar defaults. For local persistence, change `data_dir` to `./data`. Keep runner workspaces below `/tmp/runs` or another dedicated root.
+Edit `config.yaml`: set the public URL, numeric Telegram owner ID, provider/model aliases, repository registry, quiet hours, and Calendar defaults. For local persistence, change `data_dir` to `./data`; keep `runner.root` below that directory (for example `./data/runs`) so coding sessions survive restarts.
 
 Provider keys are named indirectly. Each `providers.<name>.api_key_env` value identifies an environment-variable name; the secret itself must never appear in YAML or Telegram. To add another OpenAI-compatible model, add its provider and alias, then define the referenced environment variable outside the config:
 
@@ -83,7 +83,9 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+
+`/continue` is owner-triggered only. With no run ID it picks the latest resumable implementation session; a named run ID resumes that exact session. Eggy preserves a compacted tool transcript and shows concise milestones in Telegram, while every resumed result still receives a new commit approval. Push and pull-request approvals remain separate.
 
 `/status` is a deterministic local read and consumes no model tokens. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
 
@@ -112,7 +114,7 @@ Creates use a deterministic event ID derived from the approved idempotency key. 
 ## Railway deployment
 
 1. Create a Railway service from this repository.
-2. Generate a public Railway domain and add a persistent volume mounted at `/data`.
+2. Generate a public Railway domain and add a persistent volume mounted at `/data`. Keep both `data_dir: /data` and `runner.root: /data/runs`: uncommitted coding workspaces and session transcripts live there and can be explicitly resumed after a restart.
 3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`.
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
 5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.

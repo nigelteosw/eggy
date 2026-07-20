@@ -25,6 +25,7 @@ import (
 	githubadapter "github.com/nigelteosw/eggy/internal/adapters/repositories/github"
 	"github.com/nigelteosw/eggy/internal/adapters/runner/localprocess"
 	schedulerlocal "github.com/nigelteosw/eggy/internal/adapters/scheduler/local"
+	sessionjson "github.com/nigelteosw/eggy/internal/adapters/sessions/jsonfile"
 	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -197,12 +198,18 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
 		return app.agentRuntime.SelectedModel(ctx)
 	})
-	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, nil)
 	registry := services.NewToolRegistry()
 	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
+	sessions := services.NewImplementationSessions(sessionjson.Open(filepath.Join(config.DataDir, "sessions")), services.SessionPolicy{
+		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
+		RecentMessages:     config.ImplementationSessions.RecentMessages,
+		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
+	}, options.Now, activeSecrets...)
+	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
+	app.shipping.SetSessionLifecycle(sessions)
 	baseTools := []ports.Tool{services.NewStatusTool(stateStore), currentTimeTool(options.Now, location, timezone)}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	for _, tool := range baseTools {
@@ -256,7 +263,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify"}, 20)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify", "repository_continue"}, 20)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -275,7 +282,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})

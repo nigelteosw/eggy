@@ -75,6 +75,52 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) 
 	return err
 }
 
+// Invalidate marks a pending approval unusable without changing approvals
+// that were already decided or consumed.
+func (s *ApprovalService) Invalidate(ctx context.Context, id string) error {
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
+		approval, ok := state.Approvals[id]
+		if !ok || approval.Status != approvals.Pending {
+			return approvals.ErrNotAuthorized
+		}
+		approval.Status, approval.DecidedAt = approvals.Invalidated, s.now()
+		state.Approvals[id] = approval
+		return nil
+	})
+	return err
+}
+
+// InvalidatePendingCommitForRun invalidates any unconsumed commit approval
+// for a run before a resumed implementation can produce a fresh diff.
+func (s *ApprovalService) InvalidatePendingCommitForRun(ctx context.Context, runID string) error {
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
+		for id, approval := range state.Approvals {
+			if approval.Action != approvals.Commit || approval.Status != approvals.Pending {
+				continue
+			}
+			var payload struct {
+				RunID      string `json:"RunID"`
+				RunIDSnake string `json:"run_id"`
+			}
+			if json.Unmarshal(approval.Payload, &payload) != nil || (payload.RunID != runID && payload.RunIDSnake != runID) {
+				continue
+			}
+			approval.Status, approval.DecidedAt = approvals.Invalidated, s.now()
+			state.Approvals[id] = approval
+		}
+		return nil
+	})
+	return err
+}
+
 func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action, payload any, approvalID string) error {
 	if action == approvals.Push {
 		state, err := s.store.Load(ctx)

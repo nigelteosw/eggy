@@ -108,11 +108,16 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		},
 		Repositories: []RepositoryConfig{},
 		Runner: RunnerConfig{
-			Root:           "/tmp/runs",
+			Root:           "/data/runs",
 			Timeout:        Duration(45 * time.Minute),
 			Retention:      Duration(30 * time.Minute),
 			MaxOutputBytes: 1 << 20,
 			AllowedEnv:     []string{"PATH", "LANG", "LC_ALL", "TERM"},
+		},
+		ImplementationSessions: ImplementationSessionConfig{
+			ContextBudgetChars: 96000,
+			RecentMessages:     16,
+			OutputExcerptChars: 8192,
 		},
 		Scheduler: SchedulerConfig{
 			HeartbeatCadence: Duration(30 * time.Minute),

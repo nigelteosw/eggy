@@ -14,6 +14,10 @@ type RepositoryModifier interface {
 	Start(context.Context, string, ports.Repository, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
 }
 
+type RepositoryResumer interface {
+	Resume(context.Context, string, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
+}
+
 type CommitApprovalRequester interface {
 	RequestCommit(context.Context, string, string) (approvals.Approval, error)
 }
@@ -113,7 +117,49 @@ func NewRepositoryTools(
 			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
 		})
 	}
-	return []ports.Tool{list, modify}
+
+	resume := repositoryTool{definition: ports.ToolDefinition{
+		Name: "repository_continue", Description: "Use only when the owner explicitly asks to continue or resume a named Eggy coding run. It resumes the durable workspace and requests a new independent commit approval.", Schema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["run_id","instruction"],"additionalProperties":false}`),
+	}}
+	resume.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var input struct {
+			RunID       string `json:"run_id"`
+			Instruction string `json:"instruction"`
+		}
+		if err := decodeStrict(raw, &input); err != nil {
+			return nil, err
+		}
+		resumer, ok := modifier.(RepositoryResumer)
+		if !ok || approvalRequester == nil {
+			return nil, errors.New("repository continuation is unavailable")
+		}
+		trackedProgress := progress
+		if progress != nil {
+			trackedProgress = func(event ports.CodingProgress) {
+				event.RunID = input.RunID
+				progress(event)
+			}
+		}
+		run, result, err := resumer.Resume(ctx, input.RunID, input.Instruction, trackedProgress)
+		if err != nil {
+			return nil, err
+		}
+		approval, err := approvalRequester.RequestCommit(ctx, run.ID, result.CommitMessage)
+		if err != nil {
+			return nil, err
+		}
+		if deliverApproval != nil {
+			if err := deliverApproval(ctx, approval); err != nil {
+				return nil, err
+			}
+		}
+		return json.Marshal(map[string]any{
+			"status": "awaiting_owner", "run_id": run.ID, "branch": run.Branch, "base_revision": run.BaseRevision, "approval_id": approval.ID,
+			"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
+			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
+		})
+	}
+	return []ports.Tool{list, modify, resume}
 }
 
 func loadRepositories(ctx context.Context, store ports.StateStore) (map[string]ports.Repository, error) {

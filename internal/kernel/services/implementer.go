@@ -68,13 +68,9 @@ func (n *NativeImplementer) Implement(ctx context.Context, request Implementatio
 		return ports.CodingResult{}, err
 	}
 	runContext = withWorkspace(runContext, workspace)
-	messages := []ports.Message{
-		{Role: ports.RoleSystem, Content: implementationSystemPrompt},
-		{Role: ports.RoleUser, Content: instruction},
-	}
-	if len(request.History) > 0 {
-		messages = append(messages[:1], append(request.History, messages[1])...)
-	}
+	messages := []ports.Message{{Role: ports.RoleSystem, Content: implementationSystemPrompt}}
+	messages = append(messages, request.History...)
+	messages = append(messages, ports.Message{Role: ports.RoleUser, Content: instruction})
 	runResult, err := n.loop.RunImplementationWithEvents(runContext, alias, messages, "finish_implementation", func(event agent.ImplementationEvent) {
 		if onEvent != nil {
 			onEvent(implementationSessionEvent(event))
@@ -116,7 +112,7 @@ func implementationSessionEvent(event agent.ImplementationEvent) ports.Implement
 	case "tool_error":
 		result.Kind, result.Message = ports.SessionToolError, implementationProgressMessage(event)
 	case "terminal":
-		result.Kind, result.Message = ports.SessionTerminal, "Implementation result received"
+		result.Kind, result.Message, result.ModelMessage = ports.SessionTerminal, "Implementation result received", ports.Message{}
 	default:
 		result.Kind = event.Kind
 	}

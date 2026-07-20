@@ -134,6 +134,42 @@ func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	}
 }
 
+func TestShippingRecordsDurableSessionLifecycle(t *testing.T) {
+	store := newMemoryStore()
+	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"}}
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	repository := &fakeRepository{branch: "eggy/run"}
+	service := NewShippingService(store, &fakePolicy{}, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service.SetApprovalRequester(&fakeShippingGateway{})
+	lifecycle := &fakeSessionLifecycle{}
+	service.SetSessionLifecycle(lifecycle)
+
+	if _, err := service.Commit(context.Background(), "run", "feat: done", "commit-approval"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RequestPush(context.Background(), "run", "eggy/run"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Push(context.Background(), "run", "eggy/run", "push-approval"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RequestPullRequest(context.Background(), "run", "eggy/run", "title", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreatePullRequest(context.Background(), "run", "eggy/run", "title", "body", "pr-approval"); err != nil {
+		t.Fatal(err)
+	}
+	want := []ports.ImplementationSessionStatus{ports.SessionCommitted, ports.SessionAwaitingPushApproval, ports.SessionPushed, ports.SessionAwaitingPRApproval, ports.SessionCompleted}
+	if len(lifecycle.statuses) != len(want) {
+		t.Fatalf("statuses=%#v", lifecycle.statuses)
+	}
+	for i, status := range want {
+		if lifecycle.statuses[i] != status {
+			t.Fatalf("statuses=%#v want=%#v", lifecycle.statuses, want)
+		}
+	}
+}
+
 func TestShippingRejectsUnavailablePushAndPullRequestCapabilities(t *testing.T) {
 	store := newMemoryStore()
 	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "abc123"}}
@@ -165,6 +201,15 @@ type fakePolicy struct {
 	payloads []any
 	ids      []string
 	err      error
+}
+
+type fakeSessionLifecycle struct {
+	statuses []ports.ImplementationSessionStatus
+}
+
+func (l *fakeSessionLifecycle) SetStatus(_ context.Context, _ string, status ports.ImplementationSessionStatus, _ string) error {
+	l.statuses = append(l.statuses, status)
+	return nil
 }
 
 type fakeShippingGateway struct {

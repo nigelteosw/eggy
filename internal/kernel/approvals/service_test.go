@@ -59,6 +59,29 @@ func TestApprovalRejectsChangedPayloadAndProtectedPush(t *testing.T) {
 	}
 }
 
+func TestApprovalInvalidatesOnlyPendingCommitForResumedRun(t *testing.T) {
+	store := newMemoryStateStore()
+	service := services.NewApprovalService(store, time.Now, time.Hour)
+	pending, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-1"}, "Commit run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-2"}, "Commit run-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.InvalidatePendingCommitForRun(context.Background(), "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := store.Load(context.Background())
+	if state.Approvals[pending.ID].Status != approvalspkg.Invalidated || state.Approvals[other.ID].Status != approvalspkg.Pending {
+		t.Fatalf("approvals=%#v", state.Approvals)
+	}
+	if err := service.Decide(context.Background(), pending.ID, true); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
+		t.Fatalf("invalidated approval was decidable: %v", err)
+	}
+}
+
 type memoryStateStore struct {
 	mu    sync.Mutex
 	state ports.State

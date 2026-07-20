@@ -32,7 +32,7 @@ func newTrackingClient(t *testing.T, editErr bool) (*Client, *[]map[string]any, 
 	return NewClient("https://api.telegram.test", "token", httpClient), &sent, &edited
 }
 
-func TestProgressTrackerSendsFirstEventThenEditsSubsequentEventsForSameRun(t *testing.T) {
+func TestProgressTrackerKeepsAConciseTimelineForEachRun(t *testing.T) {
 	client, sent, edited := newTrackingClient(t, false)
 	tracker := NewProgressTracker(client, "42")
 	tracker.Deliver(ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "Codex run started"})
@@ -40,7 +40,8 @@ func TestProgressTrackerSendsFirstEventThenEditsSubsequentEventsForSameRun(t *te
 	if len(*sent) != 1 || len(*edited) != 1 {
 		t.Fatalf("sent=%v edited=%v", *sent, *edited)
 	}
-	if (*edited)[0]["text"] != "go test ./..." {
+	text, _ := (*edited)[0]["text"].(string)
+	if !strings.Contains(text, "Codex run started") || !strings.Contains(text, "go test ./...") {
 		t.Fatalf("edited=%v", *edited)
 	}
 }
@@ -54,7 +55,8 @@ func TestProgressTrackerClearsTrackingOnTerminalKind(t *testing.T) {
 	if len(*sent) != 2 {
 		t.Fatalf("expected a fresh message after the terminal event, got %v", *sent)
 	}
-	if len(*edited) != 1 || (*edited)[0]["text"] != "done" {
+	text, _ := (*edited)[0]["text"].(string)
+	if len(*edited) != 1 || !strings.Contains(text, "started") || !strings.Contains(text, "done") {
 		t.Fatalf("expected the terminal event to edit the existing message before clearing tracking, got %v", *edited)
 	}
 }

@@ -8,6 +8,7 @@ func Commands() []BotCommand {
 		{Name: "status", Description: "Show operational status (no model tokens used)"},
 		{Name: "repositories", Description: "List, add, or remove configured repositories"},
 		{Name: "runs", Description: "List coding-agent runs"},
+		{Name: "continue", Description: "Resume a coding session: /continue [run-id]"},
 		{Name: "stop", Description: "Stop a coding-agent run: /stop <run-id>"},
 		{Name: "schedules", Description: "List scheduled instructions"},
 		{Name: "memory", Description: "Show durable memory"},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,18 +31,19 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 
 type Config struct {
-	Version      int                         `yaml:"version"`
-	Server       ServerConfig                `yaml:"server"`
-	DataDir      string                      `yaml:"data_dir"`
-	Telegram     TelegramConfig              `yaml:"telegram"`
-	Agent        AgentConfig                 `yaml:"-"`
-	Providers    map[string]ProviderConfig   `yaml:"-"`
-	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
-	Repositories []RepositoryConfig          `yaml:"repositories"`
-	Runner       RunnerConfig                `yaml:"runner"`
-	Scheduler    SchedulerConfig             `yaml:"scheduler"`
-	Calendar     CalendarConfig              `yaml:"calendar"`
-	legacyModels ModelsConfig
+	Version                int                         `yaml:"version"`
+	Server                 ServerConfig                `yaml:"server"`
+	DataDir                string                      `yaml:"data_dir"`
+	Telegram               TelegramConfig              `yaml:"telegram"`
+	Agent                  AgentConfig                 `yaml:"-"`
+	Providers              map[string]ProviderConfig   `yaml:"-"`
+	ModelAliases           map[string]ModelAliasConfig `yaml:"-"`
+	Repositories           []RepositoryConfig          `yaml:"repositories"`
+	Runner                 RunnerConfig                `yaml:"runner"`
+	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
+	Scheduler              SchedulerConfig             `yaml:"scheduler"`
+	Calendar               CalendarConfig              `yaml:"calendar"`
+	legacyModels           ModelsConfig
 }
 
 type AgentConfig struct {
@@ -100,6 +102,12 @@ type RunnerConfig struct {
 	AllowedEnv     []string `yaml:"allowed_env"`
 }
 
+type ImplementationSessionConfig struct {
+	ContextBudgetChars int `yaml:"context_budget_chars"`
+	RecentMessages     int `yaml:"recent_messages"`
+	OutputExcerptChars int `yaml:"output_excerpt_chars"`
+}
+
 type QuietHoursConfig struct {
 	Start    string `yaml:"start"`
 	End      string `yaml:"end"`
@@ -130,13 +138,14 @@ type Secrets struct {
 }
 
 type commonConfigDocument struct {
-	Server       ServerConfig       `yaml:"server"`
-	DataDir      string             `yaml:"data_dir"`
-	Telegram     TelegramConfig     `yaml:"telegram"`
-	Repositories []RepositoryConfig `yaml:"repositories"`
-	Runner       RunnerConfig       `yaml:"runner"`
-	Scheduler    SchedulerConfig    `yaml:"scheduler"`
-	Calendar     CalendarConfig     `yaml:"calendar"`
+	Server                 ServerConfig                `yaml:"server"`
+	DataDir                string                      `yaml:"data_dir"`
+	Telegram               TelegramConfig              `yaml:"telegram"`
+	Repositories           []RepositoryConfig          `yaml:"repositories"`
+	Runner                 RunnerConfig                `yaml:"runner"`
+	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
+	Scheduler              SchedulerConfig             `yaml:"scheduler"`
+	Calendar               CalendarConfig              `yaml:"calendar"`
 }
 
 type legacyConfigDocument struct {
@@ -219,7 +228,7 @@ func normalizeLegacyConfig(document legacyConfigDocument) Config {
 		legacyModels: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
 		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: document.Models.Pro.ID}},
-		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
+		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar,
 	}
 }
 
@@ -228,12 +237,12 @@ func normalizeV2Config(document configV2Document) Config {
 	return Config{
 		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
-		Repositories: common.Repositories, Runner: common.Runner, Scheduler: common.Scheduler, Calendar: common.Calendar,
+		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, Scheduler: c.Scheduler, Calendar: c.Calendar}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -267,7 +276,7 @@ func (c *Config) applyDefaults() error {
 		c.DataDir = "/data"
 	}
 	if c.Runner.Root == "" {
-		c.Runner.Root = "/tmp/runs"
+		c.Runner.Root = filepath.Join(c.DataDir, "runs")
 	}
 	if c.Runner.Timeout == 0 {
 		c.Runner.Timeout = Duration(45 * time.Minute)
@@ -277,6 +286,15 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Runner.MaxOutputBytes == 0 {
 		c.Runner.MaxOutputBytes = 1 << 20
+	}
+	if c.ImplementationSessions.ContextBudgetChars == 0 {
+		c.ImplementationSessions.ContextBudgetChars = 96000
+	}
+	if c.ImplementationSessions.RecentMessages == 0 {
+		c.ImplementationSessions.RecentMessages = 16
+	}
+	if c.ImplementationSessions.OutputExcerptChars == 0 {
+		c.ImplementationSessions.OutputExcerptChars = 8192
 	}
 	if c.legacyModels.Escalation.ToolSteps == 0 {
 		c.legacyModels.Escalation.ToolSteps = 4
@@ -329,6 +347,12 @@ func (c Config) Validate() error {
 	if c.Runner.MaxOutputBytes <= 0 {
 		return errors.New("runner.max_output_bytes must be positive")
 	}
+	if c.Runner.Root != "" && c.DataDir != "" && !pathWithin(c.DataDir, c.Runner.Root) {
+		return errors.New("runner.root must be within data_dir for resumable implementation sessions")
+	}
+	if c.ImplementationSessions.ContextBudgetChars <= 0 || c.ImplementationSessions.RecentMessages <= 0 || c.ImplementationSessions.OutputExcerptChars <= 0 {
+		return errors.New("implementation_sessions context_budget_chars, recent_messages, and output_excerpt_chars must be positive")
+	}
 	names := map[string]bool{}
 	for _, repo := range c.Repositories {
 		if repo.Name == "" || names[repo.Name] {
@@ -351,6 +375,19 @@ func (c Config) Validate() error {
 		return errors.New("calendar.default_calendar is required")
 	}
 	return nil
+}
+
+func pathWithin(root, path string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(absRoot, absPath)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func (c Config) validateProviders() error {

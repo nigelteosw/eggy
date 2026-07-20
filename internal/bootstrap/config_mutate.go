@@ -32,13 +32,21 @@ func loadConfigDocument(path string) (Config, int, error) {
 		if err := decodeKnownYAML(data, &document); err != nil {
 			return Config{}, 0, fmt.Errorf("decode config: %w", err)
 		}
-		return normalizeLegacyConfig(document), 1, nil
+		cfg := normalizeLegacyConfig(document)
+		if err := cfg.applyDefaults(); err != nil {
+			return Config{}, 0, err
+		}
+		return cfg, 1, nil
 	case 2:
 		var document configV2Document
 		if err := decodeKnownYAML(data, &document); err != nil {
 			return Config{}, 0, fmt.Errorf("decode config: %w", err)
 		}
-		return normalizeV2Config(document), 2, nil
+		cfg := normalizeV2Config(document)
+		if err := cfg.applyDefaults(); err != nil {
+			return Config{}, 0, err
+		}
+		return cfg, 2, nil
 	default:
 		return Config{}, 0, errors.New("version must be 1 or 2")
 	}

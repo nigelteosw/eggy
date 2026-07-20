@@ -15,11 +15,20 @@ type CodingService struct {
 	repository  ports.CodingRepository
 	implementer Implementer
 	sessions    *ImplementationSessions
+	invalidator PendingCommitApprovalInvalidator
 	now         func() time.Time
 }
 
-func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, implementer Implementer, now func() time.Time, sessions *ImplementationSessions) *CodingService {
-	return &CodingService{store: store, runner: runner, repository: repository, implementer: implementer, sessions: sessions, now: now}
+type PendingCommitApprovalInvalidator interface {
+	InvalidatePendingCommitForRun(context.Context, string) error
+}
+
+func NewCodingService(store ports.StateStore, runner ports.Runner, repository ports.CodingRepository, implementer Implementer, now func() time.Time, sessions *ImplementationSessions, invalidators ...PendingCommitApprovalInvalidator) *CodingService {
+	service := &CodingService{store: store, runner: runner, repository: repository, implementer: implementer, sessions: sessions, now: now}
+	if len(invalidators) > 0 {
+		service.invalidator = invalidators[0]
+	}
+	return service
 }
 
 func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
@@ -33,7 +42,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 			_ = s.runner.Destroy(ctx, workspace)
 			return ports.CodingRun{}, ports.CodingResult{}, err
 		}
-		if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, "Preparing an isolated workspace for "+repository.Name); err != nil {
+		if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, ""); err != nil {
 			return ports.CodingRun{}, ports.CodingResult{}, err
 		}
 	}
@@ -153,11 +162,16 @@ func (s *CodingService) Resume(ctx context.Context, runID, instruction string, p
 		}
 		return ports.CodingRun{}, ports.CodingResult{}, errors.New("persisted workspace or branch no longer matches the session")
 	}
+	if session.Status == ports.SessionAwaitingCommitApproval && s.invalidator != nil {
+		if err := s.invalidator.InvalidatePendingCommitForRun(ctx, runID); err != nil {
+			return ports.CodingRun{}, ports.CodingResult{}, err
+		}
+	}
 	run.Status, run.FinishedAt = "running", time.Time{}
 	if err := s.persistRun(ctx, run); err != nil {
 		return ports.CodingRun{}, ports.CodingResult{}, err
 	}
-	if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, "Resuming implementation session"); err != nil {
+	if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, ""); err != nil {
 		return ports.CodingRun{}, ports.CodingResult{}, err
 	}
 	report := s.reporter(ctx, runID, progress)
@@ -194,6 +208,22 @@ func (s *CodingService) Resume(ctx context.Context, runID, instruction string, p
 	return run, result, nil
 }
 
+// ResumeLatest resumes the most recently updated session that can safely be
+// continued. It is used by the explicit owner command when no run ID is given.
+func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+	if s.sessions == nil {
+		return ports.CodingRun{}, ports.CodingResult{}, errors.New("implementation sessions are unavailable")
+	}
+	sessions, err := s.sessions.ListResumable(ctx)
+	if err != nil {
+		return ports.CodingRun{}, ports.CodingResult{}, err
+	}
+	if len(sessions) == 0 {
+		return ports.CodingRun{}, ports.CodingResult{}, errors.New("no resumable coding sessions")
+	}
+	return s.Resume(ctx, sessions[0].ID, instruction, progress)
+}
+
 func (s *CodingService) implement(ctx context.Context, request ImplementationRequest, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
 	var record func(ports.ImplementationSessionEvent)
 	if s.sessions != nil {
@@ -205,6 +235,9 @@ func (s *CodingService) implement(ctx context.Context, request ImplementationReq
 func (s *CodingService) reporter(ctx context.Context, runID string, progress func(ports.CodingProgress)) func(ports.CodingProgress) {
 	return func(event ports.CodingProgress) {
 		event.RunID = runID
+		if s.sessions != nil {
+			event.Message = s.sessions.RedactProgress(event.Message)
+		}
 		if s.sessions != nil && event.Message != "" {
 			_, _ = s.sessions.Append(ctx, runID, ports.ImplementationSessionEvent{Kind: ports.SessionMilestone, Message: event.Message})
 		}
@@ -261,7 +294,9 @@ func (s *CodingService) RecoverInterrupted(ctx context.Context) (int, error) {
 		return count, err
 	}
 	if s.sessions != nil {
-		return s.sessions.MarkInterrupted(ctx)
+		if _, err := s.sessions.MarkInterrupted(ctx); err != nil {
+			return count, err
+		}
 	}
 	return count, nil
 }

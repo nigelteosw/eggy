@@ -130,6 +130,25 @@ func TestCodingServiceResumeUsesPersistedWorkspaceAndContext(t *testing.T) {
 	}
 }
 
+func TestCodingServiceResumeInvalidatesPendingCommitApproval(t *testing.T) {
+	store := newMemoryStore()
+	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: "completed"}}
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	sessionStore := newMemorySessionStore()
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
+	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: ports.SessionAwaitingCommitApproval}); err != nil {
+		t.Fatal(err)
+	}
+	invalidator := &fakePendingCommitInvalidator{}
+	service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/data/runs/run-1"}, &fakeRepository{branch: "eggy/run-1", head: "abc123"}, &fakeImplementer{result: ports.CodingResult{CommitMessage: "feat: resume"}}, time.Now, sessions, invalidator)
+	if _, _, err := service.Resume(context.Background(), "run-1", "continue", nil); err != nil {
+		t.Fatal(err)
+	}
+	if invalidator.runID != "run-1" {
+		t.Fatalf("invalidator=%#v", invalidator)
+	}
+}
+
 type fakeWorkspaceRunner struct {
 	workspace          string
 	created, destroyed bool
@@ -162,3 +181,10 @@ func (a *fakeImplementer) Implement(_ context.Context, request ImplementationReq
 	return a.result, nil
 }
 func (a *fakeImplementer) Interrupt(string) error { return nil }
+
+type fakePendingCommitInvalidator struct{ runID string }
+
+func (f *fakePendingCommitInvalidator) InvalidatePendingCommitForRun(_ context.Context, runID string) error {
+	f.runID = runID
+	return nil
+}

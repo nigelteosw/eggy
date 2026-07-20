@@ -15,6 +15,8 @@ func TestDetect(t *testing.T) {
 		{name: "create pull request", text: "Create a pull request please", want: Implementation},
 		{name: "open MR", text: "Open an MR for this branch", want: Implementation},
 		{name: "commit this", text: "Commit this change", want: Implementation},
+		{name: "continue named run", text: "Continue implementation session run-1 and fix the failing test", want: Implementation},
+		{name: "resume named session", text: "Resume coding session run-1", want: Implementation},
 		{name: "fix broken test", text: "Fix the broken test", want: Implementation},
 		{name: "fix code", text: "Fix the code in handler.go", want: Implementation},
 		{name: "fix bug", text: "There's a bug in the auth module, fix it", want: Implementation},
@@ -36,6 +38,7 @@ func TestDetect(t *testing.T) {
 		{name: "planning question", text: "What should we implement next?", want: Assistant},
 		{name: "open planning question", text: "What can we implement next?", want: Assistant},
 		{name: "negated pull request", text: "Do not create a pull request", want: Assistant},
+		{name: "negated resume", text: "Do not resume the coding session", want: Assistant},
 		{name: "fixed question", text: "Is the broken test fixed?", want: Assistant},
 		{name: "modified question", text: "Was this code modified?", want: Assistant},
 		{name: "explain auth", text: "Explain how webhook authentication works", want: Assistant},
@@ -64,6 +67,7 @@ func TestDetect(t *testing.T) {
 		{name: "empty", text: "", want: Assistant},
 		{name: "whitespace", text: "   ", want: Assistant},
 		{name: "hello", text: "Hello!", want: Assistant},
+		{name: "conversation continue", text: "continue explaining that", want: Assistant},
 	}
 
 	for _, tt := range tests {

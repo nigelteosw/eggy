@@ -30,7 +30,7 @@ models:
     provider: deepseek
     model: deepseek-v4-pro
 runner:
-  root: /tmp/runs
+  root: /data/runs
   timeout: 5m
   retention: 15m
   max_output_bytes: 1048576

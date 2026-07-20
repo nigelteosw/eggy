@@ -154,6 +154,23 @@ func TestLoadConfigValidation(t *testing.T) {
 	}
 }
 
+func TestConfigRejectsRunnerRootOutsideDataDir(t *testing.T) {
+	_, _, err := loadText(t, strings.Replace(validConfigV2(), "root: /data/runs", "root: /other/runs", 1), testSecrets())
+	if err == nil || !strings.Contains(err.Error(), "runner.root must be within data_dir") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestLoadConfigDefaultsImplementationSessionPolicy(t *testing.T) {
+	cfg, _, err := loadText(t, validConfigV2(), testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ImplementationSessions.ContextBudgetChars != 96000 || cfg.ImplementationSessions.RecentMessages != 16 || cfg.ImplementationSessions.OutputExcerptChars != 8192 {
+		t.Fatalf("implementation sessions=%#v", cfg.ImplementationSessions)
+	}
+}
+
 func TestLoadConfigRequiresSecretsForEnabledCapabilities(t *testing.T) {
 	tests := []struct {
 		key  string
@@ -252,7 +269,7 @@ repositories:
     base_branch: main
     protected_branches: [main]
 runner:
-  root: /tmp/runs
+  root: /data/runs
   timeout: 5m
   retention: 15m
   max_output_bytes: 1048576

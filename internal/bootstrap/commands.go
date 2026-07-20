@@ -23,6 +23,7 @@ type CommandService struct {
 	context      ports.ContextStore
 	conversation *services.ConversationService
 	coding       *services.CodingService
+	shipping     *services.ShippingService
 	repositories *services.RepositoriesService
 	agentRuntime *services.AgentRuntime
 	channel      ports.Channel
@@ -119,6 +120,39 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			lines = append(lines, fmt.Sprintf("%s  %s  %s", id, run.Status, run.Repository))
 		}
 		return strings.Join(lines, "\n"), true, nil
+	case "/continue":
+		if s.coding == nil || s.shipping == nil {
+			return "Coding is not configured.", true, nil
+		}
+		var runID, instruction string
+		if len(fields) > 1 {
+			runID = fields[1]
+			instruction = strings.TrimSpace(strings.TrimPrefix(input, fields[0]+" "+runID))
+		}
+		if instruction == "" {
+			instruction = "Continue the approved task, inspect the current state, and complete the next safe implementation step."
+		}
+		var run ports.CodingRun
+		var result ports.CodingResult
+		var err error
+		if runID == "" {
+			run, result, err = s.coding.ResumeLatest(ctx, instruction, nil)
+		} else {
+			run, result, err = s.coding.Resume(ctx, runID, instruction, nil)
+		}
+		if err != nil {
+			return err.Error(), true, nil
+		}
+		approval, err := s.shipping.RequestCommit(ctx, run.ID, result.CommitMessage)
+		if err != nil {
+			return err.Error(), true, nil
+		}
+		if s.channel != nil {
+			if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
+				return "", true, err
+			}
+		}
+		return "Implementation session " + run.ID + " is ready for commit approval.", true, nil
 	case "/stop":
 		if len(fields) != 2 {
 			return "Usage: /stop <run-id>", true, nil

@@ -28,11 +28,12 @@ const (
 type Status string
 
 const (
-	Pending  Status = "pending"
-	Approved Status = "approved"
-	Rejected Status = "rejected"
-	Expired  Status = "expired"
-	Used     Status = "used"
+	Pending     Status = "pending"
+	Approved    Status = "approved"
+	Rejected    Status = "rejected"
+	Expired     Status = "expired"
+	Invalidated Status = "invalidated"
+	Used        Status = "used"
 )
 
 type Approval struct {

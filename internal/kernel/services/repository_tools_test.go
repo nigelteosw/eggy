@@ -63,6 +63,22 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 	}
 }
 
+func TestRepositoryContinueResumesNamedRunAndRequestsFreshCommitApproval(t *testing.T) {
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	worker := &fakeRepositoryWorker{}
+	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-2", Action: approvals.Commit}}
+	tools := NewRepositoryTools(store, worker, requester, func() string { return "unused" }, nil, nil)
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+	result, err := byName["repository_continue"].Execute(context.Background(), json.RawMessage(`{"run_id":"run-9","instruction":"fix the next failing test"}`))
+	if err != nil || !strings.Contains(string(result), `"run_id":"run-9"`) || requester.runID != "run-9" || worker.resumedRunID != "run-9" || worker.resumedInstruction != "fix the next failing test" {
+		t.Fatalf("result=%s requester=%#v worker=%#v err=%v", result, requester, worker, err)
+	}
+}
+
 func TestRepositoryListReportsNotConfigured(t *testing.T) {
 	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
 	result, err := tools[0].Execute(context.Background(), json.RawMessage(`{}`))
@@ -71,13 +87,24 @@ func TestRepositoryListReportsNotConfigured(t *testing.T) {
 	}
 }
 
-type fakeRepositoryWorker struct{}
+type fakeRepositoryWorker struct {
+	resumedRunID       string
+	resumedInstruction string
+}
 
 func (w *fakeRepositoryWorker) Start(_ context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
 	}
 	return ports.CodingRun{ID: runID, Repository: repository.Name, Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "fixed", Validation: "tests pass", CommitMessage: "fix: tests", ChangedFiles: []string{"main.go"}}, nil
+}
+
+func (w *fakeRepositoryWorker) Resume(_ context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+	w.resumedRunID, w.resumedInstruction = runID, instruction
+	if progress != nil {
+		progress(ports.CodingProgress{Kind: "message", Message: "resuming"})
+	}
+	return ports.CodingRun{ID: runID, Repository: "eggy", Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "continued", Validation: "tests pass", CommitMessage: "fix: continue", ChangedFiles: []string{"main.go"}}, nil
 }
 
 type fakeCommitRequester struct {

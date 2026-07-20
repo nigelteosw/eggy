@@ -138,6 +138,15 @@ EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy status
 ./bin/eggy -config "$PWD/config.yaml" schedules
 ./bin/eggy -config "$PWD/config.yaml" memory
 ./bin/eggy -config "$PWD/config.yaml" new
+
+./bin/eggy -config "$PWD/config.yaml" config get providers
+./bin/eggy -config "$PWD/config.yaml" config get models
+./bin/eggy -config "$PWD/config.yaml" config get calendar
+./bin/eggy -config "$PWD/config.yaml" config get path
+./bin/eggy -config "$PWD/config.yaml" config set provider --name=deepseek --adapter=openai_compatible --base-url=https://api.deepseek.com/v1 --api-key-env=DEEPSEEK_API_KEY
+./bin/eggy -config "$PWD/config.yaml" config set model --alias=deepseek-pro --provider=deepseek --model=deepseek-chat
+./bin/eggy -config "$PWD/config.yaml" config set calendar --enabled=true --default-calendar=primary --timezone=UTC
+EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy config show
 ```
 
 ## Verification

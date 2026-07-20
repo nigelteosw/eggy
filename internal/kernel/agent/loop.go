@@ -117,6 +117,20 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 // successfully called.
 var ErrTerminalToolNotCalled = errors.New("implementation run ended without a terminal tool call")
 
+type ImplementationEvent struct {
+	Kind    string
+	Call    ports.ToolCall
+	Output  string
+	Err     error
+	Message ports.Message
+}
+
+type ImplementationRunResult struct {
+	Terminal json.RawMessage
+	Usage    ports.ModelUsage
+	Messages []ports.Message
+}
+
 // RunImplementation drives the loop until the model successfully calls
 // terminalTool, returning that call's raw arguments, or the step limit is
 // reached first. Every tool registered on l is available unconditionally —
@@ -125,9 +139,20 @@ var ErrTerminalToolNotCalled = errors.New("implementation run ended without a te
 // onToolCall, if non-nil, fires after each successful non-terminal tool call
 // for progress reporting; it does not fire for the terminal tool itself.
 func (l *Loop) RunImplementation(ctx context.Context, alias string, messages []ports.Message, terminalTool string, onToolCall func(name string)) (json.RawMessage, ports.ModelUsage, error) {
+	result, err := l.RunImplementationWithEvents(ctx, alias, messages, terminalTool, func(event ImplementationEvent) {
+		if onToolCall != nil && event.Kind == "tool_end" {
+			onToolCall(event.Call.Name)
+		}
+	})
+	return result.Terminal, result.Usage, err
+}
+
+// RunImplementationWithEvents drives the implementation loop while retaining the
+// model-visible transcript and reporting structured tool lifecycle events.
+func (l *Loop) RunImplementationWithEvents(ctx context.Context, alias string, messages []ports.Message, terminalTool string, onEvent func(ImplementationEvent)) (ImplementationRunResult, error) {
 	target, ok := l.selected[alias]
 	if !ok || target.Model == nil || target.ModelID == "" {
-		return nil, ports.ModelUsage{}, fmt.Errorf("model alias %q is not configured", alias)
+		return ImplementationRunResult{}, fmt.Errorf("model alias %q is not configured", alias)
 	}
 	messages = append([]ports.Message(nil), messages...)
 	usage := ports.ModelUsage{}
@@ -135,35 +160,49 @@ func (l *Loop) RunImplementation(ctx context.Context, alias string, messages []p
 	for {
 		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: l.defs})
 		if err != nil {
-			return nil, usage, err
+			return ImplementationRunResult{Usage: usage, Messages: messages}, err
 		}
 		usage = usage.Add(response.Usage)
 		assistant := response.Message
 		if len(assistant.ToolCalls) == 0 {
-			return nil, usage, ErrTerminalToolNotCalled
+			return ImplementationRunResult{Usage: usage, Messages: messages}, ErrTerminalToolNotCalled
 		}
 		if steps >= l.selectedMaxSteps {
-			return nil, usage, ErrToolStepLimit
+			return ImplementationRunResult{Usage: usage, Messages: messages}, ErrToolStepLimit
 		}
 		messages = append(messages, assistant)
+		if onEvent != nil {
+			onEvent(ImplementationEvent{Kind: "assistant_message", Message: assistant})
+		}
 		for _, call := range assistant.ToolCalls {
 			tool, ok := l.tools[call.Name]
 			if !ok {
-				return nil, usage, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+				return ImplementationRunResult{Usage: usage, Messages: messages}, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+			}
+			if onEvent != nil {
+				onEvent(ImplementationEvent{Kind: "tool_start", Call: call})
 			}
 			output, toolErr := tool.Execute(ctx, call.Arguments)
 			if toolErr != nil {
 				output, _ = json.Marshal(map[string]string{"error": toolErr.Error()})
-				messages = append(messages, ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)})
+				toolMessage := ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)}
+				messages = append(messages, toolMessage)
+				if onEvent != nil {
+					onEvent(ImplementationEvent{Kind: "tool_error", Call: call, Output: string(output), Err: toolErr, Message: toolMessage})
+				}
 				continue
 			}
 			if call.Name == terminalTool {
-				return call.Arguments, usage, nil
+				if onEvent != nil {
+					onEvent(ImplementationEvent{Kind: "terminal", Call: call, Output: string(output), Message: assistant})
+				}
+				return ImplementationRunResult{Terminal: call.Arguments, Usage: usage, Messages: messages}, nil
 			}
-			if onToolCall != nil {
-				onToolCall(call.Name)
+			toolMessage := ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)}
+			messages = append(messages, toolMessage)
+			if onEvent != nil {
+				onEvent(ImplementationEvent{Kind: "tool_end", Call: call, Output: string(output), Message: toolMessage})
 			}
-			messages = append(messages, ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)})
 		}
 		steps++
 	}

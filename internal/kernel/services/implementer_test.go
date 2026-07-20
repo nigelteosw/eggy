@@ -26,8 +26,19 @@ func TestNativeImplementerReturnsStructuredResultAndReportsToolProgress(t *testi
 	if result.Summary != "done" || result.CommitMessage != "feat: done" || len(result.ChangedFiles) != 1 || result.ChangedFiles[0] != "main.go" {
 		t.Fatalf("result=%#v", result)
 	}
-	if len(updates) != 1 || updates[0].Kind != "tool" || updates[0].RunID != "run-1" || updates[0].Message != "used terminal" {
+	if len(updates) != 1 || updates[0].Kind != "milestone" || updates[0].RunID != "run-1" || updates[0].Message != "Ran: ls" {
 		t.Fatalf("updates=%#v", updates)
+	}
+}
+
+func TestImplementationProgressReportsNonZeroValidationExit(t *testing.T) {
+	message := implementationProgressMessage(agent.ImplementationEvent{
+		Kind:   "tool_end",
+		Call:   ports.ToolCall{Name: "terminal", Arguments: json.RawMessage(`{"command":"go test ./..."}`)},
+		Output: `{"exit_code":1}`,
+	})
+	if message != "Validation: go test ./... failed (exit 1)" {
+		t.Fatalf("message=%q", message)
 	}
 }
 

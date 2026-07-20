@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
@@ -65,12 +66,14 @@ func (n *NativeImplementer) Implement(ctx context.Context, runID, workspace, ins
 		{Role: ports.RoleSystem, Content: implementationSystemPrompt},
 		{Role: ports.RoleUser, Content: instruction},
 	}
-	onToolCall := func(name string) {
-		if progress != nil {
-			progress(ports.CodingProgress{Kind: "tool", Message: "used " + name, RunID: runID})
+	runResult, err := n.loop.RunImplementationWithEvents(runContext, alias, messages, "finish_implementation", func(event agent.ImplementationEvent) {
+		if progress == nil {
+			return
 		}
-	}
-	raw, _, err := n.loop.RunImplementation(runContext, alias, messages, "finish_implementation", onToolCall)
+		if message := implementationProgressMessage(event); message != "" {
+			progress(ports.CodingProgress{Kind: "milestone", Message: message, RunID: runID})
+		}
+	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return ports.CodingResult{}, err
@@ -83,10 +86,63 @@ func (n *NativeImplementer) Implement(ctx context.Context, runID, workspace, ins
 		CommitMessage string   `json:"commit_message"`
 		ChangedFiles  []string `json:"changed_files"`
 	}
-	if err := json.Unmarshal(raw, &structured); err != nil {
+	if err := json.Unmarshal(runResult.Terminal, &structured); err != nil {
 		return ports.CodingResult{}, errors.New("finish_implementation produced an invalid result")
 	}
 	return ports.CodingResult{Summary: structured.Summary, Validation: structured.Validation, CommitMessage: structured.CommitMessage, ChangedFiles: structured.ChangedFiles}, nil
+}
+
+func implementationProgressMessage(event agent.ImplementationEvent) string {
+	if event.Kind == "tool_error" {
+		return "Blocked: " + event.Call.Name + " failed"
+	}
+	if event.Kind != "tool_end" {
+		return ""
+	}
+	path := toolArgument(event.Call.Arguments, "path")
+	switch event.Call.Name {
+	case "read_file":
+		if path != "" {
+			return "Inspected: " + path
+		}
+	case "patch", "write_file":
+		if path != "" {
+			return "Edited: " + path
+		}
+	case "terminal":
+		command := toolArgument(event.Call.Arguments, "command")
+		if command == "" {
+			return "Ran a repository command"
+		}
+		exitCode := terminalExitCode(event.Output)
+		if strings.Contains(command, "test") || strings.Contains(command, "vet") || strings.Contains(command, "build") || strings.Contains(command, "lint") {
+			if exitCode != 0 {
+				return fmt.Sprintf("Validation: %s failed (exit %d)", command, exitCode)
+			}
+			return "Validation: " + command + " passed"
+		}
+		if exitCode != 0 {
+			return fmt.Sprintf("Command failed (exit %d): %s", exitCode, command)
+		}
+		return "Ran: " + command
+	}
+	return ""
+}
+
+func toolArgument(raw json.RawMessage, name string) string {
+	var arguments map[string]string
+	if json.Unmarshal(raw, &arguments) != nil {
+		return ""
+	}
+	return arguments[name]
+}
+
+func terminalExitCode(raw string) int {
+	var result struct {
+		ExitCode int `json:"exit_code"`
+	}
+	_ = json.Unmarshal([]byte(raw), &result)
+	return result.ExitCode
 }
 
 func (n *NativeImplementer) Interrupt(runID string) error {

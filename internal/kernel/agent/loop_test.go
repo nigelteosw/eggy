@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/lane"
@@ -127,6 +128,30 @@ func TestRunImplementationReturnsTerminalToolArguments(t *testing.T) {
 	}
 	if err := json.Unmarshal(raw, &result); err != nil || result.Summary != "done" || result.CommitMessage != "feat: done" {
 		t.Fatalf("raw=%s err=%v", raw, err)
+	}
+}
+
+func TestRunImplementationWithEventsPreservesToolTranscript(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"docs: done"}`)}}}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
+		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
+	}, nil, 4)
+	var kinds []string
+	result, err := loop.RunImplementationWithEvents(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(event ImplementationEvent) {
+		kinds = append(kinds, event.Kind)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(kinds, ","), "assistant_message,tool_start,tool_end,assistant_message,tool_start,terminal"; got != want {
+		t.Fatalf("event kinds=%s, want %s", got, want)
+	}
+	if len(result.Messages) != 4 || result.Messages[1].Role != ports.RoleAssistant || result.Messages[2].Role != ports.RoleTool || result.Messages[3].Role != ports.RoleAssistant {
+		t.Fatalf("messages=%#v", result.Messages)
 	}
 }
 

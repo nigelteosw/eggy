@@ -30,6 +30,14 @@ func run(arguments []string) error {
 	if flags.NArg() == 0 {
 		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|new|config")
 	}
+	if flags.Arg(0) == "config" {
+		output, err := configMain(*configPath, flags.Args()[1:])
+		if err != nil {
+			return err
+		}
+		fmt.Println(output)
+		return nil
+	}
 	envPath := os.Getenv("EGGY_ENV_FILE")
 	if envPath == "" {
 		envPath = ".env"

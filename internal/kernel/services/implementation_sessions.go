@@ -1,0 +1,264 @@
+package services
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/nigelteosw/eggy/internal/ports"
+)
+
+const sessionSummaryLimit = 4096
+
+type SessionPolicy struct {
+	ContextBudgetChars int
+	RecentMessages     int
+	OutputExcerptChars int
+}
+
+func (p SessionPolicy) normalized() SessionPolicy {
+	if p.ContextBudgetChars <= 0 {
+		p.ContextBudgetChars = 96000
+	}
+	if p.RecentMessages <= 0 {
+		p.RecentMessages = 16
+	}
+	if p.OutputExcerptChars <= 0 {
+		p.OutputExcerptChars = 8192
+	}
+	return p
+}
+
+type ImplementationSessions struct {
+	store   ports.ImplementationSessionStore
+	policy  SessionPolicy
+	now     func() time.Time
+	secrets []string
+}
+
+func NewImplementationSessions(store ports.ImplementationSessionStore, policy SessionPolicy, now func() time.Time, activeSecrets ...string) *ImplementationSessions {
+	secrets := make([]string, 0, len(activeSecrets))
+	for _, secret := range activeSecrets {
+		if strings.TrimSpace(secret) != "" {
+			secrets = append(secrets, secret)
+		}
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &ImplementationSessions{store: store, policy: policy.normalized(), now: now, secrets: secrets}
+}
+
+func (s *ImplementationSessions) Create(ctx context.Context, session ports.ImplementationSession) (ports.ImplementationSession, error) {
+	if s.store == nil {
+		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
+	}
+	if strings.TrimSpace(session.ID) == "" {
+		return ports.ImplementationSession{}, errors.New("implementation session id is required")
+	}
+	now := s.now()
+	if session.Title == "" {
+		session.Title = sessionTitle(session.Instruction)
+	}
+	if session.Status == "" {
+		session.Status = ports.SessionCreated
+	}
+	if session.StartedAt.IsZero() {
+		session.StartedAt = now
+	}
+	session.UpdatedAt = now
+	return s.store.Create(ctx, s.sanitizeSession(session))
+}
+
+func (s *ImplementationSessions) Load(ctx context.Context, id string) (ports.ImplementationSession, error) {
+	if s.store == nil {
+		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
+	}
+	return s.store.Load(ctx, id)
+}
+
+func (s *ImplementationSessions) Append(ctx context.Context, id string, event ports.ImplementationSessionEvent) (ports.ImplementationSession, error) {
+	if s.store == nil {
+		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
+	}
+	event = s.sanitizeEvent(event)
+	if event.At.IsZero() {
+		event.At = s.now()
+	}
+	if _, err := s.store.AppendEvent(ctx, id, event); err != nil {
+		return ports.ImplementationSession{}, err
+	}
+	return s.store.Update(ctx, id, func(session *ports.ImplementationSession) error {
+		session.Context = s.nextContext(session.Context, event)
+		session.UpdatedAt = s.now()
+		return nil
+	})
+}
+
+func (s *ImplementationSessions) ResumeContext(ctx context.Context, id string) ([]ports.Message, ports.ImplementationSession, error) {
+	session, err := s.Load(ctx, id)
+	if err != nil {
+		return nil, ports.ImplementationSession{}, err
+	}
+	if !resumableStatus(session.Status) {
+		return nil, ports.ImplementationSession{}, errors.New("implementation session is not resumable")
+	}
+	messages := make([]ports.Message, 0, len(session.Context.RecentMessages)+1)
+	if session.Context.Summary != "" {
+		messages = append(messages, ports.Message{Role: ports.RoleSystem, Content: "Previous implementation session:\n" + session.Context.Summary})
+	}
+	messages = append(messages, session.Context.RecentMessages...)
+	return messages, session, nil
+}
+
+func (s *ImplementationSessions) SetStatus(ctx context.Context, id string, status ports.ImplementationSessionStatus, message string) error {
+	if s.store == nil {
+		return errors.New("implementation session store is unavailable")
+	}
+	if strings.TrimSpace(message) != "" {
+		if _, err := s.Append(ctx, id, ports.ImplementationSessionEvent{Kind: ports.SessionMilestone, Message: message}); err != nil {
+			return err
+		}
+	}
+	_, err := s.store.Update(ctx, id, func(session *ports.ImplementationSession) error {
+		session.Status = status
+		session.UpdatedAt = s.now()
+		return nil
+	})
+	return err
+}
+
+func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, error) {
+	if s.store == nil {
+		return 0, errors.New("implementation session store is unavailable")
+	}
+	sessions, err := s.store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, session := range sessions {
+		if session.Status != ports.SessionRunning {
+			continue
+		}
+		if err := s.SetStatus(ctx, session.ID, ports.SessionInterrupted, "Interrupted by restart; continue explicitly to resume."); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func resumableStatus(status ports.ImplementationSessionStatus) bool {
+	switch status {
+	case ports.SessionCreated, ports.SessionInterrupted, ports.SessionBlocked, ports.SessionAwaitingCommitApproval:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *ImplementationSessions) nextContext(context ports.SessionContext, event ports.ImplementationSessionEvent) ports.SessionContext {
+	if event.Message != "" {
+		context.Summary = appendSummary(context.Summary, event.Message)
+	}
+	if event.ModelMessage.Role != "" {
+		context.RecentMessages = append(context.RecentMessages, truncateMessage(event.ModelMessage, s.policy.OutputExcerptChars))
+	}
+	for len(context.RecentMessages) > s.policy.RecentMessages || messageChars(context.RecentMessages) > s.policy.ContextBudgetChars {
+		removed := context.RecentMessages[0]
+		context.RecentMessages = context.RecentMessages[1:]
+		context.Summary = appendSummary(context.Summary, summarizeMessage(removed))
+	}
+	return context
+}
+
+func (s *ImplementationSessions) sanitizeSession(session ports.ImplementationSession) ports.ImplementationSession {
+	session.Title = s.redact(session.Title)
+	session.Instruction = s.redact(session.Instruction)
+	session.Context.Summary = s.redact(session.Context.Summary)
+	for i := range session.Context.RecentMessages {
+		session.Context.RecentMessages[i] = s.sanitizeMessage(session.Context.RecentMessages[i])
+	}
+	return session
+}
+
+func (s *ImplementationSessions) sanitizeEvent(event ports.ImplementationSessionEvent) ports.ImplementationSessionEvent {
+	event.Message = s.redact(event.Message)
+	event.Content = truncateRunes(s.redact(event.Content), s.policy.OutputExcerptChars)
+	event.ModelMessage = truncateMessage(s.sanitizeMessage(event.ModelMessage), s.policy.OutputExcerptChars)
+	return event
+}
+
+func (s *ImplementationSessions) sanitizeMessage(message ports.Message) ports.Message {
+	message.Content = s.redact(message.Content)
+	for i := range message.ToolCalls {
+		message.ToolCalls[i].Arguments = []byte(s.redact(string(message.ToolCalls[i].Arguments)))
+	}
+	return message
+}
+
+func (s *ImplementationSessions) redact(content string) string {
+	for _, secret := range s.secrets {
+		content = strings.ReplaceAll(content, secret, "[redacted]")
+	}
+	for _, pattern := range credentialContentPatterns {
+		content = pattern.ReplaceAllString(content, "[redacted]")
+	}
+	return content
+}
+
+func sessionTitle(instruction string) string {
+	line := strings.TrimSpace(strings.Split(instruction, "\n")[0])
+	return truncateRunes(line, 80)
+}
+
+func appendSummary(summary, event string) string {
+	event = truncateRunes(strings.TrimSpace(event), 320)
+	if event == "" {
+		return summary
+	}
+	if summary == "" {
+		return event
+	}
+	return truncateRunes(summary+"\n"+event, sessionSummaryLimit)
+}
+
+func summarizeMessage(message ports.Message) string {
+	if message.Name != "" {
+		return "Used " + message.Name
+	}
+	if message.Content != "" {
+		return truncateRunes(message.Content, 160)
+	}
+	return "Recorded implementation activity"
+}
+
+func truncateMessage(message ports.Message, limit int) ports.Message {
+	message.Content = truncateRunes(message.Content, limit)
+	for i := range message.ToolCalls {
+		message.ToolCalls[i].Arguments = []byte(truncateRunes(string(message.ToolCalls[i].Arguments), limit))
+	}
+	return message
+}
+
+func messageChars(messages []ports.Message) int {
+	total := 0
+	for _, message := range messages {
+		total += utf8.RuneCountInString(message.Content)
+		for _, call := range message.ToolCalls {
+			total += utf8.RuneCountInString(string(call.Arguments))
+		}
+	}
+	return total
+}
+
+func truncateRunes(value string, limit int) string {
+	if limit <= 0 || utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:limit])
+}

@@ -209,6 +209,71 @@ type CodingResult struct {
 	ChangedFiles  []string
 }
 
+type ImplementationSessionStatus string
+
+const (
+	SessionCreated                ImplementationSessionStatus = "created"
+	SessionRunning                ImplementationSessionStatus = "running"
+	SessionInterrupted            ImplementationSessionStatus = "interrupted"
+	SessionBlocked                ImplementationSessionStatus = "blocked"
+	SessionAwaitingCommitApproval ImplementationSessionStatus = "awaiting_commit_approval"
+	SessionCommitted              ImplementationSessionStatus = "committed"
+	SessionAwaitingPushApproval   ImplementationSessionStatus = "awaiting_push_approval"
+	SessionPushed                 ImplementationSessionStatus = "pushed"
+	SessionAwaitingPRApproval     ImplementationSessionStatus = "awaiting_pr_approval"
+	SessionCompleted              ImplementationSessionStatus = "completed"
+	SessionCancelled              ImplementationSessionStatus = "cancelled"
+)
+
+const (
+	SessionAssistantMessage = "assistant_message"
+	SessionToolStart        = "tool_start"
+	SessionToolResult       = "tool_result"
+	SessionToolError        = "tool_error"
+	SessionTerminal         = "terminal"
+	SessionMilestone        = "milestone"
+)
+
+type SessionContext struct {
+	Summary        string    `json:"summary,omitempty"`
+	RecentMessages []Message `json:"recent_messages,omitempty"`
+}
+
+type ImplementationSession struct {
+	ID            string                       `json:"id"`
+	Title         string                       `json:"title,omitempty"`
+	Repository    string                       `json:"repository,omitempty"`
+	Instruction   string                       `json:"instruction,omitempty"`
+	Workspace     string                       `json:"workspace,omitempty"`
+	Branch        string                       `json:"branch,omitempty"`
+	BaseRevision  string                       `json:"base_revision,omitempty"`
+	Model         string                       `json:"model,omitempty"`
+	PromptVersion string                       `json:"prompt_version,omitempty"`
+	Status        ImplementationSessionStatus  `json:"status"`
+	Context       SessionContext               `json:"context,omitempty"`
+	StartedAt     time.Time                    `json:"started_at"`
+	UpdatedAt     time.Time                    `json:"updated_at"`
+	Events        []ImplementationSessionEvent `json:"-"`
+}
+
+type ImplementationSessionEvent struct {
+	Sequence     uint64    `json:"sequence,omitempty"`
+	At           time.Time `json:"at"`
+	Kind         string    `json:"kind"`
+	Message      string    `json:"message,omitempty"`
+	ToolName     string    `json:"tool_name,omitempty"`
+	Content      string    `json:"content,omitempty"`
+	ModelMessage Message   `json:"model_message,omitempty"`
+}
+
+type ImplementationSessionStore interface {
+	Create(context.Context, ImplementationSession) (ImplementationSession, error)
+	Load(context.Context, string) (ImplementationSession, error)
+	List(context.Context) ([]ImplementationSession, error)
+	AppendEvent(context.Context, string, ImplementationSessionEvent) (ImplementationSession, error)
+	Update(context.Context, string, func(*ImplementationSession) error) (ImplementationSession, error)
+}
+
 type Command struct {
 	Argv      []string
 	Dir       string

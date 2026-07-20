@@ -1,9 +1,9 @@
 # Eggy roadmap
 
 This checklist captures the practical lessons Eggy can adopt from OpenClaw,
-Hermes Agent, NanoClaw, Codex, and Claude Code. It preserves Eggy's Go
-ports-and-adapters architecture, file-backed state, trusted-repository model,
-and independent approval gates.
+Hermes Agent, and NanoClaw. It preserves Eggy's Go ports-and-adapters
+architecture, file-backed state, trusted-repository model, and independent
+approval gates.
 
 ## P0: Separate assistant work from implementation
 
@@ -37,7 +37,7 @@ and independent approval gates.
 
 ## P0: Keep read-only repository work in the assistant lane
 
-- [x] Stop `repository_inspect` from launching Codex.
+- [x] Stop `repository_inspect` from launching a modifying implementation run.
 - [ ] Replace it with narrow provider-neutral repository read capabilities:
   - [x] list configured repositories;
   - [x] list a bounded directory tree;
@@ -60,65 +60,6 @@ and independent approval gates.
 - [x] Return a truthful capability/setup response when repository reading is not
       configured or available.
 
-## P1: Support Codex and Claude Code as coding-agent adapters
-
-- [ ] Keep a small provider-neutral `CodingAgent` port in `internal/ports`.
-- [ ] Define a shared coding request contract containing:
-  - run ID and repository identity;
-  - isolated workspace path and base revision;
-  - exact owner instruction;
-  - repository guidance discovered from `AGENTS.md` or `CLAUDE.md`;
-  - timeout, output, environment, and sandbox limits.
-- [ ] Define normalized progress events for planning, command execution, file
-      changes, validation, retry, completion, failure, and interruption.
-- [ ] Define a structured final result containing summary, validation evidence,
-      changed files, proposed commit message, provider session ID, usage, and
-      safe diagnostics.
-- [ ] Add coding-agent capability discovery so bootstrap can report which
-      executable, protocol features, and output formats are actually available.
-- [ ] Support a global default coding agent and an optional per-repository
-      override.
-- [ ] Add deterministic `/coder` commands to show and select configured coding
-      adapters without activating an implementation run.
-- [ ] Never silently fail over from one coding agent to another mid-run.
-- [ ] Persist the selected adapter and provider session ID with the coding run so
-      follow-up work resumes the correct agent.
-- [ ] Normalize both adapters behind the same progress, cancellation, result,
-      cleanup, and error contracts.
-- [ ] Add shared adapter contract tests and fake-executable process tests.
-
-### Codex adapter
-
-- [ ] Continue using `codex exec --json` for machine-readable streaming.
-- [ ] Pass explicit workspace-write sandbox and approval settings rather than
-      deprecated convenience flags.
-- [ ] Add an output schema for the final coding result instead of parsing an
-      unconstrained final message.
-- [ ] Capture the Codex thread ID and support explicit follow-up continuation for
-      the same coding run.
-- [ ] Feature-detect supported Codex behavior where possible and fail readiness
-      clearly when the pinned CLI is incompatible.
-- [ ] Keep Codex authentication in the persisted Codex home and out of prompts,
-      logs, state snapshots, and repository subprocess environments.
-
-### Claude Code adapter
-
-- [ ] Add a Claude Code CLI adapter using non-interactive `claude --bare -p`.
-- [ ] Use `stream-json`, verbose events, and partial-message support for progress.
-- [ ] Use a JSON Schema for the final normalized result.
-- [ ] Pass an explicit tool allowlist and permission mode appropriate to the
-      isolated implementation workspace.
-- [ ] Provide required repository context explicitly because bare mode skips
-      ambient hooks, skills, plugins, MCP servers, auto-memory, and instruction
-      discovery.
-- [ ] Capture the Claude session ID and support explicit follow-up continuation
-      for the same coding run.
-- [ ] Treat streamed capability metadata as feature detection instead of relying
-      only on version-string comparisons.
-- [ ] Keep Claude authentication in a dedicated persisted credential directory
-      and out of prompts, logs, state snapshots, and repository subprocess
-      environments.
-
 ## P1: Preserve host authority over coding and shipping
 
 - [ ] Keep workspace creation, repository cloning, branch creation, diff capture,
@@ -133,12 +74,38 @@ and independent approval gates.
 - [ ] Revalidate local and remote heads immediately before protected side
       effects.
 - [ ] Keep protected branches unpushable even with approval.
-- [ ] Never let Codex or Claude Code merge a pull request.
+- [ ] Never let the implementation loop merge a pull request.
 - [ ] Represent privileged requests and results as structured kernel data rather
       than natural-language messages.
-- [ ] Add tests proving neither coding adapter can bypass Eggy's shipping policy.
+- [ ] Add tests proving the implementation loop cannot bypass Eggy's shipping
+      policy.
 
 ## P2: Improve memory without turning it into a transcript dump
+
+Eggy's `SOUL.md`/`USER.md`/`MEMORY.md` naming and layering is adopted from
+Hermes Agent, but the storage model deliberately diverges rather than catching
+up to it:
+
+- Hermes persists sessions and full message history in SQLite
+  (`~/.hermes/state.db`, WAL mode) with FTS5 full-text search and a
+  `session_search` tool for cross-session recall. Eggy keeps only a bounded
+  recent-history window plus a summary in `state.json`, with no full-text
+  search over past conversations and no database dependency.
+- Hermes curates memory proactively ("periodic nudges") and grows a separate
+  procedural-skill store under `~/.hermes/skills/`. Eggy curates `USER.md` and
+  `MEMORY.md` only through explicit, narrow agent tool calls (`user_append`,
+  `memory_append`, `user_replace_section`, `memory_replace_section`) and has no
+  autonomous skill-creation loop (see "Separate durable facts from reusable
+  procedures" below for Eggy's intentionally smaller take on that idea).
+- Hermes layers in dialectic user modeling (Honcho) for a deepening
+  cross-session user model. Eggy keeps `USER.md` a flat, agent-curated fact
+  list.
+- Eggy rejects likely secrets (passwords, tokens, keys) before any memory
+  write reaches disk; this guard was not confirmed in Hermes's public docs.
+
+The gap is intentional: Eggy stays file-backed, single-volume, and
+provider-neutral rather than adding a database, search index, or skills
+runtime purely to match Hermes.
 
 - [ ] Set explicit injected-size budgets for `USER.md` and `MEMORY.md`.
 - [ ] Keep `USER.md` for stable owner preferences and communication style.
@@ -178,8 +145,7 @@ and independent approval gates.
   - registered assistant tools;
   - configured repositories;
   - enabled integrations;
-  - Codex and Claude Code readiness;
-  - the active coding-agent selection.
+  - implementation-loop readiness.
 - [ ] Add a deterministic `/context` view showing:
   - injected bytes or estimated tokens per context file;
   - conversation summary and recent-history sizes;
@@ -258,7 +224,7 @@ and independent approval gates.
 
 ## Acceptance checklist
 
-- [ ] Ordinary conversation never launches Codex or Claude Code.
+- [ ] Ordinary conversation never launches the implementation loop.
 - [ ] Repository explanation, inspection, review, planning, and diagnosis remain
       read-only unless the owner explicitly requests implementation.
 - [ ] An explicit implementation request launches exactly the configured coding

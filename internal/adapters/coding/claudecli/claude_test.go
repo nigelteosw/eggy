@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -98,6 +99,33 @@ func TestClaudeRejectsMalformedOrIncompleteResult(t *testing.T) {
 			_, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: test.name, Workspace: t.TempDir(), Instruction: "change it"}, nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestClaudeRecoversJSONWrappedInMarkdownFenceOrProse(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result string
+	}{
+		{name: "fenced", result: "Here you go:\n```json\n{\"summary\":\"done\",\"commit_message\":\"feat: x\",\"changed_files\":[]}\n```"},
+		{name: "prose", result: "Sure thing! {\"summary\":\"done\",\"commit_message\":\"feat: x\",\"changed_files\":[]} Let me know if you need anything else."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := `{"type":"result","subtype":"success","result":` + string(encoded) + `}`
+			runner := &fakeRunner{result: ports.CommandResult{Stdout: output}}
+			adapter := New("claude", runner, 4096, "token", "/data/claude")
+			result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: test.name, Workspace: t.TempDir(), Instruction: "change it"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Summary != "done" || result.CommitMessage != "feat: x" {
+				t.Fatalf("result=%#v", result)
 			}
 		})
 	}

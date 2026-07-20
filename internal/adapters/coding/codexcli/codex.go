@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+const maxLoggedResult = 4096
 
 var ErrRunNotFound = errors.New("coding run not found")
 
@@ -153,7 +156,11 @@ func parseJSONL(output string, progress func(ports.CodingProgress), requireCommi
 		ChangedFiles  []string `json:"changed_files"`
 	}
 	if err := json.Unmarshal([]byte(finalMessage), &structured); err != nil {
-		return ports.CodingResult{}, fmt.Errorf("Codex produced an invalid structured result: %w", err)
+		if extractErr := json.Unmarshal([]byte(extractStructuredJSON(finalMessage)), &structured); extractErr != nil {
+			slog.Default().Error("Codex produced an invalid structured result",
+				"error", err, "raw_result", truncate(finalMessage, maxLoggedResult))
+			return ports.CodingResult{}, fmt.Errorf("Codex produced an invalid structured result: %w", err)
+		}
 	}
 	if strings.TrimSpace(structured.Summary) == "" {
 		return ports.CodingResult{}, errors.New("Codex structured result summary is empty")
@@ -205,6 +212,45 @@ func emitProgressLine(line string, progress func(ports.CodingProgress)) {
 	case event.Type == "error":
 		emit(progress, ports.CodingProgress{Kind: "error", Message: event.Message})
 	}
+}
+
+func truncate(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "...(truncated)"
+}
+
+// extractStructuredJSON recovers the result contract's JSON object from output that
+// deviates from "pure JSON" despite the schema requiring it, e.g. when the CLI wraps
+// the object in a markdown code fence or adds prose before/after it.
+func extractStructuredJSON(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if fenced := fencedJSON(trimmed); fenced != "" {
+		trimmed = fenced
+	}
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if end := strings.LastIndex(trimmed, "}"); end > start {
+			trimmed = trimmed[start : end+1]
+		}
+	}
+	return trimmed
+}
+
+func fencedJSON(text string) string {
+	const fence = "```"
+	start := strings.Index(text, fence)
+	if start == -1 {
+		return ""
+	}
+	rest := text[start+len(fence):]
+	rest = strings.TrimPrefix(rest, "json")
+	rest = strings.TrimPrefix(rest, "\n")
+	end := strings.Index(rest, fence)
+	if end == -1 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
 }
 
 func structuredSummary(value string) (string, bool) {

@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+const maxLoggedResult = 4096
 
 var ErrRunNotFound = errors.New("coding run not found")
 
@@ -170,7 +173,11 @@ func (a *Adapter) parseJSONL(output string, progress func(ports.CodingProgress),
 		ChangedFiles  []string `json:"changed_files"`
 	}
 	if err := json.Unmarshal([]byte(finalResult), &structured); err != nil {
-		return ports.CodingResult{}, errors.New("Claude Code produced an invalid structured result")
+		if extractErr := json.Unmarshal([]byte(extractStructuredJSON(finalResult)), &structured); extractErr != nil {
+			slog.Default().Error("Claude Code produced an invalid structured result",
+				"error", err, "raw_result", a.redact(truncate(finalResult, maxLoggedResult)))
+			return ports.CodingResult{}, errors.New("Claude Code produced an invalid structured result")
+		}
 	}
 	if strings.TrimSpace(structured.Summary) == "" {
 		return ports.CodingResult{}, errors.New("Claude Code structured result summary is empty")
@@ -225,11 +232,55 @@ func (a *Adapter) emit(callback func(ports.CodingProgress), kind, message string
 	if callback == nil {
 		return
 	}
-	if a.oauthToken != "" {
-		message = strings.ReplaceAll(message, a.oauthToken, "[redacted]")
-	}
+	message = a.redact(message)
 	if len(message) > maxProgressMessage {
 		message = message[:maxProgressMessage]
 	}
 	callback(ports.CodingProgress{Kind: kind, Message: message})
+}
+
+func (a *Adapter) redact(message string) string {
+	if a.oauthToken != "" {
+		message = strings.ReplaceAll(message, a.oauthToken, "[redacted]")
+	}
+	return message
+}
+
+func truncate(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "...(truncated)"
+}
+
+// extractStructuredJSON recovers the result contract's JSON object from output that
+// deviates from "pure JSON" despite the prompt asking for it, e.g. when the CLI wraps
+// the object in a markdown code fence or adds prose before/after it.
+func extractStructuredJSON(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if fenced := fencedJSON(trimmed); fenced != "" {
+		trimmed = fenced
+	}
+	if start := strings.Index(trimmed, "{"); start >= 0 {
+		if end := strings.LastIndex(trimmed, "}"); end > start {
+			trimmed = trimmed[start : end+1]
+		}
+	}
+	return trimmed
+}
+
+func fencedJSON(text string) string {
+	const fence = "```"
+	start := strings.Index(text, fence)
+	if start == -1 {
+		return ""
+	}
+	rest := text[start+len(fence):]
+	rest = strings.TrimPrefix(rest, "json")
+	rest = strings.TrimPrefix(rest, "\n")
+	end := strings.Index(rest, fence)
+	if end == -1 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
 }

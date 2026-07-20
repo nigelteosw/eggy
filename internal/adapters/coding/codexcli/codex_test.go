@@ -63,6 +63,29 @@ func TestAdapterRejectsUnstructuredFinalMessage(t *testing.T) {
 	}
 }
 
+func TestCodexRecoversJSONWrappedInMarkdownFenceOrProse(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		text string
+	}{
+		{name: "fenced", text: "Here you go:\\n```json\\n{\\\"summary\\\":\\\"done\\\",\\\"validation\\\":\\\"ok\\\",\\\"commit_message\\\":\\\"feat: x\\\",\\\"changed_files\\\":[]}\\n```"},
+		{name: "prose", text: "Sure thing! {\\\"summary\\\":\\\"done\\\",\\\"validation\\\":\\\"ok\\\",\\\"commit_message\\\":\\\"feat: x\\\",\\\"changed_files\\\":[]} Let me know if you need anything else."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := `{"type":"item.completed","item":{"type":"agent_message","text":"` + test.text + `"}}`
+			runner := &fakeRunner{result: ports.CommandResult{Stdout: output}}
+			adapter := New("codex", runner, 4096, "/data/codex")
+			result, err := adapter.Run(context.Background(), ports.CodingRequest{RunID: test.name, Workspace: t.TempDir(), Instruction: "change it"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Summary != "done" || result.CommitMessage != "feat: x" {
+				t.Fatalf("result=%#v", result)
+			}
+		})
+	}
+}
+
 func TestCodexInterruptCancelsActiveRun(t *testing.T) {
 	runner := &fakeRunner{block: make(chan struct{}), started: make(chan struct{})}
 	adapter := New("codex", runner, 1024, "/data/codex")

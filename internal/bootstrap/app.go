@@ -256,7 +256,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify"}, 8)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify"}, 20)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -395,6 +395,12 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, turnLan
 	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, options)
 	stopTyping()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
+	if errors.Is(runErr, agent.ErrToolStepLimit) {
+		if usageErr != nil {
+			return usageErr
+		}
+		return a.channel.Deliver(ctx, message.ChatID, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
+	}
 	if runErr != nil {
 		return runErr
 	}

@@ -440,6 +440,42 @@ func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
 	}
 }
 
+// TestHandleMessageRepliesGracefullyWhenToolStepLimitReached proves that
+// exhausting the outer loop's tool-step budget delivers an explanatory
+// Telegram message instead of leaving the owner with no reply and only an
+// ERROR line in the event logs.
+func TestHandleMessageRepliesGracefullyWhenToolStepLimitReached(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var delivered []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.URL.Host == "deepseek.test":
+			// Always answer with another tool call so the loop never
+			// terminates on its own and must hit the step limit.
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":"status","arguments":"{}"}}]}}]}`), nil
+		case strings.Contains(request.URL.Path, "sendMessage"):
+			body, _ := io.ReadAll(request.Body)
+			delivered = body
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		case strings.Contains(request.URL.Path, "setMyCommands"):
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		default:
+			return appJSON(404, `{}`), nil
+		}
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "keep checking status forever"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "loop-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatalf("expected the step-limit case to be handled gracefully, got error: %v", err)
+	}
+	if !strings.Contains(string(delivered), "ran out of tool-call steps") {
+		t.Fatalf("delivered message did not explain the step limit: %s", delivered)
+	}
+}
+
 func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	started := make(chan struct{})

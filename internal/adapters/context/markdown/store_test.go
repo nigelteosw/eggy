@@ -61,6 +61,66 @@ func TestContextStoreRejectsSoulEditsAndOversizedFiles(t *testing.T) {
 	}
 }
 
+func TestContextStorePromptLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	store := Open(dir, 64<<10)
+	ctx := context.Background()
+
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Prompts != nil {
+		t.Fatalf("expected no prompts before any are set, got %#v", loaded.Prompts)
+	}
+
+	if err := store.SetPrompt(ctx, "reviewer", "Be blunt about risk."); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPrompt(ctx, "planner", "Prefer small steps."); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Prompts) != 2 || loaded.Prompts[0].Name != "planner" || loaded.Prompts[1].Name != "reviewer" {
+		t.Fatalf("prompts=%#v", loaded.Prompts)
+	}
+
+	if err := store.SetPrompt(ctx, "reviewer", "Be blunt about risk and cost."); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Prompts[1].Content != "Be blunt about risk and cost." {
+		t.Fatalf("expected update in place, prompts=%#v", loaded.Prompts)
+	}
+
+	if err := store.RemovePrompt(ctx, "planner"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Prompts) != 1 || loaded.Prompts[0].Name != "reviewer" {
+		t.Fatalf("prompts after remove=%#v", loaded.Prompts)
+	}
+
+	if err := store.RemovePrompt(ctx, "planner"); err == nil {
+		t.Fatal("expected error removing a prompt that does not exist")
+	}
+	if err := store.SetPrompt(ctx, "../escape", "content"); err == nil {
+		t.Fatal("expected rejection of an unsafe prompt name")
+	}
+	if err := store.SetPrompt(ctx, "reviewer", ""); err == nil {
+		t.Fatal("expected rejection of empty prompt content")
+	}
+}
+
 func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
 	store := Open(t.TempDir(), 64<<10)
 	var workers sync.WaitGroup

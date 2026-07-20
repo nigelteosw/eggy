@@ -90,9 +90,18 @@ type Channel interface {
 }
 
 type AgentContext struct {
-	Soul   string `json:"soul"`
-	User   string `json:"user"`
-	Memory string `json:"memory"`
+	Soul    string        `json:"soul"`
+	User    string        `json:"user"`
+	Memory  string        `json:"memory"`
+	Prompts []NamedPrompt `json:"prompts,omitempty"`
+}
+
+// NamedPrompt is an operator-managed system prompt, created/updated/removed
+// via ContextStore.SetPrompt/RemovePrompt and surfaced to the model through
+// BuildInstructions without requiring code changes.
+type NamedPrompt struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
 }
 
 type ContextDocument string
@@ -106,6 +115,8 @@ type ContextStore interface {
 	Load(context.Context) (AgentContext, error)
 	Append(context.Context, ContextDocument, string, string) error
 	ReplaceSection(context.Context, ContextDocument, string, string) error
+	SetPrompt(ctx context.Context, name, content string) error
+	RemovePrompt(ctx context.Context, name string) error
 }
 
 type State struct {

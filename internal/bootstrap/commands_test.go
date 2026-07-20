@@ -318,3 +318,45 @@ func TestCommandUsageAndLayeredMemory(t *testing.T) {
 		t.Fatalf("usage=%#v", usage)
 	}
 }
+
+func TestPromptsCommandCRUD(t *testing.T) {
+	dir := t.TempDir()
+	contextStore := contextmarkdown.Open(dir, 64<<10)
+	commands := &CommandService{context: contextStore}
+	ctx := context.Background()
+
+	output, handled, err := commands.Execute(ctx, "/prompts")
+	if err != nil || !handled || output != "No custom prompts." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts set reviewer Be blunt about risk.")
+	if err != nil || !handled || output != "Set prompt reviewer." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts")
+	if err != nil || !handled || output != "reviewer" {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts show reviewer")
+	if err != nil || !handled || output != "Be blunt about risk." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts show missing")
+	if err != nil || !handled || output != "No such prompt: missing." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts remove reviewer")
+	if err != nil || !handled || output != "Removed prompt reviewer." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+
+	output, handled, err = commands.Execute(ctx, "/prompts remove reviewer")
+	if err != nil || !handled || !strings.Contains(output, "does not exist") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}

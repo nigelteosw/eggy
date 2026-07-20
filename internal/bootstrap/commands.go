@@ -157,6 +157,61 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		}
 		context, err := s.context.Load(ctx)
 		return context.Memory, true, err
+	case "/prompts":
+		if s.context == nil {
+			return "Prompts are not configured.", true, nil
+		}
+		if len(fields) == 1 {
+			loaded, err := s.context.Load(ctx)
+			if err != nil {
+				return "", true, err
+			}
+			if len(loaded.Prompts) == 0 {
+				return "No custom prompts.", true, nil
+			}
+			names := make([]string, 0, len(loaded.Prompts))
+			for _, prompt := range loaded.Prompts {
+				names = append(names, prompt.Name)
+			}
+			return strings.Join(names, "\n"), true, nil
+		}
+		usage := "Usage: /prompts [show <name>|set <name> <content...>|remove <name>]"
+		switch fields[1] {
+		case "show":
+			if len(fields) != 3 {
+				return "Usage: /prompts show <name>", true, nil
+			}
+			loaded, err := s.context.Load(ctx)
+			if err != nil {
+				return "", true, err
+			}
+			for _, prompt := range loaded.Prompts {
+				if prompt.Name == fields[2] {
+					return prompt.Content, true, nil
+				}
+			}
+			return "No such prompt: " + fields[2] + ".", true, nil
+		case "set":
+			if len(fields) < 4 {
+				return "Usage: /prompts set <name> <content...>", true, nil
+			}
+			name := fields[2]
+			content := strings.Join(fields[3:], " ")
+			if err := s.context.SetPrompt(ctx, name, content); err != nil {
+				return err.Error(), true, nil
+			}
+			return "Set prompt " + name + ".", true, nil
+		case "remove":
+			if len(fields) != 3 {
+				return "Usage: /prompts remove <name>", true, nil
+			}
+			if err := s.context.RemovePrompt(ctx, fields[2]); err != nil {
+				return err.Error(), true, nil
+			}
+			return "Removed prompt " + fields[2] + ".", true, nil
+		default:
+			return usage, true, nil
+		}
 	case "/model":
 		if s.agentRuntime == nil {
 			return "Model selection is not configured.", true, nil

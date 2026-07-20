@@ -38,3 +38,42 @@ func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildInstructionsRendersCustomPromptsBetweenMemoryAndTemporal(t *testing.T) {
+	context := ports.AgentContext{
+		Soul: "SOUL-CONTENT", User: "USER-CONTENT", Memory: "MEMORY-CONTENT",
+		Prompts: []ports.NamedPrompt{{Name: "reviewer", Content: "Be blunt about risk."}, {Name: "planner", Content: "Prefer small steps."}},
+	}
+	messages := BuildInstructions(context, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
+	if len(messages) != 7 {
+		t.Fatalf("messages=%#v", messages)
+	}
+	custom := messages[5].Content
+	if !strings.Contains(custom, "### reviewer\nBe blunt about risk.") || !strings.Contains(custom, "### planner\nPrefer small steps.") {
+		t.Fatalf("custom prompts=%s", custom)
+	}
+	if !strings.Contains(messages[6].Content, "Trusted temporal context") {
+		t.Fatalf("expected temporal context last, got %#v", messages[6])
+	}
+}
+
+func TestRegisterPromptSectionExtendsWithoutEditingBuildInstructions(t *testing.T) {
+	before := len(promptSections)
+	RegisterPromptSection(PromptSection{
+		ID: "test-extension-section", Priority: 50,
+		Render: func(ports.AgentContext, CapabilityManifest, TemporalContext) (string, bool) {
+			return "EXTENSION-CONTENT", true
+		},
+	})
+	defer func() { promptSections = promptSections[:before] }()
+	messages := BuildInstructions(ports.AgentContext{}, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
+	found := false
+	for _, message := range messages {
+		if message.Content == "EXTENSION-CONTENT" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected registered extension section in output, messages=%#v", messages)
+	}
+}

@@ -15,6 +15,9 @@ import (
 
 func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secrets, error) {
 	if _, err := os.Stat(path); err == nil {
+		if err := migrateLegacyRunnerRoot(path); err != nil {
+			return Config{}, Secrets{}, err
+		}
 		return LoadConfig(path, getenv)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Config{}, Secrets{}, fmt.Errorf("stat config: %w", err)
@@ -23,6 +26,25 @@ func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secret
 		return Config{}, Secrets{}, err
 	}
 	return LoadConfig(path, getenv)
+}
+
+// migrateLegacyRunnerRoot upgrades Eggy's former temporary default without
+// accepting arbitrary workspace paths outside the persistent data directory.
+func migrateLegacyRunnerRoot(path string) error {
+	return filelock.With(path, func() error {
+		cfg, _, err := loadConfigDocument(path)
+		if err != nil {
+			return err
+		}
+		if filepath.Clean(cfg.Runner.Root) != "/tmp/runs" {
+			return nil
+		}
+		cfg.Runner.Root = filepath.Join(cfg.DataDir, "runs")
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
 }
 
 func initializeConfig(path string, getenv func(string) string) error {

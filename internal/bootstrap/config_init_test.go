@@ -53,6 +53,28 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadOrCreateConfigMigratesLegacyTemporaryRunnerRoot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	legacy := strings.Replace(validConfigV2(), "root: /data/runs", "root: /tmp/runs", 1)
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Runner.Root != "/data/runs" {
+		t.Fatalf("runner root=%q", cfg.Runner.Root)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "/tmp/runs") || !strings.Contains(string(body), "root: /data/runs") {
+		t.Fatalf("migrated config:\n%s", body)
+	}
+}
+
 func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 	tests := []struct {
 		name   string

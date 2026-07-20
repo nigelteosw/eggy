@@ -9,16 +9,12 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-const (
-	maxTreeEntries   = 200
-	maxSearchMatches = 50
-)
-
-// NewRepositoryReadTools registers narrow, provider-neutral read-only repository
-// tools. Each clones into an ephemeral workspace and never launches a coding
-// agent, creates a branch, or leaves a diff.
+// NewRepositoryReadTools registers narrow, provider-neutral read-only
+// repository tools. read_file and terminal each clone into an ephemeral
+// workspace and never launch an implementation run, create a branch, or
+// leave a diff; repository_github never clones at all.
 func NewRepositoryReadTools(store ports.StateStore, runner ports.Runner, checkout ports.RepositoryCheckout, reader ports.RepositoryReader, newRunID func() string) []ports.Tool {
-	withWorkspace := func(ctx context.Context, repositoryName string, use func(workspace string) (json.RawMessage, error)) (json.RawMessage, error) {
+	withEphemeralWorkspace := func(ctx context.Context, repositoryName string, use func(workspace string) (json.RawMessage, error)) (json.RawMessage, error) {
 		repository, err := lookupRepository(ctx, store, repositoryName)
 		if err != nil {
 			return nil, err
@@ -37,56 +33,12 @@ func NewRepositoryReadTools(store ports.StateStore, runner ports.Runner, checkou
 		return use(workspace)
 	}
 
-	tree := repositoryTool{definition: ports.ToolDefinition{
-		Name:        "repository_tree",
-		Description: "List a bounded directory tree in a read-only checkout; creates no branch, commit, or approval",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"path":{"type":"string"}},"required":["repository"],"additionalProperties":false}`),
-	}}
-	tree.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		var input struct {
-			Repository string `json:"repository"`
-			Path       string `json:"path"`
-		}
-		if err := decodeStrict(raw, &input); err != nil {
-			return nil, err
-		}
-		return withWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
-			entries, err := reader.ListTree(ctx, workspace, input.Path, maxTreeEntries)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(map[string]any{"repository": input.Repository, "entries": entries})
-		})
-	}
-
-	search := repositoryTool{definition: ports.ToolDefinition{
-		Name:        "repository_search",
-		Description: "Search file names and text content in a read-only checkout; creates no branch, commit, or approval",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"query":{"type":"string","minLength":1}},"required":["repository","query"],"additionalProperties":false}`),
-	}}
-	search.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		var input struct {
-			Repository string `json:"repository"`
-			Query      string `json:"query"`
-		}
-		if err := decodeStrict(raw, &input); err != nil {
-			return nil, err
-		}
-		return withWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
-			matches, err := reader.Search(ctx, workspace, input.Query, maxSearchMatches)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(map[string]any{"repository": input.Repository, "matches": matches})
-		})
-	}
-
-	read := repositoryTool{definition: ports.ToolDefinition{
-		Name:        "repository_read",
+	readFile := repositoryTool{definition: ports.ToolDefinition{
+		Name:        "read_file",
 		Description: "Read a bounded range of lines from a file in a read-only checkout; creates no branch, commit, or approval",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"path":{"type":"string","minLength":1},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["repository","path"],"additionalProperties":false}`),
 	}}
-	read.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	readFile.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			Repository string `json:"repository"`
 			Path       string `json:"path"`
@@ -96,7 +48,7 @@ func NewRepositoryReadTools(store ports.StateStore, runner ports.Runner, checkou
 		if err := decodeStrict(raw, &input); err != nil {
 			return nil, err
 		}
-		return withWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
+		return withEphemeralWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
 			content, err := reader.ReadFile(ctx, workspace, input.Path, input.StartLine, input.EndLine)
 			if err != nil {
 				return nil, err
@@ -105,28 +57,21 @@ func NewRepositoryReadTools(store ports.StateStore, runner ports.Runner, checkou
 		})
 	}
 
-	status := repositoryTool{definition: ports.ToolDefinition{
-		Name:        "repository_status",
-		Description: "Report git status and branches for a read-only checkout without modifying anything",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1}},"required":["repository"],"additionalProperties":false}`),
+	terminal := repositoryTool{definition: ports.ToolDefinition{
+		Name:        "terminal",
+		Description: "Run a read-only shell command (grep, ls, find, git status, git log, etc.) in a read-only checkout; creates no branch, commit, or approval. The checkout is destroyed after this call.",
+		Schema:      json.RawMessage(terminalSchema),
 	}}
-	status.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	terminal.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			Repository string `json:"repository"`
+			Command    string `json:"command"`
 		}
 		if err := decodeStrict(raw, &input); err != nil {
 			return nil, err
 		}
-		return withWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
-			status, err := reader.Status(ctx, workspace)
-			if err != nil {
-				return nil, err
-			}
-			branches, err := reader.Branches(ctx, workspace)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(map[string]any{"repository": input.Repository, "status": status, "branches": branches})
+		return withEphemeralWorkspace(ctx, input.Repository, func(workspace string) (json.RawMessage, error) {
+			return runTerminal(ctx, runner, workspace, input.Command)
 		})
 	}
 
@@ -191,7 +136,7 @@ func NewRepositoryReadTools(store ports.StateStore, runner ports.Runner, checkou
 		}
 	}
 
-	return []ports.Tool{tree, search, read, status, metadata}
+	return []ports.Tool{readFile, terminal, metadata}
 }
 
 func lookupRepository(ctx context.Context, store ports.StateStore, name string) (ports.Repository, error) {

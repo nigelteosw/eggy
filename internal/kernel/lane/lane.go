@@ -30,6 +30,7 @@ var codeContext = []string{
 	"module", "package", "endpoint", "handler", "route", "api",
 	"test", "bug", "feature", "broken",
 	"error", "type", "struct", "interface", "vulnerability",
+	"tool", "capability", "integration", "search",
 }
 
 var codeExtensions = map[string]bool{
@@ -87,7 +88,7 @@ func Detect(text string) Lane {
 	}
 	for i, token := range tokens {
 		switch token {
-		case "fix", "change", "modify", "add", "remove", "update", "rewrite", "patch":
+		case "fix", "change", "modify", "add", "remove", "update", "rewrite", "patch", "build":
 			if !negated(tokens, i) {
 				return Implementation
 			}

@@ -32,6 +32,22 @@ func TestCodingServiceRunsCodexCapturesDiffAndPersistsResult(t *testing.T) {
 	if state.CodingRuns["run-1"].Status != "completed" {
 		t.Fatalf("state=%#v", state.CodingRuns)
 	}
+	var checkpoints []string
+	for _, update := range updates {
+		if update.Kind == "checkpoint" {
+			checkpoints = append(checkpoints, update.Message)
+		}
+	}
+	wantCheckpoints := []string{
+		"Preparing an isolated workspace for eggy",
+		"Cloning eggy@main",
+		"Creating branch eggy/run-1",
+		"Starting the coding agent",
+		"Capturing diff and validation evidence",
+	}
+	if strings.Join(checkpoints, "|") != strings.Join(wantCheckpoints, "|") {
+		t.Fatalf("checkpoints = %#v, want %#v", checkpoints, wantCheckpoints)
+	}
 }
 
 func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {

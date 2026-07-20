@@ -23,6 +23,7 @@ func NewCodingService(store ports.StateStore, runner ports.Runner, repository po
 }
 
 func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+	checkpoint(progress, "Preparing an isolated workspace for "+repository.Name)
 	workspace, err := s.runner.Create(ctx, runID)
 	if err != nil {
 		return ports.CodingRun{}, ports.CodingResult{}, err
@@ -37,10 +38,12 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 		_ = s.persistRun(ctx, run)
 		return run, ports.CodingResult{}, cause
 	}
+	checkpoint(progress, "Cloning "+repository.Name+"@"+repository.BaseBranch)
 	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
 		return fail(err)
 	}
 	branch := "eggy/" + runID
+	checkpoint(progress, "Creating branch "+branch)
 	if err := s.repository.CreateBranch(ctx, workspace, branch); err != nil {
 		return fail(err)
 	}
@@ -64,6 +67,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nTask:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
+	checkpoint(progress, "Starting the coding agent")
 	result, err := s.agent.Run(ctx, ports.CodingRequest{RunID: runID, Workspace: workspace, Instruction: prompt}, progress)
 	if err != nil {
 		return fail(err)
@@ -78,6 +82,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if actualRevision.Head != expectedRevision.Head {
 		return fail(errors.New("coding agent changed HEAD before commit approval"))
 	}
+	checkpoint(progress, "Capturing diff and validation evidence")
 	diff, err := s.repository.Diff(ctx, workspace)
 	if err != nil {
 		return fail(err)
@@ -87,6 +92,13 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 		return run, result, err
 	}
 	return run, result, nil
+}
+
+func checkpoint(progress func(ports.CodingProgress), message string) {
+	if progress == nil {
+		return
+	}
+	progress(ports.CodingProgress{Kind: "checkpoint", Message: message})
 }
 
 func (s *CodingService) Inspect(ctx context.Context, runID string, repository ports.Repository, question string) (ports.CodingResult, error) {

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace `/config set`'s positional argument syntax with order-independent `key=value` flags, add `calendar` as a fourth settable section, and add `/config get path`. This is a refinement of the `/config` command shipped in `docs/superpowers/specs/2026-07-19-config-command-design.md` — it does not change what `/config` is for, only how it's typed and what it covers.
+Replace `/config set`'s positional argument syntax with order-independent `key=value` flags, add `calendar` as a fourth settable section, add `/config get path`, and add a CLI-only `eggy config show` for a full-file dump. This is a refinement of the `/config` command shipped in `docs/superpowers/specs/2026-07-19-config-command-design.md` — it does not change what `/config` is for, only how it's typed and what it covers.
 
 ## Motivation
 
@@ -20,6 +20,9 @@ In scope:
 - Rewrite `/config set` parsing for the three existing sections (`coding_agent`, `provider`, `model`) from positional to `key=value` flags.
 - Add `calendar` as a fourth `/config set`/`/config get` section, covering exactly the three fields `CalendarConfig` already has (`enabled`, `default_calendar`, `timezone`) — no new fields, no schema change.
 - Add `/config get path`, printing the config file's location.
+- Add `eggy config show`, matching Hermes's `hermes config show` — dumps the *entire* config file as YAML, not just the four whitelisted sections. Safe to expose in full: `config.yaml` never holds secret values, only environment-variable *names* (`api_key_env`, `credential_env`), so there's nothing in it that isn't already meant for the owner's eyes.
+
+  **CLI-only, deliberately not a Telegram command.** Every other `/config` command is identical on Telegram and the `eggy` CLI because both call through the same shared `CommandService.Execute` dispatcher (`internal/bootstrap/commands.go`). `show` breaks that pattern on purpose: it's implemented directly in `cmd/eggy/main.go`'s argument handling — using the same `-config`/`EGGY_CONFIG` path `main()` already resolves before calling `bootstrap.NewApp`, not a value obtained from `App` or `CommandService` — calling a small `bootstrap` package function to read and re-marshal the file, and never touches `CommandService.Execute` or `App.ExecuteCommand` at all. That's not just a routing choice — it's the only way to guarantee a full-file dump can never be reached through the Telegram webhook, since Telegram only ever calls into the shared dispatcher. There is deliberately no `/config show` Telegram command.
 
 Out of scope, deliberately:
 - No change to `Config`, `CalendarConfig`, `Config.Validate()`, boot-time secret requirements, `/calendar_auth` gating, or the capability manifest. This round only changes how existing, already-true behavior gets *typed* — Calendar continues to work exactly as it does today, just becomes settable through `/config` instead of only through a manual YAML edit.
@@ -28,6 +31,8 @@ Out of scope, deliberately:
 - `/config get`/`/config set` keep operating only on the whitelist (`coding.agents.*`, `providers.*`, `models.*`, `calendar.*`); `telegram.owner_id`, `server.*`, and `runner.*` remain untouchable from chat, unchanged from the original design.
 
 ## Command syntax
+
+Telegram and `eggy` CLI, identically (via `CommandService.Execute`):
 
 ```text
 /config get coding
@@ -42,7 +47,13 @@ Out of scope, deliberately:
 /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]
 ```
 
-This fully replaces the positional syntax shipped last round — there is no dual-syntax support. The feature is hours old with a single operator (the owner); keeping two parsers for the same command adds confusion for no compatibility benefit.
+`eggy` CLI only (never reachable from Telegram — see Scope):
+
+```text
+eggy config show
+```
+
+The `/config set` syntax change fully replaces the positional syntax shipped last round — there is no dual-syntax support. The feature is hours old with a single operator (the owner); keeping two parsers for the same command adds confusion for no compatibility benefit.
 
 ## Parsing rules
 
@@ -71,6 +82,7 @@ Test-first, per repository convention:
 - Failing tests for `key=value` parsing of all four `/config set` sections: valid input, unknown key, missing required key, and (for `coding_agent`) the optional `credential_env` both present and absent.
 - A test confirming `/config set calendar enabled=true` alone leaves a previously-set `default_calendar`/`timezone` unchanged (patch semantics), and a test confirming Calendar's existing validation (`enabled: true` requires `default_calendar`) still rejects invalid combinations.
 - A test for `/config get calendar` output format and `/config get path`.
+- A test that `eggy config show` prints the full file (all sections, not just the whitelist) and, separately, a test confirming `CommandService.Execute` has no `"show"` case reachable under `/config` — `show` only exists in `cmd/eggy/main.go`'s CLI argument handling.
 - Existing tests from the original `/config` round that assert the *old* positional syntax must be rewritten to the new syntax, not deleted silently — the underlying `setCodingAgent`/`setProvider`/`setModelAlias` mutation functions and their validation/atomic-write/concurrency guarantees are unchanged and keep their existing test coverage.
 
 Required completion checks, unchanged:

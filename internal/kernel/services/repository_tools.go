@@ -75,7 +75,7 @@ func NewRepositoryTools(
 	}
 
 	inspect := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_inspect", Description: "Answer a read-only question using Codex in an isolated checkout; creates no branch or approval and must be used before claiming repository implementation facts", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"question":{"type":"string","minLength":1}},"required":["repository","question"],"additionalProperties":false}`),
+		Name: "repository_inspect", Description: "Answer a read-only question using the owner's currently selected coding agent in an isolated checkout; creates no branch or approval and must be used before claiming repository implementation facts", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"question":{"type":"string","minLength":1}},"required":["repository","question"],"additionalProperties":false}`),
 	}}
 	inspect.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {

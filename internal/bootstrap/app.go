@@ -34,6 +34,8 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+var ErrRestart = errors.New("restart requested")
+
 type AppOptions struct {
 	HTTPClient       *http.Client
 	TelegramBaseURL  string
@@ -73,6 +75,7 @@ type App struct {
 	eventQueue          chan events.Event
 	workers             sync.WaitGroup
 	readyLog            sync.Once
+	restart             chan struct{}
 	logger              *slog.Logger
 	timezone            string
 	location            *time.Location
@@ -125,7 +128,8 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	stateStore := jsonfile.Open(statePath)
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
-	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
+	restart := make(chan struct{}, 1)
+	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), now: options.Now, eventQueue: make(chan events.Event, 64), restart: restart, logger: options.Logger, timezone: timezone, location: location}
 	if errors.Is(statErr, os.ErrNotExist) && len(config.Repositories) > 0 {
 		seeded := map[string]ports.Repository{}
 		for _, configured := range config.Repositories {
@@ -286,7 +290,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now, restart: restart}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
@@ -508,6 +512,9 @@ func (a *App) Run(ctx context.Context) error {
 	defer heartbeatTicker.Stop()
 	for {
 		select {
+		case <-a.restart:
+			a.logger.Info("restart requested via command")
+			return ErrRestart
 		case <-ctx.Done():
 			return ctx.Err()
 		case event := <-a.eventQueue:

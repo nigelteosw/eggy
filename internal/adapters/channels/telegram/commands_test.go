@@ -13,7 +13,7 @@ func TestCommandRegistryIncludesEveryOperationalShortcutWithADescription(t *test
 		}
 		names[command.Name] = true
 	}
-	for _, want := range []string{"status", "start", "help", "repositories", "runs", "stop", "schedules", "memory", "model", "usage", "clear", "calendar_auth"} {
+	for _, want := range []string{"status", "start", "help", "repositories", "runs", "stop", "schedules", "restart", "memory", "model", "usage", "clear", "calendar_auth"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from Commands(): %v", want, names)
 		}

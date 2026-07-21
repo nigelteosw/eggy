@@ -138,7 +138,7 @@ func TestClientSetCommandsSendsCommandListToTelegram(t *testing.T) {
 	client := NewClient("https://api.telegram.test", "token", httpClient)
 	err := client.SetCommands(context.Background(), []BotCommand{
 		{Name: "status", Description: "Show operational status"},
-		{Name: "new", Description: "Start a new conversation"},
+		{Name: "clear", Description: "Clear the context window"},
 	})
 	if err != nil {
 		t.Fatal(err)

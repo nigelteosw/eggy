@@ -105,7 +105,10 @@ func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	})
 }
 
-func SetModelAlias(path, alias, provider, modelID string) error {
+// SetModelAlias configures alias. reasoningEfforts is a comma-separated list
+// of supported levels (e.g. "low,medium,high,max"); pass "" to leave the
+// alias without a reasoning-effort option.
+func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) error {
 	return filelock.With(path, func() error {
 		cfg, version, err := loadConfigDocument(path)
 		if err != nil {
@@ -117,7 +120,11 @@ func SetModelAlias(path, alias, provider, modelID string) error {
 		if cfg.ModelAliases == nil {
 			cfg.ModelAliases = map[string]ModelAliasConfig{}
 		}
-		cfg.ModelAliases[alias] = ModelAliasConfig{Provider: provider, Model: modelID}
+		var efforts []string
+		if reasoningEfforts != "" {
+			efforts = strings.Split(reasoningEfforts, ",")
+		}
+		cfg.ModelAliases[alias] = ModelAliasConfig{Provider: provider, Model: modelID, ReasoningEfforts: efforts}
 		if err := cfg.Validate(); err != nil {
 			return err
 		}
@@ -197,7 +204,11 @@ func GetModelAliasesConfigText(path string) (string, error) {
 	lines := make([]string, 0, len(aliases))
 	for _, alias := range aliases {
 		model := cfg.ModelAliases[alias]
-		lines = append(lines, fmt.Sprintf("%s  provider=%s  model=%s", alias, model.Provider, model.Model))
+		line := fmt.Sprintf("%s  provider=%s  model=%s", alias, model.Provider, model.Model)
+		if len(model.ReasoningEfforts) > 0 {
+			line += "  reasoning_efforts=" + strings.Join(model.ReasoningEfforts, ",")
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n"), nil
 }

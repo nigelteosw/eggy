@@ -17,15 +17,34 @@ import (
 
 func TestCommandModelSelection(t *testing.T) {
 	store := jsonfile.Open(t.TempDir() + "/state.json")
-	runtime := services.NewAgentRuntime(store, "deepseek-pro", []string{"openrouter-pro", "deepseek-pro"})
+	runtime := services.NewAgentRuntime(store, "deepseek-pro", []string{"openrouter-pro", "deepseek-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
 	commands := &CommandService{store: store, agentRuntime: runtime, defaultModel: "deepseek-pro", modelAliases: []string{"openrouter-pro", "deepseek-pro"}}
 	ctx := context.Background()
 	output, handled, err := commands.Execute(ctx, "/model")
 	if err != nil || !handled || !strings.Contains(output, "Active model: deepseek-pro") || strings.Index(output, "deepseek-pro") > strings.LastIndex(output, "openrouter-pro") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
+	if !strings.Contains(output, "deepseek-pro [effort: low|high]") {
+		t.Fatalf("output=%q missing reasoning effort listing", output)
+	}
+	output, _, err = commands.Execute(ctx, "/model effort high")
+	if err != nil || output != "Reasoning effort set to high." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/model")
+	if err != nil || !strings.Contains(output, "Active model: deepseek-pro (effort: high)") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/model effort medium")
+	if err != nil || !strings.Contains(output, "supports reasoning effort low|high") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
 	output, _, err = commands.Execute(ctx, "/model openrouter-pro")
 	if err != nil || output != "Model set to openrouter-pro." {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/model effort low")
+	if err != nil || !strings.Contains(output, "does not support a reasoning effort option") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 	output, _, err = commands.Execute(ctx, "/model missing")
@@ -35,6 +54,10 @@ func TestCommandModelSelection(t *testing.T) {
 	output, _, err = commands.Execute(ctx, "/model default")
 	if err != nil || output != "Model reset to deepseek-pro." {
 		t.Fatalf("output=%q err=%v", output, err)
+	}
+	output, _, err = commands.Execute(ctx, "/model")
+	if err != nil || !strings.Contains(output, "Active model: deepseek-pro (effort: high)") {
+		t.Fatalf("output=%q err=%v, want the effort set earlier to still apply after switching back", output, err)
 	}
 }
 
@@ -120,7 +143,7 @@ func TestCommandConfigUsageErrors(t *testing.T) {
 		{"/config get unknown", "Usage: /config get <providers|models|calendar|path>"},
 		{"/config set", "Usage: /config set <provider|model|calendar> ..."},
 		{"/config set provider name=openrouter adapter=openai_compatible", "Usage: /config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>"},
-		{"/config set model alias=openrouter-pro provider=openrouter", "Usage: /config set model alias=<alias> provider=<provider> model=<model_id>"},
+		{"/config set model alias=openrouter-pro provider=openrouter", "Usage: /config set model alias=<alias> provider=<provider> model=<model_id> [reasoning_efforts=<comma_separated_levels>]"},
 		{"/config set calendar badkey=x", "Usage: /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]"},
 		{"/config set calendar", "at least one of enabled, default_calendar, or timezone is required"},
 	}
@@ -226,7 +249,7 @@ func (c *commandTestChannel) SendTyping(context.Context, string) error          
 func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	dir := t.TempDir()
 	store := jsonfile.Open(dir + "/state.json")
-	runtime := services.NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro"})
+	runtime := services.NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro"}, nil)
 	if err := runtime.RecordUsage(context.Background(), "deepseek-pro", ports.ModelUsage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14, CachedPromptTokens: 3}); err != nil {
 		t.Fatal(err)
 	}

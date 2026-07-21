@@ -38,6 +38,29 @@ func TestModelTranslatesChatCompletionAndUsage(t *testing.T) {
 	}
 }
 
+func TestModelSendsReasoningEffortOnlyWhenSet(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	model := New("https://api.example", "key", client)
+
+	if _, err := model.Generate(context.Background(), ports.ModelRequest{Model: "model", ReasoningEffort: "high"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"reasoning_effort":"high"`) {
+		t.Fatalf("body=%s, want reasoning_effort=high", body)
+	}
+
+	if _, err := model.Generate(context.Background(), ports.ModelRequest{Model: "model"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "reasoning_effort") {
+		t.Fatalf("body=%s, want reasoning_effort omitted when unset", body)
+	}
+}
+
 func TestModelReturnsSafeProviderErrors(t *testing.T) {
 	attempts := 0
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

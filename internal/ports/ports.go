@@ -43,9 +43,10 @@ type ToolCall struct {
 }
 
 type ModelRequest struct {
-	Model    string           `json:"model"`
-	Messages []Message        `json:"messages"`
-	Tools    []ToolDefinition `json:"tools,omitempty"`
+	Model           string           `json:"model"`
+	Messages        []Message        `json:"messages"`
+	Tools           []ToolDefinition `json:"tools,omitempty"`
+	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
 }
 
 type ModelResponse struct {
@@ -138,8 +139,9 @@ type State struct {
 }
 
 type AgentRuntimeState struct {
-	SelectedModel string                `json:"selected_model,omitempty"`
-	Usage         map[string]ModelUsage `json:"usage,omitempty"`
+	SelectedModel   string                `json:"selected_model,omitempty"`
+	ReasoningEffort string                `json:"reasoning_effort,omitempty"`
+	Usage           map[string]ModelUsage `json:"usage,omitempty"`
 }
 
 type CodingRuntimeState struct {

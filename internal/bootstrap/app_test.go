@@ -231,7 +231,7 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	for _, want := range []string{"status", "repositories", "runs", "stop", "schedules", "memory", "model", "usage", "new", "calendar_auth"} {
+	for _, want := range []string{"status", "repositories", "runs", "stop", "schedules", "memory", "model", "usage", "clear", "calendar_auth"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -385,7 +385,7 @@ func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"/status", "/repositories", "/runs", "/schedules", "/memory", "/new"} {
+	for _, command := range []string{"/status", "/repositories", "/runs", "/schedules", "/memory", "/clear"} {
 		output, handled, err := app.commands.Execute(context.Background(), command)
 		if err != nil || !handled || output == "" {
 			t.Fatalf("%s output=%q handled=%v err=%v", command, output, handled, err)

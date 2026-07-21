@@ -8,6 +8,7 @@ telegram:
   owner_id: 123456789
 agent:
   # Telegram: /model changes the active alias; /model default restores this one.
+  # /model effort <low|medium|high|max> sets reasoning effort for aliases that support it.
   default_model: "deepseek-pro"
 providers:
   deepseek:
@@ -19,6 +20,9 @@ models:
   deepseek-pro:
     provider: "deepseek"
     model: "deepseek-v4-pro"
+    # Optional: exposes /model effort <level> for this alias. Omit for
+    # models that don't accept a reasoning_effort request parameter.
+    reasoning_efforts: ["low", "medium", "high", "max"]
 repositories:
   - name: "eggy"
     clone_url: "https://github.com/nigelteosw/eggy.git"

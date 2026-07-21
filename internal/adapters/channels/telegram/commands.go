@@ -16,7 +16,7 @@ func Commands() []BotCommand {
 		{Name: "config", Description: "Get or set configuration sections"},
 		{Name: "prompts", Description: "Manage custom prompts"},
 		{Name: "usage", Description: "Show or reset local token usage counters"},
-		{Name: "new", Description: "Start a new conversation"},
+		{Name: "clear", Description: "Clear the context window"},
 		{Name: "calendar_auth", Description: "Start Google Calendar enrollment"},
 	}
 }

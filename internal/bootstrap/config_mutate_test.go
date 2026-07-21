@@ -43,7 +43,7 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash"); err != nil {
+	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -51,7 +51,7 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	model, ok := reloaded.ModelAliases["deepseek-fast"]
-	if !ok || model.Provider != "deepseek" || model.Model != "deepseek-v4-flash" {
+	if !ok || model.Provider != "deepseek" || model.Model != "deepseek-v4-flash" || len(model.ReasoningEfforts) != 0 {
 		t.Fatalf("deepseek-fast model = %#v, ok=%v", model, ok)
 	}
 
@@ -59,11 +59,34 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = SetModelAlias(path, "orphan", "does-not-exist", "some-model")
+	err = SetModelAlias(path, "orphan", "does-not-exist", "some-model", "")
 	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Fatalf("error = %v", err)
 	}
 	assertFileBytes(t, path, before)
+}
+
+func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetModelAlias(path, "deepseek-pro", "deepseek", "deepseek-v4-pro", "low,medium,high,max"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := reloaded.ModelAliases["deepseek-pro"]
+	if !ok || strings.Join(model.ReasoningEfforts, ",") != "low,medium,high,max" {
+		t.Fatalf("deepseek-pro model = %#v, ok=%v", model, ok)
+	}
+
+	err = SetModelAlias(path, "deepseek-pro", "deepseek", "deepseek-v4-pro", "extreme")
+	if err == nil || !strings.Contains(err.Error(), "invalid reasoning effort") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestSetCalendarPatchesOnlyGivenFields(t *testing.T) {

@@ -58,7 +58,7 @@ func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, maxToolS
 	}
 }
 
-func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []ports.Message, options RunOptions) (RunResult, error) {
+func (l *Loop) RunSelected(ctx context.Context, alias, effort, input string, history []ports.Message, options RunOptions) (RunResult, error) {
 	target, ok := l.selected[alias]
 	if !ok || target.Model == nil || target.ModelID == "" {
 		return RunResult{}, fmt.Errorf("model alias %q is not configured", alias)
@@ -69,7 +69,7 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 	result := RunResult{}
 	steps := 0
 	for {
-		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: definitions})
+		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: definitions, ReasoningEffort: effort})
 		if err != nil {
 			return result, err
 		}
@@ -127,8 +127,8 @@ type ImplementationRunResult struct {
 // implementation run should have, rather than relying on lane filtering.
 // onToolCall, if non-nil, fires after each successful non-terminal tool call
 // for progress reporting; it does not fire for the terminal tool itself.
-func (l *Loop) RunImplementation(ctx context.Context, alias string, messages []ports.Message, terminalTool string, onToolCall func(name string)) (json.RawMessage, ports.ModelUsage, error) {
-	result, err := l.RunImplementationWithEvents(ctx, alias, messages, terminalTool, func(event ImplementationEvent) {
+func (l *Loop) RunImplementation(ctx context.Context, alias, effort string, messages []ports.Message, terminalTool string, onToolCall func(name string)) (json.RawMessage, ports.ModelUsage, error) {
+	result, err := l.RunImplementationWithEvents(ctx, alias, effort, messages, terminalTool, func(event ImplementationEvent) {
 		if onToolCall != nil && event.Kind == "tool_end" {
 			onToolCall(event.Call.Name)
 		}
@@ -138,7 +138,7 @@ func (l *Loop) RunImplementation(ctx context.Context, alias string, messages []p
 
 // RunImplementationWithEvents drives the implementation loop while retaining the
 // model-visible transcript and reporting structured tool lifecycle events.
-func (l *Loop) RunImplementationWithEvents(ctx context.Context, alias string, messages []ports.Message, terminalTool string, onEvent func(ImplementationEvent)) (ImplementationRunResult, error) {
+func (l *Loop) RunImplementationWithEvents(ctx context.Context, alias, effort string, messages []ports.Message, terminalTool string, onEvent func(ImplementationEvent)) (ImplementationRunResult, error) {
 	target, ok := l.selected[alias]
 	if !ok || target.Model == nil || target.ModelID == "" {
 		return ImplementationRunResult{}, fmt.Errorf("model alias %q is not configured", alias)
@@ -147,7 +147,7 @@ func (l *Loop) RunImplementationWithEvents(ctx context.Context, alias string, me
 	usage := ports.ModelUsage{}
 	steps := 0
 	for {
-		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: l.defs})
+		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: l.defs, ReasoningEffort: effort})
 		if err != nil {
 			return ImplementationRunResult{Usage: usage, Messages: messages}, err
 		}

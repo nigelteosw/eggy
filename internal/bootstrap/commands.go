@@ -254,10 +254,35 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			if err != nil {
 				return "", true, err
 			}
-			return "Active model: " + active + "\nConfigured models:\n" + strings.Join(aliases, "\n"), true, nil
+			effort, err := s.agentRuntime.ReasoningEffort(ctx)
+			if err != nil {
+				return "", true, err
+			}
+			lines := make([]string, 0, len(aliases))
+			for _, alias := range aliases {
+				line := alias
+				if allowed := s.agentRuntime.ReasoningEfforts(alias); len(allowed) > 0 {
+					line += " [effort: " + strings.Join(allowed, "|") + "]"
+				}
+				lines = append(lines, line)
+			}
+			summary := "Active model: " + active
+			if effort != "" {
+				summary += " (effort: " + effort + ")"
+			}
+			return summary + "\nConfigured models:\n" + strings.Join(lines, "\n"), true, nil
+		}
+		if fields[1] == "effort" {
+			if len(fields) != 3 {
+				return "Usage: /model effort <low|medium|high|max>", true, nil
+			}
+			if err := s.agentRuntime.SelectReasoningEffort(ctx, fields[2]); err != nil {
+				return err.Error(), true, nil
+			}
+			return "Reasoning effort set to " + fields[2] + ".", true, nil
 		}
 		if len(fields) != 2 {
-			return "Usage: /model [alias|default]", true, nil
+			return "Usage: /model [alias|default|effort <level>]", true, nil
 		}
 		if fields[1] == "default" {
 			if err := s.agentRuntime.SelectModel(ctx, ""); err != nil {
@@ -334,17 +359,17 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 				if err != nil {
 					return err.Error(), true, nil
 				}
-				usage := "Usage: /config set model alias=<alias> provider=<provider> model=<model_id>"
+				usage := "Usage: /config set model alias=<alias> provider=<provider> model=<model_id> [reasoning_efforts=<comma_separated_levels>]"
 				for key := range values {
-					if key != "alias" && key != "provider" && key != "model" {
+					if key != "alias" && key != "provider" && key != "model" && key != "reasoning_efforts" {
 						return usage, true, nil
 					}
 				}
-				alias, provider, modelID := values["alias"], values["provider"], values["model"]
+				alias, provider, modelID, reasoningEfforts := values["alias"], values["provider"], values["model"], values["reasoning_efforts"]
 				if alias == "" || provider == "" || modelID == "" {
 					return usage, true, nil
 				}
-				if err := SetModelAlias(s.configPath, alias, provider, modelID); err != nil {
+				if err := SetModelAlias(s.configPath, alias, provider, modelID, reasoningEfforts); err != nil {
 					return err.Error(), true, nil
 				}
 				return "Set model " + alias + ". Restart Eggy for this to take effect.", true, nil
@@ -394,11 +419,11 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		}
 		lines = append(lines, "Local totals are provider-reported and do not replace the provider billing dashboard.")
 		return strings.Join(lines, "\n"), true, nil
-	case "/new":
+	case "/clear":
 		if err := s.conversation.Reset(ctx); err != nil {
 			return "", true, err
 		}
-		return "Started a new conversation. Durable memory is unchanged.", true, nil
+		return "Cleared the context window. Durable memory is unchanged.", true, nil
 	case "/calendar_auth":
 		if !s.config.Calendar.Enabled {
 			return "Calendar is not configured.", true, nil

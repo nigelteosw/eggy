@@ -184,6 +184,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 		providerModels[name] = openaicompat.New(baseURL, secrets.ProviderAPIKeys[name], options.HTTPClient)
 	}
+	efforts := make(map[string][]string, len(config.ModelAliases))
 	for alias, configured := range config.ModelAliases {
 		model := providerModels[configured.Provider]
 		if model == nil {
@@ -191,12 +192,20 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 		aliases = append(aliases, alias)
 		targets[alias] = agent.ModelTarget{Model: model, ModelID: configured.Model}
+		if len(configured.ReasoningEfforts) > 0 {
+			efforts[alias] = configured.ReasoningEfforts
+		}
 	}
 	sort.Strings(aliases)
-	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases)
+	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, efforts)
 	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), 48)
-	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
-		return app.agentRuntime.SelectedModel(ctx)
+	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, string, error) {
+		alias, err := app.agentRuntime.SelectedModel(ctx)
+		if err != nil {
+			return "", "", err
+		}
+		effort, err := app.agentRuntime.ReasoningEffort(ctx)
+		return alias, effort, err
 	})
 	registry := services.NewToolRegistry()
 	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
@@ -389,6 +398,10 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	if err != nil {
 		return err
 	}
+	effort, err := a.agentRuntime.ReasoningEffort(ctx)
+	if err != nil {
+		return err
+	}
 	manifest := a.capabilityManifest(state, alias)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
@@ -397,7 +410,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	}
 	history = append(history, state.RecentMessages...)
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
-	result, runErr := a.loop.RunSelected(ctx, alias, message.Text, history, options)
+	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
 	stopTyping()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if errors.Is(runErr, agent.ErrToolStepLimit) {
@@ -549,12 +562,16 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	effort, err := a.agentRuntime.ReasoningEffort(ctx)
+	if err != nil {
+		return err
+	}
 	manifest := a.capabilityManifest(state, alias)
 	options := readOnlyRunOptions()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
-	result, runErr := a.loop.RunSelected(ctx, alias, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, options)
+	result, runErr := a.loop.RunSelected(ctx, alias, effort, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr

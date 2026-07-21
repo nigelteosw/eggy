@@ -57,8 +57,9 @@ type ProviderConfig struct {
 }
 
 type ModelAliasConfig struct {
-	Provider string `yaml:"provider"`
-	Model    string `yaml:"model"`
+	Provider         string   `yaml:"provider"`
+	Model            string   `yaml:"model"`
+	ReasoningEfforts []string `yaml:"reasoning_efforts,omitempty"`
 }
 
 type ServerConfig struct {
@@ -309,6 +310,7 @@ var (
 	branchPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 	configuredNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	environmentNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+	validReasoningEfforts  = map[string]bool{"low": true, "medium": true, "high": true, "max": true}
 )
 
 func (c Config) Validate() error {
@@ -418,6 +420,11 @@ func (c Config) validateProviders() error {
 		}
 		if _, ok := c.Providers[model.Provider]; !ok {
 			return fmt.Errorf("model alias %q references unknown provider %q", alias, model.Provider)
+		}
+		for _, effort := range model.ReasoningEfforts {
+			if !validReasoningEfforts[effort] {
+				return fmt.Errorf("model alias %q has invalid reasoning effort %q", alias, effort)
+			}
 		}
 	}
 	if _, ok := c.ModelAliases[c.Agent.DefaultModel]; !ok {

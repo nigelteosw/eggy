@@ -83,13 +83,14 @@ func configSetModel(configPath string, arguments []string) (string, error) {
 	alias := flags.String("alias", "", "model alias")
 	provider := flags.String("provider", "", "provider name")
 	model := flags.String("model", "", "model ID")
+	reasoningEfforts := flags.String("reasoning-efforts", "", "comma-separated reasoning-effort levels this alias supports, e.g. low,medium,high,max")
 	if err := flags.Parse(arguments); err != nil {
 		return "", err
 	}
 	if *alias == "" || *provider == "" || *model == "" {
-		return "", fmt.Errorf("usage: eggy config set model --alias=<alias> --provider=<provider> --model=<model_id>")
+		return "", fmt.Errorf("usage: eggy config set model --alias=<alias> --provider=<provider> --model=<model_id> [--reasoning-efforts=<comma_separated_levels>]")
 	}
-	if err := bootstrap.SetModelAlias(configPath, *alias, *provider, *model); err != nil {
+	if err := bootstrap.SetModelAlias(configPath, *alias, *provider, *model, *reasoningEfforts); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Set model %s. Restart Eggy for this to take effect.", *alias), nil

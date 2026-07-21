@@ -35,13 +35,13 @@ type ImplementationRequest struct {
 // file/terminal tools instead of an external CLI subprocess.
 type NativeImplementer struct {
 	loop     *agent.Loop
-	aliasFor func(context.Context) (string, error)
+	aliasFor func(context.Context) (alias, effort string, err error)
 
 	mu     sync.Mutex
 	active map[string]context.CancelFunc
 }
 
-func NewNativeImplementer(loop *agent.Loop, aliasFor func(context.Context) (string, error)) *NativeImplementer {
+func NewNativeImplementer(loop *agent.Loop, aliasFor func(context.Context) (alias, effort string, err error)) *NativeImplementer {
 	return &NativeImplementer{loop: loop, aliasFor: aliasFor, active: map[string]context.CancelFunc{}}
 }
 
@@ -63,7 +63,7 @@ func (n *NativeImplementer) Implement(ctx context.Context, request Implementatio
 		n.mu.Unlock()
 	}()
 
-	alias, err := n.aliasFor(runContext)
+	alias, effort, err := n.aliasFor(runContext)
 	if err != nil {
 		return ports.CodingResult{}, err
 	}
@@ -71,7 +71,7 @@ func (n *NativeImplementer) Implement(ctx context.Context, request Implementatio
 	messages := []ports.Message{{Role: ports.RoleSystem, Content: implementationSystemPrompt}}
 	messages = append(messages, request.History...)
 	messages = append(messages, ports.Message{Role: ports.RoleUser, Content: instruction})
-	runResult, err := n.loop.RunImplementationWithEvents(runContext, alias, messages, "finish_implementation", func(event agent.ImplementationEvent) {
+	runResult, err := n.loop.RunImplementationWithEvents(runContext, alias, effort, messages, "finish_implementation", func(event agent.ImplementationEvent) {
 		if onEvent != nil {
 			onEvent(implementationSessionEvent(event))
 		}

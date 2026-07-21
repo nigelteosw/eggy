@@ -16,7 +16,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, Usage: ports.ModelUsage{PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6}},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, 4)
-	result, err := loop.RunSelected(context.Background(), "deepseek-pro", "status", nil, RunOptions{})
+	result, err := loop.RunSelected(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
 	if err != nil || result.Message.Content != "ready" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -28,7 +28,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 			t.Fatalf("model=%q", request.Model)
 		}
 	}
-	if _, err := loop.RunSelected(context.Background(), "missing", "hello", nil, RunOptions{}); err == nil {
+	if _, err := loop.RunSelected(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
 		t.Fatal("expected unknown alias error")
 	}
 }
@@ -38,7 +38,7 @@ func TestLoopFiltersTools(t *testing.T) {
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, 4)
-	if _, err := loop.RunSelected(context.Background(), "model", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
+	if _, err := loop.RunSelected(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests) != 1 || len(model.requests[0].Tools) != 1 || model.requests[0].Tools[0].Name != "status" {
@@ -52,7 +52,7 @@ func TestLoopOffersAllToolsWithoutAnAllowlist(t *testing.T) {
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, 4)
 
-	if _, err := loop.RunSelected(context.Background(), "model", "inspect", nil, RunOptions{}); err != nil {
+	if _, err := loop.RunSelected(context.Background(), "model", "", "inspect", nil, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests[0].Tools) != 2 {
@@ -80,7 +80,7 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	tool := &fakeTool{name: "repository_modify"}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{tool}, 4)
 
-	_, err := loop.RunSelected(context.Background(), "model", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
+	_, err := loop.RunSelected(context.Background(), "model", "", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
 	if !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("err=%v, want ErrUnknownTool", err)
 	}
@@ -99,7 +99,7 @@ func TestRunImplementationReturnsTerminalToolArguments(t *testing.T) {
 		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
 	}, 4)
 
-	raw, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	raw, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestRunImplementationWithEventsPreservesToolTranscript(t *testing.T) {
 		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
 	}, 4)
 	var kinds []string
-	result, err := loop.RunImplementationWithEvents(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(event ImplementationEvent) {
+	result, err := loop.RunImplementationWithEvents(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(event ImplementationEvent) {
 		kinds = append(kinds, event.Kind)
 	})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestRunImplementationRetriesAfterTerminalToolValidationError(t *testing.T) 
 	finish := &sequencedTool{name: "finish_implementation", errs: []error{errors.New("summary must not be empty"), nil}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{finish}, 4)
 
-	raw, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	raw, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestRunImplementationFailsWhenStepLimitReachedWithoutTerminalTool(t *testin
 		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
 	}, 1)
 
-	_, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	_, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
 	if !errors.Is(err, ErrToolStepLimit) {
 		t.Fatalf("err=%v, want ErrToolStepLimit", err)
 	}
@@ -176,7 +176,7 @@ func TestRunImplementationFailsWhenStepLimitReachedWithoutTerminalTool(t *testin
 
 func TestRunImplementationReportsUnknownModelAlias(t *testing.T) {
 	loop := NewSelectedLoop(nil, nil, 4)
-	if _, _, err := loop.RunImplementation(context.Background(), "missing", nil, "finish_implementation", nil); err == nil {
+	if _, _, err := loop.RunImplementation(context.Background(), "missing", "", nil, "finish_implementation", nil); err == nil {
 		t.Fatal("expected unknown alias error")
 	}
 }
@@ -191,7 +191,7 @@ func TestRunImplementationInvokesOnToolCallForNonTerminalTools(t *testing.T) {
 		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{}`)},
 	}, 4)
 	var called []string
-	if _, _, err := loop.RunImplementation(context.Background(), "model", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(name string) { called = append(called, name) }); err != nil {
+	if _, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(name string) { called = append(called, name) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(called) != 1 || called[0] != "terminal" {

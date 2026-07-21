@@ -10,7 +10,7 @@ import (
 )
 
 func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
-	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"})
+	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "medium", "high", "max"}})
 	ctx := context.Background()
 	if got, err := runtime.SelectedModel(ctx); err != nil || got != "deepseek-pro" {
 		t.Fatalf("selected=%q err=%v", got, err)
@@ -32,8 +32,43 @@ func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
+	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
+	ctx := context.Background()
+
+	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "" {
+		t.Fatalf("effort=%q err=%v, want empty before anything is set", got, err)
+	}
+	if err := runtime.SelectReasoningEffort(ctx, "medium"); err == nil {
+		t.Fatal("expected rejection of an effort level deepseek-pro doesn't support")
+	}
+	if err := runtime.SelectReasoningEffort(ctx, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "high" {
+		t.Fatalf("effort=%q err=%v", got, err)
+	}
+
+	if err := runtime.SelectModel(ctx, "openrouter-pro"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.SelectReasoningEffort(ctx, "high"); err == nil {
+		t.Fatal("expected rejection: openrouter-pro has no configured reasoning efforts")
+	}
+	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "" {
+		t.Fatalf("effort=%q err=%v, want empty once the active model doesn't support the stored value", got, err)
+	}
+
+	if err := runtime.SelectModel(ctx, "deepseek-pro"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "high" {
+		t.Fatalf("effort=%q err=%v, want the earlier selection to apply again", got, err)
+	}
+}
+
 func TestAgentRuntimeRecordsConcurrentUsageAndResets(t *testing.T) {
-	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro"})
+	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro"}, nil)
 	ctx := context.Background()
 	var workers sync.WaitGroup
 	errorsChannel := make(chan error, 16)

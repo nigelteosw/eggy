@@ -27,9 +27,10 @@ func New(baseURL, apiKey string, client *http.Client) *Model {
 }
 
 type requestBody struct {
-	Model    string            `json:"model"`
-	Messages []providerMessage `json:"messages"`
-	Tools    []providerTool    `json:"tools,omitempty"`
+	Model           string            `json:"model"`
+	Messages        []providerMessage `json:"messages"`
+	Tools           []providerTool    `json:"tools,omitempty"`
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
 }
 
 type providerMessage struct {
@@ -59,7 +60,7 @@ type providerToolCall struct {
 }
 
 func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.ModelResponse, error) {
-	body := requestBody{Model: input.Model}
+	body := requestBody{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
 	for _, message := range input.Messages {
 		translated := providerMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
 		for _, call := range message.ToolCalls {

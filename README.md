@@ -83,7 +83,7 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/new`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, and `/usage reset`. Natural language remains the main interface.
 
 `/continue` is owner-triggered only. With no run ID it picks the latest resumable implementation session; a named run ID resumes that exact session. Eggy preserves a compacted tool transcript and shows concise milestones in Telegram, and every resumed result is committed, pushed, and opened as a pull request automatically, the same as a fresh run.
 

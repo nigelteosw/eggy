@@ -42,6 +42,28 @@ func TestImplementationProgressReportsNonZeroValidationExit(t *testing.T) {
 	}
 }
 
+func TestImplementationProgressReportsToolErrorMessage(t *testing.T) {
+	message := implementationProgressMessage(agent.ImplementationEvent{
+		Kind: "tool_error",
+		Call: ports.ToolCall{Name: "patch", Arguments: json.RawMessage(`{"path":"main.go"}`)},
+		Err:  errors.New("old_string not found in main.go"),
+	})
+	if message != "Blocked: patch failed — old_string not found in main.go" {
+		t.Fatalf("message=%q", message)
+	}
+}
+
+func TestImplementationProgressFallsBackToOutputErrorWhenErrIsNil(t *testing.T) {
+	message := implementationProgressMessage(agent.ImplementationEvent{
+		Kind:   "tool_error",
+		Call:   ports.ToolCall{Name: "terminal", Arguments: json.RawMessage(`{"command":"go test ./..."}`)},
+		Output: `{"error":"command timed out"}`,
+	})
+	if message != "Blocked: terminal failed — command timed out" {
+		t.Fatalf("message=%q", message)
+	}
+}
+
 func TestNativeImplementerRejectsConcurrentRunsWithSameID(t *testing.T) {
 	block := &blockingModel{unblock: make(chan struct{}), started: make(chan struct{})}
 	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)

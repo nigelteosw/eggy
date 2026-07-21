@@ -182,7 +182,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		if override := options.ProviderBaseURLs[name]; override != "" {
 			baseURL = override
 		}
-		providerModels[name] = openaicompat.New(baseURL, secrets.ProviderAPIKeys[name], options.HTTPClient)
+		switch provider.Adapter {
+		case "openai_compatible":
+			providerModels[name] = openaicompat.New(baseURL, secrets.ProviderAPIKeys[name], options.HTTPClient)
+		default:
+			return nil, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
+		}
 	}
 	efforts := make(map[string][]string, len(config.ModelAliases))
 	for alias, configured := range config.ModelAliases {

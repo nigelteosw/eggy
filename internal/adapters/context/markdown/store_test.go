@@ -22,6 +22,9 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") {
 		t.Fatalf("context=%#v", loaded)
 	}
+	if loaded.MaxBytes != 64<<10 {
+		t.Fatalf("MaxBytes=%d", loaded.MaxBytes)
+	}
 	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil || info.Mode().Perm() != 0o600 {

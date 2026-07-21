@@ -60,6 +60,29 @@ func TestBuildInstructionsRendersCustomPromptsBetweenMemoryAndTemporal(t *testin
 	}
 }
 
+func TestBuildInstructionsRendersCapacityIndicatorForUserAndMemory(t *testing.T) {
+	context := ports.AgentContext{Soul: "SOUL-CONTENT", User: "0123456789", Memory: "01234567890123456789", MaxBytes: 100}
+	messages := BuildInstructions(context, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
+	user, memory := messages[3].Content, messages[4].Content
+	if !strings.Contains(user, "[10% - 10/100 bytes]") {
+		t.Fatalf("user=%s", user)
+	}
+	if !strings.Contains(memory, "[20% - 20/100 bytes]") {
+		t.Fatalf("memory=%s", memory)
+	}
+	if strings.Contains(messages[2].Content, "%") {
+		t.Fatalf("soul unexpectedly annotated: %s", messages[2].Content)
+	}
+}
+
+func TestBuildInstructionsOmitsCapacityIndicatorWhenMaxBytesUnknown(t *testing.T) {
+	context := ports.AgentContext{User: "USER-CONTENT", Memory: "MEMORY-CONTENT"}
+	messages := BuildInstructions(context, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
+	if strings.Contains(messages[3].Content, "%") || strings.Contains(messages[4].Content, "%") {
+		t.Fatalf("unexpected capacity indicator: user=%s memory=%s", messages[3].Content, messages[4].Content)
+	}
+}
+
 func TestRegisterPromptSectionExtendsWithoutEditingBuildInstructions(t *testing.T) {
 	before := len(promptSections)
 	RegisterPromptSection(PromptSection{

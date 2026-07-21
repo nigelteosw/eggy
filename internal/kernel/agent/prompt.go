@@ -85,13 +85,13 @@ func init() {
 	RegisterPromptSection(PromptSection{
 		ID: "user", Priority: 30,
 		Render: func(context ports.AgentContext, _ CapabilityManifest, _ TemporalContext) (string, bool) {
-			return "Potentially stale agent-curated USER.md:\n" + context.User, true
+			return "Potentially stale agent-curated USER.md" + capacityIndicator(context.User, context.MaxBytes) + ":\n" + context.User, true
 		},
 	})
 	RegisterPromptSection(PromptSection{
 		ID: "memory", Priority: 40,
 		Render: func(context ports.AgentContext, _ CapabilityManifest, _ TemporalContext) (string, bool) {
-			return "Potentially stale agent-curated MEMORY.md:\n" + context.Memory, true
+			return "Potentially stale agent-curated MEMORY.md" + capacityIndicator(context.Memory, context.MaxBytes) + ":\n" + context.Memory, true
 		},
 	})
 	RegisterPromptSection(PromptSection{
@@ -106,6 +106,19 @@ func init() {
 			return fmt.Sprintf("Trusted temporal context\ncurrent_time: %s\ntimezone: %s", temporal.Now.Format(time.RFC3339), temporal.Timezone), true
 		},
 	})
+}
+
+// capacityIndicator renders how full a curated document is against its
+// enforced byte cap, e.g. " [12% - 812/65536 bytes]", so the model can decide
+// to consolidate before a write is rejected for exceeding the cap. It
+// returns "" when maxBytes is unknown (zero or negative).
+func capacityIndicator(content string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	used := int64(len(content))
+	percent := used * 100 / maxBytes
+	return fmt.Sprintf(" [%d%% - %d/%d bytes]", percent, used, maxBytes)
 }
 
 func renderCapabilityManifest(capability CapabilityManifest) string {

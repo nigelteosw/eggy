@@ -89,7 +89,13 @@ The gap is intentional: Eggy stays file-backed, single-volume, and
 provider-neutral rather than adding a database, search index, or skills
 runtime purely to match Hermes.
 
-- [ ] Set explicit injected-size budgets for `USER.md` and `MEMORY.md`.
+- [x] Show a live capacity indicator (`[N% - used/max bytes]`) alongside
+      `USER.md` and `MEMORY.md` in the system prompt, mirroring Hermes's
+      "[67% — 1,474/2,200 chars]" snapshot annotation, so the model can see
+      how full a document is before it writes.
+- [ ] Set explicit, separate injected-size budgets for `USER.md` and
+      `MEMORY.md` (today they share one `ContextStore`-wide byte cap with
+      `SOUL.md` and custom prompts, unlike Hermes's distinct per-file caps).
 - [ ] Keep `USER.md` for stable owner preferences and communication style.
 - [ ] Keep `MEMORY.md` for compact durable facts, decisions, and reusable lessons.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and invisible

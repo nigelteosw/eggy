@@ -61,7 +61,7 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	return ports.AgentContext{Soul: soul, User: user, Memory: memory, Prompts: prompts}, nil
+	return ports.AgentContext{Soul: soul, User: user, Memory: memory, MaxBytes: s.maxBytes, Prompts: prompts}, nil
 }
 
 func (s *Store) loadPrompts() ([]ports.NamedPrompt, error) {

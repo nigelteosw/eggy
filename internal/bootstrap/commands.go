@@ -32,6 +32,7 @@ type CommandService struct {
 	configPath   string
 	modelAliases []string
 	now          func() time.Time
+	restart      chan<- struct{}
 }
 
 func (s *CommandService) Execute(ctx context.Context, input string) (string, bool, error) {
@@ -190,6 +191,9 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 			lines = append(lines, fmt.Sprintf("%s  %s  next %s", id, schedule.Kind, schedule.NextRun.Format("2006-01-02 15:04 MST")))
 		}
 		return strings.Join(lines, "\n"), true, nil
+	case "/restart":
+		s.restart <- struct{}{}
+		return "Restarting Eggy... back in a moment! 🥚💤", true, nil
 	case "/memory":
 		if s.context == nil {
 			return "Memory is not configured.", true, nil
@@ -481,6 +485,7 @@ func commandHelp(command string) string {
 		"usage":         "Show or reset local token usage counters — /usage [reset]",
 		"clear":         "Clear the context window (durable memory is unchanged)",
 		"calendar_auth": "Start Google Calendar enrollment",
+		"restart":       "Restart the Eggy server — /restart",
 		"help":          "Show available commands or usage for a specific command — /help [command]",
 		"start":         "Show the welcome message",
 	}
@@ -492,7 +497,7 @@ func commandHelp(command string) string {
 	}
 	lines := make([]string, 0, len(descriptions))
 	// stable order
-	order := []string{"start", "help", "status", "repositories", "runs", "continue", "stop", "schedules", "memory", "model", "config", "prompts", "usage", "clear", "calendar_auth"}
+	order := []string{"start", "help", "status", "repositories", "runs", "continue", "stop", "schedules", "restart", "memory", "model", "config", "prompts", "usage", "clear", "calendar_auth"}
 	for _, name := range order {
 		if desc, ok := descriptions[name]; ok {
 			lines = append(lines, "/"+name+" — "+desc)

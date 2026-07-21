@@ -50,8 +50,12 @@ func run() error {
 	server := &http.Server{Addr: config.Server.Listen, Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 2 * time.Minute, IdleTimeout: 2 * time.Minute}
 	errorsChannel := make(chan error, 2)
 	go func() {
-		if err := app.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			errorsChannel <- err
+		if err := app.Run(ctx); err != nil {
+			if errors.Is(err, bootstrap.ErrRestart) {
+				errorsChannel <- nil // signal clean restart
+			} else if !errors.Is(err, context.Canceled) {
+				errorsChannel <- err
+			}
 		}
 	}()
 	go func() {
@@ -63,7 +67,14 @@ func run() error {
 	select {
 	case err := <-errorsChannel:
 		stop()
-		return err
+		if err != nil {
+			return err
+		}
+		// clean restart: graceful shutdown for process manager
+		slog.Info("eggyd restarting gracefully")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
 	case <-ctx.Done():
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()

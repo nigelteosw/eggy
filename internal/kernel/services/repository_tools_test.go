@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -17,12 +16,8 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 		"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}},
 	}
 	worker := &fakeRepositoryWorker{}
-	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1", Action: approvals.Commit, Status: approvals.Pending}}
-	var delivered approvals.Approval
-	tools := NewRepositoryTools(store, worker, requester, func() string { return "run-1" }, nil, func(_ context.Context, approval approvals.Approval) error {
-		delivered = approval
-		return nil
-	})
+	shipper := &fakeShipper{pr: ports.PullRequest{URL: "https://example.com/pr/1", Number: 1}}
+	tools := NewRepositoryTools(store, worker, shipper, func() string { return "run-1" }, nil)
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
@@ -34,8 +29,8 @@ func TestRepositoryToolsListInspectAndModify(t *testing.T) {
 	modified, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","instruction":"fix tests"}`))
 	var modifyResult map[string]any
 	_ = json.Unmarshal(modified, &modifyResult)
-	if err != nil || modifyResult["status"] != "awaiting_owner" || modifyResult["branch"] != "eggy/run-1" || modifyResult["base_revision"] != "abc123" || modifyResult["commit_created"] != false || modifyResult["next_action"] != "approve_commit" || modifyResult["approval_flow"] != "commit -> push -> pull_request" || requester.runID != "run-1" || delivered.ID != "approval-1" {
-		t.Fatalf("modified=%s requester=%#v delivered=%#v err=%v", modified, requester, delivered, err)
+	if err != nil || modifyResult["status"] != "shipped" || modifyResult["branch"] != "eggy/run-1" || modifyResult["pull_request_url"] != "https://example.com/pr/1" || modifyResult["pull_request_number"] != float64(1) || shipper.runID != "run-1" || shipper.branch != "eggy/run-1" || shipper.commitMessage != "fix: tests" {
+		t.Fatalf("modified=%s shipper=%#v err=%v", modified, shipper, err)
 	}
 	if _, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","instruction":"fix tests"}`)); err == nil {
 		t.Fatal("expected unknown repository error")
@@ -46,11 +41,10 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
 	worker := &fakeRepositoryWorker{}
-	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-1"}}
+	shipper := &fakeShipper{}
 	var received []ports.CodingProgress
-	tools := NewRepositoryTools(store, worker, requester, func() string { return "run-42" },
-		func(progress ports.CodingProgress) { received = append(received, progress) },
-		func(context.Context, approvals.Approval) error { return nil })
+	tools := NewRepositoryTools(store, worker, shipper, func() string { return "run-42" },
+		func(progress ports.CodingProgress) { received = append(received, progress) })
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
@@ -63,24 +57,42 @@ func TestRepositoryModifyStampsRunIDOnProgressEvents(t *testing.T) {
 	}
 }
 
-func TestRepositoryContinueResumesNamedRunAndRequestsFreshCommitApproval(t *testing.T) {
+func TestRepositoryContinueResumesNamedRunAndShipsIt(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
 	worker := &fakeRepositoryWorker{}
-	requester := &fakeCommitRequester{approval: approvals.Approval{ID: "approval-2", Action: approvals.Commit}}
-	tools := NewRepositoryTools(store, worker, requester, func() string { return "unused" }, nil, nil)
+	shipper := &fakeShipper{pr: ports.PullRequest{URL: "https://example.com/pr/9", Number: 9}}
+	tools := NewRepositoryTools(store, worker, shipper, func() string { return "unused" }, nil)
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
 	}
 	result, err := byName["repository_continue"].Execute(context.Background(), json.RawMessage(`{"run_id":"run-9","instruction":"fix the next failing test"}`))
-	if err != nil || !strings.Contains(string(result), `"run_id":"run-9"`) || requester.runID != "run-9" || worker.resumedRunID != "run-9" || worker.resumedInstruction != "fix the next failing test" {
-		t.Fatalf("result=%s requester=%#v worker=%#v err=%v", result, requester, worker, err)
+	if err != nil || !strings.Contains(string(result), `"run_id":"run-9"`) || shipper.runID != "run-9" || worker.resumedRunID != "run-9" || worker.resumedInstruction != "fix the next failing test" {
+		t.Fatalf("result=%s shipper=%#v worker=%#v err=%v", result, shipper, worker, err)
+	}
+}
+
+func TestRepositoryModifyReportsPartialShipNote(t *testing.T) {
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	worker := &fakeRepositoryWorker{}
+	shipper := &fakeShipper{note: "Committed. Push is unavailable for the configured repository provider."}
+	tools := NewRepositoryTools(store, worker, shipper, func() string { return "run-1" }, nil)
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+	result, err := byName["repository_modify"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","instruction":"fix tests"}`))
+	var modifyResult map[string]any
+	_ = json.Unmarshal(result, &modifyResult)
+	if err != nil || modifyResult["status"] != "partial" || modifyResult["note"] != shipper.note {
+		t.Fatalf("result=%s err=%v", result, err)
 	}
 }
 
 func TestRepositoryListReportsNotConfigured(t *testing.T) {
-	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeCommitRequester{}, func() string { return "run" }, nil, nil)
+	tools := NewRepositoryTools(newMemoryStore(), &fakeRepositoryWorker{}, &fakeShipper{}, func() string { return "run" }, nil)
 	result, err := tools[0].Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil || !strings.Contains(string(result), `"status":"not_configured"`) {
 		t.Fatalf("result=%s err=%v", result, err)
@@ -107,13 +119,15 @@ func (w *fakeRepositoryWorker) Resume(_ context.Context, runID, instruction stri
 	return ports.CodingRun{ID: runID, Repository: "eggy", Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "continued", Validation: "tests pass", CommitMessage: "fix: continue", ChangedFiles: []string{"main.go"}}, nil
 }
 
-type fakeCommitRequester struct {
-	approval approvals.Approval
-	runID    string
-	message  string
+type fakeShipper struct {
+	pr            ports.PullRequest
+	note          string
+	runID         string
+	branch        string
+	commitMessage string
 }
 
-func (r *fakeCommitRequester) RequestCommit(_ context.Context, runID, message string) (approvals.Approval, error) {
-	r.runID, r.message = runID, message
-	return r.approval, nil
+func (s *fakeShipper) Ship(_ context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error) {
+	s.runID, s.branch, s.commitMessage = runID, branch, commitMessage
+	return s.pr, s.note, nil
 }

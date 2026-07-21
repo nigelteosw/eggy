@@ -143,16 +143,15 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		if err != nil {
 			return err.Error(), true, nil
 		}
-		approval, err := s.shipping.RequestCommit(ctx, run.ID, result.CommitMessage)
+		pr, note, err := s.shipping.Ship(ctx, run.ID, run.Branch, result.CommitMessage)
 		if err != nil {
 			return err.Error(), true, nil
 		}
-		if s.channel != nil {
-			if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
-				return "", true, err
-			}
+		if note != "" {
+			return "Implementation session " + run.ID + ": " + note, true, nil
 		}
-		return "Implementation session " + run.ID + " is ready for commit approval.", true, nil
+		_ = s.coding.Cleanup(ctx, run.ID)
+		return fmt.Sprintf("Implementation session %s shipped: %s", run.ID, pr.URL), true, nil
 	case "/stop":
 		if len(fields) != 2 {
 			return "Usage: /stop <run-id>", true, nil

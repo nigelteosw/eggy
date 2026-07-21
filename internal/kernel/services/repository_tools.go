@@ -6,7 +6,6 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -18,8 +17,16 @@ type RepositoryResumer interface {
 	Resume(context.Context, string, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
 }
 
-type CommitApprovalRequester interface {
-	RequestCommit(context.Context, string, string) (approvals.Approval, error)
+// Shipper runs the commit -> push -> pull-request chain unattended and
+// returns the resulting pull request, or a non-empty note when the chain
+// stopped short (an unavailable capability or a protected branch).
+type Shipper interface {
+	Ship(ctx context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error)
+}
+
+// RunCleaner destroys a completed run's temporary workspace.
+type RunCleaner interface {
+	Cleanup(context.Context, string) error
 }
 
 type repositoryTool struct {
@@ -35,10 +42,9 @@ func (t repositoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.
 func NewRepositoryTools(
 	store ports.StateStore,
 	modifier RepositoryModifier,
-	approvalRequester CommitApprovalRequester,
+	shipper Shipper,
 	newRunID func() string,
 	progress func(ports.CodingProgress),
-	deliverApproval func(context.Context, approvals.Approval) error,
 ) []ports.Tool {
 	list := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
@@ -73,7 +79,7 @@ func NewRepositoryTools(
 	}
 
 	modify := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the bounded implementation loop and requests commit approval. When provider capabilities are ready, Eggy automatically chains separate push and pull-request approvals; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
+		Name: "repository_modify", Description: "Use only for an explicit owner request to change a configured repository; runs the bounded implementation loop, then automatically commits, pushes, and opens a pull request without further owner approval. Report the pull-request URL from the result; never tell the owner to recover the temporary workspace manually", Schema: json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["repository","instruction"],"additionalProperties":false}`),
 	}}
 	modify.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -87,7 +93,7 @@ func NewRepositoryTools(
 		if err != nil {
 			return nil, err
 		}
-		if modifier == nil || approvalRequester == nil || newRunID == nil {
+		if modifier == nil || shipper == nil || newRunID == nil {
 			return nil, errors.New("repository modification is unavailable")
 		}
 		runID := newRunID()
@@ -102,24 +108,11 @@ func NewRepositoryTools(
 		if err != nil {
 			return nil, err
 		}
-		approval, err := approvalRequester.RequestCommit(ctx, run.ID, result.CommitMessage)
-		if err != nil {
-			return nil, err
-		}
-		if deliverApproval != nil {
-			if err := deliverApproval(ctx, approval); err != nil {
-				return nil, err
-			}
-		}
-		return json.Marshal(map[string]any{
-			"status": "awaiting_owner", "run_id": run.ID, "branch": run.Branch, "base_revision": run.BaseRevision, "approval_id": approval.ID,
-			"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
-			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
-		})
+		return shipResult(ctx, shipper, modifier, run, result)
 	}
 
 	resume := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_continue", Description: "Use only when the owner explicitly asks to continue or resume a named Eggy coding run. It resumes the durable workspace and requests a new independent commit approval.", Schema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["run_id","instruction"],"additionalProperties":false}`),
+		Name: "repository_continue", Description: "Use only when the owner explicitly asks to continue or resume a named Eggy coding run. It resumes the durable workspace, then automatically commits, pushes, and opens a pull request without further owner approval.", Schema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["run_id","instruction"],"additionalProperties":false}`),
 	}}
 	resume.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -130,7 +123,7 @@ func NewRepositoryTools(
 			return nil, err
 		}
 		resumer, ok := modifier.(RepositoryResumer)
-		if !ok || approvalRequester == nil {
+		if !ok || shipper == nil {
 			return nil, errors.New("repository continuation is unavailable")
 		}
 		trackedProgress := progress
@@ -144,22 +137,34 @@ func NewRepositoryTools(
 		if err != nil {
 			return nil, err
 		}
-		approval, err := approvalRequester.RequestCommit(ctx, run.ID, result.CommitMessage)
-		if err != nil {
-			return nil, err
-		}
-		if deliverApproval != nil {
-			if err := deliverApproval(ctx, approval); err != nil {
-				return nil, err
-			}
-		}
-		return json.Marshal(map[string]any{
-			"status": "awaiting_owner", "run_id": run.ID, "branch": run.Branch, "base_revision": run.BaseRevision, "approval_id": approval.ID,
-			"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
-			"commit_created": false, "next_action": "approve_commit", "approval_flow": "commit -> push -> pull_request",
-		})
+		return shipResult(ctx, shipper, modifier, run, result)
 	}
 	return []ports.Tool{list, modify, resume}
+}
+
+// shipResult runs the automatic commit/push/pull-request chain for a
+// completed implementation run and formats the tool result the model reports
+// back to the owner.
+func shipResult(ctx context.Context, shipper Shipper, modifier RepositoryModifier, run ports.CodingRun, result ports.CodingResult) (json.RawMessage, error) {
+	pr, note, err := shipper.Ship(ctx, run.ID, run.Branch, result.CommitMessage)
+	if err != nil {
+		return nil, err
+	}
+	if note != "" {
+		return json.Marshal(map[string]any{
+			"status": "partial", "run_id": run.ID, "branch": run.Branch,
+			"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
+			"note": note,
+		})
+	}
+	if cleaner, ok := modifier.(RunCleaner); ok {
+		_ = cleaner.Cleanup(ctx, run.ID)
+	}
+	return json.Marshal(map[string]any{
+		"status": "shipped", "run_id": run.ID, "branch": run.Branch,
+		"summary": result.Summary, "validation": result.Validation, "changed_files": result.ChangedFiles,
+		"pull_request_url": pr.URL, "pull_request_number": pr.Number,
+	})
 }
 
 func loadRepositories(ctx context.Context, store ports.StateStore) (map[string]ports.Repository, error) {

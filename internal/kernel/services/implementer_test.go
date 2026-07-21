@@ -13,7 +13,7 @@ import (
 func TestNativeImplementerReturnsStructuredResultAndReportsToolProgress(t *testing.T) {
 	model := &sequencedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "terminal", Arguments: json.RawMessage(`{"command":"ls"}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done","changed_files":["main.go"]}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","validation":"go test ./... passed","commit_message":"feat: done","changed_files":["main.go"]}`)}}}},
 	}}
 	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })

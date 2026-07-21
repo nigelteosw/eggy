@@ -288,13 +288,17 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	}
 }
 
-// TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer proves
-// the full native path end to end with no CLI subprocess and no real
-// model/GitHub call: an explicit implementation request clones a real local
-// git remote, the model calls repository_modify, the bounded implementation
-// loop reads a file and then calls finish_implementation, and Eggy reaches
-// a pending commit approval from that structured result.
-func TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer(t *testing.T) {
+// TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer proves the
+// full native path end to end with no CLI subprocess and no real model call:
+// an explicit implementation request clones a real local git remote, the
+// model calls repository_modify, the bounded implementation loop reads a
+// file and then calls finish_implementation, and Eggy commits and pushes
+// that result without pausing for an owner tap. Pull-request creation is
+// exercised against a local, non-GitHub-shaped remote, so it fails on the
+// owner/repository slug rather than succeeding; the test only asserts on the
+// parts that don't depend on a real GitHub API (commit, push, no pending
+// approval).
+func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	remote := createLocalGitRemote(t)
 	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
@@ -313,12 +317,14 @@ func TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer(t *testin
 			case 2:
 				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-2","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			case 3:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-3","type":"function","function":{"name":"finish_implementation","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"none needed\",\"commit_message\":\"docs: note reviewed\",\"changed_files\":[]}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-3","type":"function","function":{"name":"patch","arguments":"{\"path\":\"README.md\",\"old_string\":\"initial\",\"new_string\":\"initial\\nreviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+			case 4:
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-4","type":"function","function":{"name":"finish_implementation","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"none needed\",\"commit_message\":\"docs: note reviewed\",\"changed_files\":[\"README.md\"]}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			default:
 				// The outer loop asks once more for a final reply after
 				// seeing the repository_modify tool result; this is that
 				// wrap-up turn, not part of the implementation loop.
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Implemented and awaiting your approval."}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Implemented and shipped."}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			}
 		case strings.Contains(request.URL.Path, "sendMessage"):
 			body, _ := io.ReadAll(request.Body)
@@ -338,8 +344,8 @@ func TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer(t *testin
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "implement-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
-	if len(modelBodies) != 4 {
-		t.Fatalf("model requests=%d, want 4 (repository_modify, read_file, finish_implementation, wrap-up reply): %q", len(modelBodies), modelBodies)
+	if len(modelBodies) != 5 {
+		t.Fatalf("model requests=%d, want 5 (repository_modify, read_file, patch, finish_implementation, wrap-up reply): %q", len(modelBodies), modelBodies)
 	}
 	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
 		t.Fatalf("first turn did not offer repository_modify: %s", modelBodies[0])
@@ -355,28 +361,21 @@ func TestRepositoryModifyReachesCommitApprovalThroughNativeImplementer(t *testin
 	for _, candidate := range state.CodingRuns {
 		run = candidate
 	}
-	if run.Status != "completed" || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") {
+	if run.Status != "completed" || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
 		t.Fatalf("run=%#v", run)
 	}
-	pending := 0
-	var commitApprovalID string
 	for id, approval := range state.Approvals {
-		if approval.Action == approvals.Commit && approval.Status == approvals.Pending {
-			pending++
-			commitApprovalID = id
+		if approval.Status == approvals.Pending {
+			t.Fatalf("expected no pending approvals once shipping is automatic, found %q: %#v", id, approval)
 		}
 	}
-	if pending != 1 {
-		t.Fatalf("expected exactly one pending commit approval, got %d: %#v", pending, state.Approvals)
+	if len(delivered) == 0 {
+		t.Fatalf("expected a delivered Telegram reply")
 	}
-	foundApproval := false
 	for _, message := range delivered {
-		if strings.Contains(string(message), "approval:"+commitApprovalID+":approve") {
-			foundApproval = true
+		if strings.Contains(string(message), "approval:") {
+			t.Fatalf("did not expect an approval prompt once shipping is automatic: %q", message)
 		}
-	}
-	if !foundApproval {
-		t.Fatalf("no delivered Telegram message offered to approve commit approval %q: %q", commitApprovalID, delivered)
 	}
 }
 

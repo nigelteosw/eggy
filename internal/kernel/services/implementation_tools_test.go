@@ -96,16 +96,19 @@ func TestWriteFileToolCreatesFileAndParentDirectories(t *testing.T) {
 	}
 }
 
-func TestFinishImplementationToolRequiresSummaryAndCommitMessage(t *testing.T) {
+func TestFinishImplementationToolRequiresSummaryValidationAndCommitMessage(t *testing.T) {
 	tools := NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{})
 	byName := implementationToolsByName(tools)
 	if _, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"commit_message":"x"}`)); err == nil {
 		t.Fatal("expected summary required error")
 	}
-	if _, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"summary":"done"}`)); err == nil {
+	if _, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"summary":"done","validation":"go test ./... passed"}`)); err == nil {
 		t.Fatal("expected commit_message required error")
 	}
-	result, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`))
+	if _, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)); err == nil {
+		t.Fatal("expected validation required error")
+	}
+	result, err := byName["finish_implementation"].Execute(context.Background(), json.RawMessage(`{"summary":"done","validation":"go test ./... passed","commit_message":"feat: done"}`))
 	if err != nil || !strings.Contains(string(result), "received") {
 		t.Fatalf("result=%s err=%v", result, err)
 	}

@@ -18,7 +18,14 @@ type ShippingService struct {
 	pullRequests ports.PullRequestProvider
 	capabilities ports.RepositoryCapabilities
 	requester    ApprovalRequester
+	decider      ApprovalDecider
 	sessions     ImplementationSessionLifecycle
+}
+
+// ApprovalDecider immediately decides a pending approval, standing in for a
+// human Telegram tap so Ship can run the commit/push/PR chain unattended.
+type ApprovalDecider interface {
+	Decide(ctx context.Context, id string, approved bool) error
 }
 
 // ImplementationSessionLifecycle captures shipping milestones without making
@@ -34,6 +41,66 @@ var (
 )
 
 func (s *ShippingService) SetApprovalRequester(requester ApprovalRequester) { s.requester = requester }
+
+func (s *ShippingService) SetApprovalDecider(decider ApprovalDecider) { s.decider = decider }
+
+// Ship runs commit, push, and pull-request creation back to back, deciding
+// each step's approval itself instead of waiting for an owner Telegram tap.
+// It returns the created pull request, or a non-empty note describing where
+// the chain stopped (an unavailable capability or a protected branch) with a
+// nil error, since those are expected outcomes rather than failures.
+func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error) {
+	if s.decider == nil {
+		return ports.PullRequest{}, "", errors.New("automatic shipping approval is unavailable")
+	}
+	commitApproval, err := s.RequestCommit(ctx, runID, commitMessage)
+	if err != nil {
+		return ports.PullRequest{}, "", err
+	}
+	if err := s.decider.Decide(ctx, commitApproval.ID, true); err != nil {
+		return ports.PullRequest{}, "", err
+	}
+	if _, err := s.ExecuteApproved(ctx, commitApproval); err != nil {
+		return ports.PullRequest{}, "", err
+	}
+
+	pushApproval, err := s.RequestPush(ctx, runID, branch)
+	if err != nil {
+		if errors.Is(err, ErrRepositoryPushUnavailable) {
+			return ports.PullRequest{}, "Committed. Push is unavailable for the configured repository provider.", nil
+		}
+		return ports.PullRequest{}, "", err
+	}
+	if err := s.decider.Decide(ctx, pushApproval.ID, true); err != nil {
+		return ports.PullRequest{}, "", err
+	}
+	if _, err := s.ExecuteApproved(ctx, pushApproval); err != nil {
+		if errors.Is(err, approvals.ErrProtectedBranch) {
+			return ports.PullRequest{}, "Committed, but " + branch + " is a protected branch; push was denied.", nil
+		}
+		return ports.PullRequest{}, "", err
+	}
+
+	prApproval, err := s.RequestPullRequest(ctx, runID, branch, "Eggy: "+branch, "Automated by Eggy after a validated implementation run.")
+	if err != nil {
+		if errors.Is(err, ErrPullRequestUnavailable) {
+			return ports.PullRequest{}, "Pushed. Pull-request creation is unavailable for the configured repository provider.", nil
+		}
+		return ports.PullRequest{}, "", err
+	}
+	if err := s.decider.Decide(ctx, prApproval.ID, true); err != nil {
+		return ports.PullRequest{}, "", err
+	}
+	result, err := s.ExecuteApproved(ctx, prApproval)
+	if err != nil {
+		return ports.PullRequest{}, "", err
+	}
+	pr, ok := result.(ports.PullRequest)
+	if !ok {
+		return ports.PullRequest{}, "", errors.New("pull-request creation returned an unexpected result")
+	}
+	return pr, "", nil
+}
 
 func (s *ShippingService) SetSessionLifecycle(sessions ImplementationSessionLifecycle) {
 	s.sessions = sessions

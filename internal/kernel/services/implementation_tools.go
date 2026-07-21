@@ -60,7 +60,7 @@ func NewImplementationTools(runner ports.Runner, reader ports.RepositoryReader) 
 	finish := repositoryTool{definition: ports.ToolDefinition{
 		Name:        "finish_implementation",
 		Description: "Call exactly once when the requested change is complete and validated. Ends the run.",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1},"validation":{"type":"string"},"commit_message":{"type":"string","minLength":1},"changed_files":{"type":"array","items":{"type":"string"}}},"required":["summary","commit_message"],"additionalProperties":false}`),
+		Schema:      json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1},"validation":{"type":"string","minLength":1},"commit_message":{"type":"string","minLength":1},"changed_files":{"type":"array","items":{"type":"string"}}},"required":["summary","validation","commit_message"],"additionalProperties":false}`),
 	}}
 	finish.execute = func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -74,6 +74,9 @@ func NewImplementationTools(runner ports.Runner, reader ports.RepositoryReader) 
 		}
 		if strings.TrimSpace(input.Summary) == "" {
 			return nil, errors.New("summary must not be empty")
+		}
+		if strings.TrimSpace(input.Validation) == "" {
+			return nil, errors.New("validation must not be empty: describe the build/test/lint command you ran and its result")
 		}
 		if strings.TrimSpace(input.CommitMessage) == "" {
 			return nil, errors.New("commit_message must not be empty")

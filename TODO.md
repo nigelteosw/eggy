@@ -69,8 +69,11 @@ approval gates.
 - [ ] Record the base commit before execution and the final commit/diff state
       afterward.
 - [ ] Reject changed, incomplete, or truncated approval material.
-- [ ] Preserve separate, expiring, payload-bound approvals for commit, push, and
-      pull-request creation.
+- [x] Preserve separate, expiring, payload-bound approval records for commit,
+      push, and pull-request creation, even though `ShippingService.Ship`
+      decides each one automatically instead of waiting for an owner tap —
+      payload-digest binding, expiry, and protected-branch enforcement all
+      still run unchanged inside `ApprovalService.Authorize`.
 - [ ] Revalidate local and remote heads immediately before protected side
       effects.
 - [ ] Keep protected branches unpushable even with approval.
@@ -233,8 +236,9 @@ runtime purely to match Hermes.
 - [ ] Coding-agent progress is streamed through normalized, provider-neutral
       events.
 - [ ] Eggy independently captures the final diff and validation evidence.
-- [ ] Commit, push, pull-request creation, and Calendar mutations retain separate
-      approval checks.
+- [ ] Commit, push, and pull-request creation retain payload-bound approval
+      records even though they're decided automatically; Calendar mutations
+      still require an explicit owner tap.
 - [ ] Heartbeats and schedules cannot activate a coding agent.
 - [ ] Context, memory, skills, and capability diagnostics remain bounded and
       secret-free.

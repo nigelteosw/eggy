@@ -160,6 +160,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
 	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
 	app.shipping.SetApprovalRequester(app.approvals)
+	app.shipping.SetApprovalDecider(app.approvals)
 	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID)
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
 		approvals.Commit:        app.shipping,
@@ -218,12 +219,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
 	progress := telegram.NewProgressTracker(app.channel, owner)
-	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID,
-		progress.Deliver,
-		func(ctx context.Context, approval approvals.Approval) error {
-			return app.channel.DeliverApproval(ctx, owner, approval)
-		},
-	) {
+	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
@@ -458,38 +454,11 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 	if err != nil {
 		return err
 	}
-	if approval.Action == approvals.Commit {
-		var payload struct{ RunID string }
-		_ = json.Unmarshal(approval.Payload, &payload)
-		updated, _ := a.store.Load(ctx)
-		run := updated.CodingRuns[payload.RunID]
-		next, err := a.shipping.RequestPush(ctx, payload.RunID, run.Branch)
-		if err != nil {
-			if errors.Is(err, services.ErrRepositoryPushUnavailable) {
-				return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Committed %v. Push is unavailable for the configured repository provider.", result))
-			}
-			return err
-		}
-		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Committed %v.", result)); err != nil {
-			return err
-		}
-		return a.channel.DeliverApproval(ctx, chatID, next)
-	}
-	if approval.Action == approvals.Push {
-		var payload struct{ RunID, Branch string }
-		_ = json.Unmarshal(approval.Payload, &payload)
-		next, err := a.shipping.RequestPullRequest(ctx, payload.RunID, payload.Branch, "Eggy: "+payload.Branch, "Automated by Eggy after explicit owner approvals.")
-		if err != nil {
-			if errors.Is(err, services.ErrPullRequestUnavailable) {
-				return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Push completed. Pull-request creation is unavailable for the configured repository provider.")
-			}
-			return err
-		}
-		if err := telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Push completed."); err != nil {
-			return err
-		}
-		return a.channel.DeliverApproval(ctx, chatID, next)
-	}
+	// Commit, push, and pull-request creation no longer pause for individual
+	// owner taps: ShippingService.Ship decides and executes that whole chain
+	// itself (see repository_tools.go and the /continue command). These
+	// branches only remain reachable for a pending approval left over from
+	// before that change.
 	if approval.Action == approvals.CreatePR {
 		var payload struct{ RunID string }
 		_ = json.Unmarshal(approval.Payload, &payload)

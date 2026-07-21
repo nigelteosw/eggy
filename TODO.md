@@ -128,27 +128,35 @@ as the production Go code. Several describe removed architecture, including
 Flash/Pro routing, a Codex CLI coding adapter, and manual Telegram approvals for
 each shipping step. They now make the current system harder to understand.
 
-- [ ] Keep `README.md` as the current operator guide and update it whenever a
+- [x] Keep `README.md` as the current operator guide and update it whenever a
       command, runtime path, deployment requirement, or supported capability
       changes.
-- [ ] Replace the stale MVP spec with one concise current architecture document
+- [x] Replace the stale MVP spec with one concise current architecture document
       describing the native implementation loop, configurable model aliases,
       automatic shipping flow with independent authorization checks, durable
-      sessions, and the actual Telegram/CLI surfaces.
-- [ ] Preserve durable architectural decisions as small ADRs when their rationale
+      sessions, and the actual Telegram/CLI surfaces. See `docs/ARCHITECTURE.md`.
+- [x] Preserve durable architectural decisions as small ADRs when their rationale
       still matters; do not retain full step-by-step implementation plans as
-      active documentation.
-- [ ] Archive outside the active documentation tree or remove completed files in
+      active documentation. See `docs/adr/`.
+- [x] Archive outside the active documentation tree or remove completed files in
       `docs/superpowers/plans/` and superseded files in
-      `docs/superpowers/specs/`.
-- [ ] Reconcile this roadmap with the implementation. Mark implemented safety
+      `docs/superpowers/specs/`. Removed; full history remains in git.
+- [x] Reconcile this roadmap with the implementation. Mark implemented safety
       work complete, delete obsolete aspirations, and avoid keeping unchecked
-      items that merely restate existing behavior.
-- [ ] Remove stale references to `/new`, a future TUI, Codex device authentication,
+      items that merely restate existing behavior. See the "P1: Preserve host
+      authority" checkboxes below, updated against current `shipping.go` and
+      `approval_service.go` behavior.
+- [x] Remove stale references to `/new`, a future TUI, Codex device authentication,
       Flash/Pro automatic escalation, and manual shipping taps unless those
-      features are deliberately restored.
-- [ ] Add a lightweight documentation check that validates command names and
+      features are deliberately restored. `/new` and the "future TUI" framing
+      are gone from `README.md`; Codex/Flash/Pro/manual-approval code was
+      already removed, and the stray "Codex run" comment in
+      `progress_tracker.go` is fixed.
+- [x] Add a lightweight documentation check that validates command names and
       important file paths against the shared command catalog or current source.
+      See `internal/bootstrap/docs_consistency_test.go` (no shared command
+      catalog exists yet — see item 2 — so this checks README.md directly
+      against `commands.go`).
 
 ### 4. Remove version-1 config compatibility after deployment verification
 
@@ -314,26 +322,43 @@ single-owner model safe and recoverable.
 
 ## P1: Preserve host authority over coding and shipping
 
-- [ ] Keep workspace creation, repository cloning, branch creation, diff capture,
-      and cleanup under Eggy rather than the coding-agent adapter.
-- [ ] Treat coding-agent output as an untrusted proposal until Eggy independently
+- [x] Keep workspace creation, repository cloning, branch creation, diff capture,
+      and cleanup under Eggy rather than the coding-agent adapter. There is no
+      longer a separate coding-agent adapter to delegate to; `CodingService`
+      owns the whole lifecycle around the native implementation loop.
+- [x] Treat coding-agent output as an untrusted proposal until Eggy independently
       captures and validates the resulting checkout state.
-- [ ] Record the base commit before execution and the final commit/diff state
-      afterward.
-- [ ] Reject changed, incomplete, or truncated approval material.
+      `CodingService.Start`/`Continue` compare the actual checked-out
+      branch/HEAD against the expected run state before proceeding
+      (`internal/kernel/services/coding.go`).
+- [x] Record the base commit before execution and the final commit/diff state
+      afterward. `CodingRun.BaseRevision` is captured at run start and checked
+      against the live checkout at every subsequent step.
+- [x] Reject changed, incomplete, or truncated approval material.
+      `ApprovalService.Authorize` recomputes the payload digest and returns
+      `ErrPayloadChanged` on any mismatch.
 - [x] Preserve separate, expiring, payload-bound approval records for commit,
       push, and pull-request creation, even though `ShippingService.Ship`
       decides each one automatically instead of waiting for an owner tap —
       payload-digest binding, expiry, and protected-branch enforcement all
       still run unchanged inside `ApprovalService.Authorize`.
-- [ ] Revalidate local and remote heads immediately before protected side
-      effects.
-- [ ] Keep protected branches unpushable even with approval.
-- [ ] Never let the implementation loop merge a pull request.
-- [ ] Represent privileged requests and results as structured kernel data rather
-      than natural-language messages.
+- [x] Revalidate local and remote heads immediately before protected side
+      effects. `ShippingService` checks `pusher.Head` before push and
+      `pullRequests.RemoteHead` before pull-request creation
+      (`internal/kernel/services/shipping.go`).
+- [x] Keep protected branches unpushable even with approval.
+      `ApprovalService.Authorize` denies a `Push` action against any
+      `Repository.ProtectedBranches` entry regardless of approval status.
+- [x] Never let the implementation loop merge a pull request. No merge
+      capability exists on `ports.PullRequestProvider` or its adapter.
+- [x] Represent privileged requests and results as structured kernel data rather
+      than natural-language messages. Shipping and coding results are typed
+      (`ports.PullRequest`, `ports.CodingResult`, `approvals.Approval`), not
+      free-text.
 - [ ] Add tests proving the implementation loop cannot bypass Eggy's shipping
-      policy.
+      policy. Protected-branch and payload-digest behavior are covered
+      individually; no single test yet drives a full implementation-loop
+      attempt to commit/push directly and asserts it's blocked end to end.
 
 ## P2: Improve memory without turning it into a transcript dump
 

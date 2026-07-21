@@ -73,7 +73,7 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
-	if err != nil || !handled || output != "Set provider openrouter. Restart Eggy for this to take effect." {
+	if err != nil || !handled || output != "Set provider openrouter. Restart Eggy for this to take effect. Run /restart to apply now." {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 	reloaded, _, err := LoadConfig(configPath, mapEnv(map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}))

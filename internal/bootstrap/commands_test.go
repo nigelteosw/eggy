@@ -76,6 +76,25 @@ func TestCommandContinueRequiresConfiguredCoding(t *testing.T) {
 	}
 }
 
+func TestCommandRestartInvokesCallback(t *testing.T) {
+	var calls int
+	commands := &CommandService{restart: func() { calls++ }}
+	output, handled, err := commands.Execute(context.Background(), "/restart")
+	if err != nil || !handled || output != "Restarting Eggy to pick up config changes. Back in a few seconds." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d, want 1", calls)
+	}
+}
+
+func TestCommandRestartReportsUnavailableWithoutCallback(t *testing.T) {
+	output, handled, err := (&CommandService{}).Execute(context.Background(), "/restart")
+	if err != nil || !handled || output != "Restart is not available in this environment." {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
 func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
@@ -85,7 +104,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	output, _, err := commands.Execute(ctx, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
-	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect." {
+	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect. Run /restart to apply now." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
@@ -95,7 +114,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	}
 
 	output, _, err = commands.Execute(ctx, "/config set model alias=openrouter-pro provider=openrouter model=your-model-id")
-	if err != nil || output != "Set model openrouter-pro. Restart Eggy for this to take effect." {
+	if err != nil || output != "Set model openrouter-pro. Restart Eggy for this to take effect. Run /restart to apply now." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
@@ -115,7 +134,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	}
 
 	output, _, err = commands.Execute(ctx, "/config set calendar timezone=Asia/Singapore")
-	if err != nil || output != "Set calendar. Restart Eggy for this to take effect." {
+	if err != nil || output != "Set calendar. Restart Eggy for this to take effect. Run /restart to apply now." {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 

@@ -596,11 +596,6 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 		return err
 	}
 	ownerChatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
-	if strings.TrimSpace(result.ReasoningContent) != "" {
-		if err := a.channel.Deliver(ctx, ownerChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
-			return err
-		}
-	}
 	return a.channel.Deliver(ctx, ownerChatID, result.Message.Content)
 }
 

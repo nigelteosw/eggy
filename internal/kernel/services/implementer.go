@@ -121,7 +121,7 @@ func implementationSessionEvent(event agent.ImplementationEvent) ports.Implement
 
 func implementationProgressMessage(event agent.ImplementationEvent) string {
 	if event.Kind == "tool_error" {
-		return "Blocked: " + event.Call.Name + " failed"
+		return "Blocked: " + event.Call.Name + " failed — " + toolErrorMessage(event)
 	}
 	if event.Kind != "tool_end" {
 		return ""
@@ -153,7 +153,24 @@ func implementationProgressMessage(event agent.ImplementationEvent) string {
 		}
 		return "Ran: " + command
 	}
-	return ""
+	return "Called: " + event.Call.Name
+}
+
+// toolErrorMessage recovers the human-readable failure reason for a
+// tool_error event, preferring the original error and falling back to the
+// {"error": ...} payload the loop wrote into the tool message when only the
+// event's marshaled output survived (e.g. across a replayed session).
+func toolErrorMessage(event agent.ImplementationEvent) string {
+	if event.Err != nil {
+		return event.Err.Error()
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(event.Output), &payload) == nil && payload.Error != "" {
+		return payload.Error
+	}
+	return "unknown error"
 }
 
 func toolArgument(raw json.RawMessage, name string) string {

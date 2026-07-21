@@ -5,37 +5,7 @@ Hermes Agent, and NanoClaw. It preserves Eggy's Go ports-and-adapters
 architecture, file-backed state, trusted-repository model, and independent
 approval gates.
 
-## P0: Separate assistant work from implementation
-
-- [ ] Define two non-sticky capability lanes:
-  - everyday assistant work;
-  - explicit repository implementation.
-- [ ] Treat natural-language requests to implement, fix, change, add, remove,
-      refactor, or otherwise modify a repository as implementation authority for
-      that turn only.
-- [ ] Keep explain, inspect, investigate, review, plan, and diagnose requests in
-      the everyday assistant lane unless the owner also explicitly asks for a
-      change.
-- [ ] Ask for confirmation when a request is genuinely ambiguous about whether
-      repository changes are wanted.
-- [ ] Never carry implementation authority into a later Telegram message or a
-      scheduled/heartbeat turn.
-- [ ] Do not add a sticky coding mode.
-- [ ] Make coding-agent tools unavailable to the model unless the current owner
-      message has explicit implementation authority.
-- [ ] Enforce the implementation-authority check in provider-neutral kernel
-      policy, not only in a model prompt or tool description.
-- [ ] Bind implementation authority to the current event/turn so it cannot be
-      replayed for a different instruction or repository.
-- [ ] Add end-to-end routing tests covering explicit, read-only, ambiguous, and
-      mixed requests such as:
-  - "Explain how webhook authentication works.";
-  - "Review this design and report problems.";
-  - "Diagnose the failing test.";
-  - "Diagnose the failing test and fix it.";
-  - "Implement the approved design.".
-
-## P0: Keep read-only repository work in the assistant lane
+## P0: Keep read-only repository work narrow and safe
 
 - [x] Stop `repository_inspect` from launching a modifying implementation run.
 - [ ] Replace it with narrow provider-neutral repository read capabilities:
@@ -55,8 +25,7 @@ approval gates.
       cannot invoke dependency installation or arbitrary shell commands.
 - [ ] Require successful read-tool evidence before Eggy claims facts about a
       repository's implementation. (tool descriptions hint at this; nothing
-      enforces it at the kernel policy level yet — see the "Separate assistant
-      work from implementation" P0 above.)
+      enforces it yet.)
 - [x] Return a truthful capability/setup response when repository reading is not
       configured or available.
 
@@ -179,8 +148,6 @@ runtime purely to match Hermes.
       without spending a model call.
 - [ ] Require scheduled agent prompts to be self-contained and start them without
       ambient chat history.
-- [ ] Keep coding-agent activation unavailable to heartbeats and scheduled turns,
-      even when their text resembles an implementation request.
 
 ## P3: Improve execution isolation and recovery
 
@@ -227,11 +194,8 @@ runtime purely to match Hermes.
 
 ## Acceptance checklist
 
-- [ ] Ordinary conversation never launches the implementation loop.
-- [ ] Repository explanation, inspection, review, planning, and diagnosis remain
-      read-only unless the owner explicitly requests implementation.
-- [ ] An explicit implementation request launches exactly the configured coding
-      agent in an isolated workspace.
+- [ ] The coding agent always runs in an isolated workspace, never directly
+      against the owner's checkout.
 - [ ] Ambiguous requests pause for clarification before any modifying workflow.
 - [ ] Coding-agent progress is streamed through normalized, provider-neutral
       events.
@@ -239,7 +203,6 @@ runtime purely to match Hermes.
 - [ ] Commit, push, and pull-request creation retain payload-bound approval
       records even though they're decided automatically; Calendar mutations
       still require an explicit owner tap.
-- [ ] Heartbeats and schedules cannot activate a coding agent.
 - [ ] Context, memory, skills, and capability diagnostics remain bounded and
       secret-free.
 - [ ] Existing `/data/state.json` files remain compatible or receive an explicit,

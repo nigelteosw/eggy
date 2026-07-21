@@ -32,7 +32,7 @@ func TestContextToolsCurateUserAndMemory(t *testing.T) {
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
 	}
-	if len(byName) != 4 {
+	if len(byName) != 8 {
 		t.Fatalf("tools=%v", byName)
 	}
 	result, err := byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`))
@@ -45,5 +45,55 @@ func TestContextToolsCurateUserAndMemory(t *testing.T) {
 	loaded, err := store.Load(context.Background())
 	if err != nil || !strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.Memory, "secret-value") {
 		t.Fatalf("context=%#v err=%v", loaded, err)
+	}
+}
+
+func TestContextToolsReadReflectsWritesMadeEarlierThisTurn(t *testing.T) {
+	store := contextmarkdown.Open(t.TempDir(), 64<<10)
+	tools := NewContextTools(store, nil)
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+	if _, err := byName["memory_append"].Execute(context.Background(), json.RawMessage(`{"section":"Repositories","content":"Eggy is trusted"}`)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := byName["memory_read"].Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Content  string `json:"content"`
+		Bytes    int    `json:"bytes"`
+		MaxBytes int64  `json:"max_bytes"`
+	}
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(decoded.Content, "Eggy is trusted") || decoded.Bytes != len(decoded.Content) || decoded.MaxBytes != 64<<10 {
+		t.Fatalf("decoded=%#v", decoded)
+	}
+}
+
+func TestContextToolsRemoveSectionDeletesItAndErrorsWhenAlreadyGone(t *testing.T) {
+	store := contextmarkdown.Open(t.TempDir(), 64<<10)
+	tools := NewContextTools(store, nil)
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+	if _, err := byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`)); err != nil {
+		t.Fatal(err)
+	}
+	result, err := byName["user_remove_section"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences"}`))
+	if err != nil || string(result) != `{"removed":true}` {
+		t.Fatalf("result=%s err=%v", result, err)
+	}
+	loaded, err := store.Load(context.Background())
+	if err != nil || strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.User, "## Preferences") {
+		t.Fatalf("context=%#v err=%v", loaded, err)
+	}
+	if _, err := byName["user_remove_section"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences"}`)); err == nil {
+		t.Fatal("expected error removing an already-removed section")
 	}
 }

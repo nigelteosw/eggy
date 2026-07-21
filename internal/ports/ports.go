@@ -124,6 +124,7 @@ type ContextStore interface {
 	Load(context.Context) (AgentContext, error)
 	Append(context.Context, ContextDocument, string, string) error
 	ReplaceSection(context.Context, ContextDocument, string, string) error
+	RemoveSection(context.Context, ContextDocument, string) error
 	SetPrompt(ctx context.Context, name, content string) error
 	RemovePrompt(ctx context.Context, name string) error
 }

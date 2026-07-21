@@ -150,6 +150,38 @@ func (s *Store) ReplaceSection(ctx context.Context, document ports.ContextDocume
 	return s.edit(ctx, document, section, content, true)
 }
 
+// RemoveSection deletes one section (its heading and body) entirely. It
+// errors if the section does not exist, so a caller cannot silently no-op a
+// removal it believes succeeded.
+func (s *Store) RemoveSection(ctx context.Context, document ports.ContextDocument, section string) error {
+	if !sectionPattern.MatchString(section) {
+		return errors.New("context section must be a plain heading")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	name, initial, err := editableDocument(document)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := filepath.Join(s.dir, name)
+	return filelock.With(path, func() error {
+		current, err := s.loadDocumentUnlocked(path, initial)
+		if err != nil {
+			return err
+		}
+		heading := "## " + section
+		bounds := sectionBounds(current, heading)
+		if bounds == nil {
+			return fmt.Errorf("section %q does not exist", section)
+		}
+		current = strings.TrimRight(current[:bounds[0]]+current[bounds[1]:], "\n") + "\n"
+		return writeAtomic(path, []byte(current))
+	})
+}
+
 func (s *Store) edit(ctx context.Context, document ports.ContextDocument, section, content string, replace bool) error {
 	if err := validateEdit(section, content); err != nil {
 		return err

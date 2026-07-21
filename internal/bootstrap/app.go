@@ -392,7 +392,10 @@ func readOnlyRunOptions() agent.RunOptions {
 // direct conversation turn can already make.
 func heartbeatRunOptions() agent.RunOptions {
 	options := readOnlyRunOptions()
-	for _, tool := range []string{"user_append", "user_replace_section", "memory_append", "memory_replace_section"} {
+	for _, tool := range []string{
+		"user_append", "user_replace_section", "user_remove_section", "user_read",
+		"memory_append", "memory_replace_section", "memory_remove_section", "memory_read",
+	} {
 		options.AllowedTools[tool] = true
 	}
 	return options
@@ -599,7 +602,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
 	}
 	history = append(history, state.RecentMessages...)
-	instruction := "Evaluate whether one concise proactive check-in is useful now. Separately, review recent conversation for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md, and curate it now via the memory tools; curation does not require sending a check-in. Return an empty response when no check-in is useful."
+	instruction := "Evaluate whether one concise proactive check-in is useful now. Separately, review recent conversation for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in. Return an empty response when no check-in is useful."
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, instruction, history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {

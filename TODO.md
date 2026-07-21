@@ -5,6 +5,289 @@ Hermes Agent, and NanoClaw. It preserves Eggy's Go ports-and-adapters
 architecture, file-backed state, trusted-repository model, and independent
 approval gates.
 
+## P0: Simplify the current architecture
+
+Reduce accidental complexity before adding more capabilities. Keep the
+ports-and-adapters modular monolith, but remove duplicated sources of truth,
+unused extension points, compatibility paths that no longer serve a deployed
+format, and documentation that describes superseded implementations.
+
+Complete these changes in the order listed below. The first four are low-risk
+cleanup and should land before the run/session persistence refactor. Every
+state-shape change must preserve existing `/data/state.json` files through an
+explicit, tested schema migration.
+
+### 1. Remove dead task, state, and port types
+
+The generic task subsystem has no production producer. Nothing creates a
+`tasks.Task`; startup only scans an empty `State.Tasks` map and marks hypothetical
+running tasks as interrupted. Coding runs and implementation sessions already
+have their own lifecycle and recovery behavior.
+
+- [ ] Remove `internal/kernel/tasks/tasks.go`,
+      `internal/kernel/services/task_service.go`, and their tests.
+- [ ] Remove `TaskService.RecoverInterrupted` from `App.Run`.
+- [ ] Remove `State.Tasks` through an explicit state-schema migration. Loading
+      an existing state file containing `tasks` must remain safe and must not
+      corrupt any unrelated field.
+- [ ] Remove `State.SelectedRepository`; production code never sets it. Update
+      deterministic status output to report configured repositories or another
+      value backed by live state instead of an always-empty selected value.
+- [ ] Remove `CodingRuntimeState` and `State.Coding`; `SelectedAgent` belongs to
+      the retired configurable coding-agent path and has no production writer.
+- [ ] Remove `State.ConversationSummary` unless a real summary producer is
+      introduced in the same change. The current runtime reads and clears the
+      field but never creates a summary.
+- [ ] Remove the unused `TriggerSource` and `StreamingRunner` ports.
+- [ ] Remove the unused `ScheduleHeartbeat` enum value if no persisted schedule
+      uses it; otherwise migrate it explicitly before deletion.
+- [ ] Review fields on `ImplementationSession` such as `Title`, `Model`, and
+      `PromptVersion`, and delete fields that have no writer or planned reader.
+- [ ] Add a focused migration test using a representative current production
+      state file containing repositories, approvals, schedules, Calendar auth,
+      model selection, usage, and coding history.
+- [ ] Verify that startup recovery still covers active implementation sessions
+      and pending schedules after the generic task recovery is removed.
+
+### 2. Create one command contract for Telegram and the CLI
+
+Command names, parsing, validation, help, and output are currently duplicated
+across `internal/bootstrap/commands.go`, `cmd/eggy/config.go`, Telegram's bot
+command list, and hand-maintained help text. This duplication is already causing
+Telegram and CLI grammar and output to drift.
+
+- [ ] Define one command catalog containing each command's name, description,
+      subcommands, arguments, examples, handler, and response intent.
+- [ ] Keep Telegram's natural `key=value` syntax for named values, for example
+      `/config set model alias=deepseek-pro provider=deepseek
+      model=deepseek-v4-pro reasoning_efforts=low,medium,high,max`.
+- [ ] Keep conventional CLI flags, for example `eggy config set model
+      --alias=deepseek-pro --provider=deepseek --model=deepseek-v4-pro
+      --reasoning-efforts=low,medium,high,max`.
+- [ ] Parse both surfaces into the same validated command request. Telegram must
+      not spawn the `eggy` executable as a subprocess.
+- [ ] Route `eggy config` through the shared config command handler while
+      preserving its ability to work without constructing the full runtime or
+      requiring locally available provider credentials.
+- [ ] Replace ad-hoc response strings with a structured command result containing
+      a state (`success`, `info`, `warning`, `error`, or `help`), title, fields or
+      rows, explanatory detail, and relevant next commands.
+- [ ] Render the same result as clean plain text for the CLI and safe HTML for
+      Telegram. CLI output must remain readable when redirected to a file or
+      pipe and must not require colour support.
+- [ ] Generate `/help`, `eggy help`, and Telegram autocomplete metadata from the
+      shared command catalog so the lists cannot drift.
+- [ ] Keep legacy positional Telegram forms temporarily where removing them
+      would break saved commands, but show only the canonical syntax in new help
+      and confirmation output.
+- [ ] Give every direct command enough context to answer: what is the current
+      state, what did Eggy just do, and what can the owner do next?
+- [ ] Improve empty states: no repositories should show the exact add command;
+      no runs should explain how an implementation run starts; no prompts should
+      explain what custom prompts do; no schedules should explain how scheduling
+      is requested.
+- [ ] Improve command-family output:
+  - [ ] `status`: show configured repositories, active runs, pending approvals,
+        schedules, active model, and relevant next actions from real state;
+  - [ ] `repositories`: show repository name, base branch, protected branches,
+        and whether an add request is awaiting owner approval;
+  - [ ] `runs`: show run ID, repository, phase/status, validation state, and the
+        correct continue or stop command when applicable;
+  - [ ] `continue` and `stop`: explain whether work remains resumable and show
+        the pull-request URL when shipping completes;
+  - [ ] `schedules`: show instruction/purpose, next run, enabled state, and the
+        owner timezone;
+  - [ ] `memory` and `clear`: distinguish durable `USER.md`/`MEMORY.md` content
+        from disposable recent conversation context;
+  - [ ] `prompts`: explain how named prompts affect future turns and show exact
+        show, set, and remove examples;
+  - [ ] `model`: show the active alias, reasoning effort, allowed effort levels,
+        configured alternatives, and exact change commands;
+  - [ ] `config`: render providers, models, and Calendar settings as labelled
+        fields; state that environment-variable names are references rather than
+        secret values; clearly mark changes that require restart;
+  - [ ] `usage`: render per-model token categories clearly and retain the warning
+        that local provider-reported totals are not billing records;
+  - [ ] `calendar_auth`: explain the authorization purpose and the ten-minute,
+        single-use enrollment-link expiry;
+  - [ ] `restart`: explain that active implementation sessions are interrupted
+        safely and can be resumed explicitly after Eggy returns.
+- [ ] Format malformed commands as actionable help with the missing or invalid
+      field, a Telegram example, and a CLI example instead of a bare usage line.
+- [ ] Add parity tests proving equivalent Telegram and CLI input produces the
+      same command request and semantic result.
+- [ ] Add renderer tests for escaping, long output, lists, links, errors, and
+      plain-text fallback.
+- [ ] Add a catalog coverage test proving every registered Telegram command has
+      CLI help and a handler.
+
+### 3. Reduce documentation to current sources of truth
+
+Historical Superpowers plans and superseded specs contain nearly as many lines
+as the production Go code. Several describe removed architecture, including
+Flash/Pro routing, a Codex CLI coding adapter, and manual Telegram approvals for
+each shipping step. They now make the current system harder to understand.
+
+- [ ] Keep `README.md` as the current operator guide and update it whenever a
+      command, runtime path, deployment requirement, or supported capability
+      changes.
+- [ ] Replace the stale MVP spec with one concise current architecture document
+      describing the native implementation loop, configurable model aliases,
+      automatic shipping flow with independent authorization checks, durable
+      sessions, and the actual Telegram/CLI surfaces.
+- [ ] Preserve durable architectural decisions as small ADRs when their rationale
+      still matters; do not retain full step-by-step implementation plans as
+      active documentation.
+- [ ] Archive outside the active documentation tree or remove completed files in
+      `docs/superpowers/plans/` and superseded files in
+      `docs/superpowers/specs/`.
+- [ ] Reconcile this roadmap with the implementation. Mark implemented safety
+      work complete, delete obsolete aspirations, and avoid keeping unchecked
+      items that merely restate existing behavior.
+- [ ] Remove stale references to `/new`, a future TUI, Codex device authentication,
+      Flash/Pro automatic escalation, and manual shipping taps unless those
+      features are deliberately restored.
+- [ ] Add a lightweight documentation check that validates command names and
+      important file paths against the shared command catalog or current source.
+
+### 4. Remove version-1 config compatibility after deployment verification
+
+First boot now creates config version 2, and config mutation already refuses
+version 1. The loader, normalizer, defaults, validation, and YAML marshaler still
+carry a parallel version-1 model.
+
+- [ ] Inspect the deployed `/data/config.yaml` and confirm it is version 2 before
+      removing any compatibility path.
+- [ ] If production still uses version 1, provide and run a one-time, atomic,
+      backed-up migration to version 2 before deleting support.
+- [ ] Remove `legacyConfigDocument`, `ModelsConfig`, `ModelConfig`,
+      `EscalationConfig`, `legacyModels`, `normalizeLegacyConfig`, version-1
+      validation/default branches, and version-1 YAML marshaling.
+- [ ] Make version 2 the only accepted config format and return a concise
+      migration error for an old file rather than silently guessing.
+- [ ] Retain strict known-field validation, atomic writes, file locking, secret
+      indirection through environment-variable names, and Railway `PORT`
+      override behavior.
+- [ ] Verify first boot, config get/set/show, local startup, and Railway startup
+      against the single config representation.
+
+### 5. Make implementation sessions the single source of run truth
+
+`CodingRun` in `state.json` and `ImplementationSession` under `/data/sessions`
+duplicate run ID, repository, workspace, branch, base revision, status, and
+timestamps. `CodingService` updates both and contains mismatch handling for when
+the two copies diverge. This is the largest avoidable runtime complexity.
+
+- [ ] Define one typed run/session aggregate containing repository, workspace,
+      branch, base revision, current phase, validation, commit, pull request,
+      timestamps, resumable context, and bounded event history.
+- [ ] Use the implementation-session store as the canonical source for run
+      metadata and lifecycle. Keep the append-only event log separate from the
+      small metadata document so transcripts do not inflate `state.json`.
+- [ ] Replace the stringly typed `CodingRun.Status` and the overlapping
+      `ImplementationSessionStatus` values with one typed phase model.
+- [ ] Rename or remove `awaiting_*_approval` phases that are only instantaneous
+      internal milestones in the automatic shipping flow. Preserve useful
+      `running`, `interrupted`, `blocked`, `committed`, `pushed`, `completed`,
+      and `cancelled` states.
+- [ ] Move validation evidence, commit hash, pull-request number/URL, and cleanup
+      state into the canonical session record.
+- [ ] Update `CodingService`, `ShippingService`, `/runs`, `/continue`, `/stop`,
+      recovery, retention cleanup, progress delivery, and status reporting to
+      read and write the canonical store only.
+- [ ] Remove direct access such as `s.sessions.store.Update`; expose the minimal
+      lifecycle operations required by the service boundary.
+- [ ] Remove `State.CodingRuns` through an explicit state-schema migration after
+      existing runs have been imported into the session store.
+- [ ] Make the migration idempotent and crash-safe: rerunning it after an
+      interrupted startup must not duplicate events, discard a diff, or make a
+      resumable workspace unreachable.
+- [ ] Block a migrated session clearly when its workspace, branch, or base
+      revision no longer exists; never auto-replay implementation work.
+- [ ] Keep session transcripts and uncommitted workspaces on the Railway volume
+      and preserve explicit owner-triggered continuation.
+- [ ] Add migration, restart, resume, shipping, cleanup, and corrupted-session
+      tests before removing the old representation.
+
+### 6. Simplify shipping authorization without weakening it
+
+`ShippingService` currently receives the approval subsystem as three separate
+roles (`policy`, `requester`, and `decider`), creates a pending approval,
+immediately decides it, then authorizes the same action. `App` also keeps
+shipping callback executors for pending approvals left by an older manual-tap
+flow.
+
+- [ ] Define one narrow shipping-authorization dependency that owns issuance,
+      automatic decision, and later authorization of the exact payload without
+      exposing three setter-injected roles.
+- [ ] Inject all required shipping dependencies through the constructor; remove
+      `SetApprovalRequester`, `SetApprovalDecider`, and other partial-construction
+      states.
+- [ ] Preserve a distinct authorization record and check for commit, push, and
+      pull-request creation. Automatic progression must not collapse the three
+      actions into one broad permission.
+- [ ] Preserve expiry, action matching, payload-digest binding, complete and
+      untruncated diff binding, local branch/head checks, remote-head checks,
+      and protected-branch denial.
+- [ ] Add a state migration or startup invalidation for obsolete pending
+      shipping approvals, then remove shipping from Telegram's callback executor
+      map and delete compatibility-only cleanup branches.
+- [ ] Keep explicit Telegram approval callbacks for repository registration and
+      Calendar create/update/delete operations.
+- [ ] Keep pull-request merging unsupported.
+- [ ] Add tests proving a coding or model tool cannot bypass any protected
+      shipping step after the plumbing is simplified.
+
+### 7. Decide whether custom prompts earn their complexity
+
+The fixed prompt sources are currently wrapped in a global priority registry,
+although no production package extends that registry. Named custom prompts also
+introduce another persistent instruction layer alongside `SOUL.md`, `USER.md`,
+and `MEMORY.md`.
+
+- [ ] Measure whether `/prompts` is used in the deployed workflow before making
+      this a permanent product feature.
+- [ ] If custom prompts are not used, remove `/prompts`, `NamedPrompt`, prompt
+      CRUD methods from `ContextStore`, prompt-directory persistence, custom
+      prompt injection, help entries, and their tests.
+- [ ] If custom prompts are used, keep the feature but document its authority
+      below hard runtime policy and current owner instructions.
+- [ ] In either case, replace the mutable global `PromptSection` registry and
+      `init` registration with a direct, explicit `BuildInstructions` sequence
+      unless a real compiled extension consumes the registry.
+- [ ] Keep the trust order obvious in code: hard runtime policy, capability
+      manifest, `SOUL.md`, `USER.md`, `MEMORY.md`, optional custom prompts,
+      trusted temporal context, then recent conversation.
+- [ ] Preserve memory size indicators, secret filtering, and the rule that
+      durable context cannot override the current owner instruction.
+
+### Simplification invariants
+
+Do not use cleanup as a reason to weaken the controls that make Eggy's trusted
+single-owner model safe and recoverable.
+
+- [ ] Keep `internal/kernel` and `internal/ports` provider-neutral and register
+      adapters only in `internal/bootstrap`.
+- [ ] Keep file locking and atomic writes for config, state, context, and session
+      persistence.
+- [ ] Keep Telegram webhook authentication, owner allowlisting, and update
+      deduplication.
+- [ ] Keep runner root restrictions, path validation, environment allowlisting,
+      timeout and output bounds, process-group cancellation, and workspace
+      cleanup.
+- [ ] Keep active-secret filtering and secret-like content rejection for context
+      writes.
+- [ ] Keep Calendar mutation approvals, OAuth token encryption, idempotency, and
+      ETag binding.
+- [ ] Keep independent commit, push, and pull-request authorization checks and
+      protected-branch denial.
+- [ ] Keep scheduled and heartbeat turns unable to access repository-modifying
+      tools; retain the explicit owner-trigger for new and resumed coding work.
+- [ ] Keep exactly one `eggyd` replica while operational state remains
+      file-backed.
+- [ ] Run focused tests first, then `make fmt vet test race build` for every
+      simplification change. Run `make smoke` when Docker is available.
+
 ## P0: Keep read-only repository work narrow and safe
 
 - [x] Stop `repository_inspect` from launching a modifying implementation run.
@@ -68,11 +351,11 @@ up to it:
   proactively too, but on its existing heartbeat cadence rather than a new
   subsystem: `[x]` heartbeat turns see recent conversation and may call the
   same explicit, narrow agent tool calls a direct conversation turn can
-  (`user_append`, `memory_append`, `user_replace_section`,
-  `memory_replace_section`) to curate silently, with or without also sending
-  a check-in. Eggy still has no autonomous skill-creation loop (see "Separate
-  durable facts from reusable procedures" below for Eggy's intentionally
-  smaller take on that idea).
+  (`user_read`, `user_append`, `user_replace_section`, `user_remove_section`,
+  and the `memory_*` equivalents) to curate silently, with or without also
+  sending a check-in. Eggy still has no autonomous skill-creation loop (see
+  "Separate durable facts from reusable procedures" below for Eggy's
+  intentionally smaller take on that idea).
 - Known gap: heartbeat curation currently shares the check-in's quiet-hours
   and weekly-message gate (`HeartbeatPolicy.CanSend`), so once that gate
   blocks a check-in (quiet hours, or the weekly proactive-message cap already
@@ -100,10 +383,16 @@ runtime purely to match Hermes.
 - [ ] Keep `MEMORY.md` for compact durable facts, decisions, and reusable lessons.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and invisible
       Unicode content before memory writes.
-- [ ] Return a clear capacity error when curated memory is full instead of
+- [x] Return a clear capacity error when curated memory is full instead of
       silently truncating or dropping stored content.
-- [ ] Let the agent consolidate or remove stale entries through the existing
-      controlled, atomic memory tools.
+- [x] Give USER.md/MEMORY.md real CRUD instead of create/append/replace only:
+      `user_read`/`memory_read` return the live on-disk document (so a
+      curation pass isn't stuck reasoning from the stale turn-start prompt
+      snapshot after it just wrote something), and
+      `user_remove_section`/`memory_remove_section` delete a section outright
+      (`ContextStore.RemoveSection`) instead of only ever being able to
+      overwrite it. Heartbeat curation and direct conversation turns both
+      have all four tools now.
 - [ ] Design bounded, file-backed conversation search before adding it; do not
       introduce a database solely for transcript recall.
 - [ ] Keep recalled conversation excerpts bounded, redacted, and marked as stale

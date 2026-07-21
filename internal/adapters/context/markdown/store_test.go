@@ -50,6 +50,54 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	}
 }
 
+func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	store := Open(dir, 64<<10)
+	ctx := context.Background()
+	if err := store.Append(ctx, ports.ContextMemory, "First", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append(ctx, ports.ContextMemory, "Second", "two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append(ctx, ports.ContextMemory, "Third", "three"); err != nil {
+		t.Fatal(err)
+	}
+	// Remove the middle section and confirm its neighbors survive untouched,
+	// with no leftover blank-line artifacts at the splice point.
+	if err := store.RemoveSection(ctx, ports.ContextMemory, "Second"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(loaded.Memory, "Second") || strings.Contains(loaded.Memory, "two") {
+		t.Fatalf("removed section still present: %q", loaded.Memory)
+	}
+	if !strings.Contains(loaded.Memory, "## First\n\none\n\n## Third\n\nthree\n") {
+		t.Fatalf("unexpected splice: %q", loaded.Memory)
+	}
+	// Removing the last remaining section should leave a clean document, not
+	// dangling blank lines.
+	if err := store.RemoveSection(ctx, ports.ContextMemory, "First"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSection(ctx, ports.ContextMemory, "Third"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Memory != initialMemory {
+		t.Fatalf("expected document reset to initial state, got %q", loaded.Memory)
+	}
+	if err := store.RemoveSection(ctx, ports.ContextMemory, "Missing"); err == nil {
+		t.Fatal("expected error removing a section that does not exist")
+	}
+}
+
 func TestContextStoreRejectsSoulEditsAndOversizedFiles(t *testing.T) {
 	dir := t.TempDir()
 	store := Open(dir, 16)

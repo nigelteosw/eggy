@@ -384,6 +384,19 @@ func readOnlyRunOptions() agent.RunOptions {
 	}}
 }
 
+// heartbeatRunOptions extends readOnlyRunOptions with the narrow memory-
+// curation tools so a heartbeat turn can proactively write stable facts to
+// USER.md/MEMORY.md, mirroring Hermes's periodic-nudge curation without
+// adding a separate subsystem: it is the same explicit, guarded tool call a
+// direct conversation turn can already make.
+func heartbeatRunOptions() agent.RunOptions {
+	options := readOnlyRunOptions()
+	for _, tool := range []string{"user_append", "user_replace_section", "memory_append", "memory_replace_section"} {
+		options.AllowedTools[tool] = true
+	}
+	return options
+}
+
 func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions) error {
 	if output, handled, err := a.commands.Execute(ctx, message.Text); handled {
 		if err != nil {
@@ -577,11 +590,16 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 		return err
 	}
 	manifest := a.capabilityManifest(state, alias)
-	options := readOnlyRunOptions()
+	options := heartbeatRunOptions()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
-	result, runErr := a.loop.RunSelected(ctx, alias, effort, "Evaluate whether one concise proactive check-in is useful now. Return an empty response when none is useful.", history, options)
+	if state.ConversationSummary != "" {
+		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
+	}
+	history = append(history, state.RecentMessages...)
+	instruction := "Evaluate whether one concise proactive check-in is useful now. Separately, review recent conversation for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md, and curate it now via the memory tools; curation does not require sending a check-in. Return an empty response when no check-in is useful."
+	result, runErr := a.loop.RunSelected(ctx, alias, effort, instruction, history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr

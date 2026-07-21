@@ -25,6 +25,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.T) {
+	readOnly := readOnlyRunOptions()
+	heartbeat := heartbeatRunOptions()
+	for tool := range readOnly.AllowedTools {
+		if !heartbeat.AllowedTools[tool] {
+			t.Fatalf("heartbeatRunOptions dropped read-only tool %q", tool)
+		}
+	}
+	for _, tool := range []string{"user_append", "user_replace_section", "memory_append", "memory_replace_section"} {
+		if !heartbeat.AllowedTools[tool] {
+			t.Fatalf("heartbeatRunOptions missing memory-curation tool %q", tool)
+		}
+	}
+	for _, tool := range []string{"repository_modify", "repository_continue"} {
+		if heartbeat.AllowedTools[tool] {
+			t.Fatalf("heartbeatRunOptions unexpectedly allows repository write tool %q", tool)
+		}
+	}
+}
+
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
 	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
 	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro")

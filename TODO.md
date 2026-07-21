@@ -64,11 +64,21 @@ up to it:
   recent-history window plus a summary in `state.json`, with no full-text
   search over past conversations and no database dependency.
 - Hermes curates memory proactively ("periodic nudges") and grows a separate
-  procedural-skill store under `~/.hermes/skills/`. Eggy curates `USER.md` and
-  `MEMORY.md` only through explicit, narrow agent tool calls (`user_append`,
-  `memory_append`, `user_replace_section`, `memory_replace_section`) and has no
-  autonomous skill-creation loop (see "Separate durable facts from reusable
-  procedures" below for Eggy's intentionally smaller take on that idea).
+  procedural-skill store under `~/.hermes/skills/`. Eggy now nudges
+  proactively too, but on its existing heartbeat cadence rather than a new
+  subsystem: `[x]` heartbeat turns see recent conversation and may call the
+  same explicit, narrow agent tool calls a direct conversation turn can
+  (`user_append`, `memory_append`, `user_replace_section`,
+  `memory_replace_section`) to curate silently, with or without also sending
+  a check-in. Eggy still has no autonomous skill-creation loop (see "Separate
+  durable facts from reusable procedures" below for Eggy's intentionally
+  smaller take on that idea).
+- Known gap: heartbeat curation currently shares the check-in's quiet-hours
+  and weekly-message gate (`HeartbeatPolicy.CanSend`), so once that gate
+  blocks a check-in (quiet hours, or the weekly proactive-message cap already
+  hit), curation is skipped for the same window even though it sends no
+  message. Splitting curation onto its own gate is a candidate follow-up if
+  this proves too conservative in practice.
 - Hermes layers in dialectic user modeling (Honcho) for a deepening
   cross-session user model. Eggy keeps `USER.md` a flat, agent-curated fact
   list.

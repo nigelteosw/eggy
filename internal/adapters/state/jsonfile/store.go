@@ -15,7 +15,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-const CurrentSchemaVersion = 3
+const CurrentSchemaVersion = 4
 
 var ErrVersionConflict = ports.ErrStateVersionConflict
 
@@ -31,7 +31,6 @@ func initialState() ports.State {
 		SchemaVersion:   CurrentSchemaVersion,
 		Approvals:       map[string]approvals.Approval{},
 		Schedules:       map[string]ports.Schedule{},
-		CodingRuns:      map[string]ports.CodingRun{},
 		ProcessedEvents: map[string]time.Time{},
 	}
 }

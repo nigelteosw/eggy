@@ -104,19 +104,19 @@ type fakeRepositoryWorker struct {
 	resumedInstruction string
 }
 
-func (w *fakeRepositoryWorker) Start(_ context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+func (w *fakeRepositoryWorker) Start(_ context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "working"})
 	}
-	return ports.CodingRun{ID: runID, Repository: repository.Name, Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "fixed", Validation: "tests pass", CommitMessage: "fix: tests", ChangedFiles: []string{"main.go"}}, nil
+	return ports.ImplementationSession{ID: runID, Repository: repository.Name, Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "fixed", Validation: "tests pass", CommitMessage: "fix: tests", ChangedFiles: []string{"main.go"}}, nil
 }
 
-func (w *fakeRepositoryWorker) Resume(_ context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+func (w *fakeRepositoryWorker) Resume(_ context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
 	w.resumedRunID, w.resumedInstruction = runID, instruction
 	if progress != nil {
 		progress(ports.CodingProgress{Kind: "message", Message: "resuming"})
 	}
-	return ports.CodingRun{ID: runID, Repository: "eggy", Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "continued", Validation: "tests pass", CommitMessage: "fix: continue", ChangedFiles: []string{"main.go"}}, nil
+	return ports.ImplementationSession{ID: runID, Repository: "eggy", Branch: "eggy/" + runID, BaseRevision: "abc123"}, ports.CodingResult{Summary: "continued", Validation: "tests pass", CommitMessage: "fix: continue", ChangedFiles: []string{"main.go"}}, nil
 }
 
 type fakeShipper struct {

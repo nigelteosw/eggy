@@ -442,6 +442,67 @@ func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Reposi
 	return ports.PullRequest{URL: result.URL, Number: result.Number}, nil
 }
 
+// FindOpenPullRequest looks up an already-open pull request for branch so a
+// repeated shipping round reuses it instead of attempting to open a
+// duplicate (GitHub already shows newly pushed commits on the existing pull
+// request automatically; this just prevents a second POST /pulls call).
+func (a *Adapter) FindOpenPullRequest(ctx context.Context, repository ports.Repository, branch string) (ports.PullRequest, bool, error) {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return ports.PullRequest{}, false, err
+	}
+	var payload []struct {
+		Number  int    `json:"number"`
+		HTMLURL string `json:"html_url"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/pulls?state=open&head=%s", url.PathEscape(owner), url.PathEscape(name), url.QueryEscape(owner+":"+branch))
+	if err := a.githubGet(ctx, path, &payload); err != nil {
+		return ports.PullRequest{}, false, err
+	}
+	if len(payload) == 0 {
+		return ports.PullRequest{}, false, nil
+	}
+	return ports.PullRequest{URL: payload[0].HTMLURL, Number: payload[0].Number}, true, nil
+}
+
+// UpdatePullRequestBody appends note to an already-open pull request's
+// description.
+func (a *Adapter) UpdatePullRequestBody(ctx context.Context, repository ports.Repository, number int, note string) error {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return err
+	}
+	var current struct {
+		Body string `json:"body"`
+	}
+	getPath := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(name), number)
+	if err := a.githubGet(ctx, getPath, &current); err != nil {
+		return err
+	}
+	body := current.Body
+	if body != "" {
+		body += "\n\n"
+	}
+	body += note
+	payload, _ := json.Marshal(map[string]string{"body": body})
+	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, a.apiBase+getPath, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+a.token)
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := a.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("GitHub request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Repository) (ports.RepositorySummary, error) {
 	owner, name, err := repositorySlug(repository.CloneURL)
 	if err != nil {

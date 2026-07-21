@@ -43,7 +43,7 @@ func TestMigratesSchemaOne(t *testing.T) {
 		t.Fatalf("unexpected agent state = %#v", state.Agent)
 	}
 	persisted, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(persisted), `"schema_version": 3`) {
+	if err != nil || !strings.Contains(string(persisted), `"schema_version": 4`) {
 		t.Fatalf("persisted migration=%s err=%v", persisted, err)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
@@ -94,9 +94,6 @@ func TestMigratesRepresentativeProductionState(t *testing.T) {
 	if len(state.Schedules) != 1 || state.Schedules["s-1"].Instruction != "check in" {
 		t.Fatalf("schedules corrupted = %#v", state.Schedules)
 	}
-	if len(state.CodingRuns) != 1 || state.CodingRuns["run-1"].Status != "completed" {
-		t.Fatalf("coding runs corrupted = %#v", state.CodingRuns)
-	}
 	if len(state.Repositories) != 1 || state.Repositories["eggy"].CloneURL != "https://github.com/nigelteosw/eggy.git" {
 		t.Fatalf("repositories corrupted = %#v", state.Repositories)
 	}
@@ -110,7 +107,7 @@ func TestMigratesRepresentativeProductionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dropped := range []string{`"tasks"`, `"selected_repository"`, `"conversation_summary"`, `"coding":`} {
+	for _, dropped := range []string{`"tasks"`, `"selected_repository"`, `"conversation_summary"`, `"coding":`, `"coding_runs"`} {
 		if strings.Contains(string(persisted), dropped) {
 			t.Fatalf("dropped field %q still persisted: %s", dropped, persisted)
 		}
@@ -119,10 +116,10 @@ func TestMigratesRepresentativeProductionState(t *testing.T) {
 
 func TestRejectsFutureSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version":4}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version":5}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(path).Load(context.Background()); err == nil || !strings.Contains(err.Error(), "unsupported state schema 4") {
+	if _, err := Open(path).Load(context.Background()); err == nil || !strings.Contains(err.Error(), "unsupported state schema 5") {
 		t.Fatalf("error=%v", err)
 	}
 }

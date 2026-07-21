@@ -23,7 +23,7 @@ func TestImplementationSessionsCreatesOwnerTriggeredSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Status != ports.SessionCreated || !session.StartedAt.Equal(now) {
+	if session.Phase != ports.PhaseRunning || !session.StartedAt.Equal(now) {
 		t.Fatalf("session=%#v", session)
 	}
 }
@@ -57,9 +57,9 @@ func TestImplementationSessionsListsOnlyResumableSessionsNewestFirst(t *testing.
 	now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
 	sessions := NewImplementationSessions(store, SessionPolicy{}, func() time.Time { return now })
 	for _, session := range []ports.ImplementationSession{
-		{ID: "old", Status: ports.SessionInterrupted, UpdatedAt: now.Add(-time.Minute)},
-		{ID: "done", Status: ports.SessionCompleted, UpdatedAt: now.Add(time.Minute)},
-		{ID: "new", Status: ports.SessionAwaitingCommitApproval, UpdatedAt: now},
+		{ID: "old", Phase: ports.PhaseInterrupted, UpdatedAt: now.Add(-time.Minute)},
+		{ID: "done", Phase: ports.PhaseCompleted, UpdatedAt: now.Add(time.Minute)},
+		{ID: "new", Phase: ports.PhaseReady, UpdatedAt: now},
 	} {
 		store.sessions[session.ID] = session
 	}

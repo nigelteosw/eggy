@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -12,13 +13,22 @@ import (
 
 var fullRepositoryCapabilities = ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}
 
+// shippingFixture builds a real ImplementationSessions instance seeded with
+// session, so shipping tests exercise the same canonical store production
+// code uses instead of a lifecycle fake.
+func shippingFixture(session ports.ImplementationSession) (*ImplementationSessions, *memorySessionStore) {
+	store := newMemorySessionStore()
+	store.sessions[session.ID] = session
+	return NewImplementationSessions(store, SessionPolicy{}, time.Now), store
+}
+
 func TestShippingRequiresIndependentExactApprovals(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"})
 	policy := &fakePolicy{}
 	repository := &fakeRepository{branch: "feature"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
-	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 
 	commit, err := service.Commit(context.Background(), "run-1", "feat: done", "approval-commit")
 	if err != nil || commit != "abc123" {
@@ -41,11 +51,11 @@ func TestShippingRequiresIndependentExactApprovals(t *testing.T) {
 
 func TestShippingStopsBeforeSideEffectWhenApprovalFails(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"})
 	policy := &fakePolicy{err: approvals.ErrPayloadChanged}
 	repository := &fakeRepository{branch: "feature"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
@@ -56,11 +66,11 @@ func TestShippingStopsBeforeSideEffectWhenApprovalFails(t *testing.T) {
 
 func TestShippingInvalidatesCommitApprovalWhenWorkspaceDiffChanged(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "approved-diff"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "approved-diff"})
 	policy := &fakePolicy{}
 	repository := &fakeRepository{branch: "feature", diff: "changed-diff"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("error=%v", err)
 	}
@@ -78,11 +88,11 @@ func TestShippingInvalidatesCommitApprovalWhenWorkspaceRevisionChanged(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := newMemoryStore()
-			store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}}
+			sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"})
 			store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 			policy := &fakePolicy{}
 			repository := &fakeRepository{branch: test.branch, head: test.head}
-			service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+			service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 
 			if _, err := service.Commit(context.Background(), "run", "message", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 				t.Fatalf("error=%v", err)
@@ -96,11 +106,11 @@ func TestShippingInvalidatesCommitApprovalWhenWorkspaceRevisionChanged(t *testin
 
 func TestShippingRejectsMovedLocalOrRemoteCommit(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "approved"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "approved"})
 	policy := &fakePolicy{}
 	repository := &fakeRepository{head: "moved", remoteHead: "moved"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
 	if err := service.Push(context.Background(), "run", "eggy/run", "approval"); !errors.Is(err, approvals.ErrPayloadChanged) {
 		t.Fatalf("push error=%v", err)
 	}
@@ -115,11 +125,11 @@ func TestShippingRejectsMovedLocalOrRemoteCommit(t *testing.T) {
 
 func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"})
 	gateway := &fakeShippingGateway{}
 	repository := &fakeRepository{branch: "eggy/run"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	service := NewShippingService(store, gateway, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, gateway, repository, repository, repository, repository, fullRepositoryCapabilities)
 	service.SetApprovalRequester(gateway)
 	approval, err := service.RequestCommit(context.Background(), "run", "feat: done")
 	if err != nil {
@@ -134,15 +144,19 @@ func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	}
 }
 
+// TestShippingRecordsDurableSessionLifecycle proves the full commit -> push
+// -> pull-request chain records each milestone, in order, on the canonical
+// session -- and ends at PhaseCompleted. There is no separate
+// awaiting-approval phase between these steps: Ship decides every approval
+// automatically, so those states from the old two-store design would only
+// ever have been instantaneous.
 func TestShippingRecordsDurableSessionLifecycle(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", BaseRevision: "abc123", Diff: "diff"})
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 	repository := &fakeRepository{branch: "eggy/run"}
-	service := NewShippingService(store, &fakePolicy{}, repository, repository, repository, repository, fullRepositoryCapabilities)
+	service := NewShippingService(store, sessions, &fakePolicy{}, repository, repository, repository, repository, fullRepositoryCapabilities)
 	service.SetApprovalRequester(&fakeShippingGateway{})
-	lifecycle := &fakeSessionLifecycle{}
-	service.SetSessionLifecycle(lifecycle)
 
 	if _, err := service.Commit(context.Background(), "run", "feat: done", "commit-approval"); err != nil {
 		t.Fatal(err)
@@ -159,24 +173,37 @@ func TestShippingRecordsDurableSessionLifecycle(t *testing.T) {
 	if _, err := service.CreatePullRequest(context.Background(), "run", "eggy/run", "title", "body", "pr-approval"); err != nil {
 		t.Fatal(err)
 	}
-	want := []ports.ImplementationSessionStatus{ports.SessionCommitted, ports.SessionAwaitingPushApproval, ports.SessionPushed, ports.SessionAwaitingPRApproval, ports.SessionCompleted}
-	if len(lifecycle.statuses) != len(want) {
-		t.Fatalf("statuses=%#v", lifecycle.statuses)
+	session, err := sessions.Load(context.Background(), "run")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i, status := range want {
-		if lifecycle.statuses[i] != status {
-			t.Fatalf("statuses=%#v want=%#v", lifecycle.statuses, want)
+	if session.Phase != ports.PhaseCompleted || session.Commit != "abc123" || session.PullRequestURL != "https://example/pr/1" {
+		t.Fatalf("session=%#v", session)
+	}
+	var milestones []string
+	for _, event := range session.Events {
+		if event.Kind == ports.SessionMilestone {
+			milestones = append(milestones, event.Message)
+		}
+	}
+	want := []string{"Commit created", "Branch pushed", "Pull request created"}
+	if len(milestones) != len(want) {
+		t.Fatalf("milestones=%#v", milestones)
+	}
+	for i, message := range want {
+		if milestones[i] != message {
+			t.Fatalf("milestones=%#v want=%#v", milestones, want)
 		}
 	}
 }
 
 func TestShippingRejectsUnavailablePushAndPullRequestCapabilities(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "abc123"}}
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "abc123"})
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 	gateway := &fakeShippingGateway{}
 	repository := &fakeRepository{}
-	service := NewShippingService(store, gateway, repository, repository, repository, repository, ports.RepositoryCapabilities{Commit: true})
+	service := NewShippingService(store, sessions, gateway, repository, repository, repository, repository, ports.RepositoryCapabilities{Commit: true})
 	service.SetApprovalRequester(gateway)
 
 	if _, err := service.RequestPush(context.Background(), "run", "eggy/run"); !errors.Is(err, ErrRepositoryPushUnavailable) {
@@ -196,6 +223,41 @@ func TestShippingRejectsUnavailablePushAndPullRequestCapabilities(t *testing.T) 
 	}
 }
 
+// TestShippingReusesExistingOpenPullRequestInsteadOfCreatingDuplicate is the
+// "keep editing the same MR" requirement: if a branch already has an open
+// pull request (e.g. a previous /continue round already shipped one),
+// CreatePullRequest must reuse it -- report its URL/number and record it on
+// the session -- rather than attempting to open a second one.
+func TestShippingReusesExistingOpenPullRequestInsteadOfCreatingDuplicate(t *testing.T) {
+	store := newMemoryStore()
+	sessions, _ := shippingFixture(ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "eggy/run", Commit: "abc123"})
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+	repository := &fakeRepository{existingPR: &ports.PullRequest{Number: 7, URL: "https://example/pr/7"}}
+	policy := &fakePolicy{}
+	service := NewShippingService(store, sessions, policy, repository, repository, repository, repository, fullRepositoryCapabilities)
+
+	pr, err := service.CreatePullRequest(context.Background(), "run", "eggy/run", "title", "body", "approval")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Number != 7 || pr.URL != "https://example/pr/7" {
+		t.Fatalf("pr=%#v, want the existing open pull request reused", pr)
+	}
+	if repository.prs != 0 {
+		t.Fatalf("prs created=%d, want 0 (must reuse, never duplicate)", repository.prs)
+	}
+	if repository.updatedPRNumber != 7 {
+		t.Fatalf("updatedPRNumber=%d, want the existing PR edited to reflect this round", repository.updatedPRNumber)
+	}
+	session, err := sessions.Load(context.Background(), "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.PullRequestNumber != 7 || session.PullRequestURL != "https://example/pr/7" || session.Phase != ports.PhaseCompleted {
+		t.Fatalf("session=%#v", session)
+	}
+}
+
 type fakePolicy struct {
 	actions  []approvals.Action
 	payloads []any
@@ -203,13 +265,11 @@ type fakePolicy struct {
 	err      error
 }
 
-type fakeSessionLifecycle struct {
-	statuses []ports.ImplementationSessionStatus
-}
-
-func (l *fakeSessionLifecycle) SetStatus(_ context.Context, _ string, status ports.ImplementationSessionStatus, _ string) error {
-	l.statuses = append(l.statuses, status)
-	return nil
+func (p *fakePolicy) Authorize(_ context.Context, action approvals.Action, payload any, id string) error {
+	p.actions = append(p.actions, action)
+	p.payloads = append(p.payloads, payload)
+	p.ids = append(p.ids, id)
+	return p.err
 }
 
 type fakeShippingGateway struct {
@@ -226,17 +286,12 @@ func (g *fakeShippingGateway) Authorize(_ context.Context, action approvals.Acti
 	return nil
 }
 
-func (p *fakePolicy) Authorize(_ context.Context, action approvals.Action, payload any, id string) error {
-	p.actions = append(p.actions, action)
-	p.payloads = append(p.payloads, payload)
-	p.ids = append(p.ids, id)
-	return p.err
-}
-
 type fakeRepository struct {
 	clones, branches, commits, pushes, prs int
 	diff, head, remoteHead, branch         string
 	guidance                               string
+	existingPR                             *ports.PullRequest
+	updatedPRNumber                        int
 }
 
 func (r *fakeRepository) Clone(context.Context, ports.Repository, string) error {
@@ -291,4 +346,14 @@ func (r *fakeRepository) Push(context.Context, string, string) error { r.pushes+
 func (r *fakeRepository) CreatePullRequest(context.Context, ports.Repository, string, string, string) (ports.PullRequest, error) {
 	r.prs++
 	return ports.PullRequest{Number: 1, URL: "https://example/pr/1"}, nil
+}
+func (r *fakeRepository) FindOpenPullRequest(context.Context, ports.Repository, string) (ports.PullRequest, bool, error) {
+	if r.existingPR != nil {
+		return *r.existingPR, true, nil
+	}
+	return ports.PullRequest{}, false, nil
+}
+func (r *fakeRepository) UpdatePullRequestBody(_ context.Context, _ ports.Repository, number int, _ string) error {
+	r.updatedPRNumber = number
+	return nil
 }

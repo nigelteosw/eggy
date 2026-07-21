@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -16,7 +17,7 @@ func TestRepositoriesRequestAddValidatesStagesAndPersistsOnApproval(t *testing.T
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/check-1"}
 	checker := &fakeRemoteChecker{}
 	gateway := &fakeShippingGateway{}
-	service := NewRepositoriesService(store, runner, checker, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" })
+	service := NewRepositoriesService(store, runner, checker, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" }, nil)
 
 	approval, err := service.RequestAdd(context.Background(), "eggy", "https://github.com/nigelteosw/eggy.git", "", nil)
 	if err != nil {
@@ -54,13 +55,13 @@ func TestRepositoriesRequestAddRejectsDuplicateNameAndUnreachableRemote(t *testi
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/check-1"}
 	gateway := &fakeShippingGateway{}
 
-	service := NewRepositoriesService(store, runner, &fakeRemoteChecker{}, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" })
+	service := NewRepositoriesService(store, runner, &fakeRemoteChecker{}, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" }, nil)
 	if _, err := service.RequestAdd(context.Background(), "eggy", "https://github.com/nigelteosw/eggy.git", "main", nil); err == nil {
 		t.Fatal("expected duplicate name rejection")
 	}
 
 	unreachable := &fakeRemoteChecker{err: errors.New("not reachable")}
-	service = NewRepositoriesService(store, runner, unreachable, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" })
+	service = NewRepositoriesService(store, runner, unreachable, gateway, gateway, fullRepositoryCapabilities, func() string { return "check-1" }, nil)
 	if _, err := service.RequestAdd(context.Background(), "other", "https://github.com/nigelteosw/other.git", "main", nil); err == nil {
 		t.Fatal("expected unreachable remote rejection")
 	}
@@ -68,7 +69,7 @@ func TestRepositoriesRequestAddRejectsDuplicateNameAndUnreachableRemote(t *testi
 
 func TestRepositoriesRequestAddRejectsProviderWithoutShippingReadiness(t *testing.T) {
 	store := newMemoryStore()
-	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, ports.RepositoryCapabilities{Commit: true}, func() string { return "id" })
+	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, ports.RepositoryCapabilities{Commit: true}, func() string { return "id" }, nil)
 	if _, err := service.RequestAdd(context.Background(), "eggy", "https://github.com/nigelteosw/eggy.git", "main", nil); err == nil || !strings.Contains(err.Error(), "push and pull-request") {
 		t.Fatalf("error=%v", err)
 	}
@@ -77,7 +78,7 @@ func TestRepositoriesRequestAddRejectsProviderWithoutShippingReadiness(t *testin
 func TestRepositoriesExecuteApprovedRequiresAuthorization(t *testing.T) {
 	store := newMemoryStore()
 	policy := &fakePolicy{err: approvals.ErrExpired}
-	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, policy, fullRepositoryCapabilities, func() string { return "id" })
+	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, policy, fullRepositoryCapabilities, func() string { return "id" }, nil)
 
 	approval := approvals.Approval{ID: "approval-1", Action: approvals.AddRepository, Payload: mustMarshal(t, addRepositoryPayload{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}})}
 	if _, err := service.ExecuteApproved(context.Background(), approval); !errors.Is(err, approvals.ErrExpired) {
@@ -92,8 +93,10 @@ func TestRepositoriesExecuteApprovedRequiresAuthorization(t *testing.T) {
 func TestRepositoriesRemoveAppliesImmediatelyUnlessRunActive(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}, "busy": {Name: "busy"}}
-	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "busy", Status: "running"}}
-	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, fullRepositoryCapabilities, func() string { return "id" })
+	sessionStore := newMemorySessionStore()
+	sessionStore.sessions["run-1"] = ports.ImplementationSession{ID: "run-1", Repository: "busy", Phase: ports.PhaseRunning}
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
+	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, fullRepositoryCapabilities, func() string { return "id" }, sessions)
 
 	if err := service.Remove(context.Background(), "eggy"); err != nil {
 		t.Fatal(err)

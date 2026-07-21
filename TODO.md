@@ -186,35 +186,35 @@ duplicate run ID, repository, workspace, branch, base revision, status, and
 timestamps. `CodingService` updates both and contains mismatch handling for when
 the two copies diverge. This is the largest avoidable runtime complexity.
 
-- [ ] Define one typed run/session aggregate containing repository, workspace,
+- [x] Define one typed run/session aggregate containing repository, workspace,
       branch, base revision, current phase, validation, commit, pull request,
       timestamps, resumable context, and bounded event history.
-- [ ] Use the implementation-session store as the canonical source for run
+- [x] Use the implementation-session store as the canonical source for run
       metadata and lifecycle. Keep the append-only event log separate from the
       small metadata document so transcripts do not inflate `state.json`.
-- [ ] Replace the stringly typed `CodingRun.Status` and the overlapping
+- [x] Replace the stringly typed `CodingRun.Status` and the overlapping
       `ImplementationSessionStatus` values with one typed phase model.
-- [ ] Rename or remove `awaiting_*_approval` phases that are only instantaneous
+- [x] Rename or remove `awaiting_*_approval` phases that are only instantaneous
       internal milestones in the automatic shipping flow. Preserve useful
       `running`, `interrupted`, `blocked`, `committed`, `pushed`, `completed`,
       and `cancelled` states.
-- [ ] Move validation evidence, commit hash, pull-request number/URL, and cleanup
+- [x] Move validation evidence, commit hash, pull-request number/URL, and cleanup
       state into the canonical session record.
-- [ ] Update `CodingService`, `ShippingService`, `/runs`, `/continue`, `/stop`,
+- [x] Update `CodingService`, `ShippingService`, `/runs`, `/continue`, `/stop`,
       recovery, retention cleanup, progress delivery, and status reporting to
       read and write the canonical store only.
-- [ ] Remove direct access such as `s.sessions.store.Update`; expose the minimal
+- [x] Remove direct access such as `s.sessions.store.Update`; expose the minimal
       lifecycle operations required by the service boundary.
-- [ ] Remove `State.CodingRuns` through an explicit state-schema migration after
+- [x] Remove `State.CodingRuns` through an explicit state-schema migration after
       existing runs have been imported into the session store.
-- [ ] Make the migration idempotent and crash-safe: rerunning it after an
+- [x] Make the migration idempotent and crash-safe: rerunning it after an
       interrupted startup must not duplicate events, discard a diff, or make a
       resumable workspace unreachable.
-- [ ] Block a migrated session clearly when its workspace, branch, or base
+- [x] Block a migrated session clearly when its workspace, branch, or base
       revision no longer exists; never auto-replay implementation work.
-- [ ] Keep session transcripts and uncommitted workspaces on the Railway volume
+- [x] Keep session transcripts and uncommitted workspaces on the Railway volume
       and preserve explicit owner-triggered continuation.
-- [ ] Add migration, restart, resume, shipping, cleanup, and corrupted-session
+- [x] Add migration, restart, resume, shipping, cleanup, and corrupted-session
       tests before removing the old representation.
 
 ### 6. Simplify shipping authorization without weakening it

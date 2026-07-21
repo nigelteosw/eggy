@@ -11,26 +11,27 @@ import (
 
 func TestCodingServiceRunsImplementerCapturesDiffAndPersistsResult(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{}
+	sessionStore := newMemorySessionStore()
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}
 	repository := &fakeRepository{}
 	implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", Validation: "tests pass", CommitMessage: "feat: done"}}
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now }, nil)
+	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now }, sessions)
 	var updates []ports.CodingProgress
 	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(progress ports.CodingProgress) { updates = append(updates, progress) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Status != "completed" || run.Diff != "diff" || run.Branch != "eggy/run-1" || run.BaseRevision != "abc123" || result.CommitMessage != "feat: done" {
+	if run.Phase != ports.PhaseReady || run.Diff != "diff" || run.Branch != "eggy/run-1" || run.BaseRevision != "abc123" || result.CommitMessage != "feat: done" {
 		t.Fatalf("run=%#v result=%#v", run, result)
 	}
 	if !runner.created || repository.clones != 1 || repository.branches != 1 || implementer.runID != "run-1" || implementer.workspace != runner.workspace || !strings.Contains(implementer.instruction, "Do not create, switch, rename, or delete branches") || !strings.Contains(implementer.instruction, "Do not commit, push, or create pull requests") {
 		t.Fatalf("runner=%#v repository=%#v implementer=%#v", runner, repository, implementer)
 	}
-	state, _ := store.Load(context.Background())
-	if state.CodingRuns["run-1"].Status != "completed" {
-		t.Fatalf("state=%#v", state.CodingRuns)
+	persisted, err := sessions.Load(context.Background(), "run-1")
+	if err != nil || persisted.Phase != ports.PhaseReady {
+		t.Fatalf("persisted=%#v err=%v", persisted, err)
 	}
 	var checkpoints []string
 	for _, update := range updates {
@@ -61,18 +62,18 @@ func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := newMemoryStore()
-			store.state.CodingRuns = map[string]ports.CodingRun{}
+			sessions := NewImplementationSessions(newMemorySessionStore(), SessionPolicy{}, time.Now)
 			repository := &fakeRepository{}
 			implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: done"}, onRun: func() { test.mutate(repository) }}
-			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, implementer, time.Now, nil)
+			service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/tmp/runs/run-1"}, repository, implementer, time.Now, sessions)
 
 			_, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v", err)
 			}
-			state, _ := store.Load(context.Background())
-			if state.CodingRuns["run-1"].Status != "failed" {
-				t.Fatalf("run=%#v", state.CodingRuns["run-1"])
+			persisted, err := sessions.Load(context.Background(), "run-1")
+			if err != nil || persisted.Phase != ports.PhaseBlocked {
+				t.Fatalf("persisted=%#v err=%v", persisted, err)
 			}
 		})
 	}
@@ -80,16 +81,18 @@ func TestCodingServiceRejectsBranchOrHeadChangesBeforeApproval(t *testing.T) {
 
 func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run": {ID: "run", Workspace: "/tmp/runs/run", Status: "running"}}
+	sessionStore := newMemorySessionStore()
+	sessionStore.sessions["run"] = ports.ImplementationSession{ID: "run", Workspace: "/tmp/runs/run", Phase: ports.PhaseRunning}
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
 	runner := &fakeWorkspaceRunner{}
-	service := NewCodingService(store, runner, &fakeRepository{}, &fakeImplementer{}, time.Now, nil)
+	service := NewCodingService(store, runner, &fakeRepository{}, &fakeImplementer{}, time.Now, sessions)
 	count, err := service.RecoverInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
 	}
-	state, _ := store.Load(context.Background())
-	if state.CodingRuns["run"].Status != "interrupted" {
-		t.Fatalf("run=%#v", state.CodingRuns["run"])
+	persisted, err := sessions.Load(context.Background(), "run")
+	if err != nil || persisted.Phase != ports.PhaseInterrupted {
+		t.Fatalf("persisted=%#v err=%v", persisted, err)
 	}
 	if err := service.Cleanup(context.Background(), "run"); err != nil {
 		t.Fatal(err)
@@ -97,21 +100,18 @@ func TestCodingServiceRecoversInterruptedRunsAndCleansWorkspace(t *testing.T) {
 	if !runner.destroyed {
 		t.Fatal("workspace not destroyed")
 	}
-	state, _ = store.Load(context.Background())
-	if state.CodingRuns["run"].Workspace != "" {
-		t.Fatalf("workspace retained in state: %#v", state.CodingRuns["run"])
+	persisted, err = sessions.Load(context.Background(), "run")
+	if err != nil || persisted.Workspace != "" {
+		t.Fatalf("workspace retained in session: %#v", persisted)
 	}
 }
 
 func TestCodingServiceResumeUsesPersistedWorkspaceAndContext(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {
-		ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: "interrupted",
-	}}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
 	sessionStore := newMemorySessionStore()
 	sessions := NewImplementationSessions(sessionStore, SessionPolicy{ContextBudgetChars: 1000, RecentMessages: 4, OutputExcerptChars: 200}, time.Now)
-	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Instruction: "add sessions", Status: ports.SessionInterrupted, Context: ports.SessionContext{Summary: "Inspected: README.md"}}); err != nil {
+	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Instruction: "add sessions", Phase: ports.PhaseInterrupted, Context: ports.SessionContext{Summary: "Inspected: README.md"}}); err != nil {
 		t.Fatal(err)
 	}
 	implementer := &fakeImplementer{result: ports.CodingResult{Summary: "done", CommitMessage: "feat: resume"}}
@@ -132,11 +132,10 @@ func TestCodingServiceResumeUsesPersistedWorkspaceAndContext(t *testing.T) {
 
 func TestCodingServiceResumeInvalidatesPendingCommitApproval(t *testing.T) {
 	store := newMemoryStore()
-	store.state.CodingRuns = map[string]ports.CodingRun{"run-1": {ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: "completed"}}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
 	sessionStore := newMemorySessionStore()
 	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
-	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Status: ports.SessionAwaitingCommitApproval}); err != nil {
+	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Phase: ports.PhaseReady}); err != nil {
 		t.Fatal(err)
 	}
 	invalidator := &fakePendingCommitInvalidator{}
@@ -146,6 +145,39 @@ func TestCodingServiceResumeInvalidatesPendingCommitApproval(t *testing.T) {
 	}
 	if invalidator.runID != "run-1" {
 		t.Fatalf("invalidator=%#v", invalidator)
+	}
+}
+
+func TestCodingServiceResumeBlocksWhenWorkspaceMissing(t *testing.T) {
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	sessionStore := newMemorySessionStore()
+	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
+	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: "/data/runs/run-1", Branch: "eggy/run-1", BaseRevision: "abc123", Phase: ports.PhaseBlocked}); err != nil {
+		t.Fatal(err)
+	}
+	repository := &fakeRepository{branch: "different-branch", head: "different-head"}
+	service := NewCodingService(store, &fakeWorkspaceRunner{workspace: "/data/runs/run-1"}, repository, &fakeImplementer{}, time.Now, sessions)
+	if _, _, err := service.Resume(context.Background(), "run-1", "continue", nil); err == nil || !strings.Contains(err.Error(), "no longer matches") {
+		t.Fatalf("error=%v", err)
+	}
+	persisted, err := sessions.Load(context.Background(), "run-1")
+	if err != nil || persisted.Phase != ports.PhaseBlocked {
+		t.Fatalf("persisted=%#v err=%v", persisted, err)
+	}
+}
+
+func TestCodingServiceRequiresSessionsForStartResumeAndResumeLatest(t *testing.T) {
+	store := newMemoryStore()
+	service := NewCodingService(store, &fakeWorkspaceRunner{}, &fakeRepository{}, &fakeImplementer{}, time.Now, nil)
+	if _, _, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy"}, "implement", nil); err == nil {
+		t.Fatal("expected Start to require implementation sessions")
+	}
+	if _, _, err := service.Resume(context.Background(), "run-1", "continue", nil); err == nil {
+		t.Fatal("expected Resume to require implementation sessions")
+	}
+	if _, _, err := service.ResumeLatest(context.Background(), "continue", nil); err == nil {
+		t.Fatal("expected ResumeLatest to require implementation sessions")
 	}
 }
 

@@ -124,6 +124,10 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return nil, fmt.Errorf("stat state: %w", statErr)
 	}
+	sessionStore := sessionjson.Open(filepath.Join(config.DataDir, "sessions"))
+	if _, err := importLegacyCodingRuns(context.Background(), statePath, sessionStore, options.Now); err != nil {
+		return nil, fmt.Errorf("import legacy coding runs: %w", err)
+	}
 	stateStore := jsonfile.Open(statePath)
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
 	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
@@ -159,10 +163,19 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
 	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
-	app.shipping = services.NewShippingService(stateStore, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
+	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
+	for _, secret := range secrets.ProviderAPIKeys {
+		activeSecrets = append(activeSecrets, secret)
+	}
+	sessions := services.NewImplementationSessions(sessionStore, services.SessionPolicy{
+		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
+		RecentMessages:     config.ImplementationSessions.RecentMessages,
+		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
+	}, options.Now, activeSecrets...)
+	app.shipping = services.NewShippingService(stateStore, sessions, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
 	app.shipping.SetApprovalRequester(app.approvals)
 	app.shipping.SetApprovalDecider(app.approvals)
-	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID)
+	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, sessions)
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
 		approvals.Commit:        app.shipping,
 		approvals.Push:          app.shipping,
@@ -214,18 +227,8 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		return alias, effort, err
 	})
 	registry := services.NewToolRegistry()
-	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
-	for _, secret := range secrets.ProviderAPIKeys {
-		activeSecrets = append(activeSecrets, secret)
-	}
-	sessions := services.NewImplementationSessions(sessionjson.Open(filepath.Join(config.DataDir, "sessions")), services.SessionPolicy{
-		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
-		RecentMessages:     config.ImplementationSessions.RecentMessages,
-		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
-	}, options.Now, activeSecrets...)
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
-	app.shipping.SetSessionLifecycle(sessions)
-	baseTools := []ports.Tool{services.NewStatusTool(stateStore), currentTimeTool(options.Now, location, timezone)}
+	baseTools := []ports.Tool{services.NewStatusTool(stateStore, sessions), currentTimeTool(options.Now, location, timezone)}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	for _, tool := range baseTools {
 		if err := registry.Register(tool); err != nil {

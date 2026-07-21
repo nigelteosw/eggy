@@ -118,6 +118,63 @@ func TestGitHubCreatesPullRequestWithHeaderOnlyCredential(t *testing.T) {
 	}
 }
 
+func TestFindOpenPullRequestReturnsTheOpenPullRequestForTheBranch(t *testing.T) {
+	var gotPath, gotQuery string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		gotPath, gotQuery = request.URL.Path, request.URL.RawQuery
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`[{"number":7,"html_url":"https://github.test/acme/repo/pull/7"}]`))}, nil
+	})}
+	adapter := New(nil, "token", "https://api.github.test", client)
+	pr, found, err := adapter.FindOpenPullRequest(context.Background(), ports.Repository{CloneURL: "https://github.com/acme/repo.git", BaseBranch: "main"}, "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || pr.Number != 7 || pr.URL != "https://github.test/acme/repo/pull/7" {
+		t.Fatalf("found=%v pr=%#v", found, pr)
+	}
+	if gotPath != "/repos/acme/repo/pulls" || !strings.Contains(gotQuery, "state=open") || !strings.Contains(gotQuery, "head=acme%3Afeature") {
+		t.Fatalf("path=%q query=%q", gotPath, gotQuery)
+	}
+}
+
+func TestFindOpenPullRequestReportsNotFoundWhenNoneAreOpen(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`[]`))}, nil
+	})}
+	adapter := New(nil, "token", "https://api.github.test", client)
+	pr, found, err := adapter.FindOpenPullRequest(context.Background(), ports.Repository{CloneURL: "https://github.com/acme/repo.git", BaseBranch: "main"}, "feature")
+	if err != nil || found {
+		t.Fatalf("found=%v pr=%#v err=%v", found, pr, err)
+	}
+}
+
+func TestUpdatePullRequestBodyAppendsToTheExistingDescription(t *testing.T) {
+	var patchedBody map[string]any
+	var calls int
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.Method == http.MethodGet {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"body":"Original description."}`))}, nil
+		}
+		if request.Method != http.MethodPatch {
+			t.Fatalf("unexpected method %s", request.Method)
+		}
+		_ = json.NewDecoder(request.Body).Decode(&patchedBody)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	adapter := New(nil, "token", "https://api.github.test", client)
+	if err := adapter.UpdatePullRequestBody(context.Background(), ports.Repository{CloneURL: "https://github.com/acme/repo.git"}, 7, "Updated after another round."); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d, want a GET then a PATCH", calls)
+	}
+	body, _ := patchedBody["body"].(string)
+	if !strings.Contains(body, "Original description.") || !strings.Contains(body, "Updated after another round.") {
+		t.Fatalf("patched body=%q", body)
+	}
+}
+
 func TestRepositoryCapabilitiesReflectServerSideCredentialReadiness(t *testing.T) {
 	withoutToken := New(nil, "", "https://api.github.test", http.DefaultClient).RepositoryCapabilities()
 	if !withoutToken.Commit || withoutToken.Push || withoutToken.PullRequest {

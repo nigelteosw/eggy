@@ -58,7 +58,7 @@ func TestTelegramAndCLIProduceTheSameSemanticResult(t *testing.T) {
 	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}
 	checker := &commandTestChecker{}
 	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
-	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" })
+	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" }, nil)
 	repoCommands := &CommandService{store: store, repositories: repositories, channel: &commandTestChannel{}, owner: "42"}
 
 	telegramReq, ok = ParseTelegramInput(catalogIndex, "/repositories add eggy https://github.com/nigelteosw/eggy.git main")
@@ -253,7 +253,7 @@ func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}
 	checker := &commandTestChecker{}
 	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
-	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" })
+	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" }, nil)
 	var delivered approvals.Approval
 	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
 	commands := &CommandService{store: store, repositories: repositories, channel: channel, owner: "42"}

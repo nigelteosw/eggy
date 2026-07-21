@@ -2,6 +2,7 @@ package jsonfile
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func TestStoreReloadsSessionAndOrderedEvents(t *testing.T) {
 	root := t.TempDir()
 	store := Open(root)
-	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Status: ports.SessionCreated}); err != nil {
+	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Phase: ports.PhaseRunning}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.AppendEvent(context.Background(), "run-1", ports.ImplementationSessionEvent{Kind: ports.SessionToolResult, Message: "Inspected: README.md"}); err != nil {
@@ -32,7 +33,7 @@ func TestStoreReloadsSessionAndOrderedEvents(t *testing.T) {
 func TestStoreWritesSessionAndContextAtomically(t *testing.T) {
 	root := t.TempDir()
 	store := Open(root)
-	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Status: ports.SessionCreated}); err != nil {
+	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Phase: ports.PhaseRunning}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Update(context.Background(), "run-1", func(session *ports.ImplementationSession) error {
@@ -55,5 +56,40 @@ func TestStoreWritesSessionAndContextAtomically(t *testing.T) {
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode(), err)
 		}
+	}
+}
+
+func TestStoreLoadReturnsSentinelForMissingSession(t *testing.T) {
+	store := Open(t.TempDir())
+	if _, err := store.Load(context.Background(), "missing"); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("error=%v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestStoreCreateReturnsSentinelForDuplicateSession(t *testing.T) {
+	store := Open(t.TempDir())
+	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Phase: ports.PhaseRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Phase: ports.PhaseRunning}); !errors.Is(err, ErrSessionExists) {
+		t.Fatalf("error=%v, want ErrSessionExists", err)
+	}
+}
+
+// TestStoreLoadFailsCleanlyOnCorruptedSessionFile proves a hand-corrupted
+// session.json surfaces as a plain decode error rather than panicking or
+// silently returning a zero-value session that could be mistaken for a real
+// (if empty) run.
+func TestStoreLoadFailsCleanlyOnCorruptedSessionFile(t *testing.T) {
+	root := t.TempDir()
+	store := Open(root)
+	if _, err := store.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Phase: ports.PhaseRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "run-1", "session.json"), []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(context.Background(), "run-1"); err == nil || !strings.Contains(err.Error(), "decode session") {
+		t.Fatalf("error=%v, want a decode error", err)
 	}
 }

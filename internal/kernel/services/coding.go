@@ -31,34 +31,32 @@ func NewCodingService(store ports.StateStore, runner ports.Runner, repository po
 	return service
 }
 
-func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
+func (s *CodingService) requireSessions() error {
+	if s.sessions == nil {
+		return errors.New("implementation sessions are unavailable")
+	}
+	return nil
+}
+
+func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+	if err := s.requireSessions(); err != nil {
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
+	}
 	workspace, err := s.runner.Create(ctx, runID)
 	if err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
-	run := ports.CodingRun{ID: runID, Repository: repository.Name, Workspace: workspace, Branch: repository.BaseBranch, Status: "running", StartedAt: s.now()}
-	if s.sessions != nil {
-		if _, err := s.sessions.Create(ctx, ports.ImplementationSession{ID: runID, Repository: repository.Name, Instruction: instruction, Workspace: workspace}); err != nil {
-			_ = s.runner.Destroy(ctx, workspace)
-			return ports.CodingRun{}, ports.CodingResult{}, err
-		}
-		if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, ""); err != nil {
-			return ports.CodingRun{}, ports.CodingResult{}, err
-		}
+	session, err := s.sessions.Create(ctx, ports.ImplementationSession{ID: runID, Repository: repository.Name, Instruction: instruction, Workspace: workspace, Phase: ports.PhaseRunning})
+	if err != nil {
+		_ = s.runner.Destroy(ctx, workspace)
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
 	report := s.reporter(ctx, runID, progress)
 	checkpoint(report, "Preparing an isolated workspace for "+repository.Name)
-	if err := s.persistRun(ctx, run); err != nil {
-		_ = s.runner.Destroy(ctx, workspace)
-		return ports.CodingRun{}, ports.CodingResult{}, err
-	}
-	fail := func(cause error) (ports.CodingRun, ports.CodingResult, error) {
-		run.Status, run.FinishedAt = "failed", s.now()
-		_ = s.persistRun(ctx, run)
-		if s.sessions != nil {
-			_ = s.sessions.SetStatus(ctx, runID, ports.SessionBlocked, "Blocked: "+cause.Error())
-		}
-		return run, ports.CodingResult{}, cause
+	fail := func(cause error) (ports.ImplementationSession, ports.CodingResult, error) {
+		_ = s.sessions.SetPhase(ctx, runID, ports.PhaseBlocked, "Blocked: "+cause.Error())
+		_ = s.sessions.MarkFinished(ctx, runID, s.now())
+		return session, ports.CodingResult{}, cause
 	}
 	checkpoint(report, "Cloning "+repository.Name+"@"+repository.BaseBranch)
 	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
@@ -69,7 +67,6 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if err := s.repository.CreateBranch(ctx, workspace, branch); err != nil {
 		return fail(err)
 	}
-	run.Branch = branch
 	expectedRevision, err := s.workspaceRevision(ctx, workspace)
 	if err != nil {
 		return fail(err)
@@ -77,18 +74,8 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if expectedRevision.Branch != branch {
 		return fail(fmt.Errorf("repository created unexpected branch %q", expectedRevision.Branch))
 	}
-	run.BaseRevision = expectedRevision.Head
-	if err := s.persistRun(ctx, run); err != nil {
+	if err := s.sessions.SetBranch(ctx, runID, branch, expectedRevision.Head); err != nil {
 		return fail(err)
-	}
-	if s.sessions != nil {
-		if _, err := s.sessions.store.Update(ctx, runID, func(session *ports.ImplementationSession) error {
-			session.Branch, session.BaseRevision = run.Branch, run.BaseRevision
-			session.UpdatedAt = s.now()
-			return nil
-		}); err != nil {
-			return fail(err)
-		}
 	}
 	guidance, err := s.repository.Inspect(ctx, workspace)
 	if err != nil {
@@ -118,108 +105,100 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if err != nil {
 		return fail(err)
 	}
-	run.Status, run.Diff, run.Validation, run.FinishedAt = "completed", diff, result.Validation, s.now()
-	if err := s.persistRun(ctx, run); err != nil {
-		return run, result, err
+	if err := s.sessions.RecordImplementation(ctx, runID, diff, result.Validation); err != nil {
+		return session, result, err
 	}
-	if s.sessions != nil {
-		if err := s.sessions.SetStatus(ctx, runID, ports.SessionAwaitingCommitApproval, "Ready for commit approval"); err != nil {
-			return run, result, err
-		}
+	if err := s.sessions.SetPhase(ctx, runID, ports.PhaseReady, "Ready to ship"); err != nil {
+		return session, result, err
 	}
-	return run, result, nil
+	session, err = s.sessions.Load(ctx, runID)
+	if err != nil {
+		return session, result, err
+	}
+	return session, result, nil
 }
 
-func (s *CodingService) Resume(ctx context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
-	if s.sessions == nil {
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("implementation sessions are unavailable")
-	}
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
-	}
-	run, ok := state.CodingRuns[runID]
-	if !ok {
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("coding run not found")
-	}
-	repository, ok := state.Repositories[run.Repository]
-	if !ok {
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("repository is not registered")
+func (s *CodingService) Resume(ctx context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+	if err := s.requireSessions(); err != nil {
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
 	history, session, err := s.sessions.ResumeContext(ctx, runID)
 	if err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
-	if session.Repository != repository.Name || session.Workspace != run.Workspace || session.Branch != run.Branch || session.BaseRevision != run.BaseRevision {
-		_ = s.sessions.SetStatus(ctx, runID, ports.SessionBlocked, "Blocked: persisted session and coding run no longer match")
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("persisted session and coding run no longer match")
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
-	revision, err := s.workspaceRevision(ctx, run.Workspace)
-	if err != nil || revision.Branch != run.Branch || revision.Head != run.BaseRevision {
-		_ = s.sessions.SetStatus(ctx, runID, ports.SessionBlocked, "Blocked: persisted workspace or branch is unavailable")
+	if _, ok := state.Repositories[session.Repository]; !ok {
+		return ports.ImplementationSession{}, ports.CodingResult{}, errors.New("repository is not registered")
+	}
+	revision, err := s.workspaceRevision(ctx, session.Workspace)
+	if err != nil || revision.Branch != session.Branch || revision.Head != session.BaseRevision {
+		_ = s.sessions.SetPhase(ctx, runID, ports.PhaseBlocked, "Blocked: persisted workspace or branch is unavailable")
+		_ = s.sessions.MarkFinished(ctx, runID, s.now())
 		if err != nil {
-			return ports.CodingRun{}, ports.CodingResult{}, err
+			return ports.ImplementationSession{}, ports.CodingResult{}, err
 		}
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("persisted workspace or branch no longer matches the session")
+		return ports.ImplementationSession{}, ports.CodingResult{}, errors.New("persisted workspace or branch no longer matches the session")
 	}
-	if session.Status == ports.SessionAwaitingCommitApproval && s.invalidator != nil {
+	if session.Phase == ports.PhaseReady && s.invalidator != nil {
 		if err := s.invalidator.InvalidatePendingCommitForRun(ctx, runID); err != nil {
-			return ports.CodingRun{}, ports.CodingResult{}, err
+			return ports.ImplementationSession{}, ports.CodingResult{}, err
 		}
 	}
-	run.Status, run.FinishedAt = "running", time.Time{}
-	if err := s.persistRun(ctx, run); err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
-	}
-	if err := s.sessions.SetStatus(ctx, runID, ports.SessionRunning, ""); err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
+	if err := s.sessions.SetPhase(ctx, runID, ports.PhaseRunning, ""); err != nil {
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
 	report := s.reporter(ctx, runID, progress)
-	guidance, err := s.repository.Inspect(ctx, run.Workspace)
+	guidance, err := s.repository.Inspect(ctx, session.Workspace)
 	if err != nil {
-		return s.resumeFailure(ctx, run, err)
+		return s.resumeFailure(ctx, session, err)
 	}
 	prompt := modifyingRunnerContract + "\n\nContinue task:\n" + instruction
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nContinue task:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
-	result, err := s.implement(ctx, ImplementationRequest{RunID: runID, Workspace: run.Workspace, Instruction: prompt, History: history}, report)
+	result, err := s.implement(ctx, ImplementationRequest{RunID: runID, Workspace: session.Workspace, Instruction: prompt, History: history}, report)
 	if err != nil {
-		return s.resumeFailure(ctx, run, err)
+		return s.resumeFailure(ctx, session, err)
 	}
-	actual, err := s.workspaceRevision(ctx, run.Workspace)
-	if err != nil || actual.Branch != run.Branch || actual.Head != run.BaseRevision {
+	actual, err := s.workspaceRevision(ctx, session.Workspace)
+	if err != nil || actual.Branch != session.Branch || actual.Head != session.BaseRevision {
 		if err == nil {
 			err = errors.New("coding agent changed branch or HEAD before commit approval")
 		}
-		return s.resumeFailure(ctx, run, err)
+		return s.resumeFailure(ctx, session, err)
 	}
-	diff, err := s.repository.Diff(ctx, run.Workspace)
+	diff, err := s.repository.Diff(ctx, session.Workspace)
 	if err != nil {
-		return s.resumeFailure(ctx, run, err)
+		return s.resumeFailure(ctx, session, err)
 	}
-	run.Status, run.Diff, run.Validation, run.FinishedAt = "completed", diff, result.Validation, s.now()
-	if err := s.persistRun(ctx, run); err != nil {
-		return run, result, err
+	if err := s.sessions.RecordImplementation(ctx, runID, diff, result.Validation); err != nil {
+		return session, result, err
 	}
-	if err := s.sessions.SetStatus(ctx, runID, ports.SessionAwaitingCommitApproval, "Ready for commit approval"); err != nil {
-		return run, result, err
+	if err := s.sessions.SetPhase(ctx, runID, ports.PhaseReady, "Ready to ship"); err != nil {
+		return session, result, err
 	}
-	return run, result, nil
+	session, err = s.sessions.Load(ctx, runID)
+	if err != nil {
+		return session, result, err
+	}
+	return session, result, nil
 }
 
 // ResumeLatest resumes the most recently updated session that can safely be
 // continued. It is used by the explicit owner command when no run ID is given.
-func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, progress func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error) {
-	if s.sessions == nil {
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("implementation sessions are unavailable")
+func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+	if err := s.requireSessions(); err != nil {
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
 	sessions, err := s.sessions.ListResumable(ctx)
 	if err != nil {
-		return ports.CodingRun{}, ports.CodingResult{}, err
+		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
 	if len(sessions) == 0 {
-		return ports.CodingRun{}, ports.CodingResult{}, errors.New("no resumable coding sessions")
+		return ports.ImplementationSession{}, ports.CodingResult{}, errors.New("no resumable coding sessions")
 	}
 	return s.Resume(ctx, sessions[0].ID, instruction, progress)
 }
@@ -247,11 +226,10 @@ func (s *CodingService) reporter(ctx context.Context, runID string, progress fun
 	}
 }
 
-func (s *CodingService) resumeFailure(ctx context.Context, run ports.CodingRun, cause error) (ports.CodingRun, ports.CodingResult, error) {
-	run.Status, run.FinishedAt = "failed", s.now()
-	_ = s.persistRun(ctx, run)
-	_ = s.sessions.SetStatus(ctx, run.ID, ports.SessionBlocked, "Blocked: "+cause.Error())
-	return run, ports.CodingResult{}, cause
+func (s *CodingService) resumeFailure(ctx context.Context, session ports.ImplementationSession, cause error) (ports.ImplementationSession, ports.CodingResult, error) {
+	_ = s.sessions.SetPhase(ctx, session.ID, ports.PhaseBlocked, "Blocked: "+cause.Error())
+	_ = s.sessions.MarkFinished(ctx, session.ID, s.now())
+	return session, ports.CodingResult{}, cause
 }
 
 func checkpoint(progress func(ports.CodingProgress), message string) {
@@ -274,86 +252,51 @@ func (s *CodingService) workspaceRevision(ctx context.Context, workspace string)
 func (s *CodingService) Stop(runID string) error { return s.implementer.Interrupt(runID) }
 
 func (s *CodingService) RecoverInterrupted(ctx context.Context) (int, error) {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return 0, err
+	if s.sessions == nil {
+		return 0, nil
 	}
-	count := 0
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		for id, run := range state.CodingRuns {
-			if run.Status != "running" {
-				continue
-			}
-			run.Status, run.FinishedAt = "interrupted", s.now()
-			state.CodingRuns[id] = run
-			count++
-		}
-		return nil
-	})
-	if err != nil {
-		return count, err
+	return s.sessions.MarkInterrupted(ctx)
+}
+
+// List returns every coding run's canonical session record, for status and
+// /runs reporting.
+func (s *CodingService) List(ctx context.Context) ([]ports.ImplementationSession, error) {
+	if s.sessions == nil {
+		return nil, nil
 	}
-	if s.sessions != nil {
-		if _, err := s.sessions.MarkInterrupted(ctx); err != nil {
-			return count, err
-		}
-	}
-	return count, nil
+	return s.sessions.List(ctx)
 }
 
 func (s *CodingService) Cleanup(ctx context.Context, runID string) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
+	if err := s.requireSessions(); err != nil {
 		return err
 	}
-	run, ok := state.CodingRuns[runID]
-	if !ok {
-		return fmt.Errorf("coding run %q not found", runID)
+	session, err := s.sessions.Load(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("coding run %q not found: %w", runID, err)
 	}
-	if run.Workspace != "" {
-		if err := s.runner.Destroy(ctx, run.Workspace); err != nil {
+	if session.Workspace != "" {
+		if err := s.runner.Destroy(ctx, session.Workspace); err != nil {
 			return err
 		}
 	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		updated := state.CodingRuns[runID]
-		updated.Workspace = ""
-		state.CodingRuns[runID] = updated
-		return nil
-	})
-	return err
+	return s.sessions.ClearWorkspace(ctx, runID)
 }
 
 func (s *CodingService) CleanupExpired(ctx context.Context, cutoff time.Time) error {
-	state, err := s.store.Load(ctx)
+	if s.sessions == nil {
+		return nil
+	}
+	sessions, err := s.sessions.List(ctx)
 	if err != nil {
 		return err
 	}
-	ids := make([]string, 0)
-	for id, run := range state.CodingRuns {
-		if run.Workspace != "" && !run.FinishedAt.IsZero() && run.FinishedAt.Before(cutoff) {
-			ids = append(ids, id)
-		}
-	}
-	for _, id := range ids {
-		if err := s.Cleanup(ctx, id); err != nil {
-			return err
+	for _, session := range sessions {
+		if session.Workspace != "" && !session.FinishedAt.IsZero() && session.FinishedAt.Before(cutoff) {
+			if err := s.Cleanup(ctx, session.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
-}
-
-func (s *CodingService) persistRun(ctx context.Context, run ports.CodingRun) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		if state.CodingRuns == nil {
-			state.CodingRuns = map[string]ports.CodingRun{}
-		}
-		state.CodingRuns[run.ID] = run
-		return nil
-	})
-	return err
 }

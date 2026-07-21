@@ -419,19 +419,23 @@ func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T
 	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
 		t.Fatalf("first turn did not offer repository_modify: %s", modelBodies[0])
 	}
-	state, err := app.store.Load(context.Background())
+	runs, err := app.coding.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.CodingRuns) != 1 {
-		t.Fatalf("coding runs=%#v", state.CodingRuns)
+	if len(runs) != 1 {
+		t.Fatalf("coding runs=%#v", runs)
 	}
-	var run ports.CodingRun
-	for _, candidate := range state.CodingRuns {
-		run = candidate
-	}
-	if run.Status != "completed" || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
+	run := runs[0]
+	// Pull-request creation fails on the owner/repository slug against this
+	// local, non-GitHub-shaped remote, so shipping stops at PhasePushed
+	// (commit + push already succeeded) rather than reaching PhaseCompleted.
+	if run.Phase != ports.PhasePushed || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
 		t.Fatalf("run=%#v", run)
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
 	for id, approval := range state.Approvals {
 		if approval.Status == approvals.Pending {

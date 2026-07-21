@@ -10,11 +10,11 @@ import (
 )
 
 type RepositoryModifier interface {
-	Start(context.Context, string, ports.Repository, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
+	Start(context.Context, string, ports.Repository, string, func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error)
 }
 
 type RepositoryResumer interface {
-	Resume(context.Context, string, string, func(ports.CodingProgress)) (ports.CodingRun, ports.CodingResult, error)
+	Resume(context.Context, string, string, func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error)
 }
 
 // Shipper runs the commit -> push -> pull-request chain unattended and
@@ -112,7 +112,7 @@ func NewRepositoryTools(
 	}
 
 	resume := repositoryTool{definition: ports.ToolDefinition{
-		Name: "repository_continue", Description: "Use only when the owner explicitly asks to continue or resume a named Eggy coding run. It resumes the durable workspace, then automatically commits, pushes, and opens a pull request without further owner approval.", Schema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["run_id","instruction"],"additionalProperties":false}`),
+		Name: "repository_continue", Description: "Use only when the owner explicitly asks to continue or resume a named Eggy coding run. It resumes the durable workspace, then automatically commits and pushes without further owner approval. If the run's branch already has an open pull request, it reuses and updates that same pull request instead of opening a new one; only a branch with no open pull request yet gets one created.", Schema: json.RawMessage(`{"type":"object","properties":{"run_id":{"type":"string","minLength":1},"instruction":{"type":"string","minLength":1}},"required":["run_id","instruction"],"additionalProperties":false}`),
 	}}
 	resume.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -145,7 +145,7 @@ func NewRepositoryTools(
 // shipResult runs the automatic commit/push/pull-request chain for a
 // completed implementation run and formats the tool result the model reports
 // back to the owner.
-func shipResult(ctx context.Context, shipper Shipper, modifier RepositoryModifier, run ports.CodingRun, result ports.CodingResult) (json.RawMessage, error) {
+func shipResult(ctx context.Context, shipper Shipper, modifier RepositoryModifier, run ports.ImplementationSession, result ports.CodingResult) (json.RawMessage, error) {
 	pr, note, err := shipper.Ship(ctx, run.ID, run.Branch, result.CommitMessage)
 	if err != nil {
 		return nil, err

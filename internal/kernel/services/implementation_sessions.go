@@ -60,8 +60,8 @@ func (s *ImplementationSessions) Create(ctx context.Context, session ports.Imple
 		return ports.ImplementationSession{}, errors.New("implementation session id is required")
 	}
 	now := s.now()
-	if session.Status == "" {
-		session.Status = ports.SessionCreated
+	if session.Phase == "" {
+		session.Phase = ports.PhaseRunning
 	}
 	if session.StartedAt.IsZero() {
 		session.StartedAt = now
@@ -87,12 +87,20 @@ func (s *ImplementationSessions) ListResumable(ctx context.Context) ([]ports.Imp
 	}
 	result := make([]ports.ImplementationSession, 0, len(sessions))
 	for _, session := range sessions {
-		if resumableStatus(session.Status) {
+		if resumablePhase(session.Phase) {
 			result = append(result, session)
 		}
 	}
 	sort.SliceStable(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
 	return result, nil
+}
+
+// List returns every persisted session, most-recently-updated first.
+func (s *ImplementationSessions) List(ctx context.Context) ([]ports.ImplementationSession, error) {
+	if s.store == nil {
+		return nil, errors.New("implementation session store is unavailable")
+	}
+	return s.store.List(ctx)
 }
 
 func (s *ImplementationSessions) Append(ctx context.Context, id string, event ports.ImplementationSessionEvent) (ports.ImplementationSession, error) {
@@ -118,7 +126,7 @@ func (s *ImplementationSessions) ResumeContext(ctx context.Context, id string) (
 	if err != nil {
 		return nil, ports.ImplementationSession{}, err
 	}
-	if !resumableStatus(session.Status) {
+	if !resumablePhase(session.Phase) {
 		return nil, ports.ImplementationSession{}, errors.New("implementation session is not resumable")
 	}
 	messages := make([]ports.Message, 0, len(session.Context.RecentMessages)+1)
@@ -129,7 +137,9 @@ func (s *ImplementationSessions) ResumeContext(ctx context.Context, id string) (
 	return messages, session, nil
 }
 
-func (s *ImplementationSessions) SetStatus(ctx context.Context, id string, status ports.ImplementationSessionStatus, message string) error {
+// SetPhase transitions a session to phase, optionally recording message as a
+// durable milestone event first.
+func (s *ImplementationSessions) SetPhase(ctx context.Context, id string, phase ports.SessionPhase, message string) error {
 	if s.store == nil {
 		return errors.New("implementation session store is unavailable")
 	}
@@ -139,11 +149,69 @@ func (s *ImplementationSessions) SetStatus(ctx context.Context, id string, statu
 		}
 	}
 	_, err := s.store.Update(ctx, id, func(session *ports.ImplementationSession) error {
-		session.Status = status
+		session.Phase = phase
 		session.UpdatedAt = s.now()
 		return nil
 	})
 	return err
+}
+
+// SetBranch records the branch and base revision a run committed to once its
+// workspace branch is created, replacing direct access to the store.
+func (s *ImplementationSessions) SetBranch(ctx context.Context, id, branch, baseRevision string) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) {
+		session.Branch, session.BaseRevision = branch, baseRevision
+	})
+	return err
+}
+
+// ClearWorkspace records that a run's temporary workspace has been
+// destroyed, so CodingService.Cleanup never has to reach past this service
+// into the underlying store.
+func (s *ImplementationSessions) ClearWorkspace(ctx context.Context, id string) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) { session.Workspace = "" })
+	return err
+}
+
+// RecordImplementation captures the diff and validation evidence an
+// implementation run produced.
+func (s *ImplementationSessions) RecordImplementation(ctx context.Context, id, diff, validation string) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) {
+		session.Diff, session.Validation = diff, validation
+	})
+	return err
+}
+
+// RecordCommit captures the commit SHA shipping produced.
+func (s *ImplementationSessions) RecordCommit(ctx context.Context, id, commit string) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) { session.Commit = commit })
+	return err
+}
+
+// RecordPullRequest captures the pull request shipping created or reused.
+func (s *ImplementationSessions) RecordPullRequest(ctx context.Context, id, url string, number int) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) {
+		session.PullRequestURL, session.PullRequestNumber = url, number
+	})
+	return err
+}
+
+// MarkFinished records the timestamp a run stopped actively progressing
+// (completed, blocked, or interrupted).
+func (s *ImplementationSessions) MarkFinished(ctx context.Context, id string, finishedAt time.Time) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) { session.FinishedAt = finishedAt })
+	return err
+}
+
+func (s *ImplementationSessions) update(ctx context.Context, id string, mutate func(*ports.ImplementationSession)) (ports.ImplementationSession, error) {
+	if s.store == nil {
+		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
+	}
+	return s.store.Update(ctx, id, func(session *ports.ImplementationSession) error {
+		mutate(session)
+		session.UpdatedAt = s.now()
+		return nil
+	})
 }
 
 func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, error) {
@@ -156,10 +224,13 @@ func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, erro
 	}
 	count := 0
 	for _, session := range sessions {
-		if session.Status != ports.SessionRunning {
+		if session.Phase != ports.PhaseRunning {
 			continue
 		}
-		if err := s.SetStatus(ctx, session.ID, ports.SessionInterrupted, "Interrupted by restart; continue explicitly to resume."); err != nil {
+		if err := s.SetPhase(ctx, session.ID, ports.PhaseInterrupted, "Interrupted by restart; continue explicitly to resume."); err != nil {
+			return count, err
+		}
+		if err := s.MarkFinished(ctx, session.ID, s.now()); err != nil {
 			return count, err
 		}
 		count++
@@ -167,9 +238,9 @@ func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, erro
 	return count, nil
 }
 
-func resumableStatus(status ports.ImplementationSessionStatus) bool {
-	switch status {
-	case ports.SessionCreated, ports.SessionInterrupted, ports.SessionBlocked, ports.SessionAwaitingCommitApproval:
+func resumablePhase(phase ports.SessionPhase) bool {
+	switch phase {
+	case ports.PhaseInterrupted, ports.PhaseBlocked, ports.PhaseReady:
 		return true
 	default:
 		return false

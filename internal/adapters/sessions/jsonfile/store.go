@@ -18,6 +18,15 @@ import (
 
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
+// ErrSessionNotFound is returned by Load when no session with the given id
+// exists, so callers (e.g. a legacy-run import) can distinguish "doesn't
+// exist yet" from a real read failure without string-matching an error.
+var ErrSessionNotFound = errors.New("implementation session not found")
+
+// ErrSessionExists is returned by Create when a session with the given id
+// already exists.
+var ErrSessionExists = errors.New("implementation session already exists")
+
 type Store struct {
 	root string
 	mu   sync.Mutex
@@ -37,7 +46,7 @@ func (s *Store) Create(ctx context.Context, session ports.ImplementationSession)
 	var created ports.ImplementationSession
 	err := filelock.With(s.sessionPath(session.ID), func() error {
 		if _, err := os.Stat(s.sessionPath(session.ID)); err == nil {
-			return errors.New("implementation session already exists")
+			return ErrSessionExists
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -163,7 +172,7 @@ func (s *Store) Update(ctx context.Context, id string, mutate func(*ports.Implem
 func (s *Store) loadLocked(id string) (ports.ImplementationSession, error) {
 	data, err := os.ReadFile(s.sessionPath(id))
 	if errors.Is(err, os.ErrNotExist) {
-		return ports.ImplementationSession{}, errors.New("implementation session not found")
+		return ports.ImplementationSession{}, ErrSessionNotFound
 	}
 	if err != nil {
 		return ports.ImplementationSession{}, fmt.Errorf("read session: %w", err)

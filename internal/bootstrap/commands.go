@@ -460,9 +460,15 @@ func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (C
 		}
 	}
 	active := 0
-	for _, run := range state.CodingRuns {
-		if run.Status == "running" {
-			active++
+	if s.coding != nil {
+		sessions, err := s.coding.List(ctx)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		for _, session := range sessions {
+			if session.Phase == ports.PhaseRunning {
+				active++
+			}
 		}
 	}
 	model := "unconfigured"
@@ -634,30 +640,28 @@ func handleRepositoriesRemove(ctx context.Context, s *CommandService, req Comman
 }
 
 func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	state, err := s.store.Load(ctx)
+	if s.coding == nil {
+		return CommandResult{State: ResultInfo, Title: "Coding is not configured."}, nil
+	}
+	sessions, err := s.coding.List(ctx)
 	if err != nil {
 		return CommandResult{}, err
 	}
-	if len(state.CodingRuns) == 0 {
+	if len(sessions) == 0 {
 		return CommandResult{
 			State:  ResultInfo,
 			Title:  "No coding runs.",
 			Detail: "An implementation run starts when you ask Eggy to change a configured repository, or with /continue.",
 		}, nil
 	}
-	ids := make([]string, 0, len(state.CodingRuns))
-	for id := range state.CodingRuns {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	rows := make([][]string, 0, len(ids))
-	for _, id := range ids {
-		run := state.CodingRuns[id]
-		validation := run.Validation
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].ID < sessions[j].ID })
+	rows := make([][]string, 0, len(sessions))
+	for _, session := range sessions {
+		validation := session.Validation
 		if validation == "" {
 			validation = "—"
 		}
-		rows = append(rows, []string{id, run.Repository, run.Status, validation})
+		rows = append(rows, []string{session.ID, session.Repository, string(session.Phase), validation})
 	}
 	return CommandResult{
 		TableHeaders: []string{"Run", "Repository", "Status", "Validation"},
@@ -678,7 +682,7 @@ func handleContinue(ctx context.Context, s *CommandService, req CommandRequest) 
 	if instruction == "" {
 		instruction = "Continue the approved task, inspect the current state, and complete the next safe implementation step."
 	}
-	var run ports.CodingRun
+	var run ports.ImplementationSession
 	var result ports.CodingResult
 	var err error
 	if runID == "" {

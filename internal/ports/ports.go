@@ -133,7 +133,6 @@ type State struct {
 	RecentMessages    []Message                     `json:"recent_messages,omitempty"`
 	Approvals         map[string]approvals.Approval `json:"approvals,omitempty"`
 	Schedules         map[string]Schedule           `json:"schedules,omitempty"`
-	CodingRuns        map[string]CodingRun          `json:"coding_runs,omitempty"`
 	Repositories      map[string]Repository         `json:"repositories,omitempty"`
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
@@ -177,20 +176,6 @@ type Scheduler interface {
 	Next(string, time.Time) (time.Time, error)
 }
 
-type CodingRun struct {
-	ID           string    `json:"id"`
-	Repository   string    `json:"repository"`
-	Workspace    string    `json:"workspace"`
-	Branch       string    `json:"branch"`
-	BaseRevision string    `json:"base_revision,omitempty"`
-	Commit       string    `json:"commit,omitempty"`
-	Status       string    `json:"status"`
-	Diff         string    `json:"diff,omitempty"`
-	Validation   string    `json:"validation,omitempty"`
-	StartedAt    time.Time `json:"started_at"`
-	FinishedAt   time.Time `json:"finished_at,omitempty"`
-}
-
 type CodingProgress struct {
 	Kind    string
 	Message string
@@ -204,20 +189,42 @@ type CodingResult struct {
 	ChangedFiles  []string
 }
 
-type ImplementationSessionStatus string
+// SessionPhase is the single lifecycle phase for an implementation
+// session, replacing the formerly separate CodingRun.Status string and
+// ImplementationSessionStatus enum. The awaiting_push_approval and
+// awaiting_pr_approval phases from the old two-store design are gone
+// entirely: ShippingService.Ship runs commit, push, and pull-request
+// creation back to back with automatic approval, so those were
+// instantaneous internal milestones, never a real crash-recovery window.
+// PhaseReady is their one necessary survivor: the handoff between
+// CodingService finishing an implementation run and a separate Ship call
+// (e.g. from /continue) is a real gap another process restart can land in.
+type SessionPhase string
 
 const (
-	SessionCreated                ImplementationSessionStatus = "created"
-	SessionRunning                ImplementationSessionStatus = "running"
-	SessionInterrupted            ImplementationSessionStatus = "interrupted"
-	SessionBlocked                ImplementationSessionStatus = "blocked"
-	SessionAwaitingCommitApproval ImplementationSessionStatus = "awaiting_commit_approval"
-	SessionCommitted              ImplementationSessionStatus = "committed"
-	SessionAwaitingPushApproval   ImplementationSessionStatus = "awaiting_push_approval"
-	SessionPushed                 ImplementationSessionStatus = "pushed"
-	SessionAwaitingPRApproval     ImplementationSessionStatus = "awaiting_pr_approval"
-	SessionCompleted              ImplementationSessionStatus = "completed"
-	SessionCancelled              ImplementationSessionStatus = "cancelled"
+	// PhaseRunning means the implementation loop is actively executing.
+	PhaseRunning SessionPhase = "running"
+	// PhaseReady means implementation finished (Diff/Validation captured)
+	// and the run is waiting to be shipped; resumable.
+	PhaseReady SessionPhase = "ready"
+	// PhaseInterrupted means the process restarted mid-run; resumable.
+	PhaseInterrupted SessionPhase = "interrupted"
+	// PhaseBlocked means implementation failed or an integrity check
+	// failed (branch/HEAD moved, workspace missing); resumable so an
+	// owner can inspect and retry.
+	PhaseBlocked SessionPhase = "blocked"
+	// PhaseCommitted means a commit was made but push did not complete
+	// (unavailable or denied).
+	PhaseCommitted SessionPhase = "committed"
+	// PhasePushed means the branch was pushed but pull-request creation
+	// did not complete (unavailable).
+	PhasePushed SessionPhase = "pushed"
+	// PhaseCompleted means a pull request was created (or an existing
+	// open one for the branch was reused).
+	PhaseCompleted SessionPhase = "completed"
+	// PhaseCancelled is reserved for an owner-cancelled run at rest; no
+	// code path sets it yet.
+	PhaseCancelled SessionPhase = "cancelled"
 )
 
 const (
@@ -234,18 +241,31 @@ type SessionContext struct {
 	RecentMessages []Message `json:"recent_messages,omitempty"`
 }
 
+// ImplementationSession is the single canonical record of a coding run's
+// metadata and lifecycle: repository, workspace, branch, base revision,
+// current phase, validation evidence, commit, and pull request. The
+// resumable context (SessionContext) and the bounded event history
+// (Events) round out the aggregate; the event log itself is persisted
+// separately (one append-only file per session) so transcripts never
+// inflate this metadata document or state.json.
 type ImplementationSession struct {
-	ID           string                       `json:"id"`
-	Repository   string                       `json:"repository,omitempty"`
-	Instruction  string                       `json:"instruction,omitempty"`
-	Workspace    string                       `json:"workspace,omitempty"`
-	Branch       string                       `json:"branch,omitempty"`
-	BaseRevision string                       `json:"base_revision,omitempty"`
-	Status       ImplementationSessionStatus  `json:"status"`
-	Context      SessionContext               `json:"context,omitempty"`
-	StartedAt    time.Time                    `json:"started_at"`
-	UpdatedAt    time.Time                    `json:"updated_at"`
-	Events       []ImplementationSessionEvent `json:"-"`
+	ID                string                       `json:"id"`
+	Repository        string                       `json:"repository,omitempty"`
+	Instruction       string                       `json:"instruction,omitempty"`
+	Workspace         string                       `json:"workspace,omitempty"`
+	Branch            string                       `json:"branch,omitempty"`
+	BaseRevision      string                       `json:"base_revision,omitempty"`
+	Phase             SessionPhase                 `json:"phase"`
+	Diff              string                       `json:"diff,omitempty"`
+	Validation        string                       `json:"validation,omitempty"`
+	Commit            string                       `json:"commit,omitempty"`
+	PullRequestURL    string                       `json:"pull_request_url,omitempty"`
+	PullRequestNumber int                          `json:"pull_request_number,omitempty"`
+	Context           SessionContext               `json:"context,omitempty"`
+	StartedAt         time.Time                    `json:"started_at"`
+	UpdatedAt         time.Time                    `json:"updated_at"`
+	FinishedAt        time.Time                    `json:"finished_at,omitempty"`
+	Events            []ImplementationSessionEvent `json:"-"`
 }
 
 type ImplementationSessionEvent struct {
@@ -346,6 +366,17 @@ type RepositoryPusher interface {
 type PullRequestProvider interface {
 	RemoteHead(context.Context, string, string) (string, error)
 	CreatePullRequest(context.Context, Repository, string, string, string) (PullRequest, error)
+	// FindOpenPullRequest looks up an already-open pull request for branch,
+	// so shipping can keep improving the same pull request across repeated
+	// /continue rounds instead of opening a new one every time. found is
+	// false, with a nil error, when no open pull request exists yet.
+	FindOpenPullRequest(ctx context.Context, repository Repository, branch string) (pr PullRequest, found bool, err error)
+	// UpdatePullRequestBody appends a short note to an already-open pull
+	// request's description, e.g. after reusing it for another round of
+	// changes. Best-effort: callers should not fail the whole shipping
+	// chain if this fails, since the code change and the pull request
+	// itself are already in place.
+	UpdatePullRequestBody(ctx context.Context, repository Repository, number int, note string) error
 }
 
 // CodingRepository is the complete repository contract required by the coding

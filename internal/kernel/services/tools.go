@@ -49,9 +49,14 @@ func (r *ToolRegistry) Tools() []ports.Tool {
 	return result
 }
 
-type statusTool struct{ store ports.StateStore }
+type statusTool struct {
+	store    ports.StateStore
+	sessions *ImplementationSessions
+}
 
-func NewStatusTool(store ports.StateStore) ports.Tool { return statusTool{store: store} }
+func NewStatusTool(store ports.StateStore, sessions *ImplementationSessions) ports.Tool {
+	return statusTool{store: store, sessions: sessions}
+}
 func (t statusTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{Name: "status", Description: "Read bounded Eggy operational status", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
 }
@@ -74,22 +79,33 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		repositories = append(repositories, name)
 	}
 	sort.Strings(repositories)
+	active, err := activeRuns(ctx, t.sessions)
+	if err != nil {
+		return nil, err
+	}
 	return json.Marshal(struct {
 		Repositories     []string `json:"repositories,omitempty"`
 		ActiveRuns       int      `json:"active_runs"`
 		PendingApprovals int      `json:"pending_approvals"`
 		Schedules        int      `json:"schedules"`
-	}{Repositories: repositories, ActiveRuns: activeRuns(state), PendingApprovals: pending, Schedules: len(state.Schedules)})
+	}{Repositories: repositories, ActiveRuns: active, PendingApprovals: pending, Schedules: len(state.Schedules)})
 }
 
-func activeRuns(state ports.State) int {
+func activeRuns(ctx context.Context, sessions *ImplementationSessions) (int, error) {
+	if sessions == nil {
+		return 0, nil
+	}
+	all, err := sessions.List(ctx)
+	if err != nil {
+		return 0, err
+	}
 	count := 0
-	for _, run := range state.CodingRuns {
-		if run.Status == "running" {
+	for _, session := range all {
+		if session.Phase == ports.PhaseRunning {
 			count++
 		}
 	}
-	return count
+	return count, nil
 }
 
 func decodeStrict(raw json.RawMessage, destination any) error {

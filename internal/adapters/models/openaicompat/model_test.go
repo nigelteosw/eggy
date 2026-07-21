@@ -38,6 +38,34 @@ func TestModelTranslatesChatCompletionAndUsage(t *testing.T) {
 	}
 }
 
+func TestModelParsesReasoningContentAndNeverReplaysIt(t *testing.T) {
+	var bodies [][]byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		bodies = append(bodies, body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"answer","reasoning_content":"step by step reasoning"}}]}`), nil
+	})}
+	model := New("https://api.example", "key", client)
+
+	result, err := model.Generate(context.Background(), ports.ModelRequest{Model: "model", Messages: []ports.Message{{Role: ports.RoleUser, Content: "question"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ReasoningContent != "step by step reasoning" || result.Message.Content != "answer" {
+		t.Fatalf("result=%#v", result)
+	}
+
+	if _, err := model.Generate(context.Background(), ports.ModelRequest{Model: "model", Messages: []ports.Message{
+		{Role: ports.RoleUser, Content: "question"},
+		result.Message,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bodies[1]), "reasoning_content") {
+		t.Fatalf("second request body=%s, want reasoning_content never replayed into history", bodies[1])
+	}
+}
+
 func TestModelSendsReasoningEffortOnlyWhenSet(t *testing.T) {
 	var body []byte
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {

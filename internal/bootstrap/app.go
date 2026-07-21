@@ -431,6 +431,11 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	if err := a.conversation.Record(ctx, result.Message); err != nil {
 		return err
 	}
+	if strings.TrimSpace(result.ReasoningContent) != "" {
+		if err := a.channel.Deliver(ctx, message.ChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
+			return err
+		}
+	}
 	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)
 }
 
@@ -585,7 +590,13 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if err := a.heartbeat.Record(ctx, a.store, a.now()); err != nil {
 		return err
 	}
-	return a.channel.Deliver(ctx, strconv.FormatInt(a.config.Telegram.OwnerID, 10), result.Message.Content)
+	ownerChatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
+	if strings.TrimSpace(result.ReasoningContent) != "" {
+		if err := a.channel.Deliver(ctx, ownerChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
+			return err
+		}
+	}
+	return a.channel.Deliver(ctx, ownerChatID, result.Message.Content)
 }
 
 func newRunID() string {

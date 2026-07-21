@@ -39,6 +39,9 @@ type providerMessage struct {
 	Name       string             `json:"name,omitempty"`
 	ToolCallID string             `json:"tool_call_id,omitempty"`
 	ToolCalls  []providerToolCall `json:"tool_calls,omitempty"`
+	// ReasoningContent is only ever populated when decoding a provider
+	// response; Eggy never sends it back in a following request's history.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type providerTool struct {
@@ -118,7 +121,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		}
 		message.ToolCalls = append(message.ToolCalls, ports.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: arguments})
 	}
-	return ports.ModelResponse{Message: message, Usage: ports.ModelUsage{
+	return ports.ModelResponse{Message: message, ReasoningContent: providerResult.ReasoningContent, Usage: ports.ModelUsage{
 		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
 		CachedPromptTokens: result.Usage.PromptTokensDetails.CachedTokens, ReasoningTokens: result.Usage.CompletionTokenDetails.ReasoningTokens,
 	}}, nil

@@ -52,6 +52,10 @@ type ModelRequest struct {
 type ModelResponse struct {
 	Message Message    `json:"message"`
 	Usage   ModelUsage `json:"usage,omitempty"`
+	// ReasoningContent is the model's visible chain-of-thought for this
+	// response, when the provider returns one. It is never fed back into a
+	// following request's message history.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 type ModelUsage struct {

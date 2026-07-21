@@ -198,6 +198,52 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	}
 }
 
+func TestHandleMessageDeliversReasoningContentBeforeAnswer(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	secrets := appTestSecrets("provider-secret")
+	var mu sync.Mutex
+	var telegramTexts []string
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if strings.Contains(request.URL.Path, "sendMessage") {
+			body, _ := io.ReadAll(request.Body)
+			var payload struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(body, &payload)
+			mu.Lock()
+			telegramTexts = append(telegramTexts, payload.Text)
+			mu.Unlock()
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		}
+		if request.URL.Host == "deepseek.test" {
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"42.","reasoning_content":"Let me work through this step by step."}}],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}}`), nil
+		}
+		return appJSON(404, `{}`), nil
+	})}
+	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Ready(); err != nil {
+		t.Fatal(err)
+	}
+	messagePayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "What is 6*7?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(telegramTexts) != 2 {
+		t.Fatalf("telegram messages=%#v, want a reasoning message followed by the answer", telegramTexts)
+	}
+	if !strings.Contains(telegramTexts[0], "Thinking:") || !strings.Contains(telegramTexts[0], "Let me work through this step by step.") {
+		t.Fatalf("first message=%q, want the reasoning content", telegramTexts[0])
+	}
+	if telegramTexts[1] != "42." {
+		t.Fatalf("second message=%q, want the final answer", telegramTexts[1])
+	}
+}
+
 func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	var setCommandsBody []byte

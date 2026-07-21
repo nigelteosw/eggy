@@ -33,6 +33,21 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 	}
 }
 
+func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}, ReasoningContent: "considering which tool to call"},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, ReasoningContent: "the tool confirmed readiness"},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, 4)
+	result, err := loop.RunSelected(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ReasoningContent != "the tool confirmed readiness" {
+		t.Fatalf("reasoning content=%q, want the final turn's reasoning only", result.ReasoningContent)
+	}
+}
+
 func TestLoopFiltersTools(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Content: "done"}}}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{

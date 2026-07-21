@@ -26,6 +26,9 @@ type RunOptions struct {
 type RunResult struct {
 	Message ports.Message
 	Usage   ports.ModelUsage
+	// ReasoningContent is the chain-of-thought behind Message, from whichever
+	// model turn produced the final answer, when the provider returns one.
+	ReasoningContent string
 }
 
 type Loop struct {
@@ -77,6 +80,7 @@ func (l *Loop) RunSelected(ctx context.Context, alias, effort, input string, his
 		assistant := response.Message
 		if len(assistant.ToolCalls) == 0 {
 			result.Message = assistant
+			result.ReasoningContent = response.ReasoningContent
 			return result, nil
 		}
 		if steps >= l.selectedMaxSteps {

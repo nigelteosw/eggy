@@ -28,7 +28,7 @@ func run(arguments []string) error {
 		return err
 	}
 	if flags.NArg() == 0 {
-		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|new|config")
+		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|config|start|help")
 	}
 	if flags.Arg(0) == "config" {
 		output, err := configMain(*configPath, flags.Args()[1:])

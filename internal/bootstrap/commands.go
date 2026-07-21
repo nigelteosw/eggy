@@ -43,6 +43,14 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	case "/status":
 		result, err := services.NewStatusTool(s.store).Execute(ctx, json.RawMessage(`{}`))
 		return string(result), true, err
+	case "/start":
+		return "Welcome to Eggy! 🥚\n\nI'm your personal AI assistant. I can chat, manage code repositories, schedule reminders, and more.\n\nAvailable commands:\n" + commandHelp("") + "\n\nType /help <command> for detailed usage on any command.", true, nil
+	case "/help":
+		cmd := ""
+		if len(fields) > 1 {
+			cmd = fields[1]
+		}
+		return commandHelp(cmd), true, nil
 	case "/repositories":
 		if s.repositories == nil {
 			return "Repositories are not configured.", true, nil
@@ -454,6 +462,43 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	default:
 		return "", false, nil
 	}
+}
+
+// commandHelp returns usage text for a specific command, or general help
+// listing all available commands with their descriptions.
+func commandHelp(command string) string {
+	descriptions := map[string]string{
+		"status":        "Show operational status (no model tokens used)",
+		"repositories":  "List, add, or remove configured repositories — /repositories [add <name> <clone_url> [base_branch] [protected_branches]|remove <name>]",
+		"runs":          "List coding-agent runs",
+		"continue":      "Resume a coding session — /continue [run-id] [instruction]",
+		"stop":          "Stop a coding-agent run — /stop <run-id>",
+		"schedules":     "List scheduled instructions",
+		"memory":        "Show durable memory",
+		"model":         "Show or change the active model alias — /model [alias|default|effort <low|medium|high|max>]",
+		"config":        "Get or set configuration sections — /config get <providers|models|calendar|path>|set <provider|model|calendar> ...",
+		"prompts":       "Manage custom prompts — /prompts [show <name>|set <name> <content...>|remove <name>]",
+		"usage":         "Show or reset local token usage counters — /usage [reset]",
+		"clear":         "Clear the context window (durable memory is unchanged)",
+		"calendar_auth": "Start Google Calendar enrollment",
+		"help":          "Show available commands or usage for a specific command — /help [command]",
+		"start":         "Show the welcome message",
+	}
+	if command != "" {
+		if desc, ok := descriptions[command]; ok {
+			return desc
+		}
+		return fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command)
+	}
+	lines := make([]string, 0, len(descriptions))
+	// stable order
+	order := []string{"start", "help", "status", "repositories", "runs", "continue", "stop", "schedules", "memory", "model", "config", "prompts", "usage", "clear", "calendar_auth"}
+	for _, name := range order {
+		if desc, ok := descriptions[name]; ok {
+			lines = append(lines, "/"+name+" — "+desc)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // parseConfigFlags parses "key=value" tokens into a map, splitting each on

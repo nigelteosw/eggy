@@ -32,6 +32,7 @@ type CommandService struct {
 	configPath   string
 	modelAliases []string
 	now          func() time.Time
+	restart      func()
 }
 
 func (s *CommandService) Execute(ctx context.Context, input string) (string, bool, error) {
@@ -40,6 +41,12 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return "", false, nil
 	}
 	switch fields[0] {
+	case "/restart":
+		if s.restart == nil {
+			return "Restart is not available in this environment.", true, nil
+		}
+		s.restart()
+		return "Restarting Eggy to pick up config changes. Back in a few seconds.", true, nil
 	case "/status":
 		result, err := services.NewStatusTool(s.store).Execute(ctx, json.RawMessage(`{}`))
 		return string(result), true, err
@@ -361,7 +368,7 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 				if err := SetProvider(s.configPath, name, adapter, baseURL, apiKeyEnv); err != nil {
 					return err.Error(), true, nil
 				}
-				return "Set provider " + name + ". Restart Eggy for this to take effect.", true, nil
+				return "Set provider " + name + ". Restart Eggy for this to take effect. Run /restart to apply now.", true, nil
 			case "model":
 				values, err := parseConfigFlags(fields[3:])
 				if err != nil {
@@ -380,7 +387,7 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 				if err := SetModelAlias(s.configPath, alias, provider, modelID, reasoningEfforts); err != nil {
 					return err.Error(), true, nil
 				}
-				return "Set model " + alias + ". Restart Eggy for this to take effect.", true, nil
+				return "Set model " + alias + ". Restart Eggy for this to take effect. Run /restart to apply now.", true, nil
 			case "calendar":
 				values, err := parseConfigFlags(fields[3:])
 				if err != nil {
@@ -394,7 +401,7 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 				if err := SetCalendar(s.configPath, values["enabled"], values["default_calendar"], values["timezone"]); err != nil {
 					return err.Error(), true, nil
 				}
-				return "Set calendar. Restart Eggy for this to take effect.", true, nil
+				return "Set calendar. Restart Eggy for this to take effect. Run /restart to apply now.", true, nil
 			default:
 				return "Usage: /config set <provider|model|calendar> ...", true, nil
 			}
@@ -483,6 +490,7 @@ func commandHelp(command string) string {
 		"calendar_auth": "Start Google Calendar enrollment",
 		"help":          "Show available commands or usage for a specific command — /help [command]",
 		"start":         "Show the welcome message",
+		"restart":       "Restart Eggy to pick up config changes",
 	}
 	if command != "" {
 		if desc, ok := descriptions[command]; ok {
@@ -492,7 +500,7 @@ func commandHelp(command string) string {
 	}
 	lines := make([]string, 0, len(descriptions))
 	// stable order
-	order := []string{"start", "help", "status", "repositories", "runs", "continue", "stop", "schedules", "memory", "model", "config", "prompts", "usage", "clear", "calendar_auth"}
+	order := []string{"start", "help", "status", "repositories", "runs", "continue", "stop", "schedules", "memory", "model", "config", "prompts", "usage", "clear", "calendar_auth", "restart"}
 	for _, name := range order {
 		if desc, ok := descriptions[name]; ok {
 			lines = append(lines, "/"+name+" — "+desc)

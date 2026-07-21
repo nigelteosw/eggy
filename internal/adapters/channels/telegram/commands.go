@@ -20,5 +20,6 @@ func Commands() []BotCommand {
 		{Name: "usage", Description: "Show or reset local token usage counters"},
 		{Name: "clear", Description: "Clear the context window"},
 		{Name: "calendar_auth", Description: "Start Google Calendar enrollment"},
+		{Name: "restart", Description: "Restart Eggy to pick up config changes"},
 	}
 }

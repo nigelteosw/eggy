@@ -3,4 +3,5 @@
 /bin/
 /data/
 *.out
+*.patch
 .DS_Store

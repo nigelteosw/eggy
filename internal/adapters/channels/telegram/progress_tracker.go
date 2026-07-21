@@ -8,7 +8,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// ProgressTracker keeps one live Telegram message per Codex run, editing it
+// ProgressTracker keeps one live Telegram message per implementation run, editing it
 // in place as new progress events arrive instead of sending a message per
 // step. Tracking is in-memory only: if an edit fails (e.g. the message is
 // too old, or Eggy restarted and lost the mapping) it falls back to sending

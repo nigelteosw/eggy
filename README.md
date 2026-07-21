@@ -2,7 +2,7 @@
 
 Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Read-only repository questions (browsing files, searching, checking status/branches, reading GitHub issue/PR/check metadata) are answered directly, without starting a repository-modifying run. The same configured reasoning model owns editing, testing, and debugging too, using its own `read_file`/`terminal`/`patch`/`write_file` tools inside an isolated branch — there is no separate coding agent or CLI to install. A validated implementation run is committed, pushed, and opened as a pull request automatically, with no Telegram approval in between; the owner reviews the resulting pull request on GitHub. Calendar writes still require a separate Telegram approval.
 
-The MVP is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica.
+Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica. This is the operator guide; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the current internal architecture and [`docs/adr/`](docs/adr/) for durable design decisions.
 
 ## What is implemented
 
@@ -83,7 +83,7 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, and `/usage reset`. Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, `/usage reset`, and `/restart` (applies a config change picked up on the next restart). Natural language remains the main interface.
 
 `/continue` is owner-triggered only. With no run ID it picks the latest resumable implementation session; a named run ID resumes that exact session. Eggy preserves a compacted tool transcript and shows concise milestones in Telegram, and every resumed result is committed, pushed, and opened as a pull request automatically, the same as a fresh run.
 
@@ -131,7 +131,7 @@ Register the Telegram webhook and complete Google OAuth after the public Railway
 
 ## CLI
 
-The companion CLI reads the same files and is deliberately structured as a future TUI host:
+The companion CLI reads the same files:
 
 ```sh
 EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy status
@@ -139,7 +139,6 @@ EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy status
 ./bin/eggy -config "$PWD/config.yaml" runs
 ./bin/eggy -config "$PWD/config.yaml" schedules
 ./bin/eggy -config "$PWD/config.yaml" memory
-./bin/eggy -config "$PWD/config.yaml" new
 
 ./bin/eggy -config "$PWD/config.yaml" config get providers
 ./bin/eggy -config "$PWD/config.yaml" config get models

@@ -194,7 +194,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	sort.Strings(aliases)
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases)
-	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), 24)
+	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), 48)
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
 		return app.agentRuntime.SelectedModel(ctx)
 	})
@@ -258,7 +258,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, 20)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, 40)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)

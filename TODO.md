@@ -162,6 +162,12 @@ runtime purely to match Hermes.
 - [ ] Persist enough run state to mark interrupted work accurately after restart.
 - [ ] Keep resumable coding-agent sessions distinct from automatic replay: never
       resume an interrupted modifying run without a new owner instruction.
+- [ ] When the owner explicitly asks to continue an already-open pull request,
+      check out that pull request's existing branch as the run's base instead
+      of branching from trunk and opening a second pull request.
+- [ ] Track the open pull request associated with a coding-agent run so a later
+      "keep going on that" request can be matched back to it instead of only
+      matching on repository and instruction text.
 - [ ] Save a bounded patch/diff artifact before workspace cleanup so rejected or
       interrupted work can be inspected without retaining the entire checkout.
 - [ ] Add cleanup and retention diagnostics for abandoned workspaces and provider

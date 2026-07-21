@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -22,7 +21,6 @@ type ModelTarget struct {
 
 type RunOptions struct {
 	AllowedTools map[string]bool
-	Lane         lane.Lane
 }
 
 type RunResult struct {
@@ -31,14 +29,13 @@ type RunResult struct {
 }
 
 type Loop struct {
-	tools               map[string]ports.Tool
-	defs                []ports.ToolDefinition
-	selected            map[string]ModelTarget
-	selectedMaxSteps    int
-	implementationTools map[string]bool
+	tools            map[string]ports.Tool
+	defs             []ports.ToolDefinition
+	selected         map[string]ModelTarget
+	selectedMaxSteps int
 }
 
-func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, implementationToolNames []string, maxToolSteps int) *Loop {
+func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, maxToolSteps int) *Loop {
 	if maxToolSteps <= 0 {
 		maxToolSteps = 4
 	}
@@ -53,16 +50,11 @@ func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, implemen
 	for alias, target := range models {
 		targets[alias] = target
 	}
-	implTools := make(map[string]bool, len(implementationToolNames))
-	for _, name := range implementationToolNames {
-		implTools[name] = true
-	}
 	return &Loop{
-		tools:               registry,
-		defs:                definitions,
-		selected:            targets,
-		selectedMaxSteps:    maxToolSteps,
-		implementationTools: implTools,
+		tools:            registry,
+		defs:             definitions,
+		selected:         targets,
+		selectedMaxSteps: maxToolSteps,
 	}
 }
 
@@ -97,9 +89,6 @@ func (l *Loop) RunSelected(ctx context.Context, alias, input string, history []p
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
 			if options.AllowedTools != nil && !options.AllowedTools[call.Name] {
-				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
-			}
-			if options.Lane != lane.Implementation && l.implementationTools[call.Name] {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
 			output, toolErr := tool.Execute(ctx, call.Arguments)
@@ -209,7 +198,7 @@ func (l *Loop) RunImplementationWithEvents(ctx context.Context, alias string, me
 }
 
 // ToolNames returns the tools available for a turn after applying the same
-// lane and allowlist filters used for the model request.
+// allowlist filter used for the model request.
 func (l *Loop) ToolNames(options RunOptions) []string {
 	definitions := l.filteredDefinitions(options)
 	names := make([]string, 0, len(definitions))
@@ -221,17 +210,6 @@ func (l *Loop) ToolNames(options RunOptions) []string {
 
 func (l *Loop) filteredDefinitions(options RunOptions) []ports.ToolDefinition {
 	defs := append([]ports.ToolDefinition(nil), l.defs...)
-
-	// Filter out implementation tools when not in implementation lane.
-	if options.Lane != lane.Implementation {
-		filtered := make([]ports.ToolDefinition, 0, len(defs))
-		for _, d := range defs {
-			if !l.implementationTools[d.Name] {
-				filtered = append(filtered, d)
-			}
-		}
-		defs = filtered
-	}
 
 	// Apply explicit tool allowlist.
 	if options.AllowedTools != nil {

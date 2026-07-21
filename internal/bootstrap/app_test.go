@@ -21,20 +21,9 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
 )
-
-func TestEventLaneNeverLetsScheduledTextAuthorizeImplementation(t *testing.T) {
-	text := "Implement the approved design"
-	if got := eventLane(events.TypeMessage, text); got != lane.Implementation {
-		t.Fatalf("message lane=%v, want implementation", got)
-	}
-	if got := eventLane(events.TypeSchedule, text); got != lane.Assistant {
-		t.Fatalf("schedule lane=%v, want assistant", got)
-	}
-}
 
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
 	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
@@ -76,7 +65,7 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 	}
 }
 
-func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) {
+func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	var modelBodies [][]byte
@@ -92,7 +81,7 @@ func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "Implement the approved design"})
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "yes make the change"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "message", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -102,11 +91,13 @@ func TestScheduledImplementationTextGetsAssistantToolsAndManifest(t *testing.T) 
 	if len(modelBodies) != 2 {
 		t.Fatalf("model requests=%d, want 2", len(modelBodies))
 	}
-	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
-		t.Fatalf("implementation turn did not advertise repository_modify: %s", modelBodies[0])
+	directTools := requestedToolNames(t, modelBodies[0])
+	if !directTools["repository_modify"] || !directTools["repository_continue"] {
+		t.Fatalf("direct owner message did not advertise repository tools: %s", modelBodies[0])
 	}
-	if requestedToolNames(t, modelBodies[1])["repository_modify"] {
-		t.Fatalf("scheduled turn advertised repository_modify: %s", modelBodies[1])
+	scheduledTools := requestedToolNames(t, modelBodies[1])
+	if scheduledTools["repository_modify"] || scheduledTools["repository_continue"] {
+		t.Fatalf("scheduled turn advertised repository tools: %s", modelBodies[1])
 	}
 }
 

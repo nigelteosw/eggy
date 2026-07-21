@@ -15,7 +15,7 @@ func TestNativeImplementerReturnsStructuredResultAndReportsToolProgress(t *testi
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "terminal", Arguments: json.RawMessage(`{"command":"ls"}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done","changed_files":["main.go"]}`)}}}},
 	}}
-	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
+	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
 	var updates []ports.CodingProgress
@@ -44,7 +44,7 @@ func TestImplementationProgressReportsNonZeroValidationExit(t *testing.T) {
 
 func TestNativeImplementerRejectsConcurrentRunsWithSameID(t *testing.T) {
 	block := &blockingModel{unblock: make(chan struct{}), started: make(chan struct{})}
-	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
+	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
 	go func() {
@@ -59,7 +59,7 @@ func TestNativeImplementerRejectsConcurrentRunsWithSameID(t *testing.T) {
 
 func TestNativeImplementerInterruptCancelsActiveRun(t *testing.T) {
 	block := &blockingModel{unblock: make(chan struct{}), started: make(chan struct{})}
-	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
+	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{"deepseek-pro": {Model: block, ModelID: "provider-pro"}}, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "deepseek-pro", nil })
 
 	done := make(chan error, 1)
@@ -80,7 +80,7 @@ func TestNativeImplementerInterruptCancelsActiveRun(t *testing.T) {
 }
 
 func TestNativeImplementerFailsWhenAliasResolutionFails(t *testing.T) {
-	loop := agent.NewSelectedLoop(nil, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), nil, 8)
+	loop := agent.NewSelectedLoop(nil, NewImplementationTools(&fakeWorkspaceRunner{}, &fakeRepositoryReader{}), 8)
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, error) { return "", errors.New("no model selected") })
 	if _, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, nil); err == nil {
 		t.Fatal("expected alias resolution error")

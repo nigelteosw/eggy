@@ -32,6 +32,9 @@ func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 	if !strings.Contains(strings.ToLower(policy), "operator-configured credentials") || !strings.Contains(policy, "capability manifest reports push and pull-request readiness") || !strings.Contains(policy, "automatically requests the next independent approval") || !strings.Contains(policy, "Do not invent local recovery commands") {
 		t.Fatalf("policy=%s", policy)
 	}
+	if !strings.Contains(strings.ToLower(policy), "direct owner messages") || !strings.Contains(policy, "do not grant repository write access") || strings.Contains(policy, "reads as an explicit implementation request") {
+		t.Fatalf("repository tool policy=%s", policy)
+	}
 	for _, secret := range []string{"DEEPSEEK_API_KEY", "github_pat_", "Bearer "} {
 		if strings.Contains(strings.Join([]string{messages[0].Content, manifest}, "\n"), secret) {
 			t.Fatalf("instructions contain secret marker %q", secret)

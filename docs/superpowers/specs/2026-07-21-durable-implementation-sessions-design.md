@@ -161,8 +161,9 @@ use different safe context limits without leaking provider types into the kernel
 
 ### Start
 
-1. An explicit owner implementation request reaches `repository_modify` through the
-   existing implementation lane.
+1. An explicit owner implementation request reaches `repository_modify` from a
+   direct owner message. Scheduled and heartbeat turns use read-only tool allowlists
+   and cannot start an implementation session.
 2. Eggy creates the durable session and workspace, clones the trusted configured
    repository and creates the isolated branch.
 3. The native implementation loop runs with the existing inner-only tool registry.

@@ -30,7 +30,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/lane"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -194,7 +193,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	sort.Strings(aliases)
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases)
-	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), nil, 24)
+	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), 24)
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, error) {
 		return app.agentRuntime.SelectedModel(ctx)
 	})
@@ -263,7 +262,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, []string{"repository_modify", "repository_continue"}, 20)
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, 20)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -350,7 +349,11 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if message.ChatID == "" {
 			message.ChatID = strconv.FormatInt(a.config.Telegram.OwnerID, 10)
 		}
-		return a.handleMessage(ctx, message, eventLane(event.Type, message.Text))
+		options := agent.RunOptions{}
+		if event.Type == events.TypeSchedule {
+			options = readOnlyRunOptions()
+		}
+		return a.handleMessage(ctx, message, options)
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {
@@ -364,14 +367,14 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	}
 }
 
-func eventLane(eventType events.Type, text string) lane.Lane {
-	if eventType != events.TypeMessage {
-		return lane.Assistant
-	}
-	return lane.Detect(text)
+func readOnlyRunOptions() agent.RunOptions {
+	return agent.RunOptions{AllowedTools: map[string]bool{
+		"status": true, "repository_list": true, "calendar_list": true,
+		"read_file": true, "terminal": true, "repository_github": true,
+	}}
 }
 
-func (a *App) handleMessage(ctx context.Context, message events.Message, turnLane lane.Lane) error {
+func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions) error {
 	if output, handled, err := a.commands.Execute(ctx, message.Text); handled {
 		if err != nil {
 			return err
@@ -391,7 +394,6 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, turnLan
 		return err
 	}
 	manifest := a.capabilityManifest(state, alias)
-	options := agent.RunOptions{Lane: turnLane}
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	if state.ConversationSummary != "" {
@@ -579,11 +581,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 		return err
 	}
 	manifest := a.capabilityManifest(state, alias)
-	allowed := map[string]bool{
-		"status": true, "repository_list": true, "calendar_list": true,
-		"read_file": true, "terminal": true, "repository_github": true,
-	}
-	options := agent.RunOptions{AllowedTools: allowed}
+	options := readOnlyRunOptions()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})

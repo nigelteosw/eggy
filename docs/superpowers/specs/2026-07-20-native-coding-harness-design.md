@@ -24,7 +24,7 @@ The one deliberate departure from both: Eggy keeps its clone → branch → diff
 | `repository_github` | Unchanged. Read-only GitHub issue/PR/check-run metadata via the GitHub adapter — not a file-grep problem, no Hermes equivalent, stays as-is. |
 | `read_file` | Renamed from `repository_read`. Bounded line-range read from a file in an ephemeral, read-only checkout. |
 | `terminal` | New. Replaces `repository_tree`, `repository_search`, and `repository_status`. Sandboxed shell execution (via the existing `ports.Runner`/`StreamingRunner`) inside the same ephemeral, read-only checkout `read_file` uses — the model runs `grep`, `find`, `ls`, `git status`, `git log`, etc. itself instead of Eggy exposing three bespoke typed tools for the same job. This is a net reduction in bespoke tool surface, matching Hermes's actual minimal footprint. The checkout is destroyed after the turn; nothing here creates a branch, diff, or approval. |
-| `repository_modify` | Unchanged entry point and unchanged gating: `lane.Detect` (deterministic, keyword-based, in `internal/kernel/lane`) must have classified the current message as `Implementation` for this tool to even appear in the model's tool list — the exact mechanism already in place today, untouched by this design. |
+| `repository_modify` | Entry point for a bounded implementation run. It is available on direct owner messages, while scheduled and heartbeat turns use explicit read-only tool allowlists. The hard runtime policy instructs the model to call it only for an explicit owner request to change a repository. |
 
 ### Available only inside a `repository_modify` run (a second, bounded `Loop`)
 
@@ -35,15 +35,14 @@ The one deliberate departure from both: Eggy keeps its clone → branch → diff
 | `write_file` | New. Creates a file or replaces its full contents. Handles the "new file" case `patch` cannot (there is no old string to match against). |
 | `finish_implementation` | New, required. A structured terminal tool call: `{summary, validation, commit_message, changed_files}`. The inner loop ends when this is called or when its step budget is exhausted. This replaces today's fragile contract — parsing the last stdout line of a CLI subprocess as JSON, with a markdown-fence-stripping fallback (`extractStructuredJSON`) for when the CLI doesn't comply — with an actual typed tool call the loop enforces directly. No Hermes equivalent; this exists because Eggy's approval pipeline needs a structured result Hermes doesn't need to produce. |
 
-`patch`, `write_file`, and `finish_implementation` are never registered in the outer loop's tool registry — the same closed-tool-list mechanism (`Loop.filteredDefinitions`) that hides `repository_modify` from the `Assistant` lane today keeps them unreachable outside an active implementation run. There is no path by which the outer conversational turn can write a file.
+`patch`, `write_file`, and `finish_implementation` are never registered in the outer loop's tool registry, so they remain unreachable outside an active implementation run. Scheduled and heartbeat turns also use explicit read-only allowlists that exclude `repository_modify` and `repository_continue`. There is no path by which those non-owner turns can write a file.
 
 ## Flow
 
 ```text
-Telegram message
-  -> lane.Detect(text)                      [unchanged]
-  -> outer Loop.RunSelected                 [unchanged engine, new/renamed tools]
-       -> model calls repository_modify (Implementation lane only)
+Direct owner Telegram message
+  -> outer Loop.RunSelected                 [unchanged engine, full outer tool set]
+       -> model calls repository_modify for an explicit change request
             -> CodingService.Start:
                  clone repository                                    [unchanged]
                  create eggy/<run-id> branch                         [unchanged]
@@ -73,7 +72,7 @@ Every constraint `AGENTS.md` states today continues to hold, enforced the same w
 - Path, environment, timeout, output, and process-group restrictions on `terminal` come from the existing `ports.Runner` — no new sandboxing primitive.
 - Commit, push, and pull-request creation remain three independent Telegram approvals. Protected branches remain unpushable regardless of approval.
 - The post-run branch/HEAD equality check in `CodingService.Start` is what prevents the model from committing or pushing on its own — this check already exists and already runs regardless of what produced the file changes.
-- `repository_modify`, `patch`, `write_file`, and `finish_implementation` are only reachable through the same lane-gated, tool-registry-filtered path `repository_modify` uses today.
+- `patch`, `write_file`, and `finish_implementation` are reachable only inside `repository_modify`; scheduled and heartbeat turns receive explicit read-only tool allowlists that exclude `repository_modify` and `repository_continue`.
 
 ## Risk worth naming
 

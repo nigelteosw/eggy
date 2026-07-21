@@ -23,7 +23,7 @@ func TestConversationKeepsBoundedRecentMessagesAndCanReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, _ = store.Load(context.Background())
-	if len(state.RecentMessages) != 0 || state.ConversationSummary != "" {
+	if len(state.RecentMessages) != 0 {
 		t.Fatalf("state=%#v", state)
 	}
 }

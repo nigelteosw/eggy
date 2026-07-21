@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/tasks"
 )
 
 var ErrStateVersionConflict = errors.New("state version conflict")
@@ -130,31 +128,23 @@ type ContextStore interface {
 }
 
 type State struct {
-	SchemaVersion       int                           `json:"schema_version"`
-	Version             uint64                        `json:"version"`
-	RecentMessages      []Message                     `json:"recent_messages,omitempty"`
-	ConversationSummary string                        `json:"conversation_summary,omitempty"`
-	SelectedRepository  string                        `json:"selected_repository,omitempty"`
-	Tasks               map[string]tasks.Task         `json:"tasks,omitempty"`
-	Approvals           map[string]approvals.Approval `json:"approvals,omitempty"`
-	Schedules           map[string]Schedule           `json:"schedules,omitempty"`
-	CodingRuns          map[string]CodingRun          `json:"coding_runs,omitempty"`
-	Repositories        map[string]Repository         `json:"repositories,omitempty"`
-	ProcessedEvents     map[string]time.Time          `json:"processed_events,omitempty"`
-	ProactiveMessages   []time.Time                   `json:"proactive_messages,omitempty"`
-	Calendar            CalendarAuth                  `json:"calendar,omitempty"`
-	Agent               AgentRuntimeState             `json:"agent,omitempty"`
-	Coding              CodingRuntimeState            `json:"coding,omitempty"`
+	SchemaVersion     int                           `json:"schema_version"`
+	Version           uint64                        `json:"version"`
+	RecentMessages    []Message                     `json:"recent_messages,omitempty"`
+	Approvals         map[string]approvals.Approval `json:"approvals,omitempty"`
+	Schedules         map[string]Schedule           `json:"schedules,omitempty"`
+	CodingRuns        map[string]CodingRun          `json:"coding_runs,omitempty"`
+	Repositories      map[string]Repository         `json:"repositories,omitempty"`
+	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
+	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
+	Calendar          CalendarAuth                  `json:"calendar,omitempty"`
+	Agent             AgentRuntimeState             `json:"agent,omitempty"`
 }
 
 type AgentRuntimeState struct {
 	SelectedModel   string                `json:"selected_model,omitempty"`
 	ReasoningEffort string                `json:"reasoning_effort,omitempty"`
 	Usage           map[string]ModelUsage `json:"usage,omitempty"`
-}
-
-type CodingRuntimeState struct {
-	SelectedAgent string `json:"selected_agent,omitempty"`
 }
 
 type StateStore interface {
@@ -167,7 +157,6 @@ type ScheduleKind string
 const (
 	ScheduleExact     ScheduleKind = "exact"
 	ScheduleRecurring ScheduleKind = "recurring"
-	ScheduleHeartbeat ScheduleKind = "heartbeat"
 )
 
 type Schedule struct {
@@ -186,11 +175,6 @@ type Scheduler interface {
 	Remove(context.Context, string) error
 	Due(context.Context, time.Time) ([]Schedule, error)
 	Next(string, time.Time) (time.Time, error)
-}
-
-type TriggerSource interface {
-	Events() <-chan events.Event
-	Start(context.Context) error
 }
 
 type CodingRun struct {
@@ -251,20 +235,17 @@ type SessionContext struct {
 }
 
 type ImplementationSession struct {
-	ID            string                       `json:"id"`
-	Title         string                       `json:"title,omitempty"`
-	Repository    string                       `json:"repository,omitempty"`
-	Instruction   string                       `json:"instruction,omitempty"`
-	Workspace     string                       `json:"workspace,omitempty"`
-	Branch        string                       `json:"branch,omitempty"`
-	BaseRevision  string                       `json:"base_revision,omitempty"`
-	Model         string                       `json:"model,omitempty"`
-	PromptVersion string                       `json:"prompt_version,omitempty"`
-	Status        ImplementationSessionStatus  `json:"status"`
-	Context       SessionContext               `json:"context,omitempty"`
-	StartedAt     time.Time                    `json:"started_at"`
-	UpdatedAt     time.Time                    `json:"updated_at"`
-	Events        []ImplementationSessionEvent `json:"-"`
+	ID           string                       `json:"id"`
+	Repository   string                       `json:"repository,omitempty"`
+	Instruction  string                       `json:"instruction,omitempty"`
+	Workspace    string                       `json:"workspace,omitempty"`
+	Branch       string                       `json:"branch,omitempty"`
+	BaseRevision string                       `json:"base_revision,omitempty"`
+	Status       ImplementationSessionStatus  `json:"status"`
+	Context      SessionContext               `json:"context,omitempty"`
+	StartedAt    time.Time                    `json:"started_at"`
+	UpdatedAt    time.Time                    `json:"updated_at"`
+	Events       []ImplementationSessionEvent `json:"-"`
 }
 
 type ImplementationSessionEvent struct {
@@ -304,11 +285,6 @@ type Runner interface {
 	Create(context.Context, string) (string, error)
 	Execute(context.Context, Command) (CommandResult, error)
 	Destroy(context.Context, string) error
-}
-
-type StreamingRunner interface {
-	Runner
-	ExecuteStreaming(context.Context, Command, func(string)) (CommandResult, error)
 }
 
 type Repository struct {

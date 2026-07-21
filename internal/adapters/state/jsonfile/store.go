@@ -12,11 +12,10 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/tasks"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 var ErrVersionConflict = ports.ErrStateVersionConflict
 
@@ -30,7 +29,6 @@ func Open(path string) *Store { return &Store{path: path} }
 func initialState() ports.State {
 	return ports.State{
 		SchemaVersion:   CurrentSchemaVersion,
-		Tasks:           map[string]tasks.Task{},
 		Approvals:       map[string]approvals.Approval{},
 		Schedules:       map[string]ports.Schedule{},
 		CodingRuns:      map[string]ports.CodingRun{},
@@ -62,7 +60,7 @@ func (s *Store) loadUnlocked() (ports.State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return ports.State{}, fmt.Errorf("decode state: %w", err)
 	}
-	if state.SchemaVersion == 1 {
+	if state.SchemaVersion < CurrentSchemaVersion {
 		state.SchemaVersion = CurrentSchemaVersion
 		data, err := json.MarshalIndent(state, "", "  ")
 		if err != nil {

@@ -24,29 +24,29 @@ The generic task subsystem has no production producer. Nothing creates a
 running tasks as interrupted. Coding runs and implementation sessions already
 have their own lifecycle and recovery behavior.
 
-- [ ] Remove `internal/kernel/tasks/tasks.go`,
+- [x] Remove `internal/kernel/tasks/tasks.go`,
       `internal/kernel/services/task_service.go`, and their tests.
-- [ ] Remove `TaskService.RecoverInterrupted` from `App.Run`.
-- [ ] Remove `State.Tasks` through an explicit state-schema migration. Loading
+- [x] Remove `TaskService.RecoverInterrupted` from `App.Run`.
+- [x] Remove `State.Tasks` through an explicit state-schema migration. Loading
       an existing state file containing `tasks` must remain safe and must not
       corrupt any unrelated field.
-- [ ] Remove `State.SelectedRepository`; production code never sets it. Update
+- [x] Remove `State.SelectedRepository`; production code never sets it. Update
       deterministic status output to report configured repositories or another
       value backed by live state instead of an always-empty selected value.
-- [ ] Remove `CodingRuntimeState` and `State.Coding`; `SelectedAgent` belongs to
+- [x] Remove `CodingRuntimeState` and `State.Coding`; `SelectedAgent` belongs to
       the retired configurable coding-agent path and has no production writer.
-- [ ] Remove `State.ConversationSummary` unless a real summary producer is
+- [x] Remove `State.ConversationSummary` unless a real summary producer is
       introduced in the same change. The current runtime reads and clears the
       field but never creates a summary.
-- [ ] Remove the unused `TriggerSource` and `StreamingRunner` ports.
-- [ ] Remove the unused `ScheduleHeartbeat` enum value if no persisted schedule
+- [x] Remove the unused `TriggerSource` and `StreamingRunner` ports.
+- [x] Remove the unused `ScheduleHeartbeat` enum value if no persisted schedule
       uses it; otherwise migrate it explicitly before deletion.
-- [ ] Review fields on `ImplementationSession` such as `Title`, `Model`, and
+- [x] Review fields on `ImplementationSession` such as `Title`, `Model`, and
       `PromptVersion`, and delete fields that have no writer or planned reader.
-- [ ] Add a focused migration test using a representative current production
+- [x] Add a focused migration test using a representative current production
       state file containing repositories, approvals, schedules, Calendar auth,
       model selection, usage, and coding history.
-- [ ] Verify that startup recovery still covers active implementation sessions
+- [x] Verify that startup recovery still covers active implementation sessions
       and pending schedules after the generic task recovery is removed.
 
 ### 2. Create one command contract for Telegram and the CLI

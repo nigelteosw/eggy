@@ -40,7 +40,6 @@ func (s *ConversationService) Reset(ctx context.Context) error {
 	}
 	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
 		state.RecentMessages = nil
-		state.ConversationSummary = ""
 		return nil
 	})
 	return err

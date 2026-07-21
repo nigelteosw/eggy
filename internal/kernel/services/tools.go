@@ -69,12 +69,17 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 			pending++
 		}
 	}
+	repositories := make([]string, 0, len(state.Repositories))
+	for name := range state.Repositories {
+		repositories = append(repositories, name)
+	}
+	sort.Strings(repositories)
 	return json.Marshal(struct {
-		Repository       string `json:"repository,omitempty"`
-		ActiveRuns       int    `json:"active_runs"`
-		PendingApprovals int    `json:"pending_approvals"`
-		Schedules        int    `json:"schedules"`
-	}{Repository: state.SelectedRepository, ActiveRuns: activeRuns(state), PendingApprovals: pending, Schedules: len(state.Schedules)})
+		Repositories     []string `json:"repositories,omitempty"`
+		ActiveRuns       int      `json:"active_runs"`
+		PendingApprovals int      `json:"pending_approvals"`
+		Schedules        int      `json:"schedules"`
+	}{Repositories: repositories, ActiveRuns: activeRuns(state), PendingApprovals: pending, Schedules: len(state.Schedules)})
 }
 
 func activeRuns(state ports.State) int {

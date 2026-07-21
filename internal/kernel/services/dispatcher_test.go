@@ -10,7 +10,6 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/tasks"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -67,7 +66,7 @@ func TestDispatcherMarksEventAfterHandlerMutatesSharedState(t *testing.T) {
 		events.TypeMessage: func(ctx context.Context, _ events.Event) error {
 			state, _ := store.Load(ctx)
 			_, err := store.Update(ctx, state.Version, func(state *ports.State) error {
-				state.SelectedRepository = "eggy"
+				state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 				return nil
 			})
 			return err
@@ -153,7 +152,7 @@ type memoryStore struct {
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{state: ports.State{SchemaVersion: 1, ProcessedEvents: map[string]time.Time{}, Tasks: map[string]tasks.Task{}, Approvals: map[string]approvals.Approval{}}}
+	return &memoryStore{state: ports.State{SchemaVersion: 1, ProcessedEvents: map[string]time.Time{}, Approvals: map[string]approvals.Approval{}}}
 }
 
 func (s *memoryStore) Load(context.Context) (ports.State, error) {

@@ -23,7 +23,7 @@ func TestImplementationSessionsCreatesOwnerTriggeredSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Status != ports.SessionCreated || session.Title != "Add resumable sessions" || !session.StartedAt.Equal(now) {
+	if session.Status != ports.SessionCreated || !session.StartedAt.Equal(now) {
 		t.Fatalf("session=%#v", session)
 	}
 }

@@ -427,9 +427,6 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	manifest := a.capabilityManifest(state, alias)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
-	if state.ConversationSummary != "" {
-		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
-	}
 	history = append(history, state.RecentMessages...)
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
@@ -511,9 +508,6 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 
 func (a *App) Run(ctx context.Context) error {
 	defer a.workers.Wait()
-	if _, err := services.NewTaskService(a.store, a.now).RecoverInterrupted(ctx); err != nil {
-		return err
-	}
 	if _, err := a.coding.RecoverInterrupted(ctx); err != nil {
 		return err
 	}
@@ -598,9 +592,6 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
-	if state.ConversationSummary != "" {
-		history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Conversation summary:\n" + state.ConversationSummary})
-	}
 	history = append(history, state.RecentMessages...)
 	instruction := "Evaluate whether one concise proactive check-in is useful now. Separately, review recent conversation for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in. Return an empty response when no check-in is useful."
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, instruction, history, options)

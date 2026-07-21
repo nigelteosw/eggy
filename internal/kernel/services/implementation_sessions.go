@@ -60,9 +60,6 @@ func (s *ImplementationSessions) Create(ctx context.Context, session ports.Imple
 		return ports.ImplementationSession{}, errors.New("implementation session id is required")
 	}
 	now := s.now()
-	if session.Title == "" {
-		session.Title = sessionTitle(session.Instruction)
-	}
 	if session.Status == "" {
 		session.Status = ports.SessionCreated
 	}
@@ -195,7 +192,6 @@ func (s *ImplementationSessions) nextContext(context ports.SessionContext, event
 }
 
 func (s *ImplementationSessions) sanitizeSession(session ports.ImplementationSession) ports.ImplementationSession {
-	session.Title = s.redact(session.Title)
 	session.Instruction = s.redact(session.Instruction)
 	session.Context.Summary = s.redact(session.Context.Summary)
 	for i := range session.Context.RecentMessages {
@@ -232,11 +228,6 @@ func (s *ImplementationSessions) redact(content string) string {
 // RedactProgress removes configured credentials before implementation activity
 // is exposed through a channel adapter.
 func (s *ImplementationSessions) RedactProgress(content string) string { return s.redact(content) }
-
-func sessionTitle(instruction string) string {
-	line := strings.TrimSpace(strings.Split(instruction, "\n")[0])
-	return truncateRunes(line, 80)
-}
 
 func appendSummary(summary, event string) string {
 	event = truncateRunes(strings.TrimSpace(event), 320)

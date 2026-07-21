@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func TestStatusToolReturnsBoundedOperationalView(t *testing.T) {
 	store := newMemoryStore()
-	store.state.SelectedRepository = "eggy"
-	store.state.ConversationSummary = "private long summary"
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 	store.state.Approvals["a"] = approvals.Approval{ID: "a", Status: approvals.Pending}
 	tool := NewStatusTool(store)
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
@@ -19,17 +19,14 @@ func TestStatusToolReturnsBoundedOperationalView(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status struct {
-		Repository       string `json:"repository"`
-		PendingApprovals int    `json:"pending_approvals"`
+		Repositories     []string `json:"repositories"`
+		PendingApprovals int      `json:"pending_approvals"`
 	}
 	if err := json.Unmarshal(result, &status); err != nil {
 		t.Fatal(err)
 	}
-	if status.Repository != "eggy" || status.PendingApprovals != 1 {
+	if len(status.Repositories) != 1 || status.Repositories[0] != "eggy" || status.PendingApprovals != 1 {
 		t.Fatalf("status=%s", result)
-	}
-	if string(result) == "" || contains(string(result), "private long summary") {
-		t.Fatalf("state snapshot leaked: %s", result)
 	}
 }
 

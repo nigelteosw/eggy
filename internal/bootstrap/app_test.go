@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
@@ -76,7 +76,7 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
-	if err != nil || !handled || output != "Set provider openrouter. Restart Eggy for this to take effect. Run /restart to apply now." {
+	if err != nil || !handled || !strings.Contains(output, "Set provider openrouter.") || !strings.Contains(output, "Restart Eggy for this to take effect.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 	reloaded, _, err := LoadConfig(configPath, mapEnv(map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}))
@@ -194,7 +194,7 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(telegramBodies) != 2 || !strings.Contains(string(telegramBodies[0]), "pending_approvals") || !strings.Contains(string(telegramBodies[1]), "Hello from Eggy") {
+	if len(telegramBodies) != 2 || !strings.Contains(string(telegramBodies[0]), "Pending approvals") || !strings.Contains(string(telegramBodies[1]), "Hello from Eggy") {
 		t.Fatalf("telegram=%q", telegramBodies)
 	}
 	if !strings.Contains(string(modelBody), "Eggy Memory") || !strings.Contains(string(modelBody), "Hard runtime policy") || !strings.Contains(string(modelBody), "Capability manifest") || !strings.Contains(string(modelBody), `"model":"deepseek-v4-pro"`) || !strings.Contains(string(modelBody), "2026-07-19T12:34:56+08:00") || !strings.Contains(string(modelBody), "Asia/Singapore") {
@@ -462,13 +462,23 @@ func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 	}
 }
 
+// TestCommandServiceHandlesEveryRegisteredTelegramCommand is the catalog
+// coverage test: every top-level command Telegram's autocomplete advertises
+// must also have a working CommandService handler, so the two surfaces can
+// never drift apart.
 func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range telegram.Commands() {
+	for _, command := range TelegramAutocomplete() {
+		if command.Description == "" {
+			t.Fatalf("command %q has no description", command.Name)
+		}
+		if HelpText(command.Name) == fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command.Name) {
+			t.Fatalf("command %q has no eggy help text", command.Name)
+		}
 		_, handled, err := app.commands.Execute(context.Background(), "/"+command.Name)
 		if err != nil || !handled {
 			t.Fatalf("registered command %q was not handled by CommandService: handled=%v err=%v", command.Name, handled, err)
@@ -476,6 +486,33 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	}
 	if _, handled, _ := app.commands.Execute(context.Background(), "/unknown"); handled {
 		t.Fatal("unknown command handled")
+	}
+}
+
+// TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler dispatches every
+// catalog entry (including subcommands, not just top-level ones) through its
+// own canonical Telegram example, proving the catalog and its handlers never
+// drift out of sync. Some canonical examples reference IDs that don't exist
+// in this fresh app (e.g. "/stop run-1"), which legitimately surfaces as an
+// error result or a Go error from the underlying service -- this test only
+// proves dispatch reaches a real handler without panicking, not that every
+// example succeeds.
+func TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range catalog {
+		if len(entry.Examples) == 0 {
+			t.Fatalf("catalog entry %q has no example", entry.Path)
+		}
+		// Dispatch must reach a real handler without panicking; a returned
+		// Go error is fine here (e.g. "/stop run-1" against a run that was
+		// never created), it just means the example ID doesn't exist yet.
+		if _, handled, _ := app.commands.Execute(context.Background(), entry.Examples[0].Telegram); !handled {
+			t.Fatalf("catalog entry %q was not handled via its own example %q", entry.Path, entry.Examples[0].Telegram)
+		}
 	}
 }
 

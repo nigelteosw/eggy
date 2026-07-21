@@ -56,69 +56,69 @@ across `internal/bootstrap/commands.go`, `cmd/eggy/config.go`, Telegram's bot
 command list, and hand-maintained help text. This duplication is already causing
 Telegram and CLI grammar and output to drift.
 
-- [ ] Define one command catalog containing each command's name, description,
+- [x] Define one command catalog containing each command's name, description,
       subcommands, arguments, examples, handler, and response intent.
-- [ ] Keep Telegram's natural `key=value` syntax for named values, for example
+- [x] Keep Telegram's natural `key=value` syntax for named values, for example
       `/config set model alias=deepseek-pro provider=deepseek
       model=deepseek-v4-pro reasoning_efforts=low,medium,high,max`.
-- [ ] Keep conventional CLI flags, for example `eggy config set model
+- [x] Keep conventional CLI flags, for example `eggy config set model
       --alias=deepseek-pro --provider=deepseek --model=deepseek-v4-pro
       --reasoning-efforts=low,medium,high,max`.
-- [ ] Parse both surfaces into the same validated command request. Telegram must
+- [x] Parse both surfaces into the same validated command request. Telegram must
       not spawn the `eggy` executable as a subprocess.
-- [ ] Route `eggy config` through the shared config command handler while
+- [x] Route `eggy config` through the shared config command handler while
       preserving its ability to work without constructing the full runtime or
       requiring locally available provider credentials.
-- [ ] Replace ad-hoc response strings with a structured command result containing
+- [x] Replace ad-hoc response strings with a structured command result containing
       a state (`success`, `info`, `warning`, `error`, or `help`), title, fields or
       rows, explanatory detail, and relevant next commands.
-- [ ] Render the same result as clean plain text for the CLI and safe HTML for
+- [x] Render the same result as clean plain text for the CLI and safe HTML for
       Telegram. CLI output must remain readable when redirected to a file or
       pipe and must not require colour support.
-- [ ] Generate `/help`, `eggy help`, and Telegram autocomplete metadata from the
+- [x] Generate `/help`, `eggy help`, and Telegram autocomplete metadata from the
       shared command catalog so the lists cannot drift.
-- [ ] Keep legacy positional Telegram forms temporarily where removing them
+- [x] Keep legacy positional Telegram forms temporarily where removing them
       would break saved commands, but show only the canonical syntax in new help
       and confirmation output.
-- [ ] Give every direct command enough context to answer: what is the current
+- [x] Give every direct command enough context to answer: what is the current
       state, what did Eggy just do, and what can the owner do next?
-- [ ] Improve empty states: no repositories should show the exact add command;
+- [x] Improve empty states: no repositories should show the exact add command;
       no runs should explain how an implementation run starts; no prompts should
       explain what custom prompts do; no schedules should explain how scheduling
       is requested.
-- [ ] Improve command-family output:
-  - [ ] `status`: show configured repositories, active runs, pending approvals,
+- [x] Improve command-family output:
+  - [x] `status`: show configured repositories, active runs, pending approvals,
         schedules, active model, and relevant next actions from real state;
-  - [ ] `repositories`: show repository name, base branch, protected branches,
+  - [x] `repositories`: show repository name, base branch, protected branches,
         and whether an add request is awaiting owner approval;
-  - [ ] `runs`: show run ID, repository, phase/status, validation state, and the
+  - [x] `runs`: show run ID, repository, phase/status, validation state, and the
         correct continue or stop command when applicable;
-  - [ ] `continue` and `stop`: explain whether work remains resumable and show
+  - [x] `continue` and `stop`: explain whether work remains resumable and show
         the pull-request URL when shipping completes;
-  - [ ] `schedules`: show instruction/purpose, next run, enabled state, and the
+  - [x] `schedules`: show instruction/purpose, next run, enabled state, and the
         owner timezone;
-  - [ ] `memory` and `clear`: distinguish durable `USER.md`/`MEMORY.md` content
+  - [x] `memory` and `clear`: distinguish durable `USER.md`/`MEMORY.md` content
         from disposable recent conversation context;
-  - [ ] `prompts`: explain how named prompts affect future turns and show exact
+  - [x] `prompts`: explain how named prompts affect future turns and show exact
         show, set, and remove examples;
-  - [ ] `model`: show the active alias, reasoning effort, allowed effort levels,
+  - [x] `model`: show the active alias, reasoning effort, allowed effort levels,
         configured alternatives, and exact change commands;
-  - [ ] `config`: render providers, models, and Calendar settings as labelled
+  - [x] `config`: render providers, models, and Calendar settings as labelled
         fields; state that environment-variable names are references rather than
         secret values; clearly mark changes that require restart;
-  - [ ] `usage`: render per-model token categories clearly and retain the warning
+  - [x] `usage`: render per-model token categories clearly and retain the warning
         that local provider-reported totals are not billing records;
-  - [ ] `calendar_auth`: explain the authorization purpose and the ten-minute,
+  - [x] `calendar_auth`: explain the authorization purpose and the ten-minute,
         single-use enrollment-link expiry;
-  - [ ] `restart`: explain that active implementation sessions are interrupted
+  - [x] `restart`: explain that active implementation sessions are interrupted
         safely and can be resumed explicitly after Eggy returns.
-- [ ] Format malformed commands as actionable help with the missing or invalid
+- [x] Format malformed commands as actionable help with the missing or invalid
       field, a Telegram example, and a CLI example instead of a bare usage line.
-- [ ] Add parity tests proving equivalent Telegram and CLI input produces the
+- [x] Add parity tests proving equivalent Telegram and CLI input produces the
       same command request and semantic result.
-- [ ] Add renderer tests for escaping, long output, lists, links, errors, and
+- [x] Add renderer tests for escaping, long output, lists, links, errors, and
       plain-text fallback.
-- [ ] Add a catalog coverage test proving every registered Telegram command has
+- [x] Add a catalog coverage test proving every registered Telegram command has
       CLI help and a handler.
 
 ### 3. Reduce documentation to current sources of truth

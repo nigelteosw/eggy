@@ -15,6 +15,13 @@ var (
 	markdownLink    = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
 )
 
+// FormatHTML converts Markdown-flavoured text into Telegram's HTML
+// parse_mode dialect. Exported so other packages that build the Markdown
+// their command output ends up as (e.g. bootstrap's command result renderer)
+// can verify end to end, in their own tests, that the result escapes safely
+// rather than reimplementing this escaping.
+func FormatHTML(text string) string { return toTelegramHTML(text) }
+
 // toTelegramHTML converts a small Markdown subset (bold, inline code, fenced
 // code blocks, links, headings, horizontal rules, and pipe tables) into
 // Telegram's HTML parse_mode dialect, escaping any other text so delivery

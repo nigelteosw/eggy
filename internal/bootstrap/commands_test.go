@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,16 +16,86 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+// TestTelegramAndCLIProduceTheSameSemanticResult drives one named-arg style
+// command (config set provider) and one positional style command
+// (repositories add) through both surfaces' parsers and dispatch, and checks
+// the resulting CommandResult is identical. Equivalent input on either
+// surface must never behave differently.
+func TestTelegramAndCLIProduceTheSameSemanticResult(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := &CommandService{configPath: path}
+
+	telegramReq, ok := ParseTelegramInput(catalogIndex, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
+	if !ok {
+		t.Fatal("expected telegram match")
+	}
+	telegramResult, err := commands.dispatch(ctx, telegramReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset the config file so the CLI-driven call starts from the same state.
+	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cliReq, ok := ParseCLIArgs(catalogIndex, []string{"config", "set", "provider", "--name=openrouter", "--adapter=openai_compatible", "--base-url=https://openrouter.ai/api/v1", "--api-key-env=OPENROUTER_API_KEY"})
+	if !ok {
+		t.Fatal("expected cli match")
+	}
+	cliResult, err := commands.dispatch(ctx, cliReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(telegramResult, cliResult) {
+		t.Fatalf("telegram=%#v cli=%#v", telegramResult, cliResult)
+	}
+
+	store := jsonfile.Open(t.TempDir() + "/state.json")
+	runner := &commandTestRunner{workspace: "/tmp/runs/check-1"}
+	checker := &commandTestChecker{}
+	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
+	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" })
+	repoCommands := &CommandService{store: store, repositories: repositories, channel: &commandTestChannel{}, owner: "42"}
+
+	telegramReq, ok = ParseTelegramInput(catalogIndex, "/repositories add eggy https://github.com/nigelteosw/eggy.git main")
+	if !ok {
+		t.Fatal("expected telegram match")
+	}
+	telegramResult, err = repoCommands.dispatch(ctx, telegramReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repositories.Remove(ctx, "eggy"); err != nil && !strings.Contains(err.Error(), "not configured") {
+		t.Fatal(err)
+	}
+
+	cliReq, ok = ParseCLIArgs(catalogIndex, []string{"repositories", "add", "eggy", "https://github.com/nigelteosw/eggy.git", "main"})
+	if !ok {
+		t.Fatal("expected cli match")
+	}
+	cliResult, err = repoCommands.dispatch(ctx, cliReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(telegramResult, cliResult) {
+		t.Fatalf("telegram=%#v cli=%#v", telegramResult, cliResult)
+	}
+}
+
 func TestCommandModelSelection(t *testing.T) {
 	store := jsonfile.Open(t.TempDir() + "/state.json")
 	runtime := services.NewAgentRuntime(store, "deepseek-pro", []string{"openrouter-pro", "deepseek-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
 	commands := &CommandService{store: store, agentRuntime: runtime, defaultModel: "deepseek-pro", modelAliases: []string{"openrouter-pro", "deepseek-pro"}}
 	ctx := context.Background()
 	output, handled, err := commands.Execute(ctx, "/model")
-	if err != nil || !handled || !strings.Contains(output, "Active model: deepseek-pro") || strings.Index(output, "deepseek-pro") > strings.LastIndex(output, "openrouter-pro") {
+	if err != nil || !handled || !strings.Contains(output, "Active model:** deepseek-pro") || strings.Index(output, "deepseek-pro") > strings.LastIndex(output, "openrouter-pro") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
-	if !strings.Contains(output, "deepseek-pro [effort: low|high]") {
+	if !strings.Contains(output, "|deepseek-pro|low, high|yes|") {
 		t.Fatalf("output=%q missing reasoning effort listing", output)
 	}
 	output, _, err = commands.Execute(ctx, "/model effort high")
@@ -32,7 +103,7 @@ func TestCommandModelSelection(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 	output, _, err = commands.Execute(ctx, "/model")
-	if err != nil || !strings.Contains(output, "Active model: deepseek-pro (effort: high)") {
+	if err != nil || !strings.Contains(output, "Reasoning effort:** high") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 	output, _, err = commands.Execute(ctx, "/model effort medium")
@@ -56,7 +127,7 @@ func TestCommandModelSelection(t *testing.T) {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 	output, _, err = commands.Execute(ctx, "/model")
-	if err != nil || !strings.Contains(output, "Active model: deepseek-pro (effort: high)") {
+	if err != nil || !strings.Contains(output, "Reasoning effort:** high") {
 		t.Fatalf("output=%q err=%v, want the effort set earlier to still apply after switching back", output, err)
 	}
 }
@@ -80,7 +151,7 @@ func TestCommandRestartInvokesCallback(t *testing.T) {
 	var calls int
 	commands := &CommandService{restart: func() { calls++ }}
 	output, handled, err := commands.Execute(context.Background(), "/restart")
-	if err != nil || !handled || output != "Restarting Eggy to pick up config changes. Back in a few seconds." {
+	if err != nil || !handled || !strings.Contains(output, "Restarting Eggy to pick up config changes. Back in a few seconds.") || !strings.Contains(output, "resumed with /continue") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 	if calls != 1 {
@@ -104,22 +175,22 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	output, _, err := commands.Execute(ctx, "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
-	if err != nil || output != "Set provider openrouter. Restart Eggy for this to take effect. Run /restart to apply now." {
+	if err != nil || !strings.Contains(output, "Set provider openrouter.") || !strings.Contains(output, "Restart Eggy for this to take effect.") || !strings.Contains(output, "/restart") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
 	output, _, err = commands.Execute(ctx, "/config get providers")
-	if err != nil || !strings.Contains(output, "openrouter  adapter=openai_compatible  base_url=https://openrouter.ai/api/v1  api_key_env=OPENROUTER_API_KEY") {
+	if err != nil || !strings.Contains(output, "openrouter") || !strings.Contains(output, "openai_compatible") || !strings.Contains(output, "https://openrouter.ai/api/v1") || !strings.Contains(output, "OPENROUTER_API_KEY") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
 	output, _, err = commands.Execute(ctx, "/config set model alias=openrouter-pro provider=openrouter model=your-model-id")
-	if err != nil || output != "Set model openrouter-pro. Restart Eggy for this to take effect. Run /restart to apply now." {
+	if err != nil || !strings.Contains(output, "Set model openrouter-pro.") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
 	output, _, err = commands.Execute(ctx, "/config get models")
-	if err != nil || !strings.Contains(output, "openrouter-pro  provider=openrouter  model=your-model-id") {
+	if err != nil || !strings.Contains(output, "openrouter-pro") || !strings.Contains(output, "openrouter") || !strings.Contains(output, "your-model-id") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
@@ -129,17 +200,17 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	}
 
 	output, _, err = commands.Execute(ctx, "/config get calendar")
-	if err != nil || output != "enabled=true  default_calendar=primary  timezone=UTC" {
+	if err != nil || !strings.Contains(output, "true") || !strings.Contains(output, "primary") || !strings.Contains(output, "UTC") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
 	output, _, err = commands.Execute(ctx, "/config set calendar timezone=Asia/Singapore")
-	if err != nil || output != "Set calendar. Restart Eggy for this to take effect. Run /restart to apply now." {
+	if err != nil || !strings.Contains(output, "Set calendar.") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
 	output, _, err = commands.Execute(ctx, "/config get calendar")
-	if err != nil || output != "enabled=true  default_calendar=primary  timezone=Asia/Singapore" {
+	if err != nil || !strings.Contains(output, "Asia/Singapore") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 
@@ -157,19 +228,22 @@ func TestCommandConfigUsageErrors(t *testing.T) {
 	commands := &CommandService{configPath: path}
 	ctx := context.Background()
 	tests := []struct{ input, want string }{
-		{"/config", "Usage: /config get <providers|models|calendar|path>|set <provider|model|calendar> ..."},
-		{"/config get", "Usage: /config get <providers|models|calendar|path>"},
-		{"/config get unknown", "Usage: /config get <providers|models|calendar|path>"},
-		{"/config set", "Usage: /config set <provider|model|calendar> ..."},
-		{"/config set provider name=openrouter adapter=openai_compatible", "Usage: /config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>"},
-		{"/config set model alias=openrouter-pro provider=openrouter", "Usage: /config set model alias=<alias> provider=<provider> model=<model_id> [reasoning_efforts=<comma_separated_levels>]"},
-		{"/config set calendar badkey=x", "Usage: /config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]"},
-		{"/config set calendar", "at least one of enabled, default_calendar, or timezone is required"},
+		{"/config", "Use get, set, or show"},
+		{"/config get", "Expected exactly one section"},
+		{"/config get unknown", `Unknown config section "unknown"`},
+		{"/config set", "provider, model, or calendar"},
+		{"/config set provider name=openrouter adapter=openai_compatible", "Required: name, adapter, base_url, api_key_env."},
+		{"/config set model alias=openrouter-pro provider=openrouter", "Required: alias, provider, model."},
+		{"/config set calendar badkey=x", `Unknown field "badkey"`},
+		{"/config set calendar", "At least one of enabled, default_calendar, or timezone is required"},
 	}
 	for _, tt := range tests {
 		output, handled, err := commands.Execute(ctx, tt.input)
-		if err != nil || !handled || output != tt.want {
+		if err != nil || !handled || !strings.Contains(output, tt.want) {
 			t.Fatalf("input=%q output=%q handled=%v err=%v", tt.input, output, handled, err)
+		}
+		if !strings.Contains(output, "Telegram") || !strings.Contains(output, "CLI") {
+			t.Fatalf("input=%q output=%q missing Telegram/CLI examples", tt.input, output)
 		}
 	}
 }
@@ -186,7 +260,7 @@ func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	ctx := context.Background()
 
 	output, handled, err := commands.Execute(ctx, "/repositories")
-	if err != nil || !handled || output != "No repositories configured." {
+	if err != nil || !handled || !strings.Contains(output, "No repositories configured.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
@@ -202,12 +276,12 @@ func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	}
 
 	output, handled, err = commands.Execute(ctx, "/repositories")
-	if err != nil || !handled || output != "eggy" {
+	if err != nil || !handled || !strings.Contains(output, "eggy") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/repositories remove eggy")
-	if err != nil || !handled || output != "Removed eggy." {
+	if err != nil || !handled || !strings.Contains(output, "Removed eggy.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
@@ -278,11 +352,11 @@ func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	}
 	commands := &CommandService{store: store, agentRuntime: runtime, defaultModel: "deepseek-pro", modelAliases: []string{"deepseek-pro"}, context: contextStore}
 	output, _, err := commands.Execute(context.Background(), "/usage")
-	if err != nil || !strings.Contains(output, "prompt=10") || !strings.Contains(output, "cached=3") || !strings.Contains(output, "do not replace the provider billing dashboard") {
+	if err != nil || !strings.Contains(output, "|deepseek-pro|10|4|3|0|14|") || !strings.Contains(output, "do not replace the provider billing dashboard") {
 		t.Fatalf("output=%q err=%v", output, err)
 	}
 	memory, _, err := commands.Execute(context.Background(), "/memory")
-	if err != nil || !strings.Contains(memory, "Eggy is trusted") {
+	if err != nil || !strings.Contains(memory, "Eggy is trusted") || !strings.Contains(memory, "Durable memory") {
 		t.Fatalf("memory=%q err=%v", memory, err)
 	}
 	output, _, err = commands.Execute(context.Background(), "/usage reset")
@@ -302,32 +376,32 @@ func TestPromptsCommandCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	output, handled, err := commands.Execute(ctx, "/prompts")
-	if err != nil || !handled || output != "No custom prompts." {
+	if err != nil || !handled || !strings.Contains(output, "No custom prompts.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/prompts set reviewer Be blunt about risk.")
-	if err != nil || !handled || output != "Set prompt reviewer." {
+	if err != nil || !handled || !strings.Contains(output, "Set prompt reviewer.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/prompts")
-	if err != nil || !handled || output != "reviewer" {
+	if err != nil || !handled || !strings.Contains(output, "reviewer") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/prompts show reviewer")
-	if err != nil || !handled || output != "Be blunt about risk." {
+	if err != nil || !handled || !strings.Contains(output, "Be blunt about risk.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/prompts show missing")
-	if err != nil || !handled || output != "No such prompt: missing." {
+	if err != nil || !handled || !strings.Contains(output, "No such prompt: missing.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 
 	output, handled, err = commands.Execute(ctx, "/prompts remove reviewer")
-	if err != nil || !handled || output != "Removed prompt reviewer." {
+	if err != nil || !handled || !strings.Contains(output, "Removed prompt reviewer.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 

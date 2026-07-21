@@ -27,15 +27,24 @@ func run(arguments []string) error {
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	if flags.NArg() == 0 {
-		return fmt.Errorf("usage: eggy [-config path] status|repositories|runs|stop <id>|schedules|memory|config|start|help")
+	args := flags.Args()
+	if len(args) == 0 {
+		fmt.Println(bootstrap.HelpText(""))
+		return nil
 	}
-	if flags.Arg(0) == "config" {
-		output, err := configMain(*configPath, flags.Args()[1:])
+	if args[0] == "help" {
+		fmt.Println(bootstrap.HelpText(strings.Join(args[1:], " ")))
+		return nil
+	}
+	if args[0] == "config" {
+		result, handled, err := bootstrap.ExecuteConfigCLI(context.Background(), *configPath, args)
 		if err != nil {
 			return err
 		}
-		fmt.Println(output)
+		if !handled {
+			return fmt.Errorf("unknown command %q", strings.Join(args, " "))
+		}
+		fmt.Println(result.RenderPlainText())
 		return nil
 	}
 	envPath := os.Getenv("EGGY_ENV_FILE")
@@ -54,14 +63,13 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	command := "/" + strings.Join(flags.Args(), " ")
-	output, handled, err := app.ExecuteCommand(context.Background(), command)
+	result, handled, err := app.ExecuteCLI(context.Background(), args)
 	if err != nil {
 		return err
 	}
 	if !handled {
-		return fmt.Errorf("unknown command %q", flags.Arg(0))
+		return fmt.Errorf("unknown command %q", strings.Join(args, " "))
 	}
-	fmt.Println(output)
+	fmt.Println(result.RenderPlainText())
 	return nil
 }

@@ -292,14 +292,19 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
 	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback)
 	if telegramClient != nil {
-		if err := telegramClient.SetCommands(context.Background(), telegram.Commands()); err != nil {
+		autocomplete := TelegramAutocomplete()
+		commands := make([]telegram.BotCommand, 0, len(autocomplete))
+		for _, command := range autocomplete {
+			commands = append(commands, telegram.BotCommand{Name: command.Name, Description: command.Description})
+		}
+		if err := telegramClient.SetCommands(context.Background(), commands); err != nil {
 			app.logger.Warn("failed to register Telegram command suggestions", "error", err)
 		}
 	}
@@ -309,6 +314,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 func (a *App) Handler() http.Handler { return a.httpHandler }
 func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool, error) {
 	return a.commands.Execute(ctx, command)
+}
+
+// ExecuteCLI parses and dispatches conventional CLI arguments (see
+// CommandService.ExecuteCLI) through this App's full runtime.
+func (a *App) ExecuteCLI(ctx context.Context, args []string) (CommandResult, bool, error) {
+	return a.commands.ExecuteCLI(ctx, args)
 }
 func (a *App) Ready() error {
 	state, err := a.store.Load(context.Background())

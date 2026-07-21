@@ -154,9 +154,9 @@ each shipping step. They now make the current system harder to understand.
       `progress_tracker.go` is fixed.
 - [x] Add a lightweight documentation check that validates command names and
       important file paths against the shared command catalog or current source.
-      See `internal/bootstrap/docs_consistency_test.go` (no shared command
-      catalog exists yet — see item 2 — so this checks README.md directly
-      against `commands.go`).
+      See `internal/bootstrap/docs_consistency_test.go`, which checks
+      README.md's documented commands against the catalog's `Path` entries
+      in `commands.go`.
 
 ### 4. Remove version-1 config compatibility after deployment verification
 

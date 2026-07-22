@@ -28,6 +28,7 @@ import (
 	sessionjson "github.com/nigelteosw/eggy/internal/adapters/sessions/jsonfile"
 	skillsadapter "github.com/nigelteosw/eggy/internal/adapters/skills"
 	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
+	mcpadapter "github.com/nigelteosw/eggy/internal/adapters/tools/mcp"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
@@ -69,6 +70,7 @@ type App struct {
 	coding              *services.CodingService
 	shipping            *services.ShippingService
 	calendar            *services.CalendarService
+	mcp                 *mcpadapter.Manager
 	repositoriesService *services.RepositoriesService
 	skillsService       *services.SkillsService
 	conversation        *services.ConversationService
@@ -169,6 +171,9 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
+	for _, secret := range secrets.MCPBearerTokens {
+		activeSecrets = append(activeSecrets, secret)
+	}
 	sessions := services.NewImplementationSessions(sessionStore, services.SessionPolicy{
 		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
 		RecentMessages:     config.ImplementationSessions.RecentMessages,
@@ -255,6 +260,23 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 	}
+	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
+	if err != nil {
+		return nil, err
+	}
+	keepMCP := false
+	if app.mcp != nil {
+		defer func() {
+			if !keepMCP {
+				_ = app.mcp.Close()
+			}
+		}()
+		for _, tool := range app.mcp.Tools() {
+			if err := registry.Register(tool); err != nil {
+				return nil, err
+			}
+		}
+	}
 
 	var googleStart, googleCallback http.Handler
 	if config.Calendar.Enabled {
@@ -304,12 +326,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		return nil, err
 	}
 	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	if app.mcp != nil {
+		app.commands.mcp = app.mcp
+	}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
 	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
-	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback)
+	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {
 		autocomplete := TelegramAutocomplete()
 		commands := make([]telegram.BotCommand, 0, len(autocomplete))
@@ -320,6 +345,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			app.logger.Warn("failed to register Telegram command suggestions", "error", err)
 		}
 	}
+	keepMCP = true
 	return app, nil
 }
 
@@ -568,6 +594,9 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 
 func (a *App) Run(ctx context.Context) error {
 	defer a.workers.Wait()
+	if a.mcp != nil {
+		defer a.mcp.Close()
+	}
 	if _, err := a.coding.RecoverInterrupted(ctx); err != nil {
 		return err
 	}

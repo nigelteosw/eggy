@@ -16,6 +16,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Narrow, provider-neutral read-only repository tools (`read_file`, `terminal`, GitHub repository/issue/pull-request/check-run metadata) that never start an implementation run, create a branch, or leave a diff.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
+- Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated server failures, and encrypted durable OAuth.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
 - `eggyd`, the companion `eggy` CLI, Docker, Railway, and a fake-adapter smoke mode.
 
@@ -84,7 +85,7 @@ curl --fail --request POST \
   --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
 ```
 
-Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/skills`, `/skills show <name>`, `/skills add <name>`, `/skills edit <name>`, `/skills remove <name>` (add/edit/remove require owner approval), `/skills disable <name>`, `/skills enable <name>`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/thinking`, `/thinking show`, `/thinking hide`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/usage`, `/usage reset`, and `/restart` (applies a config change picked up on the next restart). Natural language remains the main interface.
+Operational shortcuts are `/status`, `/repositories`, `/runs`, `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`, `/memory`, `/skills`, `/skills show <name>`, `/skills add <name>`, `/skills edit <name>`, `/skills remove <name>` (add/edit/remove require owner approval), `/skills disable <name>`, `/skills enable <name>`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/thinking`, `/thinking show`, `/thinking hide`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/mcp`, `/mcp status <server>`, `/mcp probe <server>`, `/mcp login <server>`, `/mcp logout <server>`, `/mcp reload <server>`, `/usage`, `/usage reset`, and `/restart` (applies a config change picked up on the next restart). Natural language remains the main interface.
 
 Procedural skills are Markdown files under `skills/` in `data_dir`, each with a `name`/`description` frontmatter pair and a body of instructions (see [`docs/adr/0005-procedural-skills.md`](docs/adr/0005-procedural-skills.md)). Only the compact `name: description` index stays in context every turn; the agent loads one skill's full body with `skill_read` when its description matches the current task. Creating, editing, or deleting a skill always requires owner approval, the same digest-bound flow as Calendar mutations and adding a repository — a skill's body is instructions that steer later tool calls, not a stored fact. Disabling or re-enabling a skill takes effect immediately with no approval, since it only changes what is surfaced, never a skill's content.
 
@@ -114,6 +115,24 @@ Calendar reads run automatically. Eggy can list the IDs, names, access roles, an
 
 Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
 
+## MCP servers and Railway
+
+Remote Streamable HTTP MCP servers are configured under `mcp.servers`. The supplied example enables Railway's hosted server at `https://mcp.railway.com` with OAuth and an explicit curated tool list. `list-variables` is deliberately excluded because its results can place deployment secrets directly into model context; this is a Railway filter choice, not a hardcoded adapter rule.
+
+Set `EGGY_ENCRYPTION_KEY`, deploy or restart Eggy, then authorize Railway from the owner-only command surface:
+
+```text
+/mcp login railway
+/mcp probe railway
+/mcp status railway
+```
+
+Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted under `/data/mcp/railway/oauth.json`, requests a controlled restart, and discovers the filtered tool catalog. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record, while `/mcp reload railway` restarts Eggy to rediscover a changed catalog.
+
+MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server. Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
+
+Additional remote servers use the same adapter. Add another named entry beneath `mcp.servers`, choose `auth: oauth`, `auth: bearer-env` with `bearer_token_env: SOME_ENV_NAME`, or `auth: none`, and set exact `tool_filter.include`/`exclude` names. Version 1 supports Streamable HTTP tools only—not stdio, legacy SSE, resources, prompts, roots, sampling, elicitation, or MCP Apps.
+
 ## Railway deployment
 
 1. Create a Railway service from this repository.
@@ -125,6 +144,8 @@ Creates use a deterministic event ID derived from the approved idempotency key. 
 7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `USER.md`, `MEMORY.md`, and `HEARTBEAT.md` with mode `0600`. Later starts use those files without overwriting them.
 
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
+
+For Railway MCP, keep the `mcp.servers.railway` block from `config.example.yaml`, set `EGGY_ENCRYPTION_KEY`, restart, and run `/mcp login railway`. Existing persisted configs are not rewritten automatically; add the block deliberately. No Railway API token is needed in OAuth mode.
 
 `EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — still require editing the persisted YAML directly. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
 
@@ -151,6 +172,11 @@ EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy status
 ./bin/eggy -config "$PWD/config.yaml" config set model --alias=deepseek-pro --provider=deepseek --model=deepseek-chat
 ./bin/eggy -config "$PWD/config.yaml" config set calendar --enabled=true --default-calendar=primary --timezone=UTC
 EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy config show
+
+./bin/eggy -config "$PWD/config.yaml" mcp
+./bin/eggy -config "$PWD/config.yaml" mcp status railway
+./bin/eggy -config "$PWD/config.yaml" mcp probe railway
+./bin/eggy -config "$PWD/config.yaml" mcp login railway
 ```
 
 ## Verification
@@ -166,7 +192,7 @@ make smoke
 
 `make smoke` builds the production image, starts `eggyd` with fake external adapters and a temporary `/data` volume, checks readiness and liveness from inside the container, and removes the container and temporary data.
 
-Live credential tests are intentionally outside the default suite. Verify Telegram delivery, the configured reasoning provider, a disposable repository branch/PR, and a disposable Calendar event before relying on a production deployment.
+Live credential tests are intentionally outside the default suite. Verify Telegram delivery, the configured reasoning provider, a disposable repository branch/PR, a disposable Calendar event, and Railway MCP login/probe plus a bounded `railway__list_projects` or `railway__get_logs` call before relying on a production deployment. Do not use `list-variables` for that check.
 
 ## Security boundary
 

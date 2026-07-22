@@ -55,6 +55,21 @@ func run(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	if args[0] == "mcp" {
+		config, secrets, err := bootstrap.LoadMCPConfig(*configPath, getenv)
+		if err != nil {
+			return err
+		}
+		result, handled, err := bootstrap.ExecuteMCPCLI(context.Background(), config, secrets, bootstrap.AppOptions{}, args)
+		if err != nil {
+			return err
+		}
+		if !handled {
+			return fmt.Errorf("unknown command %q", strings.Join(args, " "))
+		}
+		fmt.Println(result.RenderPlainText())
+		return nil
+	}
 	config, secrets, err := bootstrap.LoadOrCreateConfig(*configPath, getenv)
 	if err != nil {
 		return err

@@ -4,11 +4,11 @@ import (
 	"net/http"
 )
 
-func NewHTTPHandler(ready func() error, telegram, googleStart, googleCallback http.Handler) http.Handler {
-	return NewHTTPHandlerAt("/webhooks/telegram", ready, telegram, googleStart, googleCallback)
+func NewHTTPHandler(ready func() error, telegram, googleStart, googleCallback http.Handler, mcpCallback ...http.Handler) http.Handler {
+	return NewHTTPHandlerAt("/webhooks/telegram", ready, telegram, googleStart, googleCallback, mcpCallback...)
 }
 
-func NewHTTPHandlerAt(telegramPath string, ready func() error, telegram, googleStart, googleCallback http.Handler) http.Handler {
+func NewHTTPHandlerAt(telegramPath string, ready func() error, telegram, googleStart, googleCallback http.Handler, mcpCallback ...http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -36,6 +36,9 @@ func NewHTTPHandlerAt(telegramPath string, ready func() error, telegram, googleS
 	}
 	if googleCallback != nil {
 		mux.Handle("GET /auth/google/callback", googleCallback)
+	}
+	if len(mcpCallback) > 0 && mcpCallback[0] != nil {
+		mux.Handle("GET /auth/mcp/{server}/callback", mcpCallback[0])
 	}
 	return mux
 }

@@ -179,6 +179,10 @@ type AgentRuntimeState struct {
 	SelectedModel   string                `json:"selected_model,omitempty"`
 	ReasoningEffort string                `json:"reasoning_effort,omitempty"`
 	Usage           map[string]ModelUsage `json:"usage,omitempty"`
+	// HideThinking suppresses delivery of the model's raw reasoning content
+	// as a separate "Thinking:" message. Defaults to false (shown), so
+	// state persisted before this field existed keeps today's behavior.
+	HideThinking bool `json:"hide_thinking,omitempty"`
 }
 
 type StateStore interface {

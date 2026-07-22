@@ -87,7 +87,7 @@ func ExecuteConfigCLI(ctx context.Context, configPath string, args []string) (Co
 // listing, eggy help, and Telegram's autocomplete list.
 var topLevelCommandOrder = []string{
 	"start", "help", "status", "repositories", "runs", "continue", "stop",
-	"schedules", "memory", "skills", "model", "config", "usage", "clear",
+	"schedules", "memory", "skills", "model", "thinking", "config", "usage", "clear",
 	"calendar_auth", "restart",
 }
 
@@ -340,6 +340,30 @@ func init() {
 				{Telegram: "/model default", CLI: "eggy model default"},
 			},
 			Handler: handleModelDefault,
+		},
+		{
+			Path:    "thinking",
+			Summary: "Show whether the model's raw reasoning is delivered as a separate message",
+			Examples: []Example{
+				{Telegram: "/thinking", CLI: "eggy thinking"},
+			},
+			Handler: handleThinking,
+		},
+		{
+			Path:    "thinking show",
+			Summary: "Deliver the model's raw reasoning as a separate \"Thinking:\" message",
+			Examples: []Example{
+				{Telegram: "/thinking show", CLI: "eggy thinking show"},
+			},
+			Handler: handleThinkingShow,
+		},
+		{
+			Path:    "thinking hide",
+			Summary: "Stop delivering the model's raw reasoning as a separate message",
+			Examples: []Example{
+				{Telegram: "/thinking hide", CLI: "eggy thinking hide"},
+			},
+			Handler: handleThinkingHide,
 		},
 		{
 			Path:    "config",
@@ -1053,6 +1077,47 @@ func handleModelDefault(ctx context.Context, s *CommandService, req CommandReque
 		return CommandResult{}, err
 	}
 	return CommandResult{Title: "Model reset to " + s.defaultModel + "."}, nil
+}
+
+func handleThinking(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
+	if s.agentRuntime == nil {
+		return CommandResult{State: ResultInfo, Title: "Thinking visibility is not configured."}, nil
+	}
+	if len(req.Args) > 0 {
+		return usageHelp(mustEntry("thinking"), fmt.Sprintf("Unknown thinking subcommand %q.", req.Args[0])), nil
+	}
+	show, err := s.agentRuntime.ShowThinking(ctx)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	state := "hidden"
+	if show {
+		state = "shown"
+	}
+	return CommandResult{
+		Title: "Thinking messages are currently " + state + ".",
+		Next:  []string{"/thinking show", "/thinking hide"},
+	}, nil
+}
+
+func handleThinkingShow(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
+	if s.agentRuntime == nil {
+		return CommandResult{State: ResultInfo, Title: "Thinking visibility is not configured."}, nil
+	}
+	if err := s.agentRuntime.SetShowThinking(ctx, true); err != nil {
+		return CommandResult{}, err
+	}
+	return CommandResult{Title: "Thinking messages will be shown."}, nil
+}
+
+func handleThinkingHide(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
+	if s.agentRuntime == nil {
+		return CommandResult{State: ResultInfo, Title: "Thinking visibility is not configured."}, nil
+	}
+	if err := s.agentRuntime.SetShowThinking(ctx, false); err != nil {
+		return CommandResult{}, err
+	}
+	return CommandResult{Title: "Thinking messages will be hidden."}, nil
 }
 
 func handleUsage(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {

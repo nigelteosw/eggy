@@ -93,6 +93,22 @@ func (r *AgentRuntime) SelectReasoningEffort(ctx context.Context, effort string)
 	return r.update(ctx, func(state *ports.State) { state.Agent.ReasoningEffort = effort })
 }
 
+// ShowThinking reports whether the model's raw reasoning content should be
+// delivered as a separate "Thinking:" message. Defaults to true.
+func (r *AgentRuntime) ShowThinking(ctx context.Context) (bool, error) {
+	state, err := r.store.Load(ctx)
+	if err != nil {
+		return false, err
+	}
+	return !state.Agent.HideThinking, nil
+}
+
+// SetShowThinking sets whether the model's raw reasoning content is
+// delivered as a separate "Thinking:" message.
+func (r *AgentRuntime) SetShowThinking(ctx context.Context, show bool) error {
+	return r.update(ctx, func(state *ports.State) { state.Agent.HideThinking = !show })
+}
+
 func containsEffort(allowed []string, effort string) bool {
 	for _, candidate := range allowed {
 		if candidate == effort {

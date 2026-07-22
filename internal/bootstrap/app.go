@@ -505,8 +505,14 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		return err
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
-		if err := a.channel.Deliver(ctx, message.ChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
+		showThinking, err := a.agentRuntime.ShowThinking(ctx)
+		if err != nil {
 			return err
+		}
+		if showThinking {
+			if err := a.channel.Deliver(ctx, message.ChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
+				return err
+			}
 		}
 	}
 	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)

@@ -9,7 +9,7 @@ import (
 
 func TestSetProviderAddsEntryAndRejectsInvalidURL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetProvider(path, "openrouter", "openai_compatible", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"); err != nil {
@@ -40,7 +40,7 @@ func TestSetProviderAddsEntryAndRejectsInvalidURL(t *testing.T) {
 
 func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
@@ -68,7 +68,7 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 
 func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := SetModelAlias(path, "deepseek-pro", "deepseek", "deepseek-v4-pro", "low,medium,high,max"); err != nil {
@@ -91,7 +91,7 @@ func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 
 func TestSetCalendarPatchesOnlyGivenFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// validConfigV2 already has calendar.enabled=true, default_calendar=primary, timezone=UTC.
@@ -120,7 +120,7 @@ func TestSetCalendarPatchesOnlyGivenFields(t *testing.T) {
 
 func TestSetCalendarRequiresAtLeastOneField(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	before := []byte(validConfigV2())
+	before := []byte(validConfig())
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestSetCalendarRequiresAtLeastOneField(t *testing.T) {
 
 func TestSetCalendarRejectsInvalidBool(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	before := []byte(validConfigV2())
+	before := []byte(validConfig())
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestSetCalendarRejectsInvalidBool(t *testing.T) {
 
 func TestGetConfigTextFormatsEachSection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	providers, err := GetProvidersConfigText(path)
@@ -165,14 +165,14 @@ func TestGetConfigTextFormatsEachSection(t *testing.T) {
 
 func TestShowConfigTextDumpsWholeFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	text, err := ShowConfigText(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"version: 2", "deepseek", "public_base_url", "calendar"} {
+	for _, want := range []string{"deepseek", "public_base_url", "calendar"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("show text missing %q: %s", want, text)
 		}

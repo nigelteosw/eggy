@@ -99,16 +99,7 @@ type AgentContext struct {
 	// MaxBytes is the per-document capacity ContextStore enforces on Soul,
 	// User, and Memory, used to render an in-context usage indicator on User
 	// and Memory. Zero means unknown/unbounded and suppresses the indicator.
-	MaxBytes int64         `json:"max_bytes,omitempty"`
-	Prompts  []NamedPrompt `json:"prompts,omitempty"`
-}
-
-// NamedPrompt is an operator-managed system prompt, created/updated/removed
-// via ContextStore.SetPrompt/RemovePrompt and surfaced to the model through
-// BuildInstructions without requiring code changes.
-type NamedPrompt struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	MaxBytes int64 `json:"max_bytes,omitempty"`
 }
 
 type ContextDocument string
@@ -123,8 +114,6 @@ type ContextStore interface {
 	Append(context.Context, ContextDocument, string, string) error
 	ReplaceSection(context.Context, ContextDocument, string, string) error
 	RemoveSection(context.Context, ContextDocument, string) error
-	SetPrompt(ctx context.Context, name, content string) error
-	RemovePrompt(ctx context.Context, name string) error
 }
 
 type State struct {

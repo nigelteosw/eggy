@@ -25,8 +25,8 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	}
 }
 
-func TestLoadConfigVersion2(t *testing.T) {
-	cfg, secrets, err := loadText(t, validConfigV2(), testSecrets())
+func TestLoadConfigNormalizesProvidersAndModels(t *testing.T) {
+	cfg, secrets, err := loadText(t, validConfig(), testSecrets())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestLoadConfigVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Version != 2 || cfg.Agent.DefaultModel != "deepseek-pro" || provider.Adapter != "openai_compatible" || provider.BaseURL != "https://api.deepseek.com" || model.Model != "deepseek-v4-pro" {
+	if cfg.Agent.DefaultModel != "deepseek-pro" || provider.Adapter != "openai_compatible" || provider.BaseURL != "https://api.deepseek.com" || model.Model != "deepseek-v4-pro" {
 		t.Fatalf("normalized config = %#v provider=%#v model=%#v", cfg, provider, model)
 	}
 	if secrets.ProviderAPIKeys["deepseek"] != "deepseek-key" {
@@ -42,21 +42,7 @@ func TestLoadConfigVersion2(t *testing.T) {
 	}
 }
 
-func TestLoadConfigVersion1Compatibility(t *testing.T) {
-	cfg, _, err := loadText(t, validConfig(), testSecrets())
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider, model, err := cfg.ActiveModel("deepseek-pro")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != "deepseek-pro" || provider.APIKeyEnv != "DEEPSEEK_API_KEY" || model.Model != "pro" {
-		t.Fatalf("v1 normalization = %#v provider=%#v model=%#v", cfg, provider, model)
-	}
-}
-
-func TestVersion2ProviderValidation(t *testing.T) {
+func TestProviderValidation(t *testing.T) {
 	tests := []struct {
 		name, old, replacement, want string
 	}{
@@ -69,7 +55,7 @@ func TestVersion2ProviderValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := loadText(t, strings.Replace(validConfigV2(), tt.old, tt.replacement, 1), testSecrets())
+			_, _, err := loadText(t, strings.Replace(validConfig(), tt.old, tt.replacement, 1), testSecrets())
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error=%v, want containing %q", err, tt.want)
 			}
@@ -78,7 +64,7 @@ func TestVersion2ProviderValidation(t *testing.T) {
 	t.Run("missing provider credential", func(t *testing.T) {
 		env := testSecrets()
 		delete(env, "DEEPSEEK_API_KEY")
-		_, _, err := loadText(t, validConfigV2(), env)
+		_, _, err := loadText(t, validConfig(), env)
 		if err == nil || !strings.Contains(err.Error(), "DEEPSEEK_API_KEY") {
 			t.Fatalf("error=%v", err)
 		}
@@ -135,7 +121,6 @@ func TestLoadConfigValidation(t *testing.T) {
 		{"base URL", func(s string) string {
 			return strings.Replace(s, "public_base_url: https://eggy.example", "public_base_url: ftp://bad", 1)
 		}, "server.public_base_url"},
-		{"flash model", func(s string) string { return strings.Replace(s, "id: flash", "id: ''", 1) }, "models.flash.id"},
 		{"duplicate repository", func(s string) string {
 			return strings.Replace(s, "runner:\n", "  - name: repo\n    clone_url: https://github.com/acme/other.git\n    base_branch: main\nrunner:\n", 1)
 		}, "duplicate repository"},
@@ -155,14 +140,14 @@ func TestLoadConfigValidation(t *testing.T) {
 }
 
 func TestConfigRejectsRunnerRootOutsideDataDir(t *testing.T) {
-	_, _, err := loadText(t, strings.Replace(validConfigV2(), "root: /data/runs", "root: /other/runs", 1), testSecrets())
+	_, _, err := loadText(t, strings.Replace(validConfig(), "root: /data/runs", "root: /other/runs", 1), testSecrets())
 	if err == nil || !strings.Contains(err.Error(), "runner.root must be within data_dir") {
 		t.Fatalf("error=%v", err)
 	}
 }
 
 func TestLoadConfigDefaultsImplementationSessionPolicy(t *testing.T) {
-	cfg, _, err := loadText(t, validConfigV2(), testSecrets())
+	cfg, _, err := loadText(t, validConfig(), testSecrets())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +230,6 @@ func testSecrets() map[string]string {
 
 func validConfig() string {
 	return `
-version: 1
 server:
   listen: ':8080'
   public_base_url: https://eggy.example
@@ -253,16 +237,17 @@ server:
 data_dir: /data
 telegram:
   owner_id: 42
+agent:
+  default_model: deepseek-pro
+providers:
+  deepseek:
+    adapter: openai_compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
 models:
-  flash:
-    adapter: deepseek
-    id: flash
-  pro:
-    adapter: deepseek
-    id: pro
-  escalation:
-    tool_steps: 4
-    recoverable_failures: 2
+  deepseek-pro:
+    provider: deepseek
+    model: deepseek-v4-pro
 repositories:
   - name: repo
     clone_url: https://github.com/acme/repo.git
@@ -287,37 +272,4 @@ calendar:
   default_calendar: primary
   timezone: UTC
 `
-}
-
-func validConfigV2() string {
-	body := strings.Replace(validConfig(), "version: 1", "version: 2", 1)
-	legacyModels := `models:
-  flash:
-    adapter: deepseek
-    id: flash
-  pro:
-    adapter: deepseek
-    id: pro
-  escalation:
-    tool_steps: 4
-    recoverable_failures: 2`
-	v2Models := `agent:
-  default_model: deepseek-pro
-providers:
-  deepseek:
-    adapter: openai_compatible
-    base_url: https://api.deepseek.com
-    api_key_env: DEEPSEEK_API_KEY
-models:
-  deepseek-pro:
-    provider: deepseek
-    model: deepseek-v4-pro`
-	return strings.Replace(body, legacyModels, v2Models, 1)
-}
-
-func TestConfigRejectsUnsupportedModelAdapter(t *testing.T) {
-	cfg := Config{Version: 1, Server: ServerConfig{PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/hook"}, Telegram: TelegramConfig{OwnerID: 1}, legacyModels: ModelsConfig{Flash: ModelConfig{Adapter: "unknown", ID: "flash"}, Pro: ModelConfig{Adapter: "deepseek", ID: "pro"}}, Runner: RunnerConfig{Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1}}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "unsupported") {
-		t.Fatalf("error=%v", err)
-	}
 }

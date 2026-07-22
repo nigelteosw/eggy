@@ -10,13 +10,11 @@ import (
 // topLevelCommandsWithoutReadmeEntry lists top-level catalog commands that
 // are deliberately not documented in README.md's operator-facing command
 // list: start and help are Telegram/bot-framework conventions rather than
-// operational shortcuts, and prompts is pending the product decision tracked
-// in TODO.md ("Decide whether custom prompts earn their complexity").
-// Remove an entry here only when README.md documents it.
+// operational shortcuts. Remove an entry here only when README.md documents
+// it.
 var topLevelCommandsWithoutReadmeEntry = map[string]bool{
-	"start":   true,
-	"help":    true,
-	"prompts": true,
+	"start": true,
+	"help":  true,
 }
 
 // TestReadmeDocumentsCatalogCommands guards against README.md drifting from

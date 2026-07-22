@@ -31,7 +31,6 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 
 type Config struct {
-	Version                int                         `yaml:"version"`
 	Server                 ServerConfig                `yaml:"server"`
 	DataDir                string                      `yaml:"data_dir"`
 	Telegram               TelegramConfig              `yaml:"telegram"`
@@ -43,7 +42,6 @@ type Config struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
-	legacyModels           ModelsConfig
 }
 
 type AgentConfig struct {
@@ -70,22 +68,6 @@ type ServerConfig struct {
 
 type TelegramConfig struct {
 	OwnerID int64 `yaml:"owner_id"`
-}
-
-type ModelConfig struct {
-	Adapter string `yaml:"adapter"`
-	ID      string `yaml:"id"`
-}
-
-type EscalationConfig struct {
-	ToolSteps           int `yaml:"tool_steps"`
-	RecoverableFailures int `yaml:"recoverable_failures"`
-}
-
-type ModelsConfig struct {
-	Flash      ModelConfig      `yaml:"flash"`
-	Pro        ModelConfig      `yaml:"pro"`
-	Escalation EscalationConfig `yaml:"escalation"`
 }
 
 type RepositoryConfig struct {
@@ -149,14 +131,7 @@ type commonConfigDocument struct {
 	Calendar               CalendarConfig              `yaml:"calendar"`
 }
 
-type legacyConfigDocument struct {
-	Version              int          `yaml:"version"`
-	Models               ModelsConfig `yaml:"models"`
-	commonConfigDocument `yaml:",inline"`
-}
-
-type configV2Document struct {
-	Version              int                         `yaml:"version"`
+type configDocument struct {
 	Agent                AgentConfig                 `yaml:"agent"`
 	Providers            map[string]ProviderConfig   `yaml:"providers"`
 	Models               map[string]ModelAliasConfig `yaml:"models"`
@@ -169,28 +144,11 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err != nil {
 		return cfg, Secrets{}, fmt.Errorf("open config: %w", err)
 	}
-	var header struct {
-		Version int `yaml:"version"`
-	}
-	if err := yaml.Unmarshal(data, &header); err != nil {
+	var document configDocument
+	if err := decodeKnownYAML(data, &document); err != nil {
 		return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
 	}
-	switch header.Version {
-	case 1:
-		var document legacyConfigDocument
-		if err := decodeKnownYAML(data, &document); err != nil {
-			return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
-		}
-		cfg = normalizeLegacyConfig(document)
-	case 2:
-		var document configV2Document
-		if err := decodeKnownYAML(data, &document); err != nil {
-			return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
-		}
-		cfg = normalizeV2Config(document)
-	default:
-		return cfg, Secrets{}, fmt.Errorf("version must be 1 or 2")
-	}
+	cfg = normalizeConfig(document)
 	if err := cfg.applyDefaults(); err != nil {
 		return cfg, Secrets{}, err
 	}
@@ -222,21 +180,10 @@ func decodeKnownYAML(data []byte, destination any) error {
 	return decoder.Decode(destination)
 }
 
-func normalizeLegacyConfig(document legacyConfigDocument) Config {
+func normalizeConfig(document configDocument) Config {
 	common := document.commonConfigDocument
 	return Config{
-		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
-		legacyModels: document.Models, Agent: AgentConfig{DefaultModel: "deepseek-pro"},
-		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
-		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: document.Models.Pro.ID}},
-		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar,
-	}
-}
-
-func normalizeV2Config(document configV2Document) Config {
-	common := document.commonConfigDocument
-	return Config{
-		Version: document.Version, Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
+		Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
 		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar,
 	}
@@ -247,10 +194,7 @@ func (c Config) commonDocument() commonConfigDocument {
 }
 
 func (c Config) MarshalYAML() (any, error) {
-	if c.Version == 2 {
-		return configV2Document{Version: 2, Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
-	}
-	return legacyConfigDocument{Version: c.Version, Models: c.legacyModels, commonConfigDocument: c.commonDocument()}, nil
+	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -297,12 +241,6 @@ func (c *Config) applyDefaults() error {
 	if c.ImplementationSessions.OutputExcerptChars == 0 {
 		c.ImplementationSessions.OutputExcerptChars = 8192
 	}
-	if c.legacyModels.Escalation.ToolSteps == 0 {
-		c.legacyModels.Escalation.ToolSteps = 4
-	}
-	if c.legacyModels.Escalation.RecoverableFailures == 0 {
-		c.legacyModels.Escalation.RecoverableFailures = 2
-	}
 	return nil
 }
 
@@ -314,9 +252,6 @@ var (
 )
 
 func (c Config) Validate() error {
-	if c.Version != 1 && c.Version != 2 {
-		return fmt.Errorf("version must be 1 or 2")
-	}
 	if c.Telegram.OwnerID <= 0 {
 		return errors.New("telegram.owner_id must be positive")
 	}
@@ -327,17 +262,7 @@ func (c Config) Validate() error {
 	if !strings.HasPrefix(c.Server.TelegramWebhookPath, "/") {
 		return errors.New("server.telegram_webhook_path must begin with /")
 	}
-	if c.Version == 1 {
-		if c.legacyModels.Flash.ID == "" {
-			return errors.New("models.flash.id is required")
-		}
-		if c.legacyModels.Pro.ID == "" {
-			return errors.New("models.pro.id is required")
-		}
-		if c.legacyModels.Flash.Adapter != "deepseek" || c.legacyModels.Pro.Adapter != "deepseek" {
-			return errors.New("unsupported model adapter: models.flash.adapter and models.pro.adapter must be deepseek")
-		}
-	} else if err := c.validateProviders(); err != nil {
+	if err := c.validateProviders(); err != nil {
 		return err
 	}
 	if c.Runner.Timeout.Value() <= 0 {

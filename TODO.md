@@ -158,26 +158,23 @@ each shipping step. They now make the current system harder to understand.
       README.md's documented commands against the catalog's `Path` entries
       in `commands.go`.
 
-### 4. Remove version-1 config compatibility after deployment verification
+### 4. Config versioning removed
 
-First boot now creates config version 2, and config mutation already refuses
-version 1. The loader, normalizer, defaults, validation, and YAML marshaler still
-carry a parallel version-1 model.
-
-- [ ] Inspect the deployed `/data/config.yaml` and confirm it is version 2 before
-      removing any compatibility path.
-- [ ] If production still uses version 1, provide and run a one-time, atomic,
-      backed-up migration to version 2 before deleting support.
-- [ ] Remove `legacyConfigDocument`, `ModelsConfig`, `ModelConfig`,
-      `EscalationConfig`, `legacyModels`, `normalizeLegacyConfig`, version-1
-      validation/default branches, and version-1 YAML marshaling.
-- [ ] Make version 2 the only accepted config format and return a concise
-      migration error for an old file rather than silently guessing.
-- [ ] Retain strict known-field validation, atomic writes, file locking, secret
-      indirection through environment-variable names, and Railway `PORT`
-      override behavior.
-- [ ] Verify first boot, config get/set/show, local startup, and Railway startup
-      against the single config representation.
+- [x] Dropped the `version` field and the parallel version-1 model entirely
+      (`legacyConfigDocument`, `ModelsConfig`, `ModelConfig`,
+      `EscalationConfig`, `legacyModels`, `normalizeLegacyConfig`, and the
+      version branches in load/validate/marshal) instead of maintaining two
+      config formats — this is a single-deployment app, so there was no
+      external audience to migrate.
+- [x] There is now exactly one accepted config shape (the former "version 2"
+      shape, unversioned); an old-format file fails strict-field YAML
+      decoding rather than being silently accepted.
+- [x] Retained strict known-field validation, atomic writes, file locking,
+      secret indirection through environment-variable names, and Railway
+      `PORT` override behavior.
+- [ ] Reset the deployed `/data/config.yaml` on Railway (delete it so first
+      boot regenerates it in the new format) — this is a manual step, not
+      code.
 
 ### 5. Make implementation sessions the single source of run truth
 
@@ -248,25 +245,17 @@ flow.
 
 ### 7. Decide whether custom prompts earn their complexity
 
-The fixed prompt sources are currently wrapped in a global priority registry,
-although no production package extends that registry. Named custom prompts also
-introduce another persistent instruction layer alongside `SOUL.md`, `USER.md`,
-and `MEMORY.md`.
-
-- [ ] Measure whether `/prompts` is used in the deployed workflow before making
-      this a permanent product feature.
-- [ ] If custom prompts are not used, remove `/prompts`, `NamedPrompt`, prompt
-      CRUD methods from `ContextStore`, prompt-directory persistence, custom
-      prompt injection, help entries, and their tests.
-- [ ] If custom prompts are used, keep the feature but document its authority
-      below hard runtime policy and current owner instructions.
-- [ ] In either case, replace the mutable global `PromptSection` registry and
-      `init` registration with a direct, explicit `BuildInstructions` sequence
-      unless a real compiled extension consumes the registry.
-- [ ] Keep the trust order obvious in code: hard runtime policy, capability
-      manifest, `SOUL.md`, `USER.md`, `MEMORY.md`, optional custom prompts,
-      trusted temporal context, then recent conversation.
-- [ ] Preserve memory size indicators, secret filtering, and the rule that
+- [x] `/prompts` was unused in the deployed workflow, so it was removed along
+      with `NamedPrompt`, `ContextStore.SetPrompt`/`RemovePrompt`,
+      prompt-directory persistence, custom prompt injection, help entries, and
+      their tests.
+- [x] Replaced the mutable global `PromptSection` registry and `init`
+      registration with a direct, explicit `BuildInstructions` sequence, since
+      no compiled extension consumed the registry.
+- [x] Kept the trust order obvious in code: hard runtime policy, capability
+      manifest, `SOUL.md`, `USER.md`, `MEMORY.md`, then trusted temporal
+      context.
+- [x] Preserved memory size indicators, secret filtering, and the rule that
       durable context cannot override the current owner instruction.
 
 ### Simplification invariants

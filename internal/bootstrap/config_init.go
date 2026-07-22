@@ -32,7 +32,7 @@ func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secret
 // accepting arbitrary workspace paths outside the persistent data directory.
 func migrateLegacyRunnerRoot(path string) error {
 	return filelock.With(path, func() error {
-		cfg, _, err := loadConfigDocument(path)
+		cfg, err := loadConfigDocument(path)
 		if err != nil {
 			return err
 		}
@@ -113,7 +113,6 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		publicBaseURL = "https://" + domain
 	}
 	cfg := Config{
-		Version: 2,
 		Server: ServerConfig{
 			Listen:              ":8080",
 			PublicBaseURL:       publicBaseURL,

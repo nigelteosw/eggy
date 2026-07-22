@@ -12,14 +12,13 @@ configuration format to one provider's two-tier model lineup.
 
 ## Decision
 
-Configuration version 2 introduces named providers and named model aliases
-behind the existing `ports.Model` interface, with one `agent.default_model`
-alias used for every turn. The owner can inspect and change the active alias
-with `/model`; there is no automatic escalation, no silent provider failover,
-and a transient failure is retried a bounded number of times on the same
-alias before Eggy reports it. Version 1 configuration files still load,
-mapped to a single implicit alias, but the escalation behavior itself is
-gone — it is not preserved as a compatibility path.
+Configuration introduces named providers and named model aliases behind the
+existing `ports.Model` interface, with one `agent.default_model` alias used
+for every turn. The owner can inspect and change the active alias with
+`/model`; there is no automatic escalation, no silent provider failover, and
+a transient failure is retried a bounded number of times on the same alias
+before Eggy reports it. The prior two-model config format is not preserved
+as a compatibility path — the escalation behavior is gone entirely.
 
 ## Consequences
 

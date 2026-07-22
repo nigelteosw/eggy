@@ -16,7 +16,7 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadOrCreateConfig() error = %v", err)
 	}
-	if cfg.Version != 2 || cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
+	if cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
 		t.Fatalf("generated config = %#v", cfg)
 	}
 	if cfg.DataDir != "/data" || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || cfg.Calendar.Enabled || len(cfg.Repositories) != 0 {
@@ -55,7 +55,7 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 
 func TestLoadOrCreateConfigMigratesLegacyTemporaryRunnerRoot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	legacy := strings.Replace(validConfigV2(), "root: /data/runs", "root: /tmp/runs", 1)
+	legacy := strings.Replace(validConfig(), "root: /data/runs", "root: /tmp/runs", 1)
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}

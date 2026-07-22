@@ -85,7 +85,7 @@ func ExecuteConfigCLI(ctx context.Context, configPath string, args []string) (Co
 // listing, eggy help, and Telegram's autocomplete list.
 var topLevelCommandOrder = []string{
 	"start", "help", "status", "repositories", "runs", "continue", "stop",
-	"schedules", "memory", "prompts", "model", "config", "usage", "clear",
+	"schedules", "memory", "model", "config", "usage", "clear",
 	"calendar_auth", "restart",
 }
 
@@ -258,38 +258,6 @@ func init() {
 				{Telegram: "/clear", CLI: "eggy clear"},
 			},
 			Handler: handleClear,
-		},
-		{
-			Path:    "prompts",
-			Summary: "List, show, set, or remove custom prompts that shape future turns",
-			Examples: []Example{
-				{Telegram: "/prompts", CLI: "eggy prompts"},
-			},
-			Handler: handlePrompts,
-		},
-		{
-			Path:    "prompts show",
-			Summary: "Show a custom prompt's content",
-			Examples: []Example{
-				{Telegram: "/prompts show reviewer", CLI: "eggy prompts show reviewer"},
-			},
-			Handler: handlePromptsShow,
-		},
-		{
-			Path:    "prompts set",
-			Summary: "Create or replace a custom prompt",
-			Examples: []Example{
-				{Telegram: "/prompts set reviewer Be blunt about risk.", CLI: `eggy prompts set reviewer "Be blunt about risk."`},
-			},
-			Handler: handlePromptsSet,
-		},
-		{
-			Path:    "prompts remove",
-			Summary: "Remove a custom prompt",
-			Examples: []Example{
-				{Telegram: "/prompts remove reviewer", CLI: "eggy prompts remove reviewer"},
-			},
-			Handler: handlePromptsRemove,
 		},
 		{
 			Path:    "model",
@@ -791,79 +759,6 @@ func handleClear(ctx context.Context, s *CommandService, req CommandRequest) (Co
 	}, nil
 }
 
-func handlePrompts(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.context == nil {
-		return CommandResult{State: ResultInfo, Title: "Prompts are not configured."}, nil
-	}
-	if len(req.Args) > 0 {
-		return usageHelp(mustEntry("prompts"), fmt.Sprintf("Unknown prompts subcommand %q. Use show, set, or remove.", req.Args[0])), nil
-	}
-	loaded, err := s.context.Load(ctx)
-	if err != nil {
-		return CommandResult{}, err
-	}
-	if len(loaded.Prompts) == 0 {
-		return CommandResult{
-			State:  ResultInfo,
-			Title:  "No custom prompts.",
-			Detail: "A named prompt is appended to every future turn's system instructions until removed.",
-			Next:   []string{"/prompts set <name> <content...>"},
-		}, nil
-	}
-	names := make([]string, 0, len(loaded.Prompts))
-	for _, prompt := range loaded.Prompts {
-		names = append(names, prompt.Name)
-	}
-	return CommandResult{Lines: names, Next: []string{"/prompts show <name>", "/prompts set <name> <content...>", "/prompts remove <name>"}}, nil
-}
-
-func handlePromptsShow(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.context == nil {
-		return CommandResult{State: ResultInfo, Title: "Prompts are not configured."}, nil
-	}
-	if len(req.Args) != 1 {
-		return usageHelp(mustEntry("prompts show"), "Expected exactly one <name>."), nil
-	}
-	loaded, err := s.context.Load(ctx)
-	if err != nil {
-		return CommandResult{}, err
-	}
-	for _, prompt := range loaded.Prompts {
-		if prompt.Name == req.Args[0] {
-			return CommandResult{Title: prompt.Name, Detail: prompt.Content}, nil
-		}
-	}
-	return CommandResult{State: ResultError, Title: "No such prompt: " + req.Args[0] + "."}, nil
-}
-
-func handlePromptsSet(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.context == nil {
-		return CommandResult{State: ResultInfo, Title: "Prompts are not configured."}, nil
-	}
-	if len(req.Args) < 2 {
-		return usageHelp(mustEntry("prompts set"), "Expected <name> followed by the prompt content."), nil
-	}
-	name := req.Args[0]
-	content := strings.TrimSpace(strings.TrimPrefix(req.Tail, name))
-	if err := s.context.SetPrompt(ctx, name, content); err != nil {
-		return errorResult(err), nil
-	}
-	return CommandResult{Title: "Set prompt " + name + ".", Next: []string{"/prompts show " + name}}, nil
-}
-
-func handlePromptsRemove(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.context == nil {
-		return CommandResult{State: ResultInfo, Title: "Prompts are not configured."}, nil
-	}
-	if len(req.Args) != 1 {
-		return usageHelp(mustEntry("prompts remove"), "Expected exactly one <name>."), nil
-	}
-	if err := s.context.RemovePrompt(ctx, req.Args[0]); err != nil {
-		return errorResult(err), nil
-	}
-	return CommandResult{Title: "Removed prompt " + req.Args[0] + "."}, nil
-}
-
 func sortedModelAliases(s *CommandService) []string {
 	aliases := append([]string(nil), s.modelAliases...)
 	sort.Strings(aliases)
@@ -1064,7 +959,7 @@ func handleConfigGetProviders(ctx context.Context, s *CommandService, req Comman
 	if s.configPath == "" {
 		return CommandResult{State: ResultInfo, Title: "Config file management is not configured."}, nil
 	}
-	cfg, _, err := loadConfigDocument(s.configPath)
+	cfg, err := loadConfigDocument(s.configPath)
 	if err != nil {
 		return errorResult(err), nil
 	}
@@ -1092,7 +987,7 @@ func handleConfigGetModels(ctx context.Context, s *CommandService, req CommandRe
 	if s.configPath == "" {
 		return CommandResult{State: ResultInfo, Title: "Config file management is not configured."}, nil
 	}
-	cfg, _, err := loadConfigDocument(s.configPath)
+	cfg, err := loadConfigDocument(s.configPath)
 	if err != nil {
 		return errorResult(err), nil
 	}
@@ -1120,7 +1015,7 @@ func handleConfigGetCalendar(ctx context.Context, s *CommandService, req Command
 	if s.configPath == "" {
 		return CommandResult{State: ResultInfo, Title: "Config file management is not configured."}, nil
 	}
-	cfg, _, err := loadConfigDocument(s.configPath)
+	cfg, err := loadConfigDocument(s.configPath)
 	if err != nil {
 		return errorResult(err), nil
 	}

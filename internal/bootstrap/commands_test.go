@@ -24,7 +24,7 @@ import (
 func TestTelegramAndCLIProduceTheSameSemanticResult(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commands := &CommandService{configPath: path}
@@ -39,7 +39,7 @@ func TestTelegramAndCLIProduceTheSameSemanticResult(t *testing.T) {
 	}
 
 	// Reset the config file so the CLI-driven call starts from the same state.
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cliReq, ok := ParseCLIArgs(catalogIndex, []string{"config", "set", "provider", "--name=openrouter", "--adapter=openai_compatible", "--base-url=https://openrouter.ai/api/v1", "--api-key-env=OPENROUTER_API_KEY"})
@@ -168,7 +168,7 @@ func TestCommandRestartReportsUnavailableWithoutCallback(t *testing.T) {
 
 func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commands := &CommandService{configPath: path}
@@ -222,7 +222,7 @@ func TestCommandConfigGetAndSetRoundTrip(t *testing.T) {
 
 func TestCommandConfigUsageErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfigV2()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commands := &CommandService{configPath: path}
@@ -366,47 +366,5 @@ func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	usage, _ := runtime.Usage(context.Background())
 	if len(usage) != 0 {
 		t.Fatalf("usage=%#v", usage)
-	}
-}
-
-func TestPromptsCommandCRUD(t *testing.T) {
-	dir := t.TempDir()
-	contextStore := contextmarkdown.Open(dir, 64<<10)
-	commands := &CommandService{context: contextStore}
-	ctx := context.Background()
-
-	output, handled, err := commands.Execute(ctx, "/prompts")
-	if err != nil || !handled || !strings.Contains(output, "No custom prompts.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts set reviewer Be blunt about risk.")
-	if err != nil || !handled || !strings.Contains(output, "Set prompt reviewer.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts")
-	if err != nil || !handled || !strings.Contains(output, "reviewer") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts show reviewer")
-	if err != nil || !handled || !strings.Contains(output, "Be blunt about risk.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts show missing")
-	if err != nil || !handled || !strings.Contains(output, "No such prompt: missing.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts remove reviewer")
-	if err != nil || !handled || !strings.Contains(output, "Removed prompt reviewer.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	output, handled, err = commands.Execute(ctx, "/prompts remove reviewer")
-	if err != nil || !handled || !strings.Contains(output, "does not exist") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 }

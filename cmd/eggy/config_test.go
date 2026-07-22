@@ -13,8 +13,7 @@ import (
 func writeTestConfig(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "config.yaml")
-	body := `version: 2
-server:
+	body := `server:
   listen: ':8080'
   public_base_url: https://eggy.example
   telegram_webhook_path: /webhooks/telegram
@@ -123,7 +122,7 @@ func TestConfigCLIShow(t *testing.T) {
 	path := writeTestConfig(t, t.TempDir())
 	result := executeConfigCLI(t, path, "show")
 	output := result.RenderPlainText()
-	if !strings.Contains(output, "version: 2") || !strings.Contains(output, "deepseek") {
+	if !strings.Contains(output, "public_base_url") || !strings.Contains(output, "deepseek") {
 		t.Fatalf("output=%q", output)
 	}
 }

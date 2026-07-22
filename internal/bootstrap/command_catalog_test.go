@@ -11,8 +11,8 @@ func testCatalogIndex() map[string]CatalogEntry {
 		{Path: "repositories"},
 		{Path: "repositories add"},
 		{Path: "repositories remove"},
-		{Path: "prompts"},
-		{Path: "prompts set"},
+		{Path: "notes"},
+		{Path: "notes set"},
 		{Path: "model"},
 		{Path: "model effort"},
 		{Path: "model default"},
@@ -64,7 +64,7 @@ func TestParseTelegramInputRejectsUnknownTopLevelCommand(t *testing.T) {
 
 func TestParseTelegramInputPreservesOriginalSpacingInTrailingContent(t *testing.T) {
 	index := testCatalogIndex()
-	req, ok := ParseTelegramInput(index, "/prompts set reviewer  Be   blunt.")
+	req, ok := ParseTelegramInput(index, "/notes set reviewer  Be   blunt.")
 	if !ok {
 		t.Fatal("expected match")
 	}

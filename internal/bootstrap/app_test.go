@@ -715,7 +715,7 @@ func runGit(t *testing.T, directory string, arguments ...string) {
 
 func appTestConfig(dataDir string) Config {
 	return Config{
-		Version: 2, DataDir: dataDir,
+		DataDir:      dataDir,
 		Server:       ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
 		Telegram:     TelegramConfig{OwnerID: 42},
 		Agent:        AgentConfig{DefaultModel: "deepseek-pro"},

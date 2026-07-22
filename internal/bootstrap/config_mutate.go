@@ -13,43 +13,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var errConfigSetRequiresVersion2 = errors.New("config.yaml is version 1; migrate to version 2 before using /config set")
-
-func loadConfigDocument(path string) (Config, int, error) {
+func loadConfigDocument(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, 0, fmt.Errorf("open config: %w", err)
+		return Config{}, fmt.Errorf("open config: %w", err)
 	}
-	var header struct {
-		Version int `yaml:"version"`
+	var document configDocument
+	if err := decodeKnownYAML(data, &document); err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
-	if err := yaml.Unmarshal(data, &header); err != nil {
-		return Config{}, 0, fmt.Errorf("decode config: %w", err)
+	cfg := normalizeConfig(document)
+	if err := cfg.applyDefaults(); err != nil {
+		return Config{}, err
 	}
-	switch header.Version {
-	case 1:
-		var document legacyConfigDocument
-		if err := decodeKnownYAML(data, &document); err != nil {
-			return Config{}, 0, fmt.Errorf("decode config: %w", err)
-		}
-		cfg := normalizeLegacyConfig(document)
-		if err := cfg.applyDefaults(); err != nil {
-			return Config{}, 0, err
-		}
-		return cfg, 1, nil
-	case 2:
-		var document configV2Document
-		if err := decodeKnownYAML(data, &document); err != nil {
-			return Config{}, 0, fmt.Errorf("decode config: %w", err)
-		}
-		cfg := normalizeV2Config(document)
-		if err := cfg.applyDefaults(); err != nil {
-			return Config{}, 0, err
-		}
-		return cfg, 2, nil
-	default:
-		return Config{}, 0, errors.New("version must be 1 or 2")
-	}
+	return cfg, nil
 }
 
 // writeConfigUnlocked persists cfg atomically. Callers must hold the path's
@@ -87,12 +64,9 @@ func writeConfigUnlocked(path string, cfg Config) error {
 
 func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	return filelock.With(path, func() error {
-		cfg, version, err := loadConfigDocument(path)
+		cfg, err := loadConfigDocument(path)
 		if err != nil {
 			return err
-		}
-		if version != 2 {
-			return errConfigSetRequiresVersion2
 		}
 		if cfg.Providers == nil {
 			cfg.Providers = map[string]ProviderConfig{}
@@ -110,12 +84,9 @@ func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 // alias without a reasoning-effort option.
 func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) error {
 	return filelock.With(path, func() error {
-		cfg, version, err := loadConfigDocument(path)
+		cfg, err := loadConfigDocument(path)
 		if err != nil {
 			return err
-		}
-		if version != 2 {
-			return errConfigSetRequiresVersion2
 		}
 		if cfg.ModelAliases == nil {
 			cfg.ModelAliases = map[string]ModelAliasConfig{}
@@ -140,12 +111,9 @@ func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
 		return errors.New("at least one of enabled, default_calendar, or timezone is required")
 	}
 	return filelock.With(path, func() error {
-		cfg, version, err := loadConfigDocument(path)
+		cfg, err := loadConfigDocument(path)
 		if err != nil {
 			return err
-		}
-		if version != 2 {
-			return errConfigSetRequiresVersion2
 		}
 		if enabled != "" {
 			parsed, err := strconv.ParseBool(enabled)
@@ -168,7 +136,7 @@ func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
 }
 
 func GetProvidersConfigText(path string) (string, error) {
-	cfg, _, err := loadConfigDocument(path)
+	cfg, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +157,7 @@ func GetProvidersConfigText(path string) (string, error) {
 }
 
 func GetModelAliasesConfigText(path string) (string, error) {
-	cfg, _, err := loadConfigDocument(path)
+	cfg, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
 	}
@@ -214,7 +182,7 @@ func GetModelAliasesConfigText(path string) (string, error) {
 }
 
 func GetCalendarConfigText(path string) (string, error) {
-	cfg, _, err := loadConfigDocument(path)
+	cfg, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
 	}
@@ -225,7 +193,7 @@ func GetCalendarConfigText(path string) (string, error) {
 // full: config.yaml never holds secret values, only environment-variable
 // names (api_key_env, credential_env).
 func ShowConfigText(path string) (string, error) {
-	cfg, _, err := loadConfigDocument(path)
+	cfg, err := loadConfigDocument(path)
 	if err != nil {
 		return "", err
 	}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 
@@ -22,9 +21,6 @@ const (
 )
 
 var sectionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$`)
-var promptNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
-
-const promptsDir = "prompts"
 
 type Store struct {
 	dir      string
@@ -57,89 +53,7 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	prompts, err := s.loadPrompts()
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
-	return ports.AgentContext{Soul: soul, User: user, Memory: memory, MaxBytes: s.maxBytes, Prompts: prompts}, nil
-}
-
-func (s *Store) loadPrompts() ([]ports.NamedPrompt, error) {
-	entries, err := os.ReadDir(filepath.Join(s.dir, promptsDir))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read prompts directory: %w", err)
-	}
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		names = append(names, strings.TrimSuffix(entry.Name(), ".md"))
-	}
-	sort.Strings(names)
-	prompts := make([]ports.NamedPrompt, 0, len(names))
-	for _, name := range names {
-		content, err := s.loadDocumentUnlocked(s.promptPath(name), "")
-		if err != nil {
-			return nil, err
-		}
-		prompts = append(prompts, ports.NamedPrompt{Name: name, Content: content})
-	}
-	return prompts, nil
-}
-
-// SetPrompt creates or updates an operator-managed system prompt. It takes
-// effect on the next turn without a restart, since Load re-reads the
-// prompts directory every time.
-func (s *Store) SetPrompt(ctx context.Context, name, content string) error {
-	if !promptNamePattern.MatchString(name) {
-		return errors.New("prompt name must be alphanumeric with '_' or '-', up to 64 characters")
-	}
-	if strings.TrimSpace(content) == "" {
-		return errors.New("prompt content is empty")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if int64(len(content)) > s.maxBytes {
-		return fmt.Errorf("prompt %s exceeds context limit of %d bytes", name, s.maxBytes)
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	path := s.promptPath(name)
-	return filelock.With(path, func() error {
-		return writeAtomic(path, []byte(content))
-	})
-}
-
-// RemovePrompt deletes an operator-managed system prompt. It errors if the
-// prompt does not exist.
-func (s *Store) RemovePrompt(ctx context.Context, name string) error {
-	if !promptNamePattern.MatchString(name) {
-		return errors.New("prompt name must be alphanumeric with '_' or '-', up to 64 characters")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	path := s.promptPath(name)
-	return filelock.With(path, func() error {
-		if err := os.Remove(path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("prompt %s does not exist", name)
-			}
-			return err
-		}
-		return nil
-	})
-}
-
-func (s *Store) promptPath(name string) string {
-	return filepath.Join(s.dir, promptsDir, name+".md")
+	return ports.AgentContext{Soul: soul, User: user, Memory: memory, MaxBytes: s.maxBytes}, nil
 }
 
 func (s *Store) Append(ctx context.Context, document ports.ContextDocument, section, content string) error {

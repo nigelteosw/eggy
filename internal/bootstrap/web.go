@@ -37,6 +37,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		now = time.Now
 	}
 	throttle := webui.NewLoginThrottle(now)
+	commands := &CommandService{configPath: configPath}
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
@@ -45,7 +46,47 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {
 		writeWebResult(w, CommandResult{State: ResultSuccess, Title: "Session is valid."})
 	}))
+
+	for _, section := range []struct {
+		path     string
+		get, set []string
+	}{
+		{"providers", []string{"config", "get", "providers"}, []string{"config", "set", "provider"}},
+		{"models", []string{"config", "get", "models"}, []string{"config", "set", "model"}},
+		{"calendar", []string{"config", "get", "calendar"}, []string{"config", "set", "calendar"}},
+	} {
+		mux.Handle("GET /api/config/"+section.path, requireWebSession(webConfig, now, webConfigGetRoute(commands, section.get)))
+		mux.Handle("POST /api/config/"+section.path, requireWebSession(webConfig, now, webConfigSetRoute(commands, section.set)))
+	}
+
 	return mux
+}
+
+func webConfigGetRoute(commands *CommandService, path []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		result, err := commands.dispatch(r.Context(), CommandRequest{Path: path})
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeWebResult(w, result)
+	}
+}
+
+func webConfigSetRoute(commands *CommandService, path []string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var named map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&named); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		result, err := commands.dispatch(r.Context(), CommandRequest{Path: path, Named: named})
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeWebResult(w, result)
+	}
 }
 
 func handleWebLogin(webConfig WebUIConfig, throttle *webui.LoginThrottle, now func() time.Time) http.HandlerFunc {

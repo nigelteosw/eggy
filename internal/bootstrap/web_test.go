@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +126,94 @@ func TestWebLoginThrottlesRepeatedFailures(t *testing.T) {
 	badLogin()
 	if elapsed := time.Since(start); elapsed < 2*time.Second {
 		t.Fatalf("expected the 6th attempt to be delayed ~2s, took %v", elapsed)
+	}
+}
+
+func writeConfigFile(t *testing.T, body string) string {
+	t.Helper()
+	path := t.TempDir() + "/config.yaml"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func webLoginCookie(t *testing.T, handler http.Handler) *http.Cookie {
+	t.Helper()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected exactly one cookie, got %d", len(cookies))
+	}
+	return cookies[0]
+}
+
+func TestWebConfigRoutesRoundTripThroughCommandService(t *testing.T) {
+	// validConfig() and config_test.go are in this same package (bootstrap),
+	// so it's reused directly here rather than duplicating its YAML.
+	path := writeConfigFile(t, validConfig())
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	setBody := strings.NewReader(`{"name":"deepseek","adapter":"openai_compatible","base_url":"https://api.deepseek.com","api_key_env":"DEEPSEEK_API_KEY"}`)
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/providers", setBody)
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusOK {
+		t.Fatalf("set status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/providers", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	var decoded CommandResult
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range decoded.TableRows {
+		if len(row) > 0 && row[0] == "deepseek" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the newly set provider in table rows: %#v", decoded.TableRows)
+	}
+}
+
+func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/providers", strings.NewReader(`{"name":"deepseek"}`))
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+}
+
+func TestWebConfigRoutesRequireSession(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler("", testWebConfig(now))
+	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/calendar"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status=%d", path, response.Code)
+		}
 	}
 }
 

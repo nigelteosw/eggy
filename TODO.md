@@ -9,24 +9,80 @@ its implementation and focused tests have landed.
 
 ## P0: Finish the architecture simplification
 
-### Simplify shipping authorization
+### Simplify repository shipping
 
-- [ ] Replace the three approval roles injected into `ShippingService` with one
-      narrow authorization dependency that issues, automatically decides, and
-      later authorizes an exact action and payload.
-- [ ] Inject every shipping dependency through the constructor and remove
-      setter-based partial construction.
-- [ ] Preserve separate authorization records and checks for commit, push, and
-      pull-request creation, including expiry, action matching, full-diff digest
-      binding, branch/head checks, remote-head checks, and protected-branch
-      denial.
-- [ ] Invalidate obsolete pending shipping approvals at startup or migrate them,
-      then remove shipping from Telegram's callback executor map and delete its
+`ShippingService` (`internal/kernel/services/shipping.go:12-23`) is the only
+kernel service still wired with setters instead of constructor injection:
+`NewShippingService` takes `policy ports.ApprovalPolicy`, then
+`internal/bootstrap/app.go:178-179` calls `SetApprovalRequester` and
+`SetApprovalDecider` right after construction to fill in the other two roles —
+always with the same `app.approvals` instance. `RepositoriesService`,
+`CalendarService`, and `SkillsService` all take their `ApprovalRequester`
+through the constructor; `ShippingService` is the sole outlier. `Ship()`
+(shipping.go:48-99) then does Request → `decider.Decide(id, true)` → Execute
+three times in a row for commit/push/PR, ceremony left over from when a human
+tapped Approve/Reject in Telegram. That old path also left dead code in
+`App.handleApproval` (`internal/bootstrap/app.go:520-566`): a rejection-cleanup
+branch and a post-PR-creation cleanup branch guarded by a comment admitting
+"these branches only remain reachable for a pending approval left over from
+before that change."
+
+- [ ] Keep `ShippingService` as Eggy's single repository-write boundary. Only
+      the implementation loop may call it; coding agents cannot commit, push,
+      or create pull requests directly.
+- [ ] Replace its three approval roles and setter-based setup with one narrow
+      constructor-injected authorization dependency that issues, automatically
+      decides, and authorizes an exact action and payload.
+  - [ ] Add `ApprovalService.RequestAndApprove(ctx, action, payload, summary)
+        (approvals.Approval, error)`, doing the create-then-immediately-approve
+        sequence as one `store.Update`, replacing today's separate `Request`
+        call plus `decider.Decide(id, true)` call.
+  - [ ] Define one narrow interface (e.g. `ShippingAuthorizer`) with
+        `RequestAndApprove` and `Authorize` methods; replace
+        `ShippingService`'s `policy`, `requester`, and `decider` fields with a
+        single field of this type.
+  - [ ] Take it as a parameter of `NewShippingService`; delete
+        `SetApprovalRequester`, `SetApprovalDecider`, the `ApprovalDecider`
+        interface, and both setter call sites in `internal/bootstrap/app.go`.
+  - [ ] Update `Ship()` to call `RequestAndApprove` once per action (commit,
+        push, create-pull-request) instead of Request-then-Decide, and update
+        `RequestCommit`/`RequestPush`/`RequestPullRequest` and their callers
+        accordingly.
+- [ ] Keep commit, push, and pull-request creation as separate authorized
+      operations. Preserve expiry, action and payload matching, full-diff
+      binding, branch/head and remote-head checks, and protected-branch denial.
+  - [ ] Keep `Commit`/`Push`/`CreatePullRequest` (shipping.go:179-287) calling
+        `Authorize` independently per action with the workspace/diff/head
+        re-checks that already precede each one; the merged
+        `ShippingAuthorizer` interface must not collapse these into one call.
+- [ ] Remove obsolete pending shipping approvals at startup or migrate them;
+      remove shipping from Telegram's callback executor map and delete its
       compatibility-only cleanup paths.
-- [ ] Keep explicit Telegram approval callbacks for repository registration and
-      Calendar mutations. Pull-request merging remains unsupported.
+  - [ ] Add a startup step (`App.Run` or `NewApp`) that loads state and calls
+        `ApprovalService.Invalidate` on any `Pending` approval whose `Action`
+        is `Commit`, `Push`, or `CreatePR` — these can only be leftovers from
+        the retired manual-tap flow, since no code path still creates a
+        pending shipping approval that waits for a human `Decide` call.
+  - [ ] Remove the `approvals.Commit`, `approvals.Push`, and `approvals.CreatePR`
+        entries from `app.approvalExecutors` (`internal/bootstrap/app.go:183-190`).
+  - [ ] Delete the rejection-cleanup branch and the post-`CreatePR`-cleanup
+        branch in `App.handleApproval` (`internal/bootstrap/app.go:520-566`),
+        along with the comment explaining they're compatibility-only.
+- [ ] Keep Telegram approval callbacks for repository registration and Calendar
+      mutations. Pull-request merging remains unsupported.
+  - [ ] Leave the `AddRepository`, `CalendarCreate`, `CalendarUpdate`,
+        `CalendarDelete`, `SkillWrite`, and `SkillDelete` entries in
+        `app.approvalExecutors` untouched; only the three shipping actions move
+        off the human-tap callback path.
 - [ ] Add an end-to-end test proving the implementation loop cannot bypass any
-      commit, push, or pull-request authorization check.
+      repository-write authorization check.
+  - [ ] Add a test in `shipping_test.go` that drives a full run through
+        `Ship()` (reusing the existing `fakePolicy`/`fakeRepository` fixtures)
+        and asserts that a tampered diff, a moved branch/head, a moved remote
+        head, and a protected-branch push are each blocked before any
+        repository side effect — exercising `RequestAndApprove` and
+        `Authorize` together end to end, not just the already-covered
+        individual `Commit`/`Push`/`CreatePullRequest` checks.
 
 ### Deployment follow-up
 

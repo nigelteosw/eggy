@@ -98,16 +98,22 @@ func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.
 	}
 }
 
-func TestContextStoreRejectsSoulEditsAndOversizedFiles(t *testing.T) {
-	dir := t.TempDir()
-	store := Open(dir, 16)
-	if err := store.Append(context.Background(), ports.ContextDocument("soul"), "Identity", "changed"); err == nil {
-		t.Fatal("expected SOUL edit rejection")
+func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
+	store := Open(t.TempDir(), 64<<10)
+	if err := store.Append(context.Background(), ports.ContextSoul, "Identity", "changed"); err != nil {
+		t.Fatalf("expected SOUL edit to succeed, got %v", err)
 	}
+	loaded, err := store.Load(context.Background())
+	if err != nil || !strings.Contains(loaded.Soul, "## Identity\n\nchanged") {
+		t.Fatalf("context=%#v err=%v", loaded, err)
+	}
+
+	dir := t.TempDir()
+	small := Open(dir, 16)
 	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(strings.Repeat("x", 17)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, err := small.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("error=%v", err)
 	}
 }

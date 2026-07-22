@@ -64,6 +64,10 @@ func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool 
 		guard = NewSecretGuard(nil)
 	}
 	return []ports.Tool{
+		contextEditTool{name: "soul_append", description: "Autonomously append a stable fact about Eggy's own identity, tone, or values; never store credentials or transient claims", document: ports.ContextSoul, store: store, guard: guard},
+		contextEditTool{name: "soul_replace_section", description: "Replace one SOUL.md section with current stable identity content; never store credentials", document: ports.ContextSoul, replace: true, store: store, guard: guard},
+		contextRemoveTool{name: "soul_remove_section", description: "Remove one SOUL.md section entirely because it is stale, superseded, or no longer useful", document: ports.ContextSoul, store: store},
+		contextReadTool{name: "soul_read", description: "Read the current SOUL.md, including any edits made earlier in this turn, before deciding to append, replace, or remove a section", document: ports.ContextSoul, store: store},
 		contextEditTool{name: "user_append", description: "Autonomously append a stable user preference or profile fact; never store credentials or transient claims", document: ports.ContextUser, store: store, guard: guard},
 		contextEditTool{name: "user_replace_section", description: "Replace one user profile section with current stable facts; never store credentials", document: ports.ContextUser, replace: true, store: store, guard: guard},
 		contextRemoveTool{name: "user_remove_section", description: "Remove one user profile section entirely because it is stale, superseded, or no longer useful", document: ports.ContextUser, store: store},
@@ -153,6 +157,8 @@ func (t contextReadTool) Execute(ctx context.Context, raw json.RawMessage) (json
 	}
 	var content string
 	switch t.document {
+	case ports.ContextSoul:
+		content = loaded.Soul
 	case ports.ContextUser:
 		content = loaded.User
 	case ports.ContextMemory:

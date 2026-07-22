@@ -105,6 +105,7 @@ type AgentContext struct {
 type ContextDocument string
 
 const (
+	ContextSoul   ContextDocument = "soul"
 	ContextUser   ContextDocument = "user"
 	ContextMemory ContextDocument = "memory"
 )

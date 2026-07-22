@@ -25,17 +25,21 @@ func TestSecretGuardRejectsCredentials(t *testing.T) {
 	}
 }
 
-func TestContextToolsCurateUserAndMemory(t *testing.T) {
+func TestContextToolsCurateSoulUserAndMemory(t *testing.T) {
 	store := contextmarkdown.Open(t.TempDir(), 64<<10)
 	tools := NewContextTools(store, NewSecretGuard([]string{"secret-value"}))
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
 		byName[tool.Definition().Name] = tool
 	}
-	if len(byName) != 8 {
+	if len(byName) != 12 {
 		t.Fatalf("tools=%v", byName)
 	}
-	result, err := byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`))
+	result, err := byName["soul_append"].Execute(context.Background(), json.RawMessage(`{"section":"Identity","content":"Small egg, big smile"}`))
+	if err != nil || string(result) != `{"updated":true}` {
+		t.Fatalf("result=%s err=%v", result, err)
+	}
+	result, err = byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`))
 	if err != nil || string(result) != `{"updated":true}` {
 		t.Fatalf("result=%s err=%v", result, err)
 	}
@@ -43,7 +47,7 @@ func TestContextToolsCurateUserAndMemory(t *testing.T) {
 		t.Fatal("expected secret rejection")
 	}
 	loaded, err := store.Load(context.Background())
-	if err != nil || !strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.Memory, "secret-value") {
+	if err != nil || !strings.Contains(loaded.Soul, "Small egg, big smile") || !strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.Memory, "secret-value") {
 		t.Fatalf("context=%#v err=%v", loaded, err)
 	}
 }

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	initialSoul   = "# Eggy Soul\n\nBe practical, truthful, concise, and evidence-led.\n"
+	initialSoul   = "# Eggy Soul\n\nI'm Eggy: a small eggy buddy, happiest when quietly useful. Warm and a little playful, never sappy about it. Underneath the smile, still practical, truthful, concise, and evidence-led — say what's actually true, not what sounds nice.\n"
 	initialUser   = "# Eggy User\n"
 	initialMemory = "# Eggy Memory\n"
 )
@@ -134,6 +134,8 @@ func (s *Store) edit(ctx context.Context, document ports.ContextDocument, sectio
 
 func editableDocument(document ports.ContextDocument) (string, string, error) {
 	switch document {
+	case ports.ContextSoul:
+		return "SOUL.md", initialSoul, nil
 	case ports.ContextUser:
 		return "USER.md", initialUser, nil
 	case ports.ContextMemory:

@@ -470,8 +470,8 @@ func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (C
 
 func handleStart(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
 	return CommandResult{
-		Title:  "Welcome to Eggy",
-		Detail: "I'm your personal AI assistant. I can chat, manage code repositories, schedule reminders, and more.\n\n" + HelpText("") + "\n\nType /help <command> for detailed usage on any command.",
+		Title:  "Hey, I'm Eggy",
+		Detail: "Your personal AI assistant! I can chat, manage code repositories, schedule reminders, and more.\n\n" + HelpText("") + "\n\nType /help <command> for detailed usage on any command.",
 	}, nil
 }
 

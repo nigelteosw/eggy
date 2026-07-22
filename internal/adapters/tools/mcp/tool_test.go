@@ -15,19 +15,31 @@ type fakeSession struct {
 	arguments  any
 	callResult *sdk.CallToolResult
 	callErr    error
+	tools      []*sdk.Tool
+	pages      map[string]*sdk.ListToolsResult
+	listErr    error
+	closed     bool
+	callCount  int
 }
 
-func (s *fakeSession) ListTools(context.Context, *sdk.ListToolsParams) (*sdk.ListToolsResult, error) {
-	return &sdk.ListToolsResult{}, nil
+func (s *fakeSession) ListTools(_ context.Context, params *sdk.ListToolsParams) (*sdk.ListToolsResult, error) {
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	if s.pages != nil {
+		return s.pages[params.Cursor], nil
+	}
+	return &sdk.ListToolsResult{Tools: s.tools}, nil
 }
 
 func (s *fakeSession) CallTool(_ context.Context, params *sdk.CallToolParams) (*sdk.CallToolResult, error) {
+	s.callCount++
 	s.calledName = params.Name
 	s.arguments = params.Arguments
 	return s.callResult, s.callErr
 }
 
-func (s *fakeSession) Close() error { return nil }
+func (s *fakeSession) Close() error { s.closed = true; return nil }
 
 func TestRemoteToolProjectsDefinitionAndCall(t *testing.T) {
 	session := &fakeSession{callResult: &sdk.CallToolResult{

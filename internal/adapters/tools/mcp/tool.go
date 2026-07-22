@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,7 +17,9 @@ type remoteTool struct {
 	session    clientSession
 	timeout    time.Duration
 	maxBytes   int64
+	before     func() error
 	onResult   func(error)
+	executeMu  *sync.Mutex
 }
 
 func newRemoteTool(server string, remote *sdk.Tool, session clientSession, timeout time.Duration, maxBytes int64, onResult func(error)) (*remoteTool, error) {
@@ -40,6 +43,15 @@ func newRemoteTool(server string, remote *sdk.Tool, session clientSession, timeo
 func (t *remoteTool) Definition() ports.ToolDefinition { return t.definition }
 
 func (t *remoteTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if t.executeMu != nil {
+		t.executeMu.Lock()
+		defer t.executeMu.Unlock()
+	}
+	if t.before != nil {
+		if err := t.before(); err != nil {
+			return nil, err
+		}
+	}
 	var arguments map[string]any
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)

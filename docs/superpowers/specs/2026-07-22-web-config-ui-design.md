@@ -82,13 +82,13 @@ verification, login rate limiting). It is wired only from
 registered only in `internal/bootstrap`.
 
 Frontend source lives in a new top-level `web/` directory (sibling to `cmd/`,
-`internal/`, `docs/`), built with `npm run build` into `web/dist`, which
-`internal/adapters/web` embeds. The `Makefile` gains a `build-web` target that
-runs before `go build` in both local dev and the Docker build; the Dockerfile
-gains a Node build stage ahead of the existing Go build stage. Node/npm are a
-build-time dependency only — the deployed container remains a single Go
-binary, one process, one Railway service, matching the existing "exactly one
-`eggyd` replica, file-backed state" constraint.
+`internal/`, `docs/`), built with `bun run build` into `web/dist`, which
+`internal/adapters/webui` embeds. The `Makefile` gains a `build-web` target
+that runs before `go build` in both local dev and the Docker build; the
+Dockerfile gains a Bun build stage ahead of the existing Go build stage.
+Bun is a build-time dependency only — the deployed container remains a
+single Go binary, one process, one Railway service, matching the existing
+"exactly one `eggyd` replica, file-backed state" constraint.
 
 ## Authentication
 

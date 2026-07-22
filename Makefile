@@ -15,7 +15,7 @@ race:
 	$(GO) test -race ./...
 
 build-web:
-	cd web && npm install && npm run build
+	cd web && bun install && bun run build
 
 build: build-web
 	mkdir -p bin

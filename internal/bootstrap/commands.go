@@ -112,6 +112,9 @@ func HelpText(command string) string {
 			return fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command)
 		}
 		lines := []string{entry.Summary}
+		if entry.Detail != "" {
+			lines = append(lines, entry.Detail)
+		}
 		for _, example := range entry.Examples {
 			lines = append(lines, "Telegram: "+example.Telegram, "CLI: "+example.CLI)
 		}
@@ -497,6 +500,7 @@ func init() {
 		},
 		{
 			Path: "mcp", Summary: "List and manage configured MCP servers",
+			Detail:   mcpExplanation,
 			Examples: []Example{{Telegram: "/mcp", CLI: "eggy mcp"}}, Handler: handleMCP,
 		},
 		{
@@ -523,12 +527,21 @@ func init() {
 	catalogIndex = buildCatalogIndex(catalog)
 }
 
+// mcpExplanation is the one place that explains what MCP is and how to add a
+// server, shown by /help mcp, eggy help mcp, and any /mcp command run before
+// a server is configured.
+const mcpExplanation = "MCP (Model Context Protocol) lets Eggy call tools exposed by a remote server, such as Railway, directly in conversation. Servers are defined in config.yaml's mcp.servers map, not through /mcp or the CLI — see the mcp.servers.railway block in config.example.yaml for a complete example, including the URL, auth mode, and tool filter. After adding a server: an oauth server needs EGGY_ENCRYPTION_KEY set so its credentials can be stored encrypted, a bearer-env server needs its named token environment variable set, then restart Eggy either way. An oauth server also needs /mcp login <server> once Eggy is back up; a bearer-env or none server is ready to use immediately. Once a server is configured: /mcp lists servers and status, /mcp status <server> and /mcp probe <server> inspect one, /mcp login <server> and /mcp logout <server> manage OAuth, and /mcp reload <server> restarts Eggy to pick up a changed tool catalog."
+
+func mcpNotConfigured() CommandResult {
+	return CommandResult{State: ResultInfo, Title: "MCP is not configured.", Detail: mcpExplanation}
+}
+
 func handleMCP(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
 	if service.mcp == nil {
-		return CommandResult{State: ResultInfo, Title: "MCP is not configured."}, nil
+		return mcpNotConfigured(), nil
 	}
 	if len(request.Args) > 0 {
-		return usageHelp(mustEntry("mcp"), fmt.Sprintf("Unknown MCP subcommand %q. Use status, probe, login, logout, or reload.", request.Args[0])), nil
+		return usageHelp(mustEntry("mcp"), fmt.Sprintf("Unknown MCP subcommand %q. Servers are added and removed by editing config.yaml's mcp.servers map (see config.example.yaml and /help mcp), not through this command. Configured servers support: status, probe, login, logout, reload.", request.Args[0])), nil
 	}
 	statuses := service.mcp.Statuses()
 	rows := make([][]string, 0, len(statuses))
@@ -618,7 +631,7 @@ func handleMCPReload(_ context.Context, service *CommandService, request Command
 
 func mcpServerArg(service *CommandService, request CommandRequest, path string) (string, *CommandResult) {
 	if service.mcp == nil {
-		result := CommandResult{State: ResultInfo, Title: "MCP is not configured."}
+		result := mcpNotConfigured()
 		return "", &result
 	}
 	if len(request.Args) != 1 {

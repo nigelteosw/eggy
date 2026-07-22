@@ -52,6 +52,12 @@ type CatalogEntry struct {
 	// Path) appear in Telegram's autocomplete list and the bare /help output;
 	// subcommand entries still use Summary for /help <command>.
 	Summary string
+	// Detail is an optional longer explanation shown only by /help <command>
+	// and eggy help <command>, never in the bare /help list or autocomplete.
+	// Use it for concepts Summary has no room for: what a feature is, how it's
+	// configured, and what to do before its commands stop saying "not
+	// configured".
+	Detail string
 	// Examples shows canonical usage in both grammars. The first example is
 	// used in malformed-input help.
 	Examples []Example

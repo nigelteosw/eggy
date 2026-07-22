@@ -53,10 +53,17 @@ func ExecuteMCPCLI(ctx context.Context, config Config, secrets Secrets, options 
 	if err != nil {
 		return CommandResult{}, false, err
 	}
+	service := &CommandService{config: config}
 	if manager != nil {
+		// Assigning manager to service.mcp unconditionally, even when nil,
+		// would store a non-nil MCPCommands interface wrapping a nil
+		// *mcpadapter.Manager: service.mcp == nil then reads false, and every
+		// handler's "is MCP configured" guard calls a method on a nil
+		// receiver instead of reporting "not configured".
 		defer manager.Close()
+		service.mcp = manager
 	}
-	return (&CommandService{config: config, mcp: manager}).ExecuteCLI(ctx, args)
+	return service.ExecuteCLI(ctx, args)
 }
 
 func mcpCallbackHandler(manager *mcpadapter.Manager, restart func()) http.Handler {

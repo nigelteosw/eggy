@@ -412,31 +412,16 @@ func (a *Adapter) Push(ctx context.Context, workspace, branch string) error {
 }
 
 func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Repository, branch, title, body string) (ports.PullRequest, error) {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	payload, _ := json.Marshal(map[string]string{"head": branch, "base": repository.BaseBranch, "title": title, "body": body})
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.apiBase+"/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(name)+"/pulls", bytes.NewReader(payload))
-	if err != nil {
-		return ports.PullRequest{}, err
-	}
-	request.Header.Set("Authorization", "Bearer "+a.token)
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := a.http.Do(request)
-	if err != nil {
-		return ports.PullRequest{}, fmt.Errorf("GitHub request: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusCreated {
-		return ports.PullRequest{}, fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)
-	}
+	payload := map[string]string{"head": branch, "base": repository.BaseBranch, "title": title, "body": body}
 	var result struct {
 		URL    string `json:"html_url"`
 		Number int    `json:"number"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := a.githubRequest(ctx, http.MethodPost, base+"/pulls", payload, &result, http.StatusCreated); err != nil {
 		return ports.PullRequest{}, err
 	}
 	return ports.PullRequest{URL: result.URL, Number: result.Number}, nil
@@ -447,7 +432,7 @@ func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Reposi
 // duplicate (GitHub already shows newly pushed commits on the existing pull
 // request automatically; this just prevents a second POST /pulls call).
 func (a *Adapter) FindOpenPullRequest(ctx context.Context, repository ports.Repository, branch string) (ports.PullRequest, bool, error) {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	owner, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.PullRequest{}, false, err
 	}
@@ -455,7 +440,7 @@ func (a *Adapter) FindOpenPullRequest(ctx context.Context, repository ports.Repo
 		Number  int    `json:"number"`
 		HTMLURL string `json:"html_url"`
 	}
-	path := fmt.Sprintf("/repos/%s/%s/pulls?state=open&head=%s", url.PathEscape(owner), url.PathEscape(name), url.QueryEscape(owner+":"+branch))
+	path := base + "/pulls?state=open&head=" + url.QueryEscape(owner+":"+branch)
 	if err := a.githubGet(ctx, path, &payload); err != nil {
 		return ports.PullRequest{}, false, err
 	}
@@ -468,15 +453,15 @@ func (a *Adapter) FindOpenPullRequest(ctx context.Context, repository ports.Repo
 // UpdatePullRequestBody appends note to an already-open pull request's
 // description.
 func (a *Adapter) UpdatePullRequestBody(ctx context.Context, repository ports.Repository, number int, note string) error {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return err
 	}
+	path := fmt.Sprintf("%s/pulls/%d", base, number)
 	var current struct {
 		Body string `json:"body"`
 	}
-	getPath := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(name), number)
-	if err := a.githubGet(ctx, getPath, &current); err != nil {
+	if err := a.githubGet(ctx, path, &current); err != nil {
 		return err
 	}
 	body := current.Body
@@ -484,27 +469,11 @@ func (a *Adapter) UpdatePullRequestBody(ctx context.Context, repository ports.Re
 		body += "\n\n"
 	}
 	body += note
-	payload, _ := json.Marshal(map[string]string{"body": body})
-	request, err := http.NewRequestWithContext(ctx, http.MethodPatch, a.apiBase+getPath, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+a.token)
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := a.http.Do(request)
-	if err != nil {
-		return fmt.Errorf("GitHub request: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)
-	}
-	return nil
+	return a.githubRequest(ctx, http.MethodPatch, path, map[string]string{"body": body}, nil, http.StatusOK)
 }
 
 func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Repository) (ports.RepositorySummary, error) {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.RepositorySummary{}, err
 	}
@@ -514,26 +483,26 @@ func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Reposi
 		Private       bool   `json:"private"`
 		HTMLURL       string `json:"html_url"`
 	}
-	if err := a.githubGet(ctx, "/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(name), &payload); err != nil {
+	if err := a.githubGet(ctx, base, &payload); err != nil {
 		return ports.RepositorySummary{}, err
 	}
 	return ports.RepositorySummary{Body: payload.Description, DefaultBranch: payload.DefaultBranch, Private: payload.Private, URL: payload.HTMLURL}, nil
 }
 
 func (a *Adapter) Issue(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.RepositorySummary{}, err
 	}
-	return a.issueLikeSummary(ctx, fmt.Sprintf("/repos/%s/%s/issues/%d", url.PathEscape(owner), url.PathEscape(name), number))
+	return a.issueLikeSummary(ctx, fmt.Sprintf("%s/issues/%d", base, number))
 }
 
 func (a *Adapter) PullRequestSummary(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.RepositorySummary{}, err
 	}
-	return a.issueLikeSummary(ctx, fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(name), number))
+	return a.issueLikeSummary(ctx, fmt.Sprintf("%s/pulls/%d", base, number))
 }
 
 func (a *Adapter) issueLikeSummary(ctx context.Context, path string) (ports.RepositorySummary, error) {
@@ -554,7 +523,7 @@ func (a *Adapter) Checks(ctx context.Context, repository ports.Repository, ref s
 	if strings.TrimSpace(ref) == "" {
 		return nil, errors.New("ref is required")
 	}
-	owner, name, err := repositorySlug(repository.CloneURL)
+	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return nil, err
 	}
@@ -566,7 +535,7 @@ func (a *Adapter) Checks(ctx context.Context, repository ports.Repository, ref s
 			HTMLURL    string `json:"html_url"`
 		} `json:"check_runs"`
 	}
-	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", url.PathEscape(owner), url.PathEscape(name), url.PathEscape(ref))
+	path := fmt.Sprintf("%s/commits/%s/check-runs", base, url.PathEscape(ref))
 	if err := a.githubGet(ctx, path, &payload); err != nil {
 		return nil, err
 	}
@@ -577,8 +546,33 @@ func (a *Adapter) Checks(ctx context.Context, repository ports.Repository, ref s
 	return runs, nil
 }
 
+// repoBase resolves repository's clone URL to its owner and the escaped
+// "/repos/{owner}/{name}" API path shared by every GitHub REST call above.
+func (a *Adapter) repoBase(repository ports.Repository) (owner, path string, err error) {
+	owner, name, err := repositorySlug(repository.CloneURL)
+	if err != nil {
+		return "", "", err
+	}
+	return owner, "/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name), nil
+}
+
 func (a *Adapter) githubGet(ctx context.Context, path string, out any) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, a.apiBase+path, nil)
+	return a.githubRequest(ctx, http.MethodGet, path, nil, out, http.StatusOK)
+}
+
+// githubRequest issues one GitHub REST call, marshaling payload as the
+// request body when non-nil and decoding into out when non-nil, the shared
+// shape behind every read and write call in this adapter.
+func (a *Adapter) githubRequest(ctx context.Context, method, path string, payload, out any, expectedStatus int) error {
+	var body io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, a.apiBase+path, body)
 	if err != nil {
 		return err
 	}
@@ -586,13 +580,19 @@ func (a *Adapter) githubGet(ctx context.Context, path string, out any) error {
 		request.Header.Set("Authorization", "Bearer "+a.token)
 	}
 	request.Header.Set("Accept", "application/vnd.github+json")
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := a.http.Do(request)
 	if err != nil {
 		return fmt.Errorf("GitHub request: %w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != expectedStatus {
 		return fmt.Errorf("GitHub returned HTTP %d", response.StatusCode)
+	}
+	if out == nil {
+		return nil
 	}
 	return json.NewDecoder(response.Body).Decode(out)
 }

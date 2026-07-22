@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/adapters/atomicfile"
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -65,7 +65,7 @@ func (s *Store) loadUnlocked() (ports.State, error) {
 		if err != nil {
 			return ports.State{}, fmt.Errorf("encode migrated state: %w", err)
 		}
-		if err := atomicWrite(s.path, append(data, '\n'), 0o600); err != nil {
+		if err := atomicfile.Write(s.path, append(data, '\n'), 0o600); err != nil {
 			return ports.State{}, fmt.Errorf("persist migrated state: %w", err)
 		}
 	} else if state.SchemaVersion != CurrentSchemaVersion {
@@ -103,7 +103,7 @@ func (s *Store) Update(ctx context.Context, expectedVersion uint64, mutate func(
 			return fmt.Errorf("encode state: %w", err)
 		}
 		data = append(data, '\n')
-		if err := atomicWrite(s.path, data, 0o600); err != nil {
+		if err := atomicfile.Write(s.path, data, 0o600); err != nil {
 			return err
 		}
 		updated = copy
@@ -122,41 +122,4 @@ func clone(state ports.State) (ports.State, error) {
 		return ports.State{}, fmt.Errorf("clone state: %w", err)
 	}
 	return copy, nil
-}
-
-func atomicWrite(path string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create state directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-")
-	if err != nil {
-		return fmt.Errorf("create temporary state: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write temporary state: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return fmt.Errorf("sync temporary state: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace state: %w", err)
-	}
-	d, err := os.Open(dir)
-	if err == nil {
-		err = d.Sync()
-		_ = d.Close()
-	}
-	return err
 }

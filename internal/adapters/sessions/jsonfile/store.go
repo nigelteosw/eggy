@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/adapters/atomicfile"
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -207,14 +208,14 @@ func (s *Store) writeLocked(session ports.ImplementationSession) error {
 	if err != nil {
 		return fmt.Errorf("encode session: %w", err)
 	}
-	if err := atomicWrite(s.sessionPath(session.ID), append(data, '\n'), 0o600); err != nil {
+	if err := atomicfile.Write(s.sessionPath(session.ID), append(data, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write session: %w", err)
 	}
 	contextData, err := json.MarshalIndent(session.Context, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode session context: %w", err)
 	}
-	if err := atomicWrite(s.contextPath(session.ID), append(contextData, '\n'), 0o600); err != nil {
+	if err := atomicfile.Write(s.contextPath(session.ID), append(contextData, '\n'), 0o600); err != nil {
 		return fmt.Errorf("write session context: %w", err)
 	}
 	return nil
@@ -247,38 +248,4 @@ func readEvents(path string) ([]ports.ImplementationSessionEvent, error) {
 		return nil, fmt.Errorf("read session events: %w", err)
 	}
 	return events, nil
-}
-
-func atomicWrite(path string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	directory, err := os.Open(dir)
-	if err == nil {
-		err = directory.Sync()
-		_ = directory.Close()
-	}
-	return err
 }

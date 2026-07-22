@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/adapters/atomicfile"
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -97,7 +98,7 @@ func (s *Store) RemoveSection(ctx context.Context, document ports.ContextDocumen
 			return fmt.Errorf("section %q does not exist", section)
 		}
 		current = strings.TrimRight(current[:bounds[0]]+current[bounds[1]:], "\n") + "\n"
-		return writeAtomic(path, []byte(current))
+		return atomicfile.Write(path, []byte(current), 0o600)
 	})
 }
 
@@ -133,7 +134,7 @@ func (s *Store) edit(ctx context.Context, document ports.ContextDocument, sectio
 		if int64(len(current)) > s.maxBytes {
 			return fmt.Errorf("%s exceeds context limit of %d bytes", name, s.maxBytes)
 		}
-		return writeAtomic(path, []byte(current))
+		return atomicfile.Write(path, []byte(current), 0o600)
 	})
 }
 
@@ -164,7 +165,7 @@ func (s *Store) loadDocument(name, initial string) (string, error) {
 func (s *Store) loadDocumentUnlocked(path, initial string) (string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := writeAtomic(path, []byte(initial)); err != nil {
+		if err := atomicfile.Write(path, []byte(initial), 0o600); err != nil {
 			return "", err
 		}
 		return initial, nil
@@ -205,41 +206,4 @@ func sectionBounds(document, heading string) []int {
 		end = start + len(heading) + 1 + next + 1
 	}
 	return []int{start, end}
-}
-
-func writeAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		return err
-	}
-	directory, err := os.Open(dir)
-	if err == nil {
-		err = directory.Sync()
-		_ = directory.Close()
-	}
-	return err
 }

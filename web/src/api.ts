@@ -50,3 +50,23 @@ export function getConfig(section: ConfigSection): Promise<CommandResult> {
 export function setConfig(section: ConfigSection, values: Record<string, string>): Promise<CommandResult> {
   return request(`/api/config/${section}`, { method: "POST", body: JSON.stringify(values) });
 }
+
+export type MCPServerInput = {
+  name: string;
+  url: string;
+  auth: "oauth" | "bearer-env" | "none";
+  bearer_token_env: string;
+  enabled: boolean;
+};
+
+export function listMCPServers(): Promise<CommandResult> {
+  return request("/api/config/mcp");
+}
+
+export function setMCPServer(input: MCPServerInput): Promise<CommandResult> {
+  return request("/api/config/mcp", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function removeMCPServer(name: string): Promise<CommandResult> {
+  return request(`/api/config/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
+}

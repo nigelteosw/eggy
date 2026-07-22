@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"io"
 	"strings"
 	"text/tabwriter"
 )
@@ -98,11 +99,20 @@ func (r CommandResult) RenderPlainText() string {
 func renderPlainTable(headers []string, rows [][]string) string {
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 2, 2, ' ', 0)
+	writeRow := func(cells []string) {
+		for i, cell := range cells {
+			if i > 0 {
+				w.Write([]byte{'\t'})
+			}
+			io.WriteString(w, cell)
+		}
+		w.Write([]byte{'\n'})
+	}
 	if len(headers) > 0 {
-		w.Write([]byte(strings.Join(headers, "\t") + "\n"))
+		writeRow(headers)
 	}
 	for _, row := range rows {
-		w.Write([]byte(strings.Join(row, "\t") + "\n"))
+		writeRow(row)
 	}
 	w.Flush()
 	return strings.TrimRight(b.String(), "\n")
@@ -162,14 +172,24 @@ func renderMarkdownTable(headers []string, rows [][]string) string {
 		headers = make([]string, len(rows[0]))
 	}
 	var b strings.Builder
-	b.WriteString("|" + strings.Join(headers, "|") + "|\n")
+	writeRow := func(cells []string) {
+		b.WriteByte('|')
+		for i, cell := range cells {
+			if i > 0 {
+				b.WriteByte('|')
+			}
+			b.WriteString(cell)
+		}
+		b.WriteString("|\n")
+	}
+	writeRow(headers)
 	separators := make([]string, len(headers))
 	for i := range separators {
 		separators[i] = "---"
 	}
-	b.WriteString("|" + strings.Join(separators, "|") + "|\n")
+	writeRow(separators)
 	for _, row := range rows {
-		b.WriteString("|" + strings.Join(row, "|") + "|\n")
+		writeRow(row)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

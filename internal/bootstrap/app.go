@@ -334,7 +334,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
 	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
-	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, mcpCallbackHandler(app.mcp, options.RequestRestart))
+	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
+		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
+		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
+	})
+	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {
 		autocomplete := TelegramAutocomplete()
 		commands := make([]telegram.BotCommand, 0, len(autocomplete))

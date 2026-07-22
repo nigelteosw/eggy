@@ -1,9 +1,17 @@
 # syntax=docker/dockerfile:1.7
+FROM node:22-bookworm-slim AS web-builder
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json* ./
+RUN npm install
+COPY web/ ./
+RUN npm run build
+
 FROM golang:1.26-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=web-builder /src/internal/adapters/webui/dist ./internal/adapters/webui/dist
 RUN CGO_ENABLED=0 go test ./... \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggyd ./cmd/eggyd \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggy ./cmd/eggy

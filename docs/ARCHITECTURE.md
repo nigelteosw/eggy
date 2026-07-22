@@ -36,7 +36,7 @@ flowchart TB
     subgraph composition[Composition root - internal/bootstrap]
         daemon[eggyd App and event dispatcher]
         commands[Deterministic command service]
-        registry[Tool wiring and capability manifest]
+        registry[Native and discovered tool wiring<br/>and capability manifest]
     end
 
     telegram --> daemon
@@ -63,7 +63,6 @@ flowchart TB
     daemon -->|scheduled read-only turn| outer
     commands --> services
     registry --> outer
-    registry --> inner
 
     subgraph adapters[Adapters - internal/adapters]
         channelAdapter[Telegram channel]
@@ -71,6 +70,7 @@ flowchart TB
         repositoryAdapter[GitHub and Git adapter]
         runnerAdapter[Restricted local-process runner]
         calendarAdapter[Google Calendar adapter]
+        mcpAdapter[Generic MCP client manager]
         stores[File-backed state, context, and session stores]
         schedulerAdapter[Local scheduler]
     end
@@ -83,6 +83,7 @@ flowchart TB
         modelAPI[Configured model provider]
         github[GitHub]
         google[Google Calendar]
+        mcpServers[Remote MCP servers<br/>Railway first]
         process[Git and local processes]
         data[Railway volume - /data<br/>config, state, context, sessions, runs]
     end
@@ -92,6 +93,7 @@ flowchart TB
     repositoryAdapter --> github
     runnerAdapter --> process
     calendarAdapter --> google
+    mcpAdapter --> mcpServers
     stores --> data
     schedulerAdapter --> data
 ```
@@ -118,7 +120,7 @@ durable context (`SOUL.md`, `USER.md`, `MEMORY.md`).
 
 Direct owner Telegram messages additionally see recent conversation history
 and get the full tool set, including `repository_modify` and
-`repository_continue`. Scheduled agent turns and heartbeat turns are
+`repository_continue` plus discovered MCP tools. Scheduled agent turns and heartbeat turns are
 self-contained instead: no ambient recent-conversation history (so an old
 chat instruction cannot be silently revived) and an explicit read-only
 allowlist — they can never start or resume an implementation run. A
@@ -130,6 +132,14 @@ Telegram check-in itself is. See [ADR 0001](adr/0001-single-configured-model.md)
 for why there is exactly one selected model with no automatic escalation, and
 [ADR 0002](adr/0002-native-implementation-loop.md) for why repository edits
 run as tool calls in this same loop instead of a delegated coding-agent CLI.
+
+### MCP tools
+
+`internal/adapters/tools/mcp` is a generic remote MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
+
+Only the outer direct-owner loop receives these projected tools. The explicit scheduled/heartbeat allowlists omit them, and the separate implementation loop is constructed from its own repository tools. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
+
+OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server under `/data/mcp/<server>/oauth.json`, independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
 
 ### Repository tools
 
@@ -225,7 +235,7 @@ inspection and `config` management without constructing the full runtime.
 Both surfaces share one command set: `/status`, `/repositories`, `/runs`,
 `/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`,
 `/memory`, `/clear`, `/model [alias|default]`, `/config get|set ...`,
-`/usage [reset]`, `/calendar_auth`, and `/restart`. `/restart` triggers a
+`/usage [reset]`, `/calendar_auth`, `/mcp [status|probe|login|logout|reload]`, and `/restart`. `/restart` triggers a
 self-exec-in-place process restart to pick up an edited `config.yaml`/`.env`
 without an external supervisor — see
 [ADR 0004](adr/0004-self-exec-in-place-restart.md).
@@ -245,8 +255,11 @@ These hold regardless of what else changes in the kernel or an adapter:
   `USER.md`/`MEMORY.md` write.
 - Calendar mutation approvals, OAuth refresh-token encryption, idempotent
   creates, ETag-bound updates/deletes.
+- MCP credentials never enter YAML or `state.json`; remote results remain
+  bounded, and binary content is represented only by metadata.
 - Independent commit, push, and pull-request authorization with
   protected-branch denial, whether decided by an owner tap or automatically.
 - Scheduled and heartbeat turns cannot reach `repository_modify` or
   `repository_continue`.
+- Scheduled, heartbeat, and implementation turns cannot reach MCP tools.
 - Exactly one `eggyd` replica while operational state is file-backed.

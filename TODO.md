@@ -65,21 +65,21 @@ grant capabilities.
 
 ## P1: Isolate heartbeat and scheduled work
 
-- [ ] Give heartbeat turns a small, heartbeat-specific context rather than the
+- [x] Give heartbeat turns a small, heartbeat-specific context rather than the
       full conversational history.
-- [ ] Run heartbeat evaluation in an isolated conversation so old chat
+- [x] Run heartbeat evaluation in an isolated conversation so old chat
       instructions cannot be revived accidentally.
-- [ ] Separate silent context curation from the quiet-hours and weekly-message
+- [x] Separate silent context curation from the quiet-hours and weekly-message
       gate used for proactive Telegram check-ins.
-- [ ] Skip or defer heartbeats while an implementation run or another protected
+- [x] Skip or defer heartbeats while an implementation run or another protected
       workflow is active.
-- [ ] Ensure that "nothing useful to report" sends no Telegram message.
-- [ ] Distinguish deterministic scheduled commands from scheduled agent turns;
+- [x] Ensure that "nothing useful to report" sends no Telegram message.
+- [x] Distinguish deterministic scheduled commands from scheduled agent turns;
       run reminders, watchdogs, and pre-rendered notifications without a model
       call.
-- [ ] Require scheduled agent prompts to be self-contained and start them
+- [x] Require scheduled agent prompts to be self-contained and start them
       without ambient chat history.
-- [ ] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
+- [x] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
       timezone, quiet hours, limits, and prohibited actions in deterministic
       policy.
 

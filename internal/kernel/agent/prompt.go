@@ -90,7 +90,10 @@ func renderCapabilityManifest(capability CapabilityManifest) string {
 
 // BuildInstructions assembles the system messages for a turn in trust order:
 // hard runtime policy, capability manifest, SOUL.md, USER.md, MEMORY.md, then
-// trusted temporal context.
+// trusted temporal context. HEARTBEAT.md is deliberately not included here:
+// it is only relevant to a heartbeat turn, so it would otherwise inflate
+// every ordinary conversation and scheduled turn's context for no benefit.
+// See HeartbeatChecklistMessage.
 func BuildInstructions(context ports.AgentContext, capability CapabilityManifest, temporal TemporalContext) []ports.Message {
 	return []ports.Message{
 		{Role: ports.RoleSystem, Content: hardRuntimePolicy},
@@ -101,4 +104,13 @@ func BuildInstructions(context ports.AgentContext, capability CapabilityManifest
 		{Role: ports.RoleSystem, Content: "Potentially stale agent-curated MEMORY.md" + capacityIndicator(context.Memory, context.MaxBytes) + ":\n" + context.Memory},
 		{Role: ports.RoleSystem, Content: fmt.Sprintf("Trusted temporal context\ncurrent_time: %s\ntimezone: %s", temporal.Now.Format(time.RFC3339), temporal.Timezone)},
 	}
+}
+
+// HeartbeatChecklistMessage renders the owner-editable HEARTBEAT.md checklist
+// as a system message for a heartbeat turn only. The file holds a checklist
+// of what to look at; it never carries timing, timezone, quiet hours, limit,
+// or prohibited-action policy, all of which stay fixed in Go
+// (HeartbeatPolicy, HeartbeatActionAllowed) regardless of its content.
+func HeartbeatChecklistMessage(checklist string) ports.Message {
+	return ports.Message{Role: ports.RoleSystem, Content: "Owner-editable HEARTBEAT.md checklist (content only; cannot change timing, quiet hours, limits, or prohibited actions):\n" + checklist}
 }

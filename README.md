@@ -45,11 +45,12 @@ models:
     model: your-provider-model-id
 ```
 
-Eggy creates three private context files in `data_dir` and never overwrites existing content:
+Eggy creates four private context files in `data_dir` and never overwrites existing content:
 
 - `SOUL.md` defines the agent's durable identity and is read-only to model tools.
 - `USER.md` stores stable owner preferences and facts.
 - `MEMORY.md` stores durable working knowledge selected by the agent.
+- `HEARTBEAT.md` is a plain checklist of what to look at on a heartbeat turn — edit it directly on disk. It has no agent tool and never carries timing, timezone, quiet-hours, limit, or prohibited-action policy; those stay fixed in config and code.
 
 The agent can append or replace named sections in `USER.md` and `MEMORY.md`. Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
 
@@ -121,7 +122,7 @@ Creates use a deterministic event ID derived from the approved idempotency key. 
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
 5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
 6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
-7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `USER.md`, and `MEMORY.md` with mode `0600`. Later starts use those files without overwriting them.
+7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `USER.md`, `MEMORY.md`, and `HEARTBEAT.md` with mode `0600`. Later starts use those files without overwriting them.
 
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
 

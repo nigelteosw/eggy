@@ -305,7 +305,8 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
-		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
+		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
+		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
 	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback)
@@ -374,19 +375,31 @@ func (a *App) Enqueue(ctx context.Context, event events.Event) error {
 
 func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	switch event.Type {
-	case events.TypeMessage, events.TypeSchedule:
-		var message events.Message
-		if err := json.Unmarshal(event.Payload, &message); err != nil {
+	case events.TypeMessage:
+		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		if err != nil {
 			return err
 		}
-		if message.ChatID == "" {
-			message.ChatID = strconv.FormatInt(a.config.Telegram.OwnerID, 10)
+		return a.handleMessage(ctx, message, agent.RunOptions{}, true)
+	case events.TypeSchedule:
+		// A scheduled agent turn is self-contained: it starts with no ambient
+		// recent-conversation history, so an owner's earlier chat cannot
+		// silently steer instructions the owner never reviewed at the time
+		// this schedule fires.
+		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		if err != nil {
+			return err
 		}
-		options := agent.RunOptions{}
-		if event.Type == events.TypeSchedule {
-			options = readOnlyRunOptions()
+		return a.handleMessage(ctx, message, readOnlyRunOptions(), false)
+	case events.TypeScheduledMessage:
+		// A deterministic, pre-rendered notification (a reminder or
+		// watchdog-style check-in): delivered verbatim with no model call at
+		// all, as distinct from TypeSchedule above.
+		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		if err != nil {
+			return err
 		}
-		return a.handleMessage(ctx, message, options)
+		return a.channel.Deliver(ctx, message.ChatID, message.Text)
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {
@@ -398,6 +411,17 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	default:
 		return errors.New("unsupported event type")
 	}
+}
+
+func decodeMessage(event events.Event, ownerID int64) (events.Message, error) {
+	var message events.Message
+	if err := json.Unmarshal(event.Payload, &message); err != nil {
+		return events.Message{}, err
+	}
+	if message.ChatID == "" {
+		message.ChatID = strconv.FormatInt(ownerID, 10)
+	}
+	return message, nil
 }
 
 func readOnlyRunOptions() agent.RunOptions {
@@ -425,7 +449,7 @@ func heartbeatRunOptions() agent.RunOptions {
 	return options
 }
 
-func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions) error {
+func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions, includeRecentHistory bool) error {
 	if output, handled, err := a.commands.Execute(ctx, message.Text); handled {
 		if err != nil {
 			return err
@@ -455,7 +479,9 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
-	history = append(history, state.RecentMessages...)
+	if includeRecentHistory {
+		history = append(history, state.RecentMessages...)
+	}
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
 	stopTyping()
@@ -572,8 +598,17 @@ func (a *App) Run(ctx context.Context) error {
 			}
 			for _, schedule := range due {
 				schedule := schedule
+				// A ScheduleExecutionMessage schedule is a deterministic,
+				// pre-rendered notification (reminder or watchdog): it is
+				// delivered verbatim on TypeScheduledMessage with no model
+				// call. Everything else starts a self-contained,
+				// no-ambient-history agent turn on TypeSchedule.
+				eventType := events.TypeSchedule
+				if schedule.Execution == ports.ScheduleExecutionMessage {
+					eventType = events.TypeScheduledMessage
+				}
 				payload, _ := json.Marshal(events.Message{ChatID: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: events.TypeSchedule, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Payload: payload}
+				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Payload: payload}
 				a.workers.Add(1)
 				go func() {
 					defer a.workers.Done()
@@ -595,14 +630,43 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
+// hasActiveProtectedWork reports whether an implementation run is currently
+// executing. A heartbeat tick is skipped entirely while one is active rather
+// than interleaving a curation/check-in turn with it.
+func (a *App) hasActiveProtectedWork(ctx context.Context) (bool, error) {
+	sessions, err := a.coding.List(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, session := range sessions {
+		if session.Phase == ports.PhaseRunning {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// handleHeartbeat runs a small, self-contained heartbeat turn: no ambient
+// recent-conversation history, so instructions from an old chat cannot be
+// silently revived. Its context is the durable docs (SOUL/USER/MEMORY), the
+// owner-editable HEARTBEAT.md checklist, and the capability manifest — never
+// state.RecentMessages.
+//
+// Silent context curation (USER.md/MEMORY.md) is never gated by quiet hours
+// or the weekly proactive-message limit; only the owner-facing Telegram
+// check-in is. HeartbeatPolicy.CanSend governs sending the check-in and
+// recording it against the weekly limit, not whether the turn runs at all.
 func (a *App) handleHeartbeat(ctx context.Context) error {
+	if active, err := a.hasActiveProtectedWork(ctx); err != nil {
+		return err
+	} else if active {
+		return nil
+	}
 	state, err := a.store.Load(ctx)
 	if err != nil {
 		return err
 	}
-	if !a.heartbeat.CanSend(state, a.now()) {
-		return nil
-	}
+	sendAllowed := a.heartbeat.CanSend(state, a.now())
 	agentContext, err := a.context.Load(ctx)
 	if err != nil {
 		return err
@@ -623,9 +687,14 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	options := heartbeatRunOptions()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
-	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only. Protected writes are forbidden."})
-	history = append(history, state.RecentMessages...)
-	instruction := "Evaluate whether one concise proactive check-in is useful now. Separately, review recent conversation for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in. Return an empty response when no check-in is useful."
+	history = append(history, agent.HeartbeatChecklistMessage(agentContext.Heartbeat))
+	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only: an isolated turn with no recent-conversation history. Protected writes are forbidden."})
+	instruction := "Separately, review durable context for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in."
+	if sendAllowed {
+		instruction = "Evaluate whether one concise proactive check-in is useful now, using the HEARTBEAT.md checklist as a starting point. " + instruction + fmt.Sprintf(" Reply with exactly %q and nothing else when no check-in is useful.", services.HeartbeatNoReportSentinel)
+	} else {
+		instruction = "A proactive check-in cannot be sent right now (quiet hours or the proactive-message limit). Do not attempt one. " + instruction + fmt.Sprintf(" Reply with exactly %q.", services.HeartbeatNoReportSentinel)
+	}
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, instruction, history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
@@ -634,7 +703,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if usageErr != nil {
 		return usageErr
 	}
-	if strings.TrimSpace(result.Message.Content) == "" {
+	if !sendAllowed || services.HeartbeatHasNothingToReport(result.Message.Content) {
 		return nil
 	}
 	if err := a.heartbeat.Record(ctx, a.store, a.now()); err != nil {

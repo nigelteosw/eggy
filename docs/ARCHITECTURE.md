@@ -98,26 +98,36 @@ flowchart TB
 
 Solid arrows show runtime calls and message flow. The dotted adapter-to-port
 arrow shows dependency inversion: kernel code depends on ports, while adapters
-implement those ports and are selected only by bootstrap. Direct commands skip
-the model loop; scheduled and heartbeat turns enter the outer loop with a
-restricted tool set; repository modifications enter the separate bounded
-implementation loop.
+implement those ports and are selected only by bootstrap. Direct commands and
+deterministic scheduled messages skip the model loop; scheduled agent turns
+and heartbeat turns enter the outer loop with a restricted tool set and no
+ambient conversation history; repository modifications enter the separate
+bounded implementation loop.
 
 ## The agent loop
 
 One tool-calling loop (`internal/kernel/agent.Loop`) handles every owner
 turn — conversation, Calendar, scheduling, and repository work alike. There
 is no separate "coding model" or CLI subprocess. Deterministic slash commands
-(`/status`, `/model`, `/config`, ...) bypass the model entirely; everything
-else enters the loop with the selected model alias, the tools available for
-that message's source, current runtime capabilities, and durable context
-(`SOUL.md`, `USER.md`, `MEMORY.md`, recent conversation).
+(`/status`, `/model`, `/config`, ...) and a schedule created with
+`ports.ScheduleExecutionMessage` (a reminder or watchdog-style notification)
+bypass the model entirely, the latter delivering its instruction text
+verbatim. Everything else enters the loop with the selected model alias, the
+tools available for that message's source, current runtime capabilities, and
+durable context (`SOUL.md`, `USER.md`, `MEMORY.md`).
 
-Direct owner Telegram messages get the full tool set, including
-`repository_modify` and `repository_continue`. Scheduled and heartbeat turns
-get an explicit read-only allowlist — they can never start or resume an
-implementation run. See [ADR 0001](adr/0001-single-configured-model.md) for
-why there is exactly one selected model with no automatic escalation, and
+Direct owner Telegram messages additionally see recent conversation history
+and get the full tool set, including `repository_modify` and
+`repository_continue`. Scheduled agent turns and heartbeat turns are
+self-contained instead: no ambient recent-conversation history (so an old
+chat instruction cannot be silently revived) and an explicit read-only
+allowlist — they can never start or resume an implementation run. A
+heartbeat turn additionally sees the owner-editable `HEARTBEAT.md` checklist
+and is skipped entirely, with no model call, while an implementation run is
+active; silent `USER.md`/`MEMORY.md` curation on a heartbeat turn is never
+gated by quiet hours or the weekly proactive-message limit, only the
+Telegram check-in itself is. See [ADR 0001](adr/0001-single-configured-model.md)
+for why there is exactly one selected model with no automatic escalation, and
 [ADR 0002](adr/0002-native-implementation-loop.md) for why repository edits
 run as tool calls in this same loop instead of a delegated coding-agent CLI.
 

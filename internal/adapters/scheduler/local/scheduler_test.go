@@ -82,6 +82,33 @@ func TestSchedulerRecoveryRetriesUnfinishedDispatch(t *testing.T) {
 	}
 }
 
+// TestSchedulerNormalizesExecutionKind proves a schedule created without an
+// explicit Execution (including every schedule persisted before the field
+// existed) defaults to ScheduleExecutionAgent, and an explicit
+// ScheduleExecutionMessage (a deterministic, pre-rendered reminder) is kept
+// as-is rather than being coerced into an agent turn.
+func TestSchedulerNormalizesExecutionKind(t *testing.T) {
+	store := newStateStore()
+	scheduler := New(store)
+	now := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
+	if err := scheduler.Add(context.Background(), ports.Schedule{ID: "default", Kind: ports.ScheduleExact, Instruction: "check oven", NextRun: now, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Add(context.Background(), ports.Schedule{ID: "reminder", Kind: ports.ScheduleExact, Execution: ports.ScheduleExecutionMessage, Instruction: "Take the bins out", NextRun: now, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Add(context.Background(), ports.Schedule{ID: "bad", Kind: ports.ScheduleExact, Execution: "nonsense", Instruction: "x", NextRun: now, Enabled: true}); err == nil {
+		t.Fatal("expected an unknown execution kind to be rejected")
+	}
+	state, _ := store.Load(context.Background())
+	if state.Schedules["default"].Execution != ports.ScheduleExecutionAgent {
+		t.Fatalf("default execution=%q", state.Schedules["default"].Execution)
+	}
+	if state.Schedules["reminder"].Execution != ports.ScheduleExecutionMessage {
+		t.Fatalf("reminder execution=%q", state.Schedules["reminder"].Execution)
+	}
+}
+
 type stateStore struct {
 	mu    sync.Mutex
 	state ports.State

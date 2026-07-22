@@ -96,18 +96,26 @@ type AgentContext struct {
 	Soul   string `json:"soul"`
 	User   string `json:"user"`
 	Memory string `json:"memory"`
+	// Heartbeat is the owner-editable HEARTBEAT.md checklist: what to look at
+	// on a heartbeat turn. It is never injected into an ordinary conversation
+	// turn's instructions — only a heartbeat turn renders it. Timing,
+	// timezone, quiet hours, limits, and prohibited actions remain fixed Go
+	// policy (HeartbeatPolicy, HeartbeatActionAllowed) and are not part of
+	// this file's content.
+	Heartbeat string `json:"heartbeat"`
 	// MaxBytes is the per-document capacity ContextStore enforces on Soul,
-	// User, and Memory, used to render an in-context usage indicator on User
-	// and Memory. Zero means unknown/unbounded and suppresses the indicator.
+	// User, Memory, and Heartbeat, used to render an in-context usage
+	// indicator. Zero means unknown/unbounded and suppresses the indicator.
 	MaxBytes int64 `json:"max_bytes,omitempty"`
 }
 
 type ContextDocument string
 
 const (
-	ContextSoul   ContextDocument = "soul"
-	ContextUser   ContextDocument = "user"
-	ContextMemory ContextDocument = "memory"
+	ContextSoul      ContextDocument = "soul"
+	ContextUser      ContextDocument = "user"
+	ContextMemory    ContextDocument = "memory"
+	ContextHeartbeat ContextDocument = "heartbeat"
 )
 
 type ContextStore interface {
@@ -185,15 +193,29 @@ const (
 	ScheduleRecurring ScheduleKind = "recurring"
 )
 
+// ScheduleExecution distinguishes a deterministic, pre-rendered notification
+// from a schedule that starts a model turn. ScheduleExecutionMessage covers
+// reminders and watchdog-style notifications: Instruction is delivered to
+// the owner verbatim at fire time with no model call. ScheduleExecutionAgent
+// (the default, including for schedules persisted before this field existed)
+// runs Instruction as a self-contained, read-only agent turn.
+type ScheduleExecution string
+
+const (
+	ScheduleExecutionAgent   ScheduleExecution = "agent"
+	ScheduleExecutionMessage ScheduleExecution = "message"
+)
+
 type Schedule struct {
-	ID          string       `json:"id"`
-	Kind        ScheduleKind `json:"kind"`
-	Instruction string       `json:"instruction"`
-	Expression  string       `json:"expression,omitempty"`
-	NextRun     time.Time    `json:"next_run"`
-	LastRun     time.Time    `json:"last_run,omitempty"`
-	PendingRun  time.Time    `json:"pending_run,omitempty"`
-	Enabled     bool         `json:"enabled"`
+	ID          string            `json:"id"`
+	Kind        ScheduleKind      `json:"kind"`
+	Execution   ScheduleExecution `json:"execution,omitempty"`
+	Instruction string            `json:"instruction"`
+	Expression  string            `json:"expression,omitempty"`
+	NextRun     time.Time         `json:"next_run"`
+	LastRun     time.Time         `json:"last_run,omitempty"`
+	PendingRun  time.Time         `json:"pending_run,omitempty"`
+	Enabled     bool              `json:"enabled"`
 }
 
 type Scheduler interface {

@@ -116,3 +116,17 @@ func HeartbeatActionAllowed(action string) bool {
 		return true
 	}
 }
+
+// HeartbeatNoReportSentinel is the exact reply a heartbeat turn returns when
+// it decided no proactive check-in is useful, mirroring the suppressed
+// HEARTBEAT_OK convention: deterministic and never delivered to the owner,
+// rather than relying only on an empty string (which a model can fail to
+// produce exactly).
+const HeartbeatNoReportSentinel = "HEARTBEAT_OK"
+
+// HeartbeatHasNothingToReport reports whether a heartbeat turn's reply means
+// "no check-in needed": either empty or the exact HeartbeatNoReportSentinel.
+func HeartbeatHasNothingToReport(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	return trimmed == "" || strings.EqualFold(trimmed, HeartbeatNoReportSentinel)
+}

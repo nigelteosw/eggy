@@ -19,13 +19,13 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") {
+	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") || !strings.HasPrefix(loaded.Heartbeat, "# Eggy Heartbeat") {
 		t.Fatalf("context=%#v", loaded)
 	}
 	if loaded.MaxBytes != 64<<10 {
 		t.Fatalf("MaxBytes=%d", loaded.MaxBytes)
 	}
-	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md"} {
+	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode().Perm(), err)
@@ -115,6 +115,37 @@ func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
 	}
 	if _, err := small.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+// TestContextStoreHeartbeatIsHumanEditableOnly proves HEARTBEAT.md loads
+// like the other durable documents but has no agent-writable path: it is a
+// human-editable checklist file, not a fourth document the agent tools can
+// append, replace, or remove sections on.
+func TestContextStoreHeartbeatIsHumanEditableOnly(t *testing.T) {
+	store := Open(t.TempDir(), 64<<10)
+	ctx := context.Background()
+	if err := store.Append(ctx, ports.ContextHeartbeat, "Extra", "check something"); err == nil {
+		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped write")
+	}
+	if err := store.ReplaceSection(ctx, ports.ContextHeartbeat, "Extra", "check something"); err == nil {
+		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped replace")
+	}
+	if err := store.RemoveSection(ctx, ports.ContextHeartbeat, "Extra"); err == nil {
+		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped remove")
+	}
+	dir := t.TempDir()
+	editable := Open(dir, 64<<10)
+	if _, err := editable.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	custom := "# Eggy Heartbeat\n\n## Check\n\nSomething the owner cares about.\n"
+	if err := os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := editable.Load(ctx)
+	if err != nil || loaded.Heartbeat != custom {
+		t.Fatalf("heartbeat=%q err=%v", loaded.Heartbeat, err)
 	}
 }
 

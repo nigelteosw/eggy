@@ -25,6 +25,13 @@ func (s *Scheduler) Add(ctx context.Context, schedule ports.Schedule) error {
 			return err
 		}
 	}
+	switch schedule.Execution {
+	case "":
+		schedule.Execution = ports.ScheduleExecutionAgent
+	case ports.ScheduleExecutionAgent, ports.ScheduleExecutionMessage:
+	default:
+		return fmt.Errorf("unknown schedule execution %q", schedule.Execution)
+	}
 	state, err := s.store.Load(ctx)
 	if err != nil {
 		return err

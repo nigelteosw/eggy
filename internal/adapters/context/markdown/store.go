@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	initialSoul   = "# Eggy Soul\n\nI'm Eggy: a small eggy buddy, happiest when quietly useful. Warm and a little playful, never sappy about it. Underneath the smile, still practical, truthful, concise, and evidence-led — say what's actually true, not what sounds nice.\n"
-	initialUser   = "# Eggy User\n"
-	initialMemory = "# Eggy Memory\n"
+	initialSoul      = "# Eggy Soul\n\nI'm Eggy: a small eggy buddy, happiest when quietly useful. Warm and a little playful, never sappy about it. Underneath the smile, still practical, truthful, concise, and evidence-led — say what's actually true, not what sounds nice.\n"
+	initialUser      = "# Eggy User\n"
+	initialMemory    = "# Eggy Memory\n"
+	initialHeartbeat = "# Eggy Heartbeat\n\nChecklist only. Timing, timezone, quiet hours, limits, and prohibited actions are fixed policy, not edited here.\n\n## Check on each heartbeat\n\n- Anything time-sensitive the owner would want flagged now.\n"
 )
 
 var sectionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$`)
@@ -53,7 +54,11 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	return ports.AgentContext{Soul: soul, User: user, Memory: memory, MaxBytes: s.maxBytes}, nil
+	heartbeat, err := s.loadDocument("HEARTBEAT.md", initialHeartbeat)
+	if err != nil {
+		return ports.AgentContext{}, err
+	}
+	return ports.AgentContext{Soul: soul, User: user, Memory: memory, Heartbeat: heartbeat, MaxBytes: s.maxBytes}, nil
 }
 
 func (s *Store) Append(ctx context.Context, document ports.ContextDocument, section, content string) error {

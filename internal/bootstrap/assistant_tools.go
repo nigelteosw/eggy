@@ -208,12 +208,31 @@ func skillProposeTool(skills *services.SkillsService, channel ports.Channel, own
 	return propose
 }
 
+// scheduleKindSchema is shared by schedule_exact and schedule_recurring: an
+// optional "kind" lets the agent distinguish a plain reminder or watchdog
+// notification (delivered verbatim with no later model call) from work that
+// needs a self-contained agent turn to run. It defaults to "agent" so
+// omitting it keeps today's behavior.
+const scheduleKindSchema = `"kind":{"type":"string","enum":["agent","reminder"],"description":"'reminder' delivers instruction verbatim at fire time with no model call; 'agent' (default) starts a self-contained read-only agent turn"}`
+
+func scheduleExecution(kind string) (ports.ScheduleExecution, error) {
+	switch kind {
+	case "", "agent":
+		return ports.ScheduleExecutionAgent, nil
+	case "reminder":
+		return ports.ScheduleExecutionMessage, nil
+	default:
+		return "", fmt.Errorf("unknown schedule kind %q", kind)
+	}
+}
+
 func scheduleTools(scheduler *schedulerlocal.Scheduler, now func() time.Time) []ports.Tool {
-	exact := bootstrapTool{definition: toolDefinition("schedule_exact", "Schedule a one-time instruction at an exact RFC3339 time", `{"type":"object","properties":{"at":{"type":"string"},"instruction":{"type":"string"}},"required":["at","instruction"],"additionalProperties":false}`)}
+	exact := bootstrapTool{definition: toolDefinition("schedule_exact", "Schedule a one-time instruction at an exact RFC3339 time", `{"type":"object","properties":{"at":{"type":"string"},"instruction":{"type":"string"},`+scheduleKindSchema+`},"required":["at","instruction"],"additionalProperties":false}`)}
 	exact.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			At          string `json:"at"`
 			Instruction string `json:"instruction"`
+			Kind        string `json:"kind"`
 		}
 		if err := strictToolDecode(raw, &input); err != nil {
 			return nil, err
@@ -222,17 +241,22 @@ func scheduleTools(scheduler *schedulerlocal.Scheduler, now func() time.Time) []
 		if err != nil {
 			return nil, err
 		}
-		schedule := ports.Schedule{ID: newRunID(), Kind: ports.ScheduleExact, Instruction: input.Instruction, NextRun: at, Enabled: true}
+		execution, err := scheduleExecution(input.Kind)
+		if err != nil {
+			return nil, err
+		}
+		schedule := ports.Schedule{ID: newRunID(), Kind: ports.ScheduleExact, Execution: execution, Instruction: input.Instruction, NextRun: at, Enabled: true}
 		if err := scheduler.Add(ctx, schedule); err != nil {
 			return nil, err
 		}
 		return json.Marshal(schedule)
 	}
-	recurring := bootstrapTool{definition: toolDefinition("schedule_recurring", "Schedule a recurring instruction with a five-field cron expression", `{"type":"object","properties":{"cron":{"type":"string"},"instruction":{"type":"string"}},"required":["cron","instruction"],"additionalProperties":false}`)}
+	recurring := bootstrapTool{definition: toolDefinition("schedule_recurring", "Schedule a recurring instruction with a five-field cron expression", `{"type":"object","properties":{"cron":{"type":"string"},"instruction":{"type":"string"},`+scheduleKindSchema+`},"required":["cron","instruction"],"additionalProperties":false}`)}
 	recurring.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
 			Cron        string `json:"cron"`
 			Instruction string `json:"instruction"`
+			Kind        string `json:"kind"`
 		}
 		if err := strictToolDecode(raw, &input); err != nil {
 			return nil, err
@@ -241,7 +265,11 @@ func scheduleTools(scheduler *schedulerlocal.Scheduler, now func() time.Time) []
 		if err != nil {
 			return nil, err
 		}
-		schedule := ports.Schedule{ID: newRunID(), Kind: ports.ScheduleRecurring, Instruction: input.Instruction, Expression: input.Cron, NextRun: next, Enabled: true}
+		execution, err := scheduleExecution(input.Kind)
+		if err != nil {
+			return nil, err
+		}
+		schedule := ports.Schedule{ID: newRunID(), Kind: ports.ScheduleRecurring, Execution: execution, Instruction: input.Instruction, Expression: input.Cron, NextRun: next, Enabled: true}
 		if err := scheduler.Add(ctx, schedule); err != nil {
 			return nil, err
 		}

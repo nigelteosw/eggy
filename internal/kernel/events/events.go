@@ -14,6 +14,12 @@ const (
 	TypeHeartbeat     Type = "heartbeat"
 	TypeOAuthCallback Type = "oauth_callback"
 	TypeRunnerUpdate  Type = "runner_update"
+	// TypeScheduledMessage delivers a pre-rendered notification verbatim with
+	// no model call, for a schedule created with
+	// ports.ScheduleExecutionMessage (a reminder or watchdog-style
+	// notification), as distinct from TypeSchedule which starts a
+	// self-contained read-only agent turn.
+	TypeScheduledMessage Type = "scheduled_message"
 )
 
 type Event struct {

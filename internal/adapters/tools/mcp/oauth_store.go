@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/adapters/atomicfile"
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 )
 
@@ -147,7 +148,7 @@ func (s *OAuthStore) saveUnlocked(path, server, serverURL string, record OAuthRe
 	if err != nil {
 		return err
 	}
-	return atomicWriteOAuth(path, body)
+	return atomicfile.Write(path, body, 0o600)
 }
 
 func (s *OAuthStore) loadUnlocked(path, server, serverURL string) (OAuthRecord, error) {
@@ -190,41 +191,4 @@ func validateOAuthKey(server, serverURL string) error {
 
 func oauthAssociatedData(server, serverURL string) []byte {
 	return []byte("eggy-mcp-oauth-v1\x00" + server + "\x00" + serverURL)
-}
-
-func atomicWriteOAuth(path string, body []byte) error {
-	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, ".oauth-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(body); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return err
-	}
-	dir, err := os.Open(directory)
-	if err == nil {
-		err = dir.Sync()
-		_ = dir.Close()
-	}
-	return err
 }

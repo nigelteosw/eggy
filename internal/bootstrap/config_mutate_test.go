@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSetProviderAddsEntryAndRejectsInvalidURL(t *testing.T) {
@@ -142,6 +143,132 @@ func TestSetCalendarRejectsInvalidBool(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 	assertFileBytes(t, path, before)
+}
+
+func TestSetMCPServerAddsNewServerWithSaneDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+		t.Fatal(err)
+	}
+	env := testSecrets()
+	env["RAILWAY_MCP_TOKEN"] = "unused"
+	reloaded, _, err := LoadConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, ok := reloaded.MCP.Servers["railway"]
+	if !ok || server.URL != "https://mcp.railway.com" || server.Auth != "oauth" || !server.Enabled {
+		t.Fatalf("railway server = %#v, ok=%v", server, ok)
+	}
+	if server.Transport != "streamable-http" {
+		t.Fatalf("transport = %q, want streamable-http", server.Transport)
+	}
+	if server.ConnectTimeout.Value() != 10*time.Second || server.Timeout.Value() != time.Minute || server.MaxOutputBytes != 128<<10 {
+		t.Fatalf("defaults not applied: %#v", server)
+	}
+}
+
+func TestSetMCPServerPreservesToolFilterWhenEditingEssentialsOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+mcp:
+  servers:
+    railway:
+      url: https://mcp.railway.com
+      transport: streamable-http
+      auth: bearer-env
+      bearer_token_env: RAILWAY_MCP_TOKEN
+      enabled: true
+      tool_filter:
+        include: [list-projects, get-logs]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Only flip "enabled" through the essentials-only web form; tool_filter,
+	// transport, and timeouts must survive untouched.
+	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "bearer-env", "RAILWAY_MCP_TOKEN", false); err != nil {
+		t.Fatal(err)
+	}
+	env := testSecrets()
+	env["RAILWAY_MCP_TOKEN"] = "unused"
+	reloaded, _, err := LoadConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := reloaded.MCP.Servers["railway"]
+	if server.Enabled {
+		t.Fatal("expected enabled=false after edit")
+	}
+	if strings.Join(server.ToolFilter.Include, ",") != "list-projects,get-logs" {
+		t.Fatalf("tool_filter.include was not preserved: %#v", server.ToolFilter)
+	}
+}
+
+func TestSetMCPServerRejectsNonHTTPSURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	before := []byte(validConfig())
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetMCPServer(path, "railway", "http://mcp.railway.com", "oauth", "", true)
+	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("error = %v", err)
+	}
+	assertFileBytes(t, path, before)
+}
+
+func TestRemoveMCPServerDeletesEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveMCPServer(path, "railway"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reloaded.MCP.Servers["railway"]; ok {
+		t.Fatal("expected railway server to be removed")
+	}
+}
+
+func TestRemoveMCPServerRejectsUnknownName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	before := []byte(validConfig())
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := RemoveMCPServer(path, "does-not-exist")
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("error = %v", err)
+	}
+	assertFileBytes(t, path, before)
+}
+
+func TestGetMCPServersConfigListsServers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := GetMCPServersConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers["railway"].URL != "https://mcp.railway.com" {
+		t.Fatalf("servers = %#v", servers)
+	}
 }
 
 func TestGetConfigTextFormatsEachSection(t *testing.T) {

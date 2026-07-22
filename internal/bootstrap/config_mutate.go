@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/filelock"
 	"gopkg.in/yaml.v3"
@@ -133,6 +134,78 @@ func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
 		}
 		return writeConfigUnlocked(path, cfg)
 	})
+}
+
+// SetMCPServer upserts one MCP server definition by its essential,
+// web-editable fields (url, auth, bearer_token_env, enabled). Transport is
+// always "streamable-http" -- the only supported value -- so it is not
+// user-facing. Advanced fields not exposed by the web form (oauth_scopes,
+// tool_filter, timeouts) are preserved untouched when editing an existing
+// server; a brand-new server gets the same sane defaults
+// Config.applyDefaults would give it, so it validates immediately instead of
+// only becoming valid after the next config load.
+func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) error {
+	return filelock.With(path, func() error {
+		cfg, err := loadConfigDocument(path)
+		if err != nil {
+			return err
+		}
+		if cfg.MCP.Servers == nil {
+			cfg.MCP.Servers = map[string]MCPServerConfig{}
+		}
+		server := cfg.MCP.Servers[name]
+		server.URL = url
+		if server.Transport == "" {
+			server.Transport = "streamable-http"
+		}
+		server.Auth = auth
+		server.BearerTokenEnv = bearerTokenEnv
+		server.Enabled = enabled
+		if server.ConnectTimeout == 0 {
+			server.ConnectTimeout = Duration(10 * time.Second)
+		}
+		if server.Timeout == 0 {
+			server.Timeout = Duration(time.Minute)
+		}
+		if server.MaxOutputBytes == 0 {
+			server.MaxOutputBytes = 128 << 10
+		}
+		cfg.MCP.Servers[name] = server
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// RemoveMCPServer deletes one MCP server's config entry. It does not touch
+// any already-persisted OAuth credentials under
+// <data_dir>/mcp/<name>/oauth.json; use /mcp logout first if those should be
+// cleared too.
+func RemoveMCPServer(path, name string) error {
+	return filelock.With(path, func() error {
+		cfg, err := loadConfigDocument(path)
+		if err != nil {
+			return err
+		}
+		if _, ok := cfg.MCP.Servers[name]; !ok {
+			return fmt.Errorf("MCP server %q is not configured", name)
+		}
+		delete(cfg.MCP.Servers, name)
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// GetMCPServersConfig returns the configured MCP servers keyed by name.
+func GetMCPServersConfig(path string) (map[string]MCPServerConfig, error) {
+	cfg, err := loadConfigDocument(path)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.MCP.Servers, nil
 }
 
 func GetProvidersConfigText(path string) (string, error) {

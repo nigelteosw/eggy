@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"encoding/json"
 	"strings"
 	"text/tabwriter"
 )
@@ -20,8 +21,8 @@ const (
 
 // ResultField is a single label/value pair, e.g. "Active model: deepseek-pro".
 type ResultField struct {
-	Label string
-	Value string
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 // CommandResult is the structured response every catalog command handler
@@ -30,25 +31,25 @@ type ResultField struct {
 // transport already converts a small Markdown subset into safe HTML on
 // delivery (see internal/adapters/channels/telegram/format.go).
 type CommandResult struct {
-	State ResultState
+	State ResultState `json:"state"`
 	// Title is the one-line headline: what happened, or what is being shown.
-	Title string
+	Title string `json:"title,omitempty"`
 	// Detail is an optional explanatory paragraph giving context beyond the
 	// title (e.g. why an action is unavailable, or what a section means).
-	Detail string
+	Detail string `json:"detail,omitempty"`
 	// Fields render as "Label: value" lines, in order.
-	Fields []ResultField
+	Fields []ResultField `json:"fields,omitempty"`
 	// TableHeaders/TableRows render a list of like-shaped items (repositories,
 	// runs, schedules, ...). Telegram has no table element, so its renderer
 	// turns each row into a bullet line; the CLI renders an aligned table.
-	TableHeaders []string
-	TableRows    [][]string
+	TableHeaders []string   `json:"table_headers,omitempty"`
+	TableRows    [][]string `json:"table_rows,omitempty"`
 	// Lines is a freeform bullet list for content that isn't tabular (prompt
 	// names, help text lines).
-	Lines []string
+	Lines []string `json:"lines,omitempty"`
 	// Next lists canonical follow-up commands the owner can run next, e.g.
 	// "/repositories add <name> <clone_url>".
-	Next []string
+	Next []string `json:"next,omitempty"`
 }
 
 func (r CommandResult) titleWithMarker() string {
@@ -150,6 +151,13 @@ func (r CommandResult) RenderMarkdown() string {
 		sections = append(sections, "Next: "+strings.Join(commands, ", "))
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+// RenderJSON renders r as the stable JSON shape Eggy's web UI consumes.
+// Field names are part of the web API contract; do not rename them without
+// also updating web/src/api.ts.
+func (r CommandResult) RenderJSON() ([]byte, error) {
+	return json.Marshal(r)
 }
 
 // renderMarkdownTable emits a pipe table. Telegram's toTelegramHTML has no

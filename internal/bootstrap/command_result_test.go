@@ -1,11 +1,61 @@
 package bootstrap
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 )
+
+func TestRenderJSONProducesStableLowercaseFieldNames(t *testing.T) {
+	result := CommandResult{
+		State:  ResultSuccess,
+		Title:  "Set provider deepseek.",
+		Detail: "Restart Eggy for this to take effect.",
+		Fields: []ResultField{{Label: "Provider", Value: "deepseek"}},
+		Next:   []string{"/restart"},
+	}
+	body, err := result.RenderJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["state"] != "success" || decoded["title"] != "Set provider deepseek." {
+		t.Fatalf("decoded=%#v", decoded)
+	}
+	fields, ok := decoded["fields"].([]any)
+	if !ok || len(fields) != 1 {
+		t.Fatalf("fields=%#v", decoded["fields"])
+	}
+	field, ok := fields[0].(map[string]any)
+	if !ok || field["label"] != "Provider" || field["value"] != "deepseek" {
+		t.Fatalf("field=%#v", field)
+	}
+	next, ok := decoded["next"].([]any)
+	if !ok || len(next) != 1 || next[0] != "/restart" {
+		t.Fatalf("next=%#v", decoded["next"])
+	}
+}
+
+func TestRenderJSONOmitsEmptyFields(t *testing.T) {
+	body, err := CommandResult{State: ResultInfo, Title: "No providers configured."}.RenderJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{"detail", "fields", "table_headers", "table_rows", "lines", "next"} {
+		if _, present := decoded[absent]; present {
+			t.Fatalf("expected %q to be omitted, decoded=%#v", absent, decoded)
+		}
+	}
+}
 
 func TestRenderPlainTextIsCleanAndColourFree(t *testing.T) {
 	result := CommandResult{

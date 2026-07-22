@@ -198,6 +198,38 @@ func TestManagerMarksOAuthServerLoginRequiredAndCanBeginLogin(t *testing.T) {
 	}
 }
 
+func TestManagerBoundsInitialToolDiscovery(t *testing.T) {
+	session := &deadlineSession{}
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		return session, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "bounded", URL: "https://mcp.example", Enabled: true, ConnectTimeout: time.Second, Timeout: time.Second, MaxOutputBytes: 4096,
+	}}, Options{Connect: connect, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	status, _ := manager.Status("bounded")
+	if status.State != StateReady || !session.sawDeadline {
+		t.Fatalf("status=%#v sawDeadline=%t", status, session.sawDeadline)
+	}
+}
+
+type deadlineSession struct{ sawDeadline bool }
+
+func (s *deadlineSession) ListTools(ctx context.Context, _ *sdk.ListToolsParams) (*sdk.ListToolsResult, error) {
+	_, s.sawDeadline = ctx.Deadline()
+	if !s.sawDeadline {
+		return nil, errors.New("missing discovery deadline")
+	}
+	return &sdk.ListToolsResult{}, nil
+}
+func (*deadlineSession) CallTool(context.Context, *sdk.CallToolParams) (*sdk.CallToolResult, error) {
+	return &sdk.CallToolResult{}, nil
+}
+func (*deadlineSession) Close() error { return nil }
+
 type blockingSession struct {
 	started chan struct{}
 	release chan struct{}

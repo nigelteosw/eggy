@@ -593,10 +593,12 @@ func handleMCPLogout(_ context.Context, service *CommandService, request Command
 	if err := service.mcp.Logout(name); err != nil {
 		return errorResult(err), nil
 	}
+	detail := "Restart Eggy to remove its tools from the active catalog."
 	if service.restart != nil {
 		service.restart()
+		detail = "Restarting Eggy to remove its tools."
 	}
-	return CommandResult{Title: "Logged out of MCP server " + name + ".", Detail: "Restarting Eggy to remove its tools."}, nil
+	return CommandResult{Title: "Logged out of MCP server " + name + ".", Detail: detail}, nil
 }
 
 func handleMCPReload(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {

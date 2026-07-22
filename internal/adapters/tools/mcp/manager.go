@@ -87,7 +87,13 @@ func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*
 			continue
 		}
 		runtime.session = session
-		remoteTools, err := listAllTools(ctx, session)
+		discoveryCtx := ctx
+		discoveryCancel := func() {}
+		if cfg.ConnectTimeout > 0 {
+			discoveryCtx, discoveryCancel = context.WithTimeout(ctx, cfg.ConnectTimeout)
+		}
+		remoteTools, err := listAllTools(discoveryCtx, session)
+		discoveryCancel()
 		if err != nil {
 			runtime.status.State = StateUnavailable
 			runtime.status.Diagnostic = "tool discovery failed"
@@ -251,7 +257,13 @@ func (m *Manager) Probe(ctx context.Context, name string) (ProbeResult, error) {
 		return probe, nil
 	}
 	started := m.now()
-	tools, err := listAllTools(ctx, session)
+	probeCtx := ctx
+	cancel := func() {}
+	if runtime.config.ConnectTimeout > 0 {
+		probeCtx, cancel = context.WithTimeout(ctx, runtime.config.ConnectTimeout)
+	}
+	tools, err := listAllTools(probeCtx, session)
+	cancel()
 	probe.Latency = m.now().Sub(started)
 	if err != nil {
 		probe.State = StateUnavailable

@@ -403,6 +403,9 @@ func (c Config) validateMCP() error {
 		if err != nil || u.Scheme != "https" || u.Host == "" {
 			return fmt.Errorf("MCP server %q URL must use HTTPS", name)
 		}
+		if u.User != nil {
+			return fmt.Errorf("MCP server %q URL must not contain credentials", name)
+		}
 		if server.Transport != "streamable-http" {
 			return fmt.Errorf("MCP server %q has unsupported transport %q", name, server.Transport)
 		}

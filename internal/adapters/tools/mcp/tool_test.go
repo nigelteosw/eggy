@@ -118,4 +118,7 @@ func TestNormalizeToolName(t *testing.T) {
 	if _, err := normalizeToolName("railway", string(bytes.Repeat([]byte("x"), 128))); err == nil {
 		t.Fatal("expected oversized projected name to fail")
 	}
+	if got, err := normalizeToolName("railway", "café"); err != nil || got != "railway__caf" {
+		t.Fatalf("non-ASCII name=%q err=%v", got, err)
+	}
 }

@@ -3,14 +3,13 @@ package mcp
 import (
 	"errors"
 	"strings"
-	"unicode"
 )
 
 func normalizeToolName(server, remote string) (string, error) {
 	normalize := func(value string) string {
 		var result strings.Builder
 		for _, character := range value {
-			if unicode.IsLetter(character) || unicode.IsDigit(character) || character == '_' {
+			if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' {
 				result.WriteRune(character)
 			} else {
 				result.WriteByte('_')

@@ -49,6 +49,14 @@ func TestMCPCommandsValidateConfigurationAndUsage(t *testing.T) {
 	}
 }
 
+func TestMCPLogoutDoesNotClaimRestartWithoutCallback(t *testing.T) {
+	commands := &CommandService{mcp: &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway"}}}}
+	output, handled, err := commands.Execute(context.Background(), "/mcp logout railway")
+	if err != nil || !handled || strings.Contains(output, "Restarting Eggy") || !strings.Contains(output, "Restart Eggy") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
 type fakeMCPCommands struct {
 	statuses []mcpadapter.ServerStatus
 	loginURL string

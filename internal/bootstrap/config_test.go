@@ -64,6 +64,7 @@ mcp:
 `
 	tests := []struct{ name, old, replacement, want string }{
 		{"https", "https://mcp.railway.com", "http://remote.test", "must use HTTPS"},
+		{"credentials in URL", "https://mcp.railway.com", "https://token@mcp.railway.com", "must not contain credentials"},
 		{"transport", "streamable-http", "stdio", "unsupported transport"},
 		{"auth", "auth: oauth", "auth: token", "unsupported auth"},
 	}

@@ -42,9 +42,6 @@ spec covers only the first slice: providers, models, and calendar, matching
 
 - Repository management (add/remove) through the web UI. Stays Telegram/CLI
   with the existing owner-approval flow.
-- MCP server management through the web UI. Stays file-only per the MCP
-  client design's existing decision (`docs/superpowers/specs/2026-07-22-eggy-mcp-client-design.md`);
-  this spec does not reopen that decision.
 - Multi-user accounts, roles, or password reset flows. A single hardcoded
   owner credential only, matching the single-owner model used everywhere else
   in Eggy.
@@ -211,7 +208,43 @@ build stage, not assume pre-built assets.
    following the same pattern as the two existing renderers.
 4. Do not add a database, session store, or a new encryption key — reuse the
    existing `EGGY_ENCRYPTION_KEY` for cookie signing.
-5. Do not implement repository or MCP-server management through the web UI in
-   this iteration; both are explicitly out of scope per Non-goals above.
+5. Do not implement repository management through the web UI; it is
+   explicitly out of scope per Non-goals above.
 6. Verify with `make fmt vet test race build`; run `make smoke` when Docker is
    available, confirming the frontend build stage runs as part of it.
+
+## Extension: MCP server management (added after the initial iteration)
+
+The MCP client design's "config stays file-owned, no add/edit/remove
+command" decision was deliberately reopened for the web UI only, after
+confirming scope with the owner: Telegram and the CLI still have no way to
+add, edit, or remove an MCP server definition — only the web UI does, and
+only through dedicated routes, not `CommandService`/the command catalog
+(there is still no `/config get|set mcp` command).
+
+- `internal/bootstrap/config_mutate.go` gained `SetMCPServer` (upserts by
+  name), `RemoveMCPServer`, and `GetMCPServersConfig`, following the exact
+  pattern `SetProvider`/`SetModelAlias`/`SetCalendar` already established
+  (`filelock.With` for the whole load-mutate-write sequence, `cfg.Validate()`
+  before persisting, atomic write via `writeConfigUnlocked`).
+- The web form exposes only the essential fields: `name`, `url`, `auth`
+  (`oauth`/`bearer-env`/`none`), `enabled`, and `bearer_token_env` when
+  `auth` is `bearer-env`. `transport` is fixed to `streamable-http` (the
+  only supported value) and is not user-facing. Advanced fields the form
+  doesn't expose — `oauth_scopes`, `tool_filter`, `connect_timeout`,
+  `timeout`, `max_output_bytes` — are preserved untouched when editing an
+  existing server, and get the same sane defaults `Config.applyDefaults`
+  would give a new one, so a freshly added server validates immediately.
+- `internal/bootstrap/web.go` gained `GET/POST /api/config/mcp` and
+  `DELETE /api/config/mcp/{name}`, calling the mutation helpers directly
+  (there is no catalog entry to bridge through for this section, unlike
+  providers/models/calendar).
+- `web/src/McpCard.tsx` lists configured servers in a table (reusing the
+  same `table_headers`/`table_rows` shape `CommandResult` already produces
+  for providers/models) with a per-row Remove button, plus a form to add or
+  update one server by name.
+- Saved changes still require an owner restart to take effect, and an
+  oauth-mode server still needs `/mcp login <name>` via Telegram/CLI
+  afterward — the web UI only edits `config.yaml`, exactly like Telegram's
+  `/config set provider|model|calendar` already do; it never talks to the
+  runtime `internal/adapters/tools/mcp` manager directly.

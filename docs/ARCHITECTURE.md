@@ -21,6 +21,88 @@ package under `internal/adapters/<category>/<provider>/` plus wiring in
 bootstrap — never a kernel or port change. See `AGENTS.md` for the concrete
 steps.
 
+```mermaid
+flowchart TB
+    subgraph entry[Entry points]
+        owner[Single owner]
+        telegram[Telegram webhook]
+        cli[eggy CLI]
+        clock[Schedule and heartbeat ticks]
+
+        owner --> telegram
+        owner --> cli
+    end
+
+    subgraph composition[Composition root - internal/bootstrap]
+        daemon[eggyd App and event dispatcher]
+        commands[Deterministic command service]
+        registry[Tool wiring and capability manifest]
+    end
+
+    telegram --> daemon
+    clock --> daemon
+    cli --> commands
+    daemon -->|slash command| commands
+
+    subgraph kernel[Provider-neutral kernel - internal/kernel and internal/ports]
+        outer[Outer agent loop]
+        services[Domain services<br/>context, scheduling, Calendar, repositories]
+        coding[Coding and shipping services]
+        inner[Bounded implementation loop]
+        ports[Small provider-neutral ports]
+
+        outer --> services
+        outer -->|repository_modify or repository_continue| coding
+        coding --> inner
+        services --> ports
+        coding --> ports
+        inner --> ports
+    end
+
+    daemon -->|owner message| outer
+    daemon -->|scheduled read-only turn| outer
+    commands --> services
+    registry --> outer
+    registry --> inner
+
+    subgraph adapters[Adapters - internal/adapters]
+        channelAdapter[Telegram channel]
+        modelAdapter[OpenAI-compatible model]
+        repositoryAdapter[GitHub and Git adapter]
+        runnerAdapter[Restricted local-process runner]
+        calendarAdapter[Google Calendar adapter]
+        stores[File-backed state, context, and session stores]
+        schedulerAdapter[Local scheduler]
+    end
+
+    adapters -. implement .-> ports
+    commands --> stores
+
+    subgraph systems[External systems and durable storage]
+        telegramAPI[Telegram API]
+        modelAPI[Configured model provider]
+        github[GitHub]
+        google[Google Calendar]
+        process[Git and local processes]
+        data[Railway volume - /data<br/>config, state, context, sessions, runs]
+    end
+
+    channelAdapter --> telegramAPI
+    modelAdapter --> modelAPI
+    repositoryAdapter --> github
+    runnerAdapter --> process
+    calendarAdapter --> google
+    stores --> data
+    schedulerAdapter --> data
+```
+
+Solid arrows show runtime calls and message flow. The dotted adapter-to-port
+arrow shows dependency inversion: kernel code depends on ports, while adapters
+implement those ports and are selected only by bootstrap. Direct commands skip
+the model loop; scheduled and heartbeat turns enter the outer loop with a
+restricted tool set; repository modifications enter the separate bounded
+implementation loop.
+
 ## The agent loop
 
 One tool-calling loop (`internal/kernel/agent.Loop`) handles every owner

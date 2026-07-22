@@ -26,7 +26,7 @@ added through configuration.
 ## Goals
 
 - Let Eggy's outer agent loop call tools from multiple remote MCP servers.
-- Use the official Go MCP SDK for protocol, transport, OAuth, discovery,
+- Use the official Go MCP SDK for protocol, transport, auth hooks, discovery,
   notifications, and tool calls.
 - Keep `internal/kernel` and `internal/ports` provider-neutral and unchanged.
 - Register MCP tools only through `internal/bootstrap`.
@@ -74,10 +74,10 @@ The new adapter package is:
 internal/adapters/tools/mcp/
 ```
 
-It owns all MCP SDK types, wire behavior, transports, OAuth handlers,
-credential persistence, catalog discovery, name normalization, result
-conversion, and connection lifecycle. Provider request and response types do
-not escape the package.
+It owns all MCP SDK types, wire behavior, transports, the durable OAuth
+provider, credential persistence, catalog discovery, name normalization,
+result conversion, and connection lifecycle. Provider request and response
+types do not escape the package.
 
 The data flow is:
 
@@ -173,10 +173,15 @@ adapter.
 
 ## Authentication and credential storage
 
-The official Go MCP SDK owns OAuth discovery, PKCE, dynamic client
-registration when supported, authorization requests, token exchange, refresh,
-and authenticated HTTP requests. Eggy supplies the owner interaction and
-durable credential storage required by a headless daemon.
+The official Go MCP SDK owns the transport's `auth.OAuthHandler` integration.
+Its v1.6.1 authorization-code helper does not expose durable save/restore APIs
+for dynamically registered client information and refresh state, so Eggy uses
+the established OpenClaw provider pattern at that seam: persist client
+information, tokens, expiry, PKCE verifier, discovery state, and the last
+authorization URL behind a provider consumed by the SDK transport. The
+provider uses the SDK's exported `auth`/`oauthex` metadata and registration
+helpers plus `golang.org/x/oauth2`; it does not reimplement MCP framing or add
+an Eggy-specific authorization protocol.
 
 OAuth state is stored separately per server:
 
@@ -381,8 +386,9 @@ and retrieve bounded logs without invoking `list-variables`.
 The implementation plan must preserve these boundaries:
 
 1. Add behavior test-first, starting with adapter discovery and projection.
-2. Add only the official Go MCP SDK and its required dependencies; do not add
-   an agent, DI, web, plugin, or OAuth framework.
+2. Add only the official Go MCP SDK and its required dependencies, including
+   its existing `golang.org/x/oauth2` dependency; do not add an agent, DI, web,
+   plugin, or additional OAuth framework.
 3. Keep all SDK and provider types inside `internal/adapters/tools/mcp`.
 4. Put configuration, construction, tool registration, command wiring, HTTP
    callback wiring, and fake-adapter selection in `internal/bootstrap`.

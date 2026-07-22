@@ -13,6 +13,7 @@ type ToolFilter struct {
 type ServerConfig struct {
 	Name                      string
 	URL                       string
+	RedirectURL               string
 	Auth                      string
 	BearerToken               string
 	OAuthScopes               []string
@@ -28,4 +29,5 @@ type Options struct {
 	HTTPClient *http.Client
 	Connect    connector
 	Now        func() time.Time
+	OAuthStore *OAuthStore
 }

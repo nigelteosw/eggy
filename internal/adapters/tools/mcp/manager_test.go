@@ -169,6 +169,35 @@ func TestNewFakeManagerProjectsConfiguredIncludes(t *testing.T) {
 	}
 }
 
+func TestManagerMarksOAuthServerLoginRequiredAndCanBeginLogin(t *testing.T) {
+	store, _ := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	client := &http.Client{Transport: &oauthRoundTripper{}}
+	connect := func(ctx context.Context, _ ServerConfig, _ *http.Client, handler auth.OAuthHandler, _ *sdk.ClientOptions) (clientSession, error) {
+		tokenSource, err := handler.TokenSource(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if tokenSource == nil {
+			return nil, ErrLoginRequired
+		}
+		return nil, errors.New("unexpected token")
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback", Auth: "oauth", Enabled: true,
+	}}, Options{Connect: connect, HTTPClient: client, OAuthStore: store, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, _ := manager.Status("railway")
+	if status.State != StateLoginRequired {
+		t.Fatalf("status=%#v", status)
+	}
+	authorizationURL, err := manager.BeginLogin(context.Background(), "railway")
+	if err != nil || !strings.HasPrefix(authorizationURL, "https://auth.example/authorize?") {
+		t.Fatalf("authorization URL=%q err=%v", authorizationURL, err)
+	}
+}
+
 type blockingSession struct {
 	started chan struct{}
 	release chan struct{}

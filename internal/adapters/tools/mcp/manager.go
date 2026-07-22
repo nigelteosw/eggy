@@ -2,12 +2,14 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -26,6 +28,7 @@ type Manager struct {
 	runtimes map[string]*serverRuntime
 	tools    []ports.Tool
 	now      func() time.Time
+	oauth    map[string]*oauthProvider
 }
 
 func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*Manager, error) {
@@ -38,7 +41,7 @@ func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*
 	if options.HTTPClient == nil {
 		options.HTTPClient = http.DefaultClient
 	}
-	manager := &Manager{runtimes: map[string]*serverRuntime{}, now: options.Now}
+	manager := &Manager{runtimes: map[string]*serverRuntime{}, oauth: map[string]*oauthProvider{}, now: options.Now}
 	projected := map[string]string{}
 	for _, cfg := range configs {
 		runtime := &serverRuntime{config: cfg, status: ServerStatus{Name: cfg.Name}}
@@ -56,11 +59,31 @@ func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*
 		opts.ToolListChangedHandler = func(context.Context, *sdk.ToolListChangedRequest) {
 			manager.MarkReloadRequired(cfg.Name)
 		}
-		session, err := options.Connect(connectCtx, cfg, options.HTTPClient, nil, opts)
+		var handler auth.OAuthHandler
+		switch cfg.Auth {
+		case "oauth":
+			if options.OAuthStore == nil {
+				cancel()
+				runtime.status.State = StateUnavailable
+				runtime.status.Diagnostic = "OAuth storage is unavailable"
+				continue
+			}
+			provider := newOAuthProvider(cfg, options.OAuthStore, options.HTTPClient)
+			manager.oauth[cfg.Name] = provider
+			handler = provider
+		case "bearer-env":
+			handler = newBearerHandler(cfg.BearerToken)
+		}
+		session, err := options.Connect(connectCtx, cfg, options.HTTPClient, handler, opts)
 		cancel()
 		if err != nil {
-			runtime.status.State = StateUnavailable
-			runtime.status.Diagnostic = "connection failed"
+			if errors.Is(err, ErrLoginRequired) {
+				runtime.status.State = StateLoginRequired
+				runtime.status.Diagnostic = "login required"
+			} else {
+				runtime.status.State = StateUnavailable
+				runtime.status.Diagnostic = "connection failed"
+			}
 			continue
 		}
 		runtime.session = session
@@ -240,6 +263,48 @@ func (m *Manager) Probe(ctx context.Context, name string) (ProbeResult, error) {
 	probe.Tools = len(selected)
 	probe.Diagnostic = ""
 	return probe, nil
+}
+
+func (m *Manager) BeginLogin(ctx context.Context, name string) (string, error) {
+	m.mu.RLock()
+	provider := m.oauth[name]
+	_, configured := m.runtimes[name]
+	m.mu.RUnlock()
+	if !configured {
+		return "", ErrServerNotFound
+	}
+	if provider == nil {
+		return "", errors.New("MCP server does not use OAuth")
+	}
+	return provider.BeginLogin(ctx)
+}
+
+func (m *Manager) CompleteLogin(ctx context.Context, name, code, state string) error {
+	m.mu.RLock()
+	provider := m.oauth[name]
+	_, configured := m.runtimes[name]
+	m.mu.RUnlock()
+	if !configured {
+		return ErrServerNotFound
+	}
+	if provider == nil {
+		return errors.New("MCP server does not use OAuth")
+	}
+	return provider.CompleteLogin(ctx, code, state)
+}
+
+func (m *Manager) Logout(name string) error {
+	m.mu.RLock()
+	provider := m.oauth[name]
+	_, configured := m.runtimes[name]
+	m.mu.RUnlock()
+	if !configured {
+		return ErrServerNotFound
+	}
+	if provider == nil {
+		return errors.New("MCP server does not use OAuth")
+	}
+	return provider.Logout()
 }
 
 func cloneStatus(status ServerStatus) ServerStatus {

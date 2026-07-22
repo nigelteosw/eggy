@@ -5,3 +5,5 @@
 /data/
 *.out
 .DS_Store
+internal/adapters/webui/dist/*
+!internal/adapters/webui/dist/index.html

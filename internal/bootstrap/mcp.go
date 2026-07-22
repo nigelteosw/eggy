@@ -48,6 +48,17 @@ func newMCPManager(ctx context.Context, config Config, secrets Secrets, options 
 	return mcpadapter.NewManager(ctx, servers, mcpadapter.Options{HTTPClient: options.HTTPClient, OAuthStore: oauthStore, Now: options.Now})
 }
 
+func ExecuteMCPCLI(ctx context.Context, config Config, secrets Secrets, options AppOptions, args []string) (CommandResult, bool, error) {
+	manager, err := newMCPManager(ctx, config, secrets, options)
+	if err != nil {
+		return CommandResult{}, false, err
+	}
+	if manager != nil {
+		defer manager.Close()
+	}
+	return (&CommandService{config: config, mcp: manager}).ExecuteCLI(ctx, args)
+}
+
 func mcpCallbackHandler(manager *mcpadapter.Manager, restart func()) http.Handler {
 	if manager == nil {
 		return nil

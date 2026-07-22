@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	mcpadapter "github.com/nigelteosw/eggy/internal/adapters/tools/mcp"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -37,6 +38,15 @@ type CommandService struct {
 	timezone     string
 	now          func() time.Time
 	restart      func()
+	mcp          MCPCommands
+}
+
+type MCPCommands interface {
+	Statuses() []mcpadapter.ServerStatus
+	Status(string) (mcpadapter.ServerStatus, error)
+	Probe(context.Context, string) (mcpadapter.ProbeResult, error)
+	BeginLogin(context.Context, string) (string, error)
+	Logout(string) error
 }
 
 // Execute parses Telegram-style "/command key=value ..." input and
@@ -88,7 +98,7 @@ func ExecuteConfigCLI(ctx context.Context, configPath string, args []string) (Co
 var topLevelCommandOrder = []string{
 	"start", "help", "status", "repositories", "runs", "continue", "stop",
 	"schedules", "memory", "skills", "model", "thinking", "config", "usage", "clear",
-	"calendar_auth", "restart",
+	"calendar_auth", "mcp", "restart",
 }
 
 // HelpText renders help for a specific command, or a list of every top-level
@@ -485,8 +495,135 @@ func init() {
 			},
 			Handler: handleRestart,
 		},
+		{
+			Path: "mcp", Summary: "List and manage configured MCP servers",
+			Examples: []Example{{Telegram: "/mcp", CLI: "eggy mcp"}}, Handler: handleMCP,
+		},
+		{
+			Path: "mcp status", Summary: "Show one MCP server's status",
+			Examples: []Example{{Telegram: "/mcp status railway", CLI: "eggy mcp status railway"}}, Handler: handleMCPStatus,
+		},
+		{
+			Path: "mcp probe", Summary: "Probe one MCP server's tool catalog",
+			Examples: []Example{{Telegram: "/mcp probe railway", CLI: "eggy mcp probe railway"}}, Handler: handleMCPProbe,
+		},
+		{
+			Path: "mcp login", Summary: "Start OAuth login for one MCP server",
+			Examples: []Example{{Telegram: "/mcp login railway", CLI: "eggy mcp login railway"}}, Handler: handleMCPLogin,
+		},
+		{
+			Path: "mcp logout", Summary: "Remove one MCP server's OAuth credentials",
+			Examples: []Example{{Telegram: "/mcp logout railway", CLI: "eggy mcp logout railway"}}, Handler: handleMCPLogout,
+		},
+		{
+			Path: "mcp reload", Summary: "Restart Eggy to reload an MCP catalog",
+			Examples: []Example{{Telegram: "/mcp reload railway", CLI: "eggy mcp reload railway"}}, Handler: handleMCPReload,
+		},
 	}
 	catalogIndex = buildCatalogIndex(catalog)
+}
+
+func handleMCP(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	if service.mcp == nil {
+		return CommandResult{State: ResultInfo, Title: "MCP is not configured."}, nil
+	}
+	if len(request.Args) > 0 {
+		return usageHelp(mustEntry("mcp"), fmt.Sprintf("Unknown MCP subcommand %q. Use status, probe, login, logout, or reload.", request.Args[0])), nil
+	}
+	statuses := service.mcp.Statuses()
+	rows := make([][]string, 0, len(statuses))
+	for _, status := range statuses {
+		rows = append(rows, []string{status.Name, string(status.State), fmt.Sprintf("%d", status.Tools), fmt.Sprintf("%t", status.ReloadRequired)})
+	}
+	return CommandResult{Title: "MCP servers", TableHeaders: []string{"Server", "State", "Tools", "Reload required"}, TableRows: rows}, nil
+}
+
+func handleMCPStatus(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	name, result := mcpServerArg(service, request, "mcp status")
+	if result != nil {
+		return *result, nil
+	}
+	status, err := service.mcp.Status(name)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	fields := []ResultField{{Label: "State", Value: string(status.State)}, {Label: "Tools", Value: fmt.Sprintf("%d", status.Tools)}, {Label: "Reload required", Value: fmt.Sprintf("%t", status.ReloadRequired)}}
+	if len(status.Warnings) > 0 {
+		fields = append(fields, ResultField{Label: "Warnings", Value: strings.Join(status.Warnings, "; ")})
+	}
+	if status.Diagnostic != "" {
+		fields = append(fields, ResultField{Label: "Diagnostic", Value: status.Diagnostic})
+	}
+	return CommandResult{Title: "MCP server " + name, Fields: fields}, nil
+}
+
+func handleMCPProbe(ctx context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	name, result := mcpServerArg(service, request, "mcp probe")
+	if result != nil {
+		return *result, nil
+	}
+	probe, err := service.mcp.Probe(ctx, name)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	fields := []ResultField{{Label: "State", Value: string(probe.State)}, {Label: "Tools", Value: fmt.Sprintf("%d", probe.Tools)}, {Label: "Latency", Value: probe.Latency.String()}}
+	if probe.Diagnostic != "" {
+		fields = append(fields, ResultField{Label: "Diagnostic", Value: probe.Diagnostic})
+	}
+	return CommandResult{Title: "MCP probe " + name, Fields: fields}, nil
+}
+
+func handleMCPLogin(ctx context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	name, result := mcpServerArg(service, request, "mcp login")
+	if result != nil {
+		return *result, nil
+	}
+	authorizationURL, err := service.mcp.BeginLogin(ctx, name)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	return CommandResult{Title: "MCP login started for " + name + ".", Detail: "Open the authorization URL and approve the intended account or workspace.", Fields: []ResultField{{Label: "Authorization URL", Value: authorizationURL}}}, nil
+}
+
+func handleMCPLogout(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	name, result := mcpServerArg(service, request, "mcp logout")
+	if result != nil {
+		return *result, nil
+	}
+	if err := service.mcp.Logout(name); err != nil {
+		return errorResult(err), nil
+	}
+	if service.restart != nil {
+		service.restart()
+	}
+	return CommandResult{Title: "Logged out of MCP server " + name + ".", Detail: "Restarting Eggy to remove its tools."}, nil
+}
+
+func handleMCPReload(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+	name, result := mcpServerArg(service, request, "mcp reload")
+	if result != nil {
+		return *result, nil
+	}
+	if _, err := service.mcp.Status(name); err != nil {
+		return errorResult(err), nil
+	}
+	if service.restart == nil {
+		return CommandResult{State: ResultInfo, Title: "Restart is not available in this environment."}, nil
+	}
+	service.restart()
+	return CommandResult{Title: "Restarting Eggy to reload MCP server " + name + "."}, nil
+}
+
+func mcpServerArg(service *CommandService, request CommandRequest, path string) (string, *CommandResult) {
+	if service.mcp == nil {
+		result := CommandResult{State: ResultInfo, Title: "MCP is not configured."}
+		return "", &result
+	}
+	if len(request.Args) != 1 {
+		result := usageHelp(mustEntry(path), "Expected exactly one configured MCP server name.")
+		return "", &result
+	}
+	return request.Args[0], nil
 }
 
 func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {

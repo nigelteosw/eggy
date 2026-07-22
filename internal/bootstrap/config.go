@@ -206,6 +206,49 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	return cfg, secrets, nil
 }
 
+// LoadMCPConfig loads the shared strict config document but resolves and
+// validates only MCP credentials. It lets `eggy mcp` operate without starting
+// Telegram, model, repository, scheduler, calendar, or coding adapters.
+func LoadMCPConfig(path string, getenv func(string) string) (Config, Secrets, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, Secrets{}, fmt.Errorf("open config: %w", err)
+	}
+	var document configDocument
+	if err := decodeKnownYAML(data, &document); err != nil {
+		return Config{}, Secrets{}, fmt.Errorf("decode config: %w", err)
+	}
+	cfg := normalizeConfig(document)
+	if err := cfg.applyDefaults(); err != nil {
+		return Config{}, Secrets{}, err
+	}
+	if err := cfg.validateMCP(); err != nil {
+		return Config{}, Secrets{}, err
+	}
+	publicURL, err := url.Parse(cfg.Server.PublicBaseURL)
+	if err != nil || (publicURL.Scheme != "https" && publicURL.Scheme != "http") || publicURL.Host == "" {
+		return Config{}, Secrets{}, errors.New("server.public_base_url must be an HTTP(S) URL")
+	}
+	secrets := Secrets{EncryptionKey: getenv("EGGY_ENCRYPTION_KEY"), MCPBearerTokens: map[string]string{}}
+	for name, server := range cfg.MCP.Servers {
+		if server.Auth == "bearer-env" {
+			secrets.MCPBearerTokens[name] = getenv(server.BearerTokenEnv)
+		}
+	}
+	for name, server := range cfg.MCP.Servers {
+		if !server.Enabled {
+			continue
+		}
+		if server.Auth == "oauth" && strings.TrimSpace(secrets.EncryptionKey) == "" {
+			return Config{}, Secrets{}, errors.New("required environment variable EGGY_ENCRYPTION_KEY is missing")
+		}
+		if server.Auth == "bearer-env" && strings.TrimSpace(secrets.MCPBearerTokens[name]) == "" {
+			return Config{}, Secrets{}, fmt.Errorf("required environment variable %s is missing", server.BearerTokenEnv)
+		}
+	}
+	return cfg, secrets, nil
+}
+
 func decodeKnownYAML(data []byte, destination any) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)

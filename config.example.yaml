@@ -50,3 +50,29 @@ calendar:
   # Default for mutations when no calendar ID is supplied; general reads cover all non-hidden readable calendars.
   default_calendar: "primary"
   timezone: "Asia/Singapore"
+mcp:
+  servers:
+    railway:
+      url: "https://mcp.railway.com"
+      transport: "streamable-http"
+      auth: "oauth"
+      enabled: true
+      connect_timeout: "10s"
+      timeout: "60s"
+      max_output_bytes: 131072
+      supports_parallel_tool_calls: false
+      tool_filter:
+        include:
+          - "check-railway-status"
+          - "list-projects"
+          - "create-project-and-link"
+          - "list-services"
+          - "link-service"
+          - "deploy"
+          - "deploy-template"
+          - "create-environment"
+          - "link-environment"
+          - "set-variables"
+          - "generate-domain"
+          - "get-logs"
+        exclude: []

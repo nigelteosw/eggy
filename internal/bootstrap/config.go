@@ -42,6 +42,7 @@ type Config struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
+	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
 type AgentConfig struct {
@@ -110,6 +111,29 @@ type CalendarConfig struct {
 	Timezone        string `yaml:"timezone"`
 }
 
+type MCPConfig struct {
+	Servers map[string]MCPServerConfig `yaml:"servers,omitempty"`
+}
+
+type MCPServerConfig struct {
+	URL                       string              `yaml:"url"`
+	Transport                 string              `yaml:"transport"`
+	Auth                      string              `yaml:"auth"`
+	BearerTokenEnv            string              `yaml:"bearer_token_env,omitempty"`
+	OAuthScopes               []string            `yaml:"oauth_scopes,omitempty"`
+	Enabled                   bool                `yaml:"enabled"`
+	ConnectTimeout            Duration            `yaml:"connect_timeout"`
+	Timeout                   Duration            `yaml:"timeout"`
+	MaxOutputBytes            int64               `yaml:"max_output_bytes"`
+	SupportsParallelToolCalls bool                `yaml:"supports_parallel_tool_calls"`
+	ToolFilter                MCPToolFilterConfig `yaml:"tool_filter"`
+}
+
+type MCPToolFilterConfig struct {
+	Include []string `yaml:"include,omitempty"`
+	Exclude []string `yaml:"exclude,omitempty"`
+}
+
 type Secrets struct {
 	TelegramBotToken      string
 	TelegramWebhookSecret string
@@ -118,6 +142,7 @@ type Secrets struct {
 	GoogleClientID        string
 	GoogleClientSecret    string
 	EncryptionKey         string
+	MCPBearerTokens       map[string]string
 }
 
 type commonConfigDocument struct {
@@ -129,6 +154,7 @@ type commonConfigDocument struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
+	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
 type configDocument struct {
@@ -164,9 +190,15 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
 		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
 		ProviderAPIKeys: map[string]string{},
+		MCPBearerTokens: map[string]string{},
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
+	}
+	for name, server := range cfg.MCP.Servers {
+		if server.Auth == "bearer-env" {
+			secrets.MCPBearerTokens[name] = getenv(server.BearerTokenEnv)
+		}
 	}
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return cfg, Secrets{}, err
@@ -185,12 +217,12 @@ func normalizeConfig(document configDocument) Config {
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
-		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar,
+		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -240,6 +272,18 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.ImplementationSessions.OutputExcerptChars == 0 {
 		c.ImplementationSessions.OutputExcerptChars = 8192
+	}
+	for name, server := range c.MCP.Servers {
+		if server.ConnectTimeout == 0 {
+			server.ConnectTimeout = Duration(10 * time.Second)
+		}
+		if server.Timeout == 0 {
+			server.Timeout = Duration(time.Minute)
+		}
+		if server.MaxOutputBytes == 0 {
+			server.MaxOutputBytes = 128 << 10
+		}
+		c.MCP.Servers[name] = server
 	}
 	return nil
 }
@@ -300,6 +344,46 @@ func (c Config) Validate() error {
 	}
 	if c.Calendar.Enabled && c.Calendar.DefaultCalendar == "" {
 		return errors.New("calendar.default_calendar is required")
+	}
+	if err := c.validateMCP(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c Config) validateMCP() error {
+	for name, server := range c.MCP.Servers {
+		if !configuredNamePattern.MatchString(name) {
+			return fmt.Errorf("invalid MCP server name %q", name)
+		}
+		u, err := url.Parse(server.URL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("MCP server %q URL must use HTTPS", name)
+		}
+		if server.Transport != "streamable-http" {
+			return fmt.Errorf("MCP server %q has unsupported transport %q", name, server.Transport)
+		}
+		if server.Auth != "oauth" && server.Auth != "bearer-env" && server.Auth != "none" {
+			return fmt.Errorf("MCP server %q has unsupported auth %q", name, server.Auth)
+		}
+		if server.Auth == "bearer-env" && !environmentNamePattern.MatchString(server.BearerTokenEnv) {
+			return fmt.Errorf("MCP server %q bearer_token_env is invalid", name)
+		}
+		if server.ConnectTimeout.Value() <= 0 || server.Timeout.Value() <= 0 || server.MaxOutputBytes <= 0 {
+			return fmt.Errorf("MCP server %q timeouts and max_output_bytes must be positive", name)
+		}
+		for _, filter := range [][]string{server.ToolFilter.Include, server.ToolFilter.Exclude} {
+			seen := map[string]bool{}
+			for _, tool := range filter {
+				if strings.TrimSpace(tool) == "" {
+					return fmt.Errorf("MCP server %q tool filters must not contain empty names", name)
+				}
+				if seen[tool] {
+					return fmt.Errorf("MCP server %q has duplicate tool filter %q", name, tool)
+				}
+				seen[tool] = true
+			}
+		}
 	}
 	return nil
 }
@@ -389,6 +473,17 @@ func (c Config) validateSecrets(s Secrets) error {
 		required = append(required,
 			struct{ name, value string }{"GOOGLE_CLIENT_ID", s.GoogleClientID}, struct{ name, value string }{"GOOGLE_CLIENT_SECRET", s.GoogleClientSecret},
 			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+	}
+	for name, server := range c.MCP.Servers {
+		if !server.Enabled {
+			continue
+		}
+		if server.Auth == "oauth" {
+			required = append(required, struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+		}
+		if server.Auth == "bearer-env" {
+			required = append(required, struct{ name, value string }{server.BearerTokenEnv, s.MCPBearerTokens[name]})
+		}
 	}
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

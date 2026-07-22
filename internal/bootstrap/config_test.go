@@ -25,6 +25,111 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAcceptsRailwayMCP(t *testing.T) {
+	env := testSecrets()
+	env["RAILWAY_MCP_TOKEN"] = "railway-token"
+	cfg, secrets, err := loadText(t, validConfig()+`
+mcp:
+  servers:
+    railway:
+      url: https://mcp.railway.com
+      transport: streamable-http
+      auth: bearer-env
+      bearer_token_env: RAILWAY_MCP_TOKEN
+      enabled: true
+      tool_filter:
+        include: [list-projects, get-logs]
+`, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["railway"]
+	if server.ConnectTimeout.Value() != 10*time.Second || server.Timeout.Value() != time.Minute || server.MaxOutputBytes != 128<<10 {
+		t.Fatalf("server defaults = %#v", server)
+	}
+	if secrets.MCPBearerTokens["railway"] != "railway-token" {
+		t.Fatalf("MCP bearer secrets = %#v", secrets.MCPBearerTokens)
+	}
+}
+
+func TestMCPConfigValidation(t *testing.T) {
+	base := validConfig() + `
+mcp:
+  servers:
+    railway:
+      url: https://mcp.railway.com
+      transport: streamable-http
+      auth: oauth
+      enabled: true
+`
+	tests := []struct{ name, old, replacement, want string }{
+		{"https", "https://mcp.railway.com", "http://remote.test", "must use HTTPS"},
+		{"transport", "streamable-http", "stdio", "unsupported transport"},
+		{"auth", "auth: oauth", "auth: token", "unsupported auth"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := loadText(t, strings.Replace(base, tt.old, tt.replacement, 1), testSecrets())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestMCPBearerEnvRequiresCredential(t *testing.T) {
+	body := validConfig() + `
+mcp:
+  servers:
+    railway:
+      url: https://mcp.railway.com
+      transport: streamable-http
+      auth: bearer-env
+      bearer_token_env: RAILWAY_MCP_TOKEN
+      enabled: true
+`
+	_, _, err := loadText(t, body, testSecrets())
+	if err == nil || !strings.Contains(err.Error(), "RAILWAY_MCP_TOKEN") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestMCPFilterAllowsExcludeToOverrideInclude(t *testing.T) {
+	body := validConfig() + `
+mcp:
+  servers:
+    example:
+      url: https://mcp.example.com
+      transport: streamable-http
+      auth: none
+      enabled: true
+      tool_filter:
+        include: [read, sensitive]
+        exclude: [sensitive]
+`
+	if _, _, err := loadText(t, body, testSecrets()); err != nil {
+		t.Fatalf("exclude should be allowed to override include: %v", err)
+	}
+}
+
+func TestEnabledMCPOAuthRequiresEncryptionKey(t *testing.T) {
+	body := strings.Replace(validConfig(), "enabled: true\n  default_calendar", "enabled: false\n  default_calendar", 1) + `
+mcp:
+  servers:
+    example:
+      url: https://mcp.example.com
+      transport: streamable-http
+      auth: oauth
+      enabled: true
+`
+	env := testSecrets()
+	delete(env, "EGGY_ENCRYPTION_KEY")
+	_, _, err := loadText(t, body, env)
+	if err == nil || !strings.Contains(err.Error(), "EGGY_ENCRYPTION_KEY") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestLoadConfigNormalizesProvidersAndModels(t *testing.T) {
 	cfg, secrets, err := loadText(t, validConfig(), testSecrets())
 	if err != nil {

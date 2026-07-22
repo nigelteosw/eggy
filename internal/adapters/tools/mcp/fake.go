@@ -13,6 +13,7 @@ func NewFakeManager(configs []ServerConfig) (*Manager, error) {
 	catalogs := make(map[string]*fakeCatalogSession, len(configs))
 	for index := range configs {
 		cfg := &configs[index]
+		cfg.Auth = ""
 		if cfg.Timeout == 0 {
 			cfg.Timeout = time.Second
 		}

@@ -53,3 +53,18 @@ func TestHTTPHandlerOptionalGoogleRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPHandlerOptionalMCPCallbackRoute(t *testing.T) {
+	callback := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.PathValue("server") != "railway" {
+			t.Fatalf("server=%q", request.PathValue("server"))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := NewHTTPHandler(func() error { return nil }, nil, nil, nil, callback)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/mcp/railway/callback?code=x&state=y", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d", response.Code)
+	}
+}

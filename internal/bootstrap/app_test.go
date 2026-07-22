@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,35 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 			t.Fatalf("heartbeatRunOptions unexpectedly allows repository write tool %q", tool)
 		}
 	}
+}
+
+func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.MCP.Servers = map[string]MCPServerConfig{
+		"railway": {Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth", ToolFilter: MCPToolFilterConfig{Include: []string{"list-projects"}}},
+	}
+	secrets := appTestSecrets("deepseek")
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := app.loop.ToolNames(agent.RunOptions{})
+	scheduled := app.loop.ToolNames(readOnlyRunOptions())
+	if !slices.Contains(direct, "railway__list_projects") || slices.Contains(scheduled, "railway__list_projects") {
+		t.Fatalf("direct=%v scheduled=%v mcp_status=%#v mcp_tools=%v", direct, scheduled, app.mcp.Statuses(), toolDefinitionNames(app.mcp.Tools()))
+	}
+	if slices.Contains(app.implementationLoop.ToolNames(agent.RunOptions{}), "railway__list_projects") {
+		t.Fatal("MCP leaked into implementation loop")
+	}
+}
+
+func toolDefinitionNames(tools []ports.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Definition().Name)
+	}
+	return names
 }
 
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {

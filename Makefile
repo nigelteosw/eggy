@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: fmt vet test race build smoke clean
+.PHONY: fmt vet test race build build-web smoke clean
 
 fmt:
 	gofmt -w cmd internal
@@ -14,7 +14,10 @@ test:
 race:
 	$(GO) test -race ./...
 
-build:
+build-web:
+	cd web && npm install && npm run build
+
+build: build-web
 	mkdir -p bin
 	$(GO) build -trimpath -o bin/eggyd ./cmd/eggyd
 	$(GO) build -trimpath -o bin/eggy ./cmd/eggy

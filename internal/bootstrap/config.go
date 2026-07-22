@@ -143,6 +143,8 @@ type Secrets struct {
 	GoogleClientSecret    string
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
+	UIUserEmail           string
+	UIPassword            string
 }
 
 type commonConfigDocument struct {
@@ -189,6 +191,8 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		GitHubToken:    getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
 		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:      getenv("EGGY_UI_PASSWORD"),
 		ProviderAPIKeys: map[string]string{},
 		MCPBearerTokens: map[string]string{},
 	}
@@ -530,6 +534,12 @@ func (c Config) validateSecrets(s Secrets) error {
 		if server.Auth == "bearer-env" {
 			required = append(required, struct{ name, value string }{server.BearerTokenEnv, s.MCPBearerTokens[name]})
 		}
+	}
+	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {
+		required = append(required,
+			struct{ name, value string }{"EGGY_UI_USER_EMAIL", s.UIUserEmail},
+			struct{ name, value string }{"EGGY_UI_PASSWORD", s.UIPassword},
+			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
 	}
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

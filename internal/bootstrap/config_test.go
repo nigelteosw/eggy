@@ -8,6 +8,36 @@ import (
 	"time"
 )
 
+func TestLoadConfigResolvesWebUICredentialsAndRequiresEncryptionKeyWhenSet(t *testing.T) {
+	// validConfig() enables Calendar by default, which already requires
+	// EGGY_ENCRYPTION_KEY for an unrelated reason. Disable it here so this
+	// test isolates the new web UI credential check specifically.
+	body := strings.Replace(validConfig(), "enabled: true\n  default_calendar", "enabled: false\n  default_calendar", 1)
+	env := testSecrets()
+	delete(env, "EGGY_ENCRYPTION_KEY")
+
+	if _, secrets, err := loadText(t, body, env); err != nil {
+		t.Fatalf("unconfigured web UI must not block boot: %v", err)
+	} else if secrets.UIUserEmail != "" || secrets.UIPassword != "" {
+		t.Fatalf("expected empty web UI credentials, got %#v", secrets)
+	}
+
+	env["EGGY_UI_USER_EMAIL"] = "owner@example.com"
+	env["EGGY_UI_PASSWORD"] = "hunter2"
+	if _, _, err := loadText(t, body, env); err == nil {
+		t.Fatal("expected error: web UI configured without EGGY_ENCRYPTION_KEY")
+	}
+
+	env["EGGY_ENCRYPTION_KEY"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	_, secrets, err := loadText(t, body, env)
+	if err != nil {
+		t.Fatalf("fully configured web UI must load: %v", err)
+	}
+	if secrets.UIUserEmail != "owner@example.com" || secrets.UIPassword != "hunter2" {
+		t.Fatalf("secrets=%#v", secrets)
+	}
+}
+
 func TestLoadConfigAcceptsExample(t *testing.T) {
 	env := testSecrets()
 	cfg, secrets, err := LoadConfig(filepath.Join("..", "..", "config.example.yaml"), mapEnv(env))

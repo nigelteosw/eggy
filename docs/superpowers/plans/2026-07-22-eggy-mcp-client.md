@@ -115,7 +115,7 @@ type MCPConfig struct {
 type MCPServerConfig struct {
     URL                       string              `yaml:"url"`
     Transport                 string              `yaml:"transport"`
-    Auth                      string              `yaml:"auth"`
+    Auth                      string              `yaml:"auth"` // oauth, bearer-env, or none
     BearerTokenEnv            string              `yaml:"bearer_token_env,omitempty"`
     OAuthScopes               []string            `yaml:"oauth_scopes,omitempty"`
     Enabled                   bool                `yaml:"enabled"`
@@ -213,9 +213,9 @@ type clientSession interface {
 
 type connector func(context.Context, ServerConfig, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error)
 
-func connectSDK(ctx context.Context, cfg ServerConfig, handler auth.OAuthHandler, opts *sdk.ClientOptions) (clientSession, error) {
+func connectSDK(ctx context.Context, cfg ServerConfig, httpClient *http.Client, handler auth.OAuthHandler, opts *sdk.ClientOptions) (clientSession, error) {
     client := sdk.NewClient(&sdk.Implementation{Name: "eggy", Version: "1"}, opts)
-    transport := &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: cfg.HTTPClient, OAuthHandler: handler}
+    transport := &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient, OAuthHandler: handler}
     return client.Connect(ctx, transport, nil)
 }
 ```
@@ -249,7 +249,9 @@ git commit -m "feat: project MCP tools into the agent registry"
 
 **Interfaces:**
 - Produces: `NewManager(ctx context.Context, configs []ServerConfig, options Options) (*Manager, error)`.
-- Produces: `Manager.Tools() []ports.Tool`, `Statuses() []ServerStatus`, `Probe(ctx, name)`, `MarkReloadRequired(name)`, and `Close() error`.
+- Produces: `Manager.Tools() []ports.Tool`, `Statuses() []ServerStatus`, `Status(name)`, `Probe(ctx, name)`, `MarkReloadRequired(name)`, and `Close() error`.
+- Produces: `ProbeResult{Server string, State ServerState, Tools int, Latency time.Duration, Diagnostic string}`.
+- Consumes: `Options{HTTPClient *http.Client, Connect connector, Now func() time.Time, OAuthStore *OAuthStore}`; tests inject `Connect`, production defaults to the SDK connector.
 - Consumes: `clientSession`, `connector`, `remoteTool`, and `normalizeToolName` from Task 2.
 
 - [ ] **Step 1: Write failing manager tests**
@@ -260,7 +262,7 @@ func TestManagerFiltersAndIsolatesServers(t *testing.T) {
         "ready": {tools: []*sdk.Tool{{Name: "read"}, {Name: "secret"}}},
         "broken": {listErr: errors.New("offline")},
     })
-    manager, err := newManager(context.Background(), []ServerConfig{
+    manager, err := NewManager(context.Background(), []ServerConfig{
         {Name: "ready", Enabled: true, Filter: ToolFilter{Include: []string{"read"}}},
         {Name: "broken", Enabled: true},
     }, Options{Connect: connect, Now: time.Now})
@@ -328,7 +330,7 @@ git commit -m "feat: manage MCP server lifecycles"
 - Create: `internal/adapters/tools/mcp/oauth_test.go`
 
 **Interfaces:**
-- Produces: `OAuthStore` with `Load`, `Update`, and `Delete` per server/URL key.
+- Produces: `OAuthStore` with `Save`, `Load`, `Update`, and `Delete` per server/URL key.
 - Produces: `BeginLogin(ctx, server) (authorizationURL string, error)`, `CompleteLogin(ctx, server, code, state string) error`, `Logout(server) error`, and an SDK `auth.OAuthHandler` for runtime connections.
 - Produces: `ErrLoginRequired` as a sanitized adapter error.
 
@@ -339,7 +341,7 @@ func TestOAuthStoreRoundTripIsEncryptedAndAtomic(t *testing.T) {
     store, err := OpenOAuthStore(t.TempDir(), base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)))
     if err != nil { t.Fatal(err) }
     record := OAuthRecord{ServerURL: "https://mcp.example", ClientID: "client", AccessToken: "access-secret", RefreshToken: "refresh-secret"}
-    if err := store.Update("railway", record.ServerURL, func(*OAuthRecord) error { return nil }, record); err != nil { t.Fatal(err) }
+    if err := store.Save("railway", record.ServerURL, record); err != nil { t.Fatal(err) }
     raw, _ := os.ReadFile(store.path("railway", record.ServerURL))
     if bytes.Contains(raw, []byte("refresh-secret")) { t.Fatal("credential written in plaintext") }
     got, err := store.Load("railway", record.ServerURL)
@@ -469,7 +471,7 @@ git commit -m "feat: wire MCP tools into Eggy"
 - Modify: `internal/bootstrap/commands_test.go`
 - Create: `internal/bootstrap/mcp_commands_test.go`
 - Modify: `cmd/eggy/main.go`
-- Modify: `cmd/eggy/main_test.go` if present, otherwise create `cmd/eggy/mcp_test.go`
+- Create: `cmd/eggy/mcp_test.go`
 
 **Interfaces:**
 - Consumes: manager status/probe/login/logout APIs.
@@ -515,11 +517,11 @@ Add `mcp` to `topLevelCommandOrder`, register all six catalog paths with canonic
 
 Route CLI arguments beginning with `mcp` to a bootstrap helper that loads only MCP config/secrets and constructs the MCP manager; do not construct Telegram, model, repository, scheduler, or coding adapters. Ensure the helper closes the manager before returning.
 
-- [ ] **Step 5: Run command/docs-consistency tests and commit**
+- [ ] **Step 5: Run command tests and commit**
 
-Run: `go test ./internal/bootstrap ./cmd/eggy -run 'MCP|Catalog|ReadmeDocumentsCatalogCommands'`
+Run: `go test ./internal/bootstrap ./cmd/eggy -run 'MCP|Catalog'`
 
-Expected: command tests pass; the README consistency test initially points to the documentation work in Task 7, so update the README command list before committing if required.
+Expected: PASS. The README catalog consistency test is intentionally deferred until Task 7, where every new command is documented.
 
 ```bash
 git add internal/bootstrap/commands.go internal/bootstrap/commands_test.go internal/bootstrap/mcp_commands_test.go cmd/eggy/main.go cmd/eggy/mcp_test.go

@@ -33,23 +33,17 @@ func (p SessionPolicy) normalized() SessionPolicy {
 }
 
 type ImplementationSessions struct {
-	store   ports.ImplementationSessionStore
-	policy  SessionPolicy
-	now     func() time.Time
-	secrets []string
+	store  ports.ImplementationSessionStore
+	policy SessionPolicy
+	now    func() time.Time
+	guard  *SecretGuard
 }
 
 func NewImplementationSessions(store ports.ImplementationSessionStore, policy SessionPolicy, now func() time.Time, activeSecrets ...string) *ImplementationSessions {
-	secrets := make([]string, 0, len(activeSecrets))
-	for _, secret := range activeSecrets {
-		if strings.TrimSpace(secret) != "" {
-			secrets = append(secrets, secret)
-		}
-	}
 	if now == nil {
 		now = time.Now
 	}
-	return &ImplementationSessions{store: store, policy: policy.normalized(), now: now, secrets: secrets}
+	return &ImplementationSessions{store: store, policy: policy.normalized(), now: now, guard: NewSecretGuard(activeSecrets)}
 }
 
 func (s *ImplementationSessions) Create(ctx context.Context, session ports.ImplementationSession) (ports.ImplementationSession, error) {
@@ -287,13 +281,7 @@ func (s *ImplementationSessions) sanitizeMessage(message ports.Message) ports.Me
 }
 
 func (s *ImplementationSessions) redact(content string) string {
-	for _, secret := range s.secrets {
-		content = strings.ReplaceAll(content, secret, "[redacted]")
-	}
-	for _, pattern := range credentialContentPatterns {
-		content = pattern.ReplaceAllString(content, "[redacted]")
-	}
-	return content
+	return s.guard.Redact(content)
 }
 
 // RedactProgress removes configured credentials before implementation activity

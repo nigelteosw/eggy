@@ -50,6 +50,19 @@ func (g *SecretGuard) Validate(section, content string) error {
 	return nil
 }
 
+// Redact masks active secrets and generic credential-shaped substrings in
+// content that must be persisted or displayed rather than rejected outright,
+// such as implementation-run output that legitimately echoes shell output.
+func (g *SecretGuard) Redact(content string) string {
+	for _, secret := range g.active {
+		content = strings.ReplaceAll(content, secret, "[redacted]")
+	}
+	for _, pattern := range credentialContentPatterns {
+		content = pattern.ReplaceAllString(content, "[redacted]")
+	}
+	return content
+}
+
 type contextEditTool struct {
 	name        string
 	description string

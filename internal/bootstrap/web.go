@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/webui"
@@ -59,7 +61,81 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("POST /api/config/"+section.path, requireWebSession(webConfig, now, webConfigSetRoute(commands, section.set)))
 	}
 
+	// MCP server definitions are file-owned by deliberate design (see
+	// docs/superpowers/specs/2026-07-22-eggy-mcp-client-design.md): there is
+	// no /config get|set mcp catalog command, so these routes call the
+	// config_mutate.go helpers directly instead of bridging through
+	// CommandService.
+	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
+	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
+	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
+
 	return mux
+}
+
+func webMCPListRoute(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		servers, err := GetMCPServersConfig(configPath)
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		names := make([]string, 0, len(servers))
+		for name := range servers {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		rows := make([][]string, 0, len(names))
+		for _, name := range names {
+			server := servers[name]
+			rows = append(rows, []string{name, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv})
+		}
+		writeWebResult(w, CommandResult{
+			State:        ResultSuccess,
+			TableHeaders: []string{"Name", "URL", "Auth", "Enabled", "Bearer token env"},
+			TableRows:    rows,
+		})
+	}
+}
+
+func webMCPSetRoute(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Name           string `json:"name"`
+			URL            string `json:"url"`
+			Auth           string `json:"auth"`
+			BearerTokenEnv string `json:"bearer_token_env"`
+			Enabled        bool   `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if input.Name == "" || input.URL == "" || input.Auth == "" {
+			writeWebError(w, http.StatusBadRequest, "name, url, and auth are required")
+			return
+		}
+		if err := SetMCPServer(configPath, input.Name, input.URL, input.Auth, input.BearerTokenEnv, input.Enabled); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeWebResult(w, CommandResult{State: ResultSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: "Restart Eggy for this to take effect."})
+	}
+}
+
+func webMCPRemoveRoute(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if name == "" {
+			writeWebError(w, http.StatusBadRequest, "server name is required")
+			return
+		}
+		if err := RemoveMCPServer(configPath, name); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeWebResult(w, CommandResult{State: ResultSuccess, Title: "Removed MCP server " + name + ".", Detail: "Restart Eggy for this to take effect."})
+	}
 }
 
 func webConfigGetRoute(commands *CommandService, path []string) http.HandlerFunc {

@@ -217,6 +217,105 @@ func TestWebConfigRoutesRequireSession(t *testing.T) {
 	}
 }
 
+func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	addBody := strings.NewReader(`{"name":"railway","url":"https://mcp.railway.com","auth":"oauth","enabled":true}`)
+	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", addBody)
+	addRequest.AddCookie(cookie)
+	addResponse := httptest.NewRecorder()
+	handler.ServeHTTP(addResponse, addRequest)
+	if addResponse.Code != http.StatusOK {
+		t.Fatalf("add status=%d body=%s", addResponse.Code, addResponse.Body.String())
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil)
+	listRequest.AddCookie(cookie)
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed CommandResult
+	if err := json.Unmarshal(listResponse.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, row := range listed.TableRows {
+		if len(row) > 0 && row[0] == "railway" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected railway in table rows: %#v", listed.TableRows)
+	}
+
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/config/mcp/railway", nil)
+	removeRequest.AddCookie(cookie)
+	removeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(removeResponse, removeRequest)
+	if removeResponse.Code != http.StatusOK {
+		t.Fatalf("remove status=%d body=%s", removeResponse.Code, removeResponse.Body.String())
+	}
+
+	afterRemoveRequest := httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil)
+	afterRemoveRequest.AddCookie(cookie)
+	afterRemoveResponse := httptest.NewRecorder()
+	handler.ServeHTTP(afterRemoveResponse, afterRemoveRequest)
+	var afterRemove CommandResult
+	if err := json.Unmarshal(afterRemoveResponse.Body.Bytes(), &afterRemove); err != nil {
+		t.Fatal(err)
+	}
+	if len(afterRemove.TableRows) != 0 {
+		t.Fatalf("expected no servers after removal, got %#v", afterRemove.TableRows)
+	}
+}
+
+func TestWebMCPRoutesRejectInvalidInput(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", strings.NewReader(`{"name":"railway","url":"http://mcp.railway.com","auth":"oauth","enabled":true}`))
+	addRequest.AddCookie(cookie)
+	addResponse := httptest.NewRecorder()
+	handler.ServeHTTP(addResponse, addRequest)
+	if addResponse.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", addResponse.Code, addResponse.Body.String())
+	}
+
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/config/mcp/does-not-exist", nil)
+	removeRequest.AddCookie(cookie)
+	removeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(removeResponse, removeRequest)
+	if removeResponse.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", removeResponse.Code, removeResponse.Body.String())
+	}
+}
+
+func TestWebMCPRoutesRequireSession(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler("", testWebConfig(now))
+
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil))
+	if getResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("get status=%d", getResponse.Code)
+	}
+
+	deleteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/config/mcp/railway", nil))
+	if deleteResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("delete status=%d", deleteResponse.Code)
+	}
+}
+
 func TestWebResponseBodyIsRenderJSONShape(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	handler := NewWebHandler("", testWebConfig(now))

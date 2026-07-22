@@ -1,536 +1,194 @@
 # Eggy roadmap
 
-This checklist captures the practical lessons Eggy can adopt from OpenClaw,
-Hermes Agent, and NanoClaw. It preserves Eggy's Go ports-and-adapters
-architecture, file-backed state, trusted-repository model, and independent
-approval gates.
+This file tracks unfinished work only. Current behavior belongs in `README.md`
+and `docs/ARCHITECTURE.md`; durable design rationale belongs in `docs/adr/`;
+completed implementation history remains in git.
 
-## P0: Simplify the current architecture
+Priorities are ordered by urgency, then by dependency. Check an item only when
+its implementation and focused tests have landed.
 
-Reduce accidental complexity before adding more capabilities. Keep the
-ports-and-adapters modular monolith, but remove duplicated sources of truth,
-unused extension points, compatibility paths that no longer serve a deployed
-format, and documentation that describes superseded implementations.
+## P0: Finish the architecture simplification
 
-Complete these changes in the order listed below. The first four are low-risk
-cleanup and should land before the run/session persistence refactor. Every
-state-shape change must preserve existing `/data/state.json` files through an
-explicit, tested schema migration.
+### Simplify shipping authorization
 
-### 1. Remove dead task, state, and port types
-
-The generic task subsystem has no production producer. Nothing creates a
-`tasks.Task`; startup only scans an empty `State.Tasks` map and marks hypothetical
-running tasks as interrupted. Coding runs and implementation sessions already
-have their own lifecycle and recovery behavior.
-
-- [x] Remove `internal/kernel/tasks/tasks.go`,
-      `internal/kernel/services/task_service.go`, and their tests.
-- [x] Remove `TaskService.RecoverInterrupted` from `App.Run`.
-- [x] Remove `State.Tasks` through an explicit state-schema migration. Loading
-      an existing state file containing `tasks` must remain safe and must not
-      corrupt any unrelated field.
-- [x] Remove `State.SelectedRepository`; production code never sets it. Update
-      deterministic status output to report configured repositories or another
-      value backed by live state instead of an always-empty selected value.
-- [x] Remove `CodingRuntimeState` and `State.Coding`; `SelectedAgent` belongs to
-      the retired configurable coding-agent path and has no production writer.
-- [x] Remove `State.ConversationSummary` unless a real summary producer is
-      introduced in the same change. The current runtime reads and clears the
-      field but never creates a summary.
-- [x] Remove the unused `TriggerSource` and `StreamingRunner` ports.
-- [x] Remove the unused `ScheduleHeartbeat` enum value if no persisted schedule
-      uses it; otherwise migrate it explicitly before deletion.
-- [x] Review fields on `ImplementationSession` such as `Title`, `Model`, and
-      `PromptVersion`, and delete fields that have no writer or planned reader.
-- [x] Add a focused migration test using a representative current production
-      state file containing repositories, approvals, schedules, Calendar auth,
-      model selection, usage, and coding history.
-- [x] Verify that startup recovery still covers active implementation sessions
-      and pending schedules after the generic task recovery is removed.
-
-### 2. Create one command contract for Telegram and the CLI
-
-Command names, parsing, validation, help, and output are currently duplicated
-across `internal/bootstrap/commands.go`, `cmd/eggy/config.go`, Telegram's bot
-command list, and hand-maintained help text. This duplication is already causing
-Telegram and CLI grammar and output to drift.
-
-- [x] Define one command catalog containing each command's name, description,
-      subcommands, arguments, examples, handler, and response intent.
-- [x] Keep Telegram's natural `key=value` syntax for named values, for example
-      `/config set model alias=deepseek-pro provider=deepseek
-      model=deepseek-v4-pro reasoning_efforts=low,medium,high,max`.
-- [x] Keep conventional CLI flags, for example `eggy config set model
-      --alias=deepseek-pro --provider=deepseek --model=deepseek-v4-pro
-      --reasoning-efforts=low,medium,high,max`.
-- [x] Parse both surfaces into the same validated command request. Telegram must
-      not spawn the `eggy` executable as a subprocess.
-- [x] Route `eggy config` through the shared config command handler while
-      preserving its ability to work without constructing the full runtime or
-      requiring locally available provider credentials.
-- [x] Replace ad-hoc response strings with a structured command result containing
-      a state (`success`, `info`, `warning`, `error`, or `help`), title, fields or
-      rows, explanatory detail, and relevant next commands.
-- [x] Render the same result as clean plain text for the CLI and safe HTML for
-      Telegram. CLI output must remain readable when redirected to a file or
-      pipe and must not require colour support.
-- [x] Generate `/help`, `eggy help`, and Telegram autocomplete metadata from the
-      shared command catalog so the lists cannot drift.
-- [x] Keep legacy positional Telegram forms temporarily where removing them
-      would break saved commands, but show only the canonical syntax in new help
-      and confirmation output.
-- [x] Give every direct command enough context to answer: what is the current
-      state, what did Eggy just do, and what can the owner do next?
-- [x] Improve empty states: no repositories should show the exact add command;
-      no runs should explain how an implementation run starts; no prompts should
-      explain what custom prompts do; no schedules should explain how scheduling
-      is requested.
-- [x] Improve command-family output:
-  - [x] `status`: show configured repositories, active runs, pending approvals,
-        schedules, active model, and relevant next actions from real state;
-  - [x] `repositories`: show repository name, base branch, protected branches,
-        and whether an add request is awaiting owner approval;
-  - [x] `runs`: show run ID, repository, phase/status, validation state, and the
-        correct continue or stop command when applicable;
-  - [x] `continue` and `stop`: explain whether work remains resumable and show
-        the pull-request URL when shipping completes;
-  - [x] `schedules`: show instruction/purpose, next run, enabled state, and the
-        owner timezone;
-  - [x] `memory` and `clear`: distinguish durable `USER.md`/`MEMORY.md` content
-        from disposable recent conversation context;
-  - [x] `prompts`: explain how named prompts affect future turns and show exact
-        show, set, and remove examples;
-  - [x] `model`: show the active alias, reasoning effort, allowed effort levels,
-        configured alternatives, and exact change commands;
-  - [x] `config`: render providers, models, and Calendar settings as labelled
-        fields; state that environment-variable names are references rather than
-        secret values; clearly mark changes that require restart;
-  - [x] `usage`: render per-model token categories clearly and retain the warning
-        that local provider-reported totals are not billing records;
-  - [x] `calendar_auth`: explain the authorization purpose and the ten-minute,
-        single-use enrollment-link expiry;
-  - [x] `restart`: explain that active implementation sessions are interrupted
-        safely and can be resumed explicitly after Eggy returns.
-- [x] Format malformed commands as actionable help with the missing or invalid
-      field, a Telegram example, and a CLI example instead of a bare usage line.
-- [x] Add parity tests proving equivalent Telegram and CLI input produces the
-      same command request and semantic result.
-- [x] Add renderer tests for escaping, long output, lists, links, errors, and
-      plain-text fallback.
-- [x] Add a catalog coverage test proving every registered Telegram command has
-      CLI help and a handler.
-
-### 3. Reduce documentation to current sources of truth
-
-Historical Superpowers plans and superseded specs contain nearly as many lines
-as the production Go code. Several describe removed architecture, including
-Flash/Pro routing, a Codex CLI coding adapter, and manual Telegram approvals for
-each shipping step. They now make the current system harder to understand.
-
-- [x] Keep `README.md` as the current operator guide and update it whenever a
-      command, runtime path, deployment requirement, or supported capability
-      changes.
-- [x] Replace the stale MVP spec with one concise current architecture document
-      describing the native implementation loop, configurable model aliases,
-      automatic shipping flow with independent authorization checks, durable
-      sessions, and the actual Telegram/CLI surfaces. See `docs/ARCHITECTURE.md`.
-- [x] Preserve durable architectural decisions as small ADRs when their rationale
-      still matters; do not retain full step-by-step implementation plans as
-      active documentation. See `docs/adr/`.
-- [x] Archive outside the active documentation tree or remove completed files in
-      `docs/superpowers/plans/` and superseded files in
-      `docs/superpowers/specs/`. Removed; full history remains in git.
-- [x] Reconcile this roadmap with the implementation. Mark implemented safety
-      work complete, delete obsolete aspirations, and avoid keeping unchecked
-      items that merely restate existing behavior. See the "P1: Preserve host
-      authority" checkboxes below, updated against current `shipping.go` and
-      `approval_service.go` behavior.
-- [x] Remove stale references to `/new`, a future TUI, Codex device authentication,
-      Flash/Pro automatic escalation, and manual shipping taps unless those
-      features are deliberately restored. `/new` and the "future TUI" framing
-      are gone from `README.md`; Codex/Flash/Pro/manual-approval code was
-      already removed, and the stray "Codex run" comment in
-      `progress_tracker.go` is fixed.
-- [x] Add a lightweight documentation check that validates command names and
-      important file paths against the shared command catalog or current source.
-      See `internal/bootstrap/docs_consistency_test.go`, which checks
-      README.md's documented commands against the catalog's `Path` entries
-      in `commands.go`.
-
-### 4. Config versioning removed
-
-- [x] Dropped the `version` field and the parallel version-1 model entirely
-      (`legacyConfigDocument`, `ModelsConfig`, `ModelConfig`,
-      `EscalationConfig`, `legacyModels`, `normalizeLegacyConfig`, and the
-      version branches in load/validate/marshal) instead of maintaining two
-      config formats — this is a single-deployment app, so there was no
-      external audience to migrate.
-- [x] There is now exactly one accepted config shape (the former "version 2"
-      shape, unversioned); an old-format file fails strict-field YAML
-      decoding rather than being silently accepted.
-- [x] Retained strict known-field validation, atomic writes, file locking,
-      secret indirection through environment-variable names, and Railway
-      `PORT` override behavior.
-- [ ] Reset the deployed `/data/config.yaml` on Railway (delete it so first
-      boot regenerates it in the new format) — this is a manual step, not
-      code.
-
-### 5. Make implementation sessions the single source of run truth
-
-`CodingRun` in `state.json` and `ImplementationSession` under `/data/sessions`
-duplicate run ID, repository, workspace, branch, base revision, status, and
-timestamps. `CodingService` updates both and contains mismatch handling for when
-the two copies diverge. This is the largest avoidable runtime complexity.
-
-- [x] Define one typed run/session aggregate containing repository, workspace,
-      branch, base revision, current phase, validation, commit, pull request,
-      timestamps, resumable context, and bounded event history.
-- [x] Use the implementation-session store as the canonical source for run
-      metadata and lifecycle. Keep the append-only event log separate from the
-      small metadata document so transcripts do not inflate `state.json`.
-- [x] Replace the stringly typed `CodingRun.Status` and the overlapping
-      `ImplementationSessionStatus` values with one typed phase model.
-- [x] Rename or remove `awaiting_*_approval` phases that are only instantaneous
-      internal milestones in the automatic shipping flow. Preserve useful
-      `running`, `interrupted`, `blocked`, `committed`, `pushed`, `completed`,
-      and `cancelled` states.
-- [x] Move validation evidence, commit hash, pull-request number/URL, and cleanup
-      state into the canonical session record.
-- [x] Update `CodingService`, `ShippingService`, `/runs`, `/continue`, `/stop`,
-      recovery, retention cleanup, progress delivery, and status reporting to
-      read and write the canonical store only.
-- [x] Remove direct access such as `s.sessions.store.Update`; expose the minimal
-      lifecycle operations required by the service boundary.
-- [x] Remove `State.CodingRuns` through an explicit state-schema migration after
-      existing runs have been imported into the session store.
-- [x] Make the migration idempotent and crash-safe: rerunning it after an
-      interrupted startup must not duplicate events, discard a diff, or make a
-      resumable workspace unreachable.
-- [x] Block a migrated session clearly when its workspace, branch, or base
-      revision no longer exists; never auto-replay implementation work.
-- [x] Keep session transcripts and uncommitted workspaces on the Railway volume
-      and preserve explicit owner-triggered continuation.
-- [x] Add migration, restart, resume, shipping, cleanup, and corrupted-session
-      tests before removing the old representation.
-
-### 6. Simplify shipping authorization without weakening it
-
-`ShippingService` currently receives the approval subsystem as three separate
-roles (`policy`, `requester`, and `decider`), creates a pending approval,
-immediately decides it, then authorizes the same action. `App` also keeps
-shipping callback executors for pending approvals left by an older manual-tap
-flow.
-
-- [ ] Define one narrow shipping-authorization dependency that owns issuance,
-      automatic decision, and later authorization of the exact payload without
-      exposing three setter-injected roles.
-- [ ] Inject all required shipping dependencies through the constructor; remove
-      `SetApprovalRequester`, `SetApprovalDecider`, and other partial-construction
-      states.
-- [ ] Preserve a distinct authorization record and check for commit, push, and
-      pull-request creation. Automatic progression must not collapse the three
-      actions into one broad permission.
-- [ ] Preserve expiry, action matching, payload-digest binding, complete and
-      untruncated diff binding, local branch/head checks, remote-head checks,
-      and protected-branch denial.
-- [ ] Add a state migration or startup invalidation for obsolete pending
-      shipping approvals, then remove shipping from Telegram's callback executor
-      map and delete compatibility-only cleanup branches.
+- [ ] Replace the three approval roles injected into `ShippingService` with one
+      narrow authorization dependency that issues, automatically decides, and
+      later authorizes an exact action and payload.
+- [ ] Inject every shipping dependency through the constructor and remove
+      setter-based partial construction.
+- [ ] Preserve separate authorization records and checks for commit, push, and
+      pull-request creation, including expiry, action matching, full-diff digest
+      binding, branch/head checks, remote-head checks, and protected-branch
+      denial.
+- [ ] Invalidate obsolete pending shipping approvals at startup or migrate them,
+      then remove shipping from Telegram's callback executor map and delete its
+      compatibility-only cleanup paths.
 - [ ] Keep explicit Telegram approval callbacks for repository registration and
-      Calendar create/update/delete operations.
-- [ ] Keep pull-request merging unsupported.
-- [ ] Add tests proving a coding or model tool cannot bypass any protected
-      shipping step after the plumbing is simplified.
+      Calendar mutations. Pull-request merging remains unsupported.
+- [ ] Add an end-to-end test proving the implementation loop cannot bypass any
+      commit, push, or pull-request authorization check.
 
-### 7. Decide whether custom prompts earn their complexity
+### Deployment follow-up
 
-- [x] `/prompts` was unused in the deployed workflow, so it was removed along
-      with `NamedPrompt`, `ContextStore.SetPrompt`/`RemovePrompt`,
-      prompt-directory persistence, custom prompt injection, help entries, and
-      their tests.
-- [x] Replaced the mutable global `PromptSection` registry and `init`
-      registration with a direct, explicit `BuildInstructions` sequence, since
-      no compiled extension consumed the registry.
-- [x] Kept the trust order obvious in code: hard runtime policy, capability
-      manifest, `SOUL.md`, `USER.md`, `MEMORY.md`, then trusted temporal
-      context.
-- [x] Preserved memory size indicators, secret filtering, and the rule that
-      durable context cannot override the current owner instruction.
+- [ ] Reset Railway's deployed `/data/config.yaml` so the next boot generates
+      the current unversioned config shape. This is a manual deployment step.
 
-### Simplification invariants
+## P1: Make context and capabilities inspectable
 
-Do not use cleanup as a reason to weaken the controls that make Eggy's trusted
-single-owner model safe and recoverable.
+- [ ] Add a deterministic `/capabilities` view showing the selected reasoning
+      model, registered assistant tools, configured repositories, enabled
+      integrations, and implementation-loop readiness.
+- [ ] Add a deterministic `/context` view showing injected bytes or estimated
+      tokens per context file, recent-history and session-context sizes,
+      tool-schema overhead, truncation markers, and the known context limit and
+      remaining budget.
+- [ ] Extend `/runs` detail with the model, base revision, phase, provider session
+      ID, elapsed time, and validation status.
+- [ ] Derive every diagnostic from bootstrap and persisted runtime state. Never
+      expose credentials, raw environment contents, or credential paths.
 
-- [ ] Keep `internal/kernel` and `internal/ports` provider-neutral and register
-      adapters only in `internal/bootstrap`.
-- [ ] Keep file locking and atomic writes for config, state, context, and session
-      persistence.
-- [ ] Keep Telegram webhook authentication, owner allowlisting, and update
-      deduplication.
-- [ ] Keep runner root restrictions, path validation, environment allowlisting,
-      timeout and output bounds, process-group cancellation, and workspace
-      cleanup.
-- [ ] Keep active-secret filtering and secret-like content rejection for context
-      writes.
-- [ ] Keep Calendar mutation approvals, OAuth token encryption, idempotency, and
-      ETag binding.
-- [ ] Keep independent commit, push, and pull-request authorization checks and
-      protected-branch denial.
-- [ ] Keep scheduled and heartbeat turns unable to access repository-modifying
-      tools; retain the explicit owner-trigger for new and resumed coding work.
-- [ ] Keep exactly one `eggyd` replica while operational state remains
-      file-backed.
-- [ ] Run focused tests first, then `make fmt vet test race build` for every
-      simplification change. Run `make smoke` when Docker is available.
+## P1: Harden durable context and recall
 
-## P0: Keep read-only repository work narrow and safe
-
-- [x] Stop `repository_inspect` from launching a modifying implementation run.
-- [ ] Replace it with narrow provider-neutral repository read capabilities:
-  - [x] list configured repositories;
-  - [x] list a bounded directory tree;
-  - [x] search file names and text;
-  - [x] read bounded file ranges;
-  - [x] inspect status and branches without mutation;
-  - [ ] inspect diffs without mutation (not meaningful yet: read tools clone a
-        fresh checkout per call, so there is never a pending diff to show);
-  - [x] read safe GitHub repository, issue, pull-request, and check metadata.
-- [x] Keep clone credentials and other secrets outside model-visible tool
-      arguments and results.
-- [x] Enforce repository roots, path validation, output bounds, timeouts, and
-      sanitized environments for every read tool.
-- [x] Ensure read-only repository work creates no branch, leaves no diff, and
-      cannot invoke dependency installation or arbitrary shell commands.
-- [ ] Require successful read-tool evidence before Eggy claims facts about a
-      repository's implementation. (tool descriptions hint at this; nothing
-      enforces it yet.)
-- [x] Return a truthful capability/setup response when repository reading is not
-      configured or available.
-
-## P1: Preserve host authority over coding and shipping
-
-- [x] Keep workspace creation, repository cloning, branch creation, diff capture,
-      and cleanup under Eggy rather than the coding-agent adapter. There is no
-      longer a separate coding-agent adapter to delegate to; `CodingService`
-      owns the whole lifecycle around the native implementation loop.
-- [x] Treat coding-agent output as an untrusted proposal until Eggy independently
-      captures and validates the resulting checkout state.
-      `CodingService.Start`/`Continue` compare the actual checked-out
-      branch/HEAD against the expected run state before proceeding
-      (`internal/kernel/services/coding.go`).
-- [x] Record the base commit before execution and the final commit/diff state
-      afterward. `CodingRun.BaseRevision` is captured at run start and checked
-      against the live checkout at every subsequent step.
-- [x] Reject changed, incomplete, or truncated approval material.
-      `ApprovalService.Authorize` recomputes the payload digest and returns
-      `ErrPayloadChanged` on any mismatch.
-- [x] Preserve separate, expiring, payload-bound approval records for commit,
-      push, and pull-request creation, even though `ShippingService.Ship`
-      decides each one automatically instead of waiting for an owner tap —
-      payload-digest binding, expiry, and protected-branch enforcement all
-      still run unchanged inside `ApprovalService.Authorize`.
-- [x] Revalidate local and remote heads immediately before protected side
-      effects. `ShippingService` checks `pusher.Head` before push and
-      `pullRequests.RemoteHead` before pull-request creation
-      (`internal/kernel/services/shipping.go`).
-- [x] Keep protected branches unpushable even with approval.
-      `ApprovalService.Authorize` denies a `Push` action against any
-      `Repository.ProtectedBranches` entry regardless of approval status.
-- [x] Never let the implementation loop merge a pull request. No merge
-      capability exists on `ports.PullRequestProvider` or its adapter.
-- [x] Represent privileged requests and results as structured kernel data rather
-      than natural-language messages. Shipping and coding results are typed
-      (`ports.PullRequest`, `ports.CodingResult`, `approvals.Approval`), not
-      free-text.
-- [ ] Add tests proving the implementation loop cannot bypass Eggy's shipping
-      policy. Protected-branch and payload-digest behavior are covered
-      individually; no single test yet drives a full implementation-loop
-      attempt to commit/push directly and asserts it's blocked end to end.
-
-## P2: Improve memory without turning it into a transcript dump
-
-Eggy's `SOUL.md`/`USER.md`/`MEMORY.md` naming and layering is adopted from
-Hermes Agent, but the storage model deliberately diverges rather than catching
-up to it:
-
-- Hermes persists sessions and full message history in SQLite
-  (`~/.hermes/state.db`, WAL mode) with FTS5 full-text search and a
-  `session_search` tool for cross-session recall. Eggy keeps only a bounded
-  recent-history window plus a summary in `state.json`, with no full-text
-  search over past conversations and no database dependency.
-- Hermes curates memory proactively ("periodic nudges") and grows a separate
-  procedural-skill store under `~/.hermes/skills/`. Eggy now nudges
-  proactively too, but on its existing heartbeat cadence rather than a new
-  subsystem: `[x]` heartbeat turns see recent conversation and may call the
-  same explicit, narrow agent tool calls a direct conversation turn can
-  (`user_read`, `user_append`, `user_replace_section`, `user_remove_section`,
-  and the `memory_*` equivalents) to curate silently, with or without also
-  sending a check-in. Eggy still has no autonomous skill-creation loop (see
-  "Separate durable facts from reusable procedures" below for Eggy's
-  intentionally smaller take on that idea).
-- Known gap: heartbeat curation currently shares the check-in's quiet-hours
-  and weekly-message gate (`HeartbeatPolicy.CanSend`), so once that gate
-  blocks a check-in (quiet hours, or the weekly proactive-message cap already
-  hit), curation is skipped for the same window even though it sends no
-  message. Splitting curation onto its own gate is a candidate follow-up if
-  this proves too conservative in practice.
-- Hermes layers in dialectic user modeling (Honcho) for a deepening
-  cross-session user model. Eggy keeps `USER.md` a flat, agent-curated fact
-  list.
-- Eggy rejects likely secrets (passwords, tokens, keys) before any memory
-  write reaches disk; this guard was not confirmed in Hermes's public docs.
-
-The gap is intentional: Eggy stays file-backed, single-volume, and
-provider-neutral rather than adding a database, search index, or skills
-runtime purely to match Hermes.
-
-- [x] Show a live capacity indicator (`[N% - used/max bytes]`) alongside
-      `USER.md` and `MEMORY.md` in the system prompt, mirroring Hermes's
-      "[67% — 1,474/2,200 chars]" snapshot annotation, so the model can see
-      how full a document is before it writes.
-- [ ] Set explicit, separate injected-size budgets for `USER.md` and
-      `MEMORY.md` (today they share one `ContextStore`-wide byte cap with
-      `SOUL.md` and custom prompts, unlike Hermes's distinct per-file caps).
-- [ ] Keep `USER.md` for stable owner preferences and communication style.
-- [ ] Keep `MEMORY.md` for compact durable facts, decisions, and reusable lessons.
-- [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and invisible
-      Unicode content before memory writes.
-- [x] Return a clear capacity error when curated memory is full instead of
-      silently truncating or dropping stored content.
-- [x] Give USER.md/MEMORY.md real CRUD instead of create/append/replace only:
-      `user_read`/`memory_read` return the live on-disk document (so a
-      curation pass isn't stuck reasoning from the stale turn-start prompt
-      snapshot after it just wrote something), and
-      `user_remove_section`/`memory_remove_section` delete a section outright
-      (`ContextStore.RemoveSection`) instead of only ever being able to
-      overwrite it. Heartbeat curation and direct conversation turns both
-      have all four tools now.
-- [ ] Design bounded, file-backed conversation search before adding it; do not
-      introduce a database solely for transcript recall.
-- [ ] Keep recalled conversation excerpts bounded, redacted, and marked as stale
+- [ ] Give `USER.md` and `MEMORY.md` separate injected-size budgets instead of
+      sharing the store-wide cap with `SOUL.md`.
+- [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
+      invisible-Unicode content before durable context writes.
+- [ ] Design bounded, file-backed conversation search before implementing it;
+      do not add a database solely for transcript recall.
+- [ ] Keep recalled excerpts bounded, redacted, and explicitly marked as stale
       historical context rather than current authority.
 
-## P2: Separate durable facts from reusable procedures
+Durable-context roles remain fixed: `SOUL.md` describes Eggy's identity and
+tone, `USER.md` holds stable owner preferences, and `MEMORY.md` holds compact
+facts, decisions, and reusable lessons. None may override runtime policy or
+grant capabilities.
 
-- [ ] Define a lightweight, Markdown-based procedural-skill format without adding
-      an agent framework, plugin runtime, or arbitrary native extension system.
-- [ ] Load full skill instructions only when the current task matches; keep only
-      compact skill metadata in ordinary context.
-- [ ] Store repeated workflows and troubleshooting procedures in skills rather
-      than expanding `MEMORY.md`.
-- [ ] Let Eggy propose a skill after a successful complex workflow, a recovered
-      failure, or an owner correction.
-- [ ] Require explicit owner approval before Eggy creates, edits, or deletes a
-      procedural skill.
-- [ ] Validate skill names, paths, size, referenced files, and forbidden secret
-      content.
-- [ ] Keep installed skills inspectable and removable through deterministic
-      commands.
+## P1: Isolate heartbeat and scheduled work
 
-## P2: Make context and capabilities inspectable
-
-- [ ] Add a deterministic `/capabilities` view showing:
-  - selected reasoning model;
-  - registered assistant tools;
-  - configured repositories;
-  - enabled integrations;
-  - implementation-loop readiness.
-- [ ] Add a deterministic `/context` view showing:
-  - injected bytes or estimated tokens per context file;
-  - conversation summary and recent-history sizes;
-  - tool-definition/schema overhead;
-  - truncation or omitted-context markers;
-  - the current context limit and remaining budget when known.
-- [ ] Add safe `/runs` detail for coding-agent name, base revision, current phase,
-      provider session ID, elapsed time, and validation status.
-- [ ] Report loaded/missing capabilities from actual bootstrap state rather than
-      model assumptions.
-- [ ] Never expose credentials, raw environment contents, or credential paths in
-      these diagnostics.
-
-## P2: Tighten heartbeat and scheduled work
-
-- [ ] Give heartbeat turns a small heartbeat-specific context instead of the full
-      conversational history by default.
-- [ ] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
-      quiet hours, limits, and prohibited actions in deterministic policy.
-- [ ] Run heartbeat evaluation in an isolated conversation context so old chat
-      instructions are not accidentally revived.
+- [ ] Give heartbeat turns a small, heartbeat-specific context rather than the
+      full conversational history.
+- [ ] Run heartbeat evaluation in an isolated conversation so old chat
+      instructions cannot be revived accidentally.
+- [ ] Separate silent context curation from the quiet-hours and weekly-message
+      gate used for proactive Telegram check-ins.
 - [ ] Skip or defer heartbeats while an implementation run or another protected
-      workflow is busy.
-- [ ] Keep active-hour and timezone checks deterministic.
-- [ ] Ensure "nothing useful to report" produces no Telegram message.
-- [ ] Distinguish deterministic scheduled commands from scheduled agent turns.
-- [ ] Run deterministic reminders, watchdogs, and already-rendered notifications
-      without spending a model call.
-- [ ] Require scheduled agent prompts to be self-contained and start them without
-      ambient chat history.
+      workflow is active.
+- [ ] Ensure that "nothing useful to report" sends no Telegram message.
+- [ ] Distinguish deterministic scheduled commands from scheduled agent turns;
+      run reminders, watchdogs, and pre-rendered notifications without a model
+      call.
+- [ ] Require scheduled agent prompts to be self-contained and start them
+      without ambient chat history.
+- [ ] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
+      timezone, quiet hours, limits, and prohibited actions in deterministic
+      policy.
 
-## P3: Improve execution isolation and recovery
+## P2: Build plug-and-play capabilities
 
-- [ ] Preserve strict workspace roots, path validation, environment allowlists,
-      timeouts, output limits, process-group cancellation, and cleanup.
-- [ ] Evaluate container-per-implementation-run isolation as a future hardening
-      step while keeping the current trusted-repository assumption explicit.
-- [ ] If containers are added, use a non-root user, explicit mounts, dropped
+See [`docs/adr/0005-procedural-skills.md`](docs/adr/0005-procedural-skills.md)
+for the skill format and approval flow. New task workflows belong in isolated,
+on-demand procedural skills; new providers and integrations belong in compiled
+adapter packages wired only in `internal/bootstrap`. Neither needs a generic,
+runtime-loaded plugin mechanism.
+
+- [x] Add a `skills.Store` adapter over flat `data_dir/skills/<name>.md` files
+      (`name` + `description` frontmatter only; no bundled scripts/assets),
+      with atomic+locked writes, a size cap, and name-pattern validation.
+- [x] Inject only the compact `name: description` index into ordinary context;
+      add a `skill_read` agent tool that loads one skill's full body on demand
+      when its description matches the current task.
+- [ ] Store repeatable workflows and troubleshooting procedures in skills rather
+      than expanding `MEMORY.md`. (Mechanism is in place; nothing yet steers
+      the agent to prefer this over a `MEMORY.md` write in practice.)
+- [x] Let Eggy propose a skill (name, description, body) after a successful
+      complex workflow, recovered failure, or owner correction, via
+      `ApprovalService.Request` — the same digest-bound approval flow as
+      Calendar mutations and `add_repository`, not the freely agent-writable
+      memory path. (`skill_propose` tool.)
+- [x] Do not expose `skill_write`/`skill_delete` as directly callable agent
+      tools; both go through approval `Decide` before any write happens.
+- [x] Validate skill names, sizes, and forbidden secret content with the
+      existing `SecretGuard`.
+- [x] Add a `/skills` command family mirroring `/memory`: list, `show <name>`,
+      `add <name> <description> <content>`, `edit <name> <content>`, `remove
+      <name>` — owner-initiated adds/edits/removals still open an approval
+      request rather than writing immediately.
+- [x] Track a `DisabledSkills` set in `state.json`; add freely agent-callable
+      `skill_disable`/`skill_enable` tools (no approval — reversible, content
+      untouched) and drop disabled skills from the compact index and the
+      steering list.
+- [ ] Add read-only `/skills browse <repo-url>` (lists `**/SKILL.md` paths,
+      installs nothing) and `/skills clone <repo-url> <path>` (fetches one
+      file, opens the normal approval request with the fetched body attached)
+      instead of a bulk importer.
+- [x] Extend `CapabilityManifest` with enabled skills' `name: description`
+      pairs and render them as their own system message in
+      `agent.BuildInstructions`; add one `hardRuntimePolicy` line telling the
+      agent to check that list before non-trivial work and call `skill_read`
+      on a match before following it.
+
+## P2: Improve run recovery and rollback
+
+- [ ] When the owner continues an existing pull request, use its branch as the
+      run base instead of branching from trunk and opening a duplicate pull
+      request.
+- [ ] Track the open pull request associated with each run so a later continuation
+      can resolve it without relying only on repository and instruction text.
+- [ ] Save a bounded patch and validation artifact before workspace cleanup so
+      rejected or interrupted work remains inspectable without retaining the
+      full checkout.
+- [ ] Add cleanup and retention diagnostics for abandoned workspaces and
+      provider sessions.
+- [ ] Add an explicit discard operation that cannot affect the owner's checkout.
+- [ ] Evaluate a "retry from base" operation for contaminated or partially failed
+      workspaces.
+
+The immutable base commit is the pre-run checkpoint. Resumption always requires
+a new owner instruction, and rollback stays inside the isolated run workspace;
+it must never destructively modify the owner's checkout.
+
+## P3: Evaluate stronger execution isolation
+
+- [ ] Evaluate container-per-run isolation while keeping the current
+      trusted-repository assumption explicit.
+- [ ] If adopted, run as a non-root user with explicit mounts, dropped
       capabilities, bounded resources, and an explicit network policy.
 - [ ] Keep credentials outside coding workspaces and forward only the minimum
-      required environment to each subprocess.
-- [ ] Persist enough run state to mark interrupted work accurately after restart.
-- [ ] Keep resumable coding-agent sessions distinct from automatic replay: never
-      resume an interrupted modifying run without a new owner instruction.
-- [ ] When the owner explicitly asks to continue an already-open pull request,
-      check out that pull request's existing branch as the run's base instead
-      of branching from trunk and opening a second pull request.
-- [ ] Track the open pull request associated with a coding-agent run so a later
-      "keep going on that" request can be matched back to it instead of only
-      matching on repository and instruction text.
-- [ ] Save a bounded patch/diff artifact before workspace cleanup so rejected or
-      interrupted work can be inspected without retaining the entire checkout.
-- [ ] Add cleanup and retention diagnostics for abandoned workspaces and provider
-      sessions.
+      environment required by each subprocess.
 
-## P3: Add checkpoints and rollback-friendly artifacts
+## Standing constraints
 
-- [ ] Treat the immutable base commit as the pre-implementation checkpoint.
-- [ ] Capture a complete post-run diff and validation report before requesting
-      approval.
-- [ ] Let the owner discard an implementation run without affecting the source
-      repository.
-- [ ] Consider an explicit "retry from base" operation rather than continuing a
-      contaminated or partially failed workspace.
-- [ ] Keep rollback local to the isolated branch/workspace; never implement
-      rollback with destructive operations against the owner's checkout.
+Every roadmap item must preserve these properties:
 
-## P3: Keep the extension model small
-
-- [ ] Retain bootstrap-only adapter registration and provider-neutral kernel/port
-      boundaries.
-- [ ] Avoid copying OpenClaw's broad plugin surface or Hermes's large built-in
-      tool registry into Eggy.
-- [ ] Prefer a small capability manifest and focused tools over exposing every
-      integration to every turn.
-- [ ] Keep channel-specific formatting, provider payloads, credentials, and CLI
-      protocols inside adapters.
-- [ ] Add new providers through compiled adapters and explicit configuration, not
-      runtime-loaded native plugins.
-
-## Acceptance checklist
-
-- [ ] The coding agent always runs in an isolated workspace, never directly
-      against the owner's checkout.
-- [ ] Ambiguous requests pause for clarification before any modifying workflow.
-- [ ] Coding-agent progress is streamed through normalized, provider-neutral
-      events.
-- [ ] Eggy independently captures the final diff and validation evidence.
-- [ ] Commit, push, and pull-request creation retain payload-bound approval
-      records even though they're decided automatically; Calendar mutations
-      still require an explicit owner tap.
-- [ ] Context, memory, skills, and capability diagnostics remain bounded and
-      secret-free.
-- [ ] Existing `/data/state.json` files remain compatible or receive an explicit,
-      tested schema migration.
-- [ ] `make fmt vet test race build` passes.
-- [ ] `make smoke` passes when Docker is available.
+- `internal/kernel` and `internal/ports` remain provider-neutral; adapters and
+  tools are registered only in `internal/bootstrap`.
+- Config, state, context, and session stores retain file locking and atomic
+  writes. Existing `/data/state.json` files remain compatible or receive an
+  explicit, tested schema migration.
+- Telegram retains webhook authentication, owner allowlisting, and update
+  deduplication.
+- Repository execution retains root and path restrictions, environment
+  allowlisting, timeouts, output limits, process-group cancellation, isolated
+  workspaces, and cleanup.
+- Ambiguous requests are clarified before a modifying workflow starts. Progress
+  is streamed as normalized provider-neutral events, and Eggy independently
+  captures the complete final diff and validation evidence before shipping.
+- Durable context retains active-secret filtering and secret-like content
+  rejection.
+- Calendar mutations retain explicit owner approval, OAuth token encryption,
+  idempotency, and ETag binding.
+- Commit, push, and pull-request creation retain independent payload-bound
+  authorization; protected branches remain unpushable even with approval.
+- Scheduled and heartbeat turns cannot modify repositories. New and resumed
+  implementation work remains explicitly owner-triggered.
+- Operational state remains file-backed, so production runs exactly one
+  `eggyd` replica.
+- Every capability has a small, swappable boundary: task workflows are
+  on-demand skills, while providers and integrations are compiled adapters with
+  explicit bootstrap configuration. Provider payloads, credentials, channel
+  formatting, and CLI protocols remain inside adapters; no capability may load
+  arbitrary native code at runtime.
+- The capability manifest stays small and reflects only the tools actually
+  available to the current turn.
+- Changes are developed test-first and verified with focused tests followed by
+  `make fmt vet test race build`; run `make smoke` when Docker is available.

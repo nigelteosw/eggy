@@ -26,6 +26,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/adapters/runner/localprocess"
 	schedulerlocal "github.com/nigelteosw/eggy/internal/adapters/scheduler/local"
 	sessionjson "github.com/nigelteosw/eggy/internal/adapters/sessions/jsonfile"
+	skillsadapter "github.com/nigelteosw/eggy/internal/adapters/skills"
 	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -69,6 +70,7 @@ type App struct {
 	shipping            *services.ShippingService
 	calendar            *services.CalendarService
 	repositoriesService *services.RepositoriesService
+	skillsService       *services.SkillsService
 	conversation        *services.ConversationService
 	now                 func() time.Time
 	eventQueue          chan events.Event
@@ -176,11 +178,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	app.shipping.SetApprovalRequester(app.approvals)
 	app.shipping.SetApprovalDecider(app.approvals)
 	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, sessions)
+	skillsStore := skillsadapter.Open(filepath.Join(config.DataDir, "skills"), 32<<10)
+	app.skillsService = services.NewSkillsService(skillsStore, stateStore, app.approvals, app.approvals, services.NewSecretGuard(activeSecrets))
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
 		approvals.Commit:        app.shipping,
 		approvals.Push:          app.shipping,
 		approvals.CreatePR:      app.shipping,
 		approvals.AddRepository: app.repositoriesService,
+		approvals.SkillWrite:    app.skillsService,
+		approvals.SkillDelete:   app.skillsService,
 	}
 	app.conversation = services.NewConversationService(stateStore, 20)
 
@@ -228,14 +234,16 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	})
 	registry := services.NewToolRegistry()
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
+	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
 	baseTools := []ports.Tool{services.NewStatusTool(stateStore, sessions), currentTimeTool(options.Now, location, timezone)}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
+	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
+	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel, owner))
 	for _, tool := range baseTools {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
 	}
-	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
 	progress := telegram.NewProgressTracker(app.channel, owner)
 	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
@@ -295,7 +303,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
@@ -396,6 +404,7 @@ func readOnlyRunOptions() agent.RunOptions {
 	return agent.RunOptions{AllowedTools: map[string]bool{
 		"status": true, "repository_list": true, "calendar_list": true,
 		"read_file": true, "terminal": true, "repository_github": true,
+		"skill_read": true,
 	}}
 }
 
@@ -409,6 +418,7 @@ func heartbeatRunOptions() agent.RunOptions {
 	for _, tool := range []string{
 		"user_append", "user_replace_section", "user_remove_section", "user_read",
 		"memory_append", "memory_replace_section", "memory_remove_section", "memory_read",
+		"skill_disable", "skill_enable",
 	} {
 		options.AllowedTools[tool] = true
 	}
@@ -438,7 +448,11 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	if err != nil {
 		return err
 	}
-	manifest := a.capabilityManifest(state, alias)
+	enabledSkills, err := a.skillsService.Enabled(ctx)
+	if err != nil {
+		return err
+	}
+	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, state.RecentMessages...)
@@ -601,7 +615,11 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	manifest := a.capabilityManifest(state, alias)
+	enabledSkills, err := a.skillsService.Enabled(ctx)
+	if err != nil {
+		return err
+	}
+	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	options := heartbeatRunOptions()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
@@ -640,7 +658,7 @@ func repositoryNamesFromState(state ports.State) []string {
 	return names
 }
 
-func (a *App) capabilityManifest(state ports.State, activeModel string) agent.CapabilityManifest {
+func (a *App) capabilityManifest(state ports.State, activeModel string, skills []ports.SkillSummary) agent.CapabilityManifest {
 	manifest := a.manifest
 	manifest.ActiveModel = activeModel
 	manifest.Repositories = repositoryNamesFromState(state)
@@ -648,6 +666,10 @@ func (a *App) capabilityManifest(state ports.State, activeModel string) agent.Ca
 	manifest.RepositoryCommitReady = configured && manifest.RepositoryCommitReady
 	manifest.RepositoryPushReady = configured && manifest.RepositoryPushReady
 	manifest.PullRequestReady = configured && manifest.PullRequestReady
+	manifest.Skills = make([]agent.SkillDescriptor, 0, len(skills))
+	for _, skill := range skills {
+		manifest.Skills = append(manifest.Skills, agent.SkillDescriptor{Name: skill.Name, Description: skill.Description})
+	}
 	return manifest
 }
 

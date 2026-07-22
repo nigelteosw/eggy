@@ -180,6 +180,34 @@ func resolveCalendarRange(named, rawFrom, rawTo string, now time.Time, location 
 	return from, to, nil
 }
 
+// skillProposeTool lets the agent stage a new-or-updated skill after a
+// successful complex workflow, a recovered failure, or an owner correction,
+// mirroring calendar_create's shape: it only ever requests approval — like
+// calendar mutations, it needs channel.DeliverApproval, which is available
+// only here in the bootstrap wiring layer, not in kernel/services.
+func skillProposeTool(skills *services.SkillsService, channel ports.Channel, owner string) ports.Tool {
+	propose := bootstrapTool{definition: toolDefinition("skill_propose", "Propose creating or updating a procedural skill worth reusing later, e.g. after a successful complex workflow, a recovered failure, or an owner correction; requires owner approval before anything is written", `{"type":"object","properties":{"name":{"type":"string","minLength":1},"description":{"type":"string","minLength":1},"content":{"type":"string","minLength":1}},"required":["name","description","content"],"additionalProperties":false}`)}
+	propose.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var input struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Content     string `json:"content"`
+		}
+		if err := strictToolDecode(raw, &input); err != nil {
+			return nil, err
+		}
+		approval, err := skills.RequestWrite(ctx, input.Name, input.Description, input.Content)
+		if err != nil {
+			return nil, err
+		}
+		if err := channel.DeliverApproval(ctx, owner, approval); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
+	}
+	return propose
+}
+
 func scheduleTools(scheduler *schedulerlocal.Scheduler, now func() time.Time) []ports.Tool {
 	exact := bootstrapTool{definition: toolDefinition("schedule_exact", "Schedule a one-time instruction at an exact RFC3339 time", `{"type":"object","properties":{"at":{"type":"string"},"instruction":{"type":"string"}},"required":["at","instruction"],"additionalProperties":false}`)}
 	exact.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {

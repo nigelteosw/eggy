@@ -117,6 +117,39 @@ type ContextStore interface {
 	RemoveSection(context.Context, ContextDocument, string) error
 }
 
+// SkillSummary is the compact, always-in-context view of one installed
+// skill: enough for the agent to decide whether to load its full body with
+// skill_read, without paying for that body on every turn.
+type SkillSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Disabled mirrors State.DisabledSkills for this skill. A disabled skill
+	// is dropped from the steering list built for the agent, but its file is
+	// untouched and it remains readable by exact name.
+	Disabled bool `json:"disabled,omitempty"`
+}
+
+// Skill is one installed skill's full content, returned only when fetched
+// by name (skill_read, /skills show), never held resident across a whole
+// turn's context the way SkillSummary is.
+type Skill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"`
+}
+
+// SkillsStore persists procedural skills as one Markdown file per skill.
+// Write is deliberately create-or-replace, whole-file: unlike ContextStore's
+// section-addressed edits, a skill has no durable internal structure worth
+// patching in place. Nothing in this port executes a skill; it only reads
+// and writes its Markdown text.
+type SkillsStore interface {
+	List(context.Context) ([]SkillSummary, error)
+	Read(context.Context, string) (Skill, error)
+	Write(context.Context, string, string, string) error
+	Delete(context.Context, string) error
+}
+
 type State struct {
 	SchemaVersion     int                           `json:"schema_version"`
 	Version           uint64                        `json:"version"`
@@ -128,6 +161,10 @@ type State struct {
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
 	Calendar          CalendarAuth                  `json:"calendar,omitempty"`
 	Agent             AgentRuntimeState             `json:"agent,omitempty"`
+	// DisabledSkills names skills currently excluded from the compact
+	// steering index built for the agent. Disabling never removes or edits
+	// the skill's file, so it carries no approval gate, unlike SkillsStore.Write/Delete.
+	DisabledSkills map[string]bool `json:"disabled_skills,omitempty"`
 }
 
 type AgentRuntimeState struct {

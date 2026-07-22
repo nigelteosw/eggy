@@ -50,13 +50,23 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 
 func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
 	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
-	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro")
+	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro", nil)
 	if withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
 		t.Fatalf("without repository=%#v", withoutRepository)
 	}
-	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro")
+	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro", nil)
 	if !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
 		t.Fatalf("with repository=%#v", withRepository)
+	}
+}
+
+func TestCapabilityManifestConvertsEnabledSkillsToDescriptors(t *testing.T) {
+	app := &App{}
+	manifest := app.capabilityManifest(ports.State{}, "deepseek-pro", []ports.SkillSummary{
+		{Name: "fix-flaky-tests", Description: "Use when a test intermittently fails"},
+	})
+	if len(manifest.Skills) != 1 || manifest.Skills[0].Name != "fix-flaky-tests" || manifest.Skills[0].Description != "Use when a test intermittently fails" {
+		t.Fatalf("skills=%#v", manifest.Skills)
 	}
 }
 

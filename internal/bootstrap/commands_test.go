@@ -315,6 +315,7 @@ type commandTestApprovalGateway struct {
 
 func (g *commandTestApprovalGateway) Request(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
 	data, _ := json.Marshal(payload)
+	g.approval.Action = action
 	g.approval.Payload = data
 	return g.approval, nil
 }

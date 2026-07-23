@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -258,6 +259,278 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	customApp.Handler().ServeHTTP(response, request)
 	if response.Code == http.StatusNotFound {
 		t.Fatal("configured Telegram webhook path was not registered")
+	}
+}
+
+func TestNewAppOpensDurableMemoryAndRegistersTextRecallWithoutEmbeddings(t *testing.T) {
+	dataDir := t.TempDir()
+	app, err := NewApp(appTestConfig(dataDir), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dataDir, "eggy.db")); err != nil {
+		t.Fatalf("stat eggy.db: %v", err)
+	}
+	if app.memory == nil {
+		t.Fatal("durable memory store is nil")
+	}
+	if app.embedder != nil || app.memoryWorker != nil {
+		t.Fatalf("embeddings unexpectedly enabled: embedder=%T worker=%T", app.embedder, app.memoryWorker)
+	}
+	if !slices.Contains(app.loop.ToolNames(agent.RunOptions{}), "recall_conversation") {
+		t.Fatalf("registered tools=%v", app.loop.ToolNames(agent.RunOptions{}))
+	}
+}
+
+func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := appTestConfig(dataDir)
+	fixedNow := time.Date(2026, 7, 23, 9, 8, 7, 0, time.UTC)
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"durable assistant reply"}}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"},
+		Now:              func() time.Time { return fixedNow },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "durable owner prompt"})
+	if err := app.HandleEvent(context.Background(), events.Event{
+		ID: "direct", Type: events.TypeMessage, Owner: "42", Payload: payload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := app.memory.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("durable messages=%#v", messages)
+	}
+	if messages[1].Role != ports.RoleUser || messages[1].Content != "durable owner prompt" ||
+		messages[0].Role != ports.RoleAssistant || messages[0].Content != "durable assistant reply" {
+		t.Fatalf("durable messages=%#v", messages)
+	}
+	for _, message := range messages {
+		if message.Source != "telegram" || !message.CreatedAt.Equal(fixedNow) {
+			t.Fatalf("durable message=%#v", message)
+		}
+	}
+}
+
+func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			return appJSON(500, `{"error":"provider unavailable"}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "/status"})
+	if err := app.HandleEvent(context.Background(), events.Event{
+		ID: "command", Type: events.TypeMessage, Owner: "42", Payload: commandPayload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failedPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "this model turn fails"})
+	if err := app.HandleEvent(context.Background(), events.Event{
+		ID: "failed", Type: events.TypeMessage, Owner: "42", Payload: failedPayload,
+	}); err == nil {
+		t.Fatal("failed model turn returned nil error")
+	}
+	approvalPayload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: "missing", Approved: true})
+	if err := app.HandleEvent(context.Background(), events.Event{
+		ID: "approval", Type: events.TypeApproval, Owner: "42", Payload: approvalPayload,
+	}); err == nil {
+		t.Fatal("missing approval returned nil error")
+	}
+
+	messages, err := app.memory.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("durable messages=%#v", messages)
+	}
+}
+
+func TestDurableMemoryFailureIsLoggedWithoutBlockingReplyOrRecentState(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var logs bytes.Buffer
+	var delivered atomic.Int32
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"reply still delivered"}}]}`), nil
+		}
+		if strings.Contains(request.URL.Path, "sendMessage") {
+			delivered.Add(1)
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"},
+		Logger:           slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.memory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "keep the live turn working"})
+	if err := app.HandleEvent(context.Background(), events.Event{
+		ID: "direct", Type: events.TypeMessage, Source: "telegram", Owner: "42", Payload: payload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if delivered.Load() != 1 {
+		t.Fatalf("delivered=%d", delivered.Load())
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.RecentMessages) != 2 || state.RecentMessages[1].Content != "reply still delivered" {
+		t.Fatalf("recent messages=%#v", state.RecentMessages)
+	}
+	if count := strings.Count(logs.String(), "durable conversation write failed"); count != 2 {
+		t.Fatalf("durable failure logs=%d: %s", count, logs.String())
+	}
+}
+
+func TestConfiguredEmbeddingsUseProviderOverrideAndMakePendingMemorySearchable(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
+	var embeddingCalls atomic.Int32
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "embedding-override.test" && request.URL.Path == "/embeddings" {
+			embeddingCalls.Add(1)
+			if request.Header.Get("Authorization") != "Bearer provider-secret" {
+				t.Fatalf("authorization=%q", request.Header.Get("Authorization"))
+			}
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"model":"embed-v1"`) || !strings.Contains(string(body), `"dimensions":3`) {
+				t.Fatalf("embedding body=%s", body)
+			}
+			return appJSON(200, `{"data":[{"embedding":[1,0,0]}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://embedding-override.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.embedder == nil || app.memoryWorker == nil {
+		t.Fatalf("embedding wiring missing: embedder=%T worker=%T", app.embedder, app.memoryWorker)
+	}
+	if embeddingCalls.Load() != 0 {
+		t.Fatalf("embedding calls during NewApp=%d", embeddingCalls.Load())
+	}
+	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleUser, Content: "semantic memory", Source: "telegram", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.memoryWorker.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	query, err := app.embedder.Embed(context.Background(), "semantic memory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matches, err := app.memory.SearchSimilar(context.Background(), query, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 || matches[0].Content != "semantic memory" || embeddingCalls.Load() != 2 {
+		t.Fatalf("matches=%#v calls=%d", matches, embeddingCalls.Load())
+	}
+}
+
+func TestFakeAdaptersUseDeterministicConfiguredDimensionEmbedder(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 4, CandidateLimit: 50}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := app.embedder.Embed(context.Background(), "same input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.embedder.Embed(context.Background(), "same input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 4 || !slices.Equal(first, second) {
+		t.Fatalf("first=%v second=%v", first, second)
+	}
+}
+
+func TestAppRunLogsEmbeddingFailureAndRetriesOnNextInterval(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 2, CandidateLimit: 50}
+	var attempts atomic.Int32
+	var logs bytes.Buffer
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "embedding.test" && request.URL.Path == "/embeddings" {
+			if attempts.Add(1) <= 3 {
+				return appJSON(500, `{"error":"temporary"}`), nil
+			}
+			return appJSON(200, `{"data":[{"embedding":[1,0]}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://embedding.test"},
+		Logger:           slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.memoryEmbeddingInterval = 5 * time.Millisecond
+	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleUser, Content: "retry me", Source: "telegram", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(ctx) }()
+	deadline := time.Now().Add(time.Second)
+	for attempts.Load() < 4 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error=%v", err)
+	}
+	if attempts.Load() < 4 {
+		t.Fatalf("embedding attempts=%d", attempts.Load())
+	}
+	logOutput := logs.String()
+	if !strings.Contains(logOutput, "memory embedding worker failed") || strings.Contains(logOutput, "context canceled") {
+		t.Fatalf("logs=%s", logOutput)
 	}
 }
 

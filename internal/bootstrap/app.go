@@ -21,6 +21,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/adapters/calendar/google"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
+	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
 	"github.com/nigelteosw/eggy/internal/adapters/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/internal/adapters/repositories/github"
 	"github.com/nigelteosw/eggy/internal/adapters/runner/localprocess"
@@ -52,35 +53,39 @@ type AppOptions struct {
 }
 
 type App struct {
-	config              Config
-	store               ports.StateStore
-	context             ports.ContextStore
-	channel             ports.Channel
-	dispatcher          *services.Dispatcher
-	httpHandler         http.Handler
-	loop                *agent.Loop
-	implementationLoop  *agent.Loop
-	agentRuntime        *services.AgentRuntime
-	manifest            agent.CapabilityManifest
-	commands            *CommandService
-	scheduler           *schedulerlocal.Scheduler
-	heartbeat           *services.HeartbeatPolicy
-	approvals           *services.ApprovalService
-	approvalExecutors   map[approvals.Action]ApprovalExecutor
-	coding              *services.CodingService
-	shipping            *services.ShippingService
-	calendar            *services.CalendarService
-	mcp                 *mcpadapter.Manager
-	repositoriesService *services.RepositoriesService
-	skillsService       *services.SkillsService
-	conversation        *services.ConversationService
-	now                 func() time.Time
-	eventQueue          chan events.Event
-	workers             sync.WaitGroup
-	readyLog            sync.Once
-	logger              *slog.Logger
-	timezone            string
-	location            *time.Location
+	config                  Config
+	store                   ports.StateStore
+	context                 ports.ContextStore
+	channel                 ports.Channel
+	dispatcher              *services.Dispatcher
+	httpHandler             http.Handler
+	loop                    *agent.Loop
+	implementationLoop      *agent.Loop
+	agentRuntime            *services.AgentRuntime
+	manifest                agent.CapabilityManifest
+	commands                *CommandService
+	scheduler               *schedulerlocal.Scheduler
+	heartbeat               *services.HeartbeatPolicy
+	approvals               *services.ApprovalService
+	approvalExecutors       map[approvals.Action]ApprovalExecutor
+	coding                  *services.CodingService
+	shipping                *services.ShippingService
+	calendar                *services.CalendarService
+	mcp                     *mcpadapter.Manager
+	repositoriesService     *services.RepositoriesService
+	skillsService           *services.SkillsService
+	conversation            *services.ConversationService
+	memory                  *memorysqlite.Store
+	embedder                ports.Embedder
+	memoryWorker            *services.MemoryEmbeddingWorker
+	memoryEmbeddingInterval time.Duration
+	now                     func() time.Time
+	eventQueue              chan events.Event
+	workers                 sync.WaitGroup
+	readyLog                sync.Once
+	logger                  *slog.Logger
+	timezone                string
+	location                *time.Location
 }
 
 type ApprovalExecutor interface {
@@ -134,7 +139,21 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	stateStore := jsonfile.Open(statePath)
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
-	app := &App{config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore), now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location}
+	memoryStore, err := memorysqlite.Open(filepath.Join(config.DataDir, "eggy.db"), config.Embeddings.CandidateLimit)
+	if err != nil {
+		return nil, fmt.Errorf("open conversation memory: %w", err)
+	}
+	keepMemory := false
+	defer func() {
+		if !keepMemory {
+			_ = memoryStore.Close()
+		}
+	}()
+	app := &App{
+		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore),
+		memory: memoryStore, memoryEmbeddingInterval: time.Minute,
+		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
+	}
 	if errors.Is(statErr, os.ErrNotExist) && len(config.Repositories) > 0 {
 		seeded := map[string]ports.Repository{}
 		for _, configured := range config.Repositories {
@@ -193,7 +212,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		approvals.SkillWrite:    app.skillsService,
 		approvals.SkillDelete:   app.skillsService,
 	}
-	app.conversation = services.NewConversationService(stateStore, 20)
+	app.conversation = services.NewConversationService(stateStore, memoryStore, 20, options.Now, options.Logger)
 
 	aliases := make([]string, 0, len(config.ModelAliases))
 	targets := make(map[string]agent.ModelTarget, len(config.ModelAliases))
@@ -213,6 +232,25 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		default:
 			return nil, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
 		}
+	}
+	if config.Embeddings.Provider != "" {
+		if options.FakeAdapters {
+			app.embedder = deterministicEmbedder{dimensions: config.Embeddings.Dimensions}
+		} else {
+			provider := config.Providers[config.Embeddings.Provider]
+			baseURL := provider.BaseURL
+			if override := options.ProviderBaseURLs[config.Embeddings.Provider]; override != "" {
+				baseURL = override
+			}
+			app.embedder = openaicompat.NewEmbedder(
+				baseURL,
+				secrets.ProviderAPIKeys[config.Embeddings.Provider],
+				config.Embeddings.Model,
+				config.Embeddings.Dimensions,
+				options.HTTPClient,
+			)
+		}
+		app.memoryWorker = services.NewMemoryEmbeddingWorker(memoryStore, app.embedder, 0)
 	}
 	efforts := make(map[string][]string, len(config.ModelAliases))
 	for alias, configured := range config.ModelAliases {
@@ -240,7 +278,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	registry := services.NewToolRegistry()
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
 	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
-	baseTools := []ports.Tool{services.NewStatusTool(stateStore, sessions), currentTimeTool(options.Now, location, timezone)}
+	baseTools := []ports.Tool{
+		services.NewStatusTool(stateStore, sessions),
+		currentTimeTool(options.Now, location, timezone),
+		services.NewRecallConversationTool(memoryStore, app.embedder, services.NewSecretGuard(activeSecrets)),
+	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
 	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel, owner))
@@ -350,6 +392,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	keepMCP = true
+	keepMemory = true
 	return app, nil
 }
 
@@ -410,7 +453,15 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		return a.handleMessage(ctx, message, agent.RunOptions{}, true)
+		source := strings.TrimSpace(event.Source)
+		if source == "" {
+			source = "telegram"
+		}
+		return a.handleMessage(ctx, message, agent.RunOptions{}, messageHandlingPolicy{
+			includeRecentHistory: true,
+			recordConversation:   true,
+			source:               source,
+		})
 	case events.TypeSchedule:
 		// A scheduled agent turn is self-contained: it starts with no ambient
 		// recent-conversation history, so an owner's earlier chat cannot
@@ -420,7 +471,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		return a.handleMessage(ctx, message, readOnlyRunOptions(), false)
+		return a.handleMessage(ctx, message, readOnlyRunOptions(), messageHandlingPolicy{})
 	case events.TypeScheduledMessage:
 		// A deterministic, pre-rendered notification (a reminder or
 		// watchdog-style check-in): delivered verbatim with no model call at
@@ -479,7 +530,13 @@ func heartbeatRunOptions() agent.RunOptions {
 	return options
 }
 
-func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions, includeRecentHistory bool) error {
+type messageHandlingPolicy struct {
+	includeRecentHistory bool
+	recordConversation   bool
+	source               string
+}
+
+func (a *App) handleMessage(ctx context.Context, message events.Message, options agent.RunOptions, policy messageHandlingPolicy) error {
 	if output, handled, err := a.commands.Execute(ctx, message.Text); handled {
 		if err != nil {
 			return err
@@ -509,7 +566,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
-	if includeRecentHistory {
+	if policy.includeRecentHistory {
 		history = append(history, state.RecentMessages...)
 	}
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
@@ -528,11 +585,13 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	if usageErr != nil {
 		return usageErr
 	}
-	if err := a.conversation.Record(ctx, ports.Message{Role: ports.RoleUser, Content: message.Text}); err != nil {
-		return err
-	}
-	if err := a.conversation.Record(ctx, result.Message); err != nil {
-		return err
+	if policy.recordConversation {
+		if err := a.conversation.Record(ctx, ports.Message{Role: ports.RoleUser, Content: message.Text}, policy.source); err != nil {
+			return err
+		}
+		if err := a.conversation.Record(ctx, result.Message, policy.source); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
 		showThinking, err := a.agentRuntime.ShowThinking(ctx)
@@ -597,6 +656,9 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 }
 
 func (a *App) Run(ctx context.Context) error {
+	if a.memory != nil {
+		defer a.memory.Close()
+	}
 	defer a.workers.Wait()
 	if a.mcp != nil {
 		defer a.mcp.Close()
@@ -606,6 +668,13 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	if err := a.scheduler.Recover(ctx); err != nil {
 		return err
+	}
+	if a.memoryWorker != nil {
+		a.workers.Add(1)
+		go func() {
+			defer a.workers.Done()
+			a.runMemoryEmbeddingWorker(ctx)
+		}()
 	}
 	scheduleTicker := time.NewTicker(time.Minute)
 	defer scheduleTicker.Stop()
@@ -665,6 +734,31 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		case now := <-heartbeatTicker.C:
 			_ = a.HandleEvent(ctx, events.Event{ID: "heartbeat:" + now.Format(time.RFC3339Nano), Type: events.TypeHeartbeat, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Payload: json.RawMessage(`{}`)})
+		}
+	}
+}
+
+func (a *App) runMemoryEmbeddingWorker(ctx context.Context) {
+	interval := a.memoryEmbeddingInterval
+	if interval <= 0 {
+		interval = time.Minute
+	}
+	for {
+		err := a.memoryWorker.Run(ctx, interval)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			a.logger.Error("memory embedding worker failed", "error", err)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
 		}
 	}
 }
@@ -785,6 +879,18 @@ type staticModel struct{}
 
 func (staticModel) Generate(context.Context, ports.ModelRequest) (ports.ModelResponse, error) {
 	return ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, Content: "Eggy fake adapter ready."}}, nil
+}
+
+type deterministicEmbedder struct {
+	dimensions int
+}
+
+func (e deterministicEmbedder) Embed(_ context.Context, input string) ([]float32, error) {
+	embedding := make([]float32, e.dimensions)
+	for index, value := range []byte(input) {
+		embedding[(index+int(value))%e.dimensions]++
+	}
+	return embedding, nil
 }
 
 type noopChannel struct{}

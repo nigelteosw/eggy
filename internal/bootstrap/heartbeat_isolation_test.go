@@ -88,6 +88,17 @@ func (h *heartbeatTestHarness) lastModelBody(t *testing.T) string {
 	return string(h.modelBodies[len(h.modelBodies)-1])
 }
 
+func (h *heartbeatTestHarness) assertNoDurableMessages(t *testing.T) {
+	t.Helper()
+	messages, err := h.app.memory.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("durable messages=%#v", messages)
+	}
+}
+
 // TestHeartbeatIsIsolatedFromRecentConversationHistory proves a heartbeat
 // turn never sees state.RecentMessages (so an old chat cannot silently
 // revive an instruction), but does see the owner-editable HEARTBEAT.md
@@ -121,6 +132,7 @@ func TestHeartbeatIsIsolatedFromRecentConversationHistory(t *testing.T) {
 	if len(harness.telegramTexts) != 1 || harness.telegramTexts[0] != "All clear." {
 		t.Fatalf("telegram=%v", harness.telegramTexts)
 	}
+	harness.assertNoDurableMessages(t)
 }
 
 // TestHeartbeatCurationRunsInQuietHoursButSendIsSuppressed proves silent
@@ -208,6 +220,7 @@ func TestScheduledMessageDeliversVerbatimWithoutModelCall(t *testing.T) {
 	if len(harness.telegramTexts) != 1 || harness.telegramTexts[0] != "Take the bins out" {
 		t.Fatalf("telegram=%v", harness.telegramTexts)
 	}
+	harness.assertNoDurableMessages(t)
 }
 
 // TestScheduledAgentTurnExcludesRecentConversationHistory proves a
@@ -234,4 +247,5 @@ func TestScheduledAgentTurnExcludesRecentConversationHistory(t *testing.T) {
 	if strings.Contains(body, "STALE_OLD_CHAT_INSTRUCTION_MARKER") {
 		t.Fatalf("recent conversation history leaked into scheduled agent turn: %s", body)
 	}
+	harness.assertNoDurableMessages(t)
 }

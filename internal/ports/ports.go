@@ -125,6 +125,31 @@ type ContextStore interface {
 	RemoveSection(context.Context, ContextDocument, string) error
 }
 
+// StoredMessage is one durable conversation message. It deliberately carries
+// only provider-neutral conversation data, never an embedding representation.
+type StoredMessage struct {
+	ID        int64
+	Role      Role
+	Content   string
+	Source    string
+	CreatedAt time.Time
+}
+
+// MemoryStore persists and recalls durable conversation messages.
+type MemoryStore interface {
+	WriteMessage(context.Context, StoredMessage) error
+	SearchText(context.Context, string, int) ([]StoredMessage, error)
+	SearchSimilar(context.Context, []float32, int) ([]StoredMessage, error)
+	PendingEmbeddings(context.Context, int) ([]StoredMessage, error)
+	SetEmbedding(context.Context, int64, []float32) error
+}
+
+// Embedder produces an embedding for text. Storage adapters never depend on
+// an Embedder; a kernel service coordinates the two through these ports.
+type Embedder interface {
+	Embed(context.Context, string) ([]float32, error)
+}
+
 // SkillSummary is the compact, always-in-context view of one installed
 // skill: enough for the agent to decide whether to load its full body with
 // skill_read, without paying for that body on every turn.

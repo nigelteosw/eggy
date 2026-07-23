@@ -39,6 +39,29 @@ func TestOpenCreatesFTS5Schema(t *testing.T) {
 	}
 }
 
+func TestOpenUsesDefaultCandidateLimit(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(filepath.Join(t.TempDir(), "eggy.db"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if got, want := store.candidateLimit, 5000; got != want {
+		t.Fatalf("candidate limit = %d, want default %d", got, want)
+	}
+}
+
+func TestOpenRejectsNegativeCandidateLimit(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(filepath.Join(t.TempDir(), "eggy.db"), -1)
+	if err == nil {
+		_ = store.Close()
+		t.Fatal("Open negative candidate limit error = nil, want validation error")
+	}
+}
+
 func TestStoreWriteMessageAndSearchTextRoundTrips(t *testing.T) {
 	t.Parallel()
 

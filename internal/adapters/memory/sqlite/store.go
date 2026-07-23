@@ -32,6 +32,8 @@ CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
 END;
 `
 
+const defaultCandidateLimit = 5000
+
 // Store is a SQLite-backed durable message store.
 type Store struct {
 	db             *sql.DB
@@ -40,6 +42,13 @@ type Store struct {
 
 // Open creates a Store at path and initializes its schema.
 func Open(path string, candidateLimit int) (*Store, error) {
+	if candidateLimit < 0 {
+		return nil, errors.New("candidate limit must not be negative")
+	}
+	if candidateLimit == 0 {
+		candidateLimit = defaultCandidateLimit
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err

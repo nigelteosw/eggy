@@ -287,9 +287,9 @@ failure.
   `SearchSimilar` only scans the bounded recency window, not the whole
   table.
 - `services.MemoryEmbeddingWorker` tests (fake `MemoryStore` + fake
-  `Embedder`): rows get embedded exactly once, a restart mid-batch doesn't
-  duplicate or skip work, and the worker never runs at all when no
-  `Embedder` is configured.
+  `Embedder`): provider calls have at-least-once delivery until the vector is
+  persisted, a restart mid-batch doesn't skip work, and the worker never runs
+  at all when no `Embedder` is configured.
 - `openaicompat.Model.Embed` tests against a fake HTTP server, matching the
   existing chat-completion tests' style in the same package.
 - Bootstrap/service tests proving: recalled excerpts pass through redaction,

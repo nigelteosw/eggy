@@ -21,7 +21,7 @@ func TestEmbedderTranslatesEmbeddingRequest(t *testing.T) {
 		return jsonResponse(http.StatusOK, `{"data":[{"embedding":[0.25,-0.5]}]}`), nil
 	})}
 
-	embedding, err := NewEmbedder("https://api.example/v1/", "top-secret-key", "text-embedding-3-small", 1536, client).Embed(context.Background(), "remember this")
+	embedding, err := NewEmbedder("https://api.example/v1/", "top-secret-key", "text-embedding-3-small", 2, client).Embed(context.Background(), "remember this")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestEmbedderTranslatesEmbeddingRequest(t *testing.T) {
 		Model      string `json:"model"`
 		Input      string `json:"input"`
 		Dimensions int    `json:"dimensions"`
-	}{Model: "text-embedding-3-small", Input: "remember this", Dimensions: 1536}) {
+	}{Model: "text-embedding-3-small", Input: "remember this", Dimensions: 2}) {
 		t.Fatalf("request=%#v", requestBody)
 	}
 	if want := []float32{0.25, -0.5}; !reflect.DeepEqual(embedding, want) {
@@ -57,7 +57,8 @@ func TestEmbedderRejectsInvalidProviderResponses(t *testing.T) {
 		want       string
 	}{
 		{name: "empty data", status: http.StatusOK, response: `{"data":[]}`, dimensions: 2, want: "no embeddings"},
-		{name: "wrong configured dimensions", status: http.StatusOK, response: `{"data":[{"embedding":[0.25]}]}`, dimensions: 0, want: "dimensions"},
+		{name: "nonpositive configured dimensions", status: http.StatusOK, response: `{"data":[{"embedding":[0.25]}]}`, dimensions: 0, want: "dimensions"},
+		{name: "wrong provider vector dimensions", status: http.StatusOK, response: `{"data":[{"embedding":[0.25]}]}`, dimensions: 2, want: "dimensions"},
 		{name: "non-finite value", status: http.StatusOK, response: `{"data":[{"embedding":[1e39,0.25]}]}`, dimensions: 2, want: "non-finite"},
 		{name: "sanitized provider error", status: http.StatusUnauthorized, response: `{"error":{"message":"bad key top-secret-key"}}`, dimensions: 2, want: "authentication"},
 	}

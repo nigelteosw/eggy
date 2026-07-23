@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -139,7 +140,11 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	stateStore := jsonfile.Open(statePath)
 	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
-	memoryStore, err := memorysqlite.Open(filepath.Join(config.DataDir, "eggy.db"), config.Embeddings.CandidateLimit)
+	memoryStore, err := memorysqlite.OpenWithProfile(
+		filepath.Join(config.DataDir, "eggy.db"),
+		config.Embeddings.CandidateLimit,
+		embeddingProfile(config, options),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("open conversation memory: %w", err)
 	}
@@ -186,7 +191,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
 	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
-	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey}
+	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey, secrets.UIPassword}
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
@@ -394,6 +399,32 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	keepMCP = true
 	keepMemory = true
 	return app, nil
+}
+
+func embeddingProfile(config Config, options AppOptions) string {
+	if config.Embeddings.Provider == "" {
+		return ""
+	}
+	provider := config.Providers[config.Embeddings.Provider]
+	baseURL := provider.BaseURL
+	if override := options.ProviderBaseURLs[config.Embeddings.Provider]; override != "" {
+		baseURL = override
+	}
+	encoded, _ := json.Marshal(struct {
+		Provider   string `json:"provider"`
+		Adapter    string `json:"adapter"`
+		BaseURL    string `json:"base_url"`
+		Model      string `json:"model"`
+		Dimensions int    `json:"dimensions"`
+	}{
+		Provider:   config.Embeddings.Provider,
+		Adapter:    provider.Adapter,
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		Model:      config.Embeddings.Model,
+		Dimensions: config.Embeddings.Dimensions,
+	})
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
 }
 
 func (a *App) Handler() http.Handler { return a.httpHandler }

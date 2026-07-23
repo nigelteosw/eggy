@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -463,6 +464,80 @@ func TestConfiguredEmbeddingsUseProviderOverrideAndMakePendingMemorySearchable(t
 	}
 	if len(matches) != 1 || matches[0].Content != "semantic memory" || embeddingCalls.Load() != 2 {
 		t.Fatalf("matches=%#v calls=%d", matches, embeddingCalls.Load())
+	}
+}
+
+func TestEmbeddingProfileChangesWithEffectiveConfiguration(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
+	base := embeddingProfile(cfg, AppOptions{})
+	if base == "" {
+		t.Fatal("configured embedding profile is empty")
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Config, *AppOptions)
+	}{
+		{name: "provider identity", mutate: func(cfg *Config, _ *AppOptions) {
+			cfg.Providers["other"] = cfg.Providers["deepseek"]
+			cfg.Embeddings.Provider = "other"
+		}},
+		{name: "effective base URL", mutate: func(_ *Config, options *AppOptions) {
+			options.ProviderBaseURLs = map[string]string{"deepseek": "https://override.test/v1"}
+		}},
+		{name: "model", mutate: func(cfg *Config, _ *AppOptions) { cfg.Embeddings.Model = "embed-v2" }},
+		{name: "dimensions", mutate: func(cfg *Config, _ *AppOptions) { cfg.Embeddings.Dimensions = 4 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changed := cfg
+			changed.Providers = maps.Clone(cfg.Providers)
+			options := AppOptions{}
+			tt.mutate(&changed, &options)
+			if got := embeddingProfile(changed, options); got == "" || got == base {
+				t.Fatalf("changed profile = %q, base = %q", got, base)
+			}
+		})
+	}
+	if got := embeddingProfile(appTestConfig(t.TempDir()), AppOptions{}); got != "" {
+		t.Fatalf("unconfigured embedding profile = %q, want empty", got)
+	}
+}
+
+func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	secrets := appTestSecrets("provider-secret")
+	secrets.UIPassword = "bare-ui-password"
+	var modelRequests atomic.Int32
+	var secondBody []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "deepseek.test" {
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		}
+		if modelRequests.Add(1) == 1 {
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"recall-1","type":"function","function":{"name":"recall_conversation","arguments":"{\"query\":\"remembered\"}"}}]}}]}`), nil
+		}
+		secondBody, _ = io.ReadAll(request.Body)
+		return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`), nil
+	})}
+	app, err := NewApp(cfg, secrets, AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleUser, Content: "remembered bare-ui-password", Source: "web", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.loop.RunSelected(context.Background(), "deepseek-pro", "", "recall it", nil, agent.RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(secondBody), "bare-ui-password") || !strings.Contains(string(secondBody), "[redacted]") {
+		t.Fatalf("second model request did not redact UI password: %s", secondBody)
 	}
 }
 

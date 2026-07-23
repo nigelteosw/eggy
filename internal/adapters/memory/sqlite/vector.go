@@ -21,9 +21,11 @@ func (s *Store) PendingEmbeddings(ctx context.Context, limit int) ([]ports.Store
 		SELECT id, role, content, source, created_at
 		FROM messages
 		WHERE embedding IS NULL
+		   OR embedding_profile IS NULL
+		   OR embedding_profile <> ?
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?
-	`, limit)
+	`, s.profile, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +40,15 @@ func (s *Store) SetEmbedding(ctx context.Context, id int64, embedding []float32)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE messages SET embedding = ? WHERE id = ?`, encoded, id)
-	return err
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE messages
+		SET embedding = ?, embedding_profile = ?
+		WHERE id = ?
+	`, encoded, s.profile, id)
+	if err != nil {
+		return err
+	}
+	return s.tightenPrivateFiles()
 }
 
 // SearchSimilar ranks only the newest configured number of embedded messages
@@ -56,9 +65,10 @@ func (s *Store) SearchSimilar(ctx context.Context, embedding []float32, limit in
 		SELECT id, role, content, source, created_at, embedding
 		FROM messages
 		WHERE embedding IS NOT NULL
+		  AND embedding_profile = ?
 		ORDER BY created_at DESC, id DESC
 		LIMIT ?
-	`, s.candidateLimit)
+	`, s.profile, s.candidateLimit)
 	if err != nil {
 		return nil, err
 	}

@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 	_ "modernc.org/sqlite"
@@ -20,7 +22,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content         TEXT    NOT NULL,
     source          TEXT    NOT NULL,
     created_at      INTEGER NOT NULL,
-    embedding       BLOB
+    embedding       BLOB,
+    embedding_profile TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 
@@ -37,16 +40,27 @@ const defaultCandidateLimit = 5000
 // Store is a SQLite-backed durable message store.
 type Store struct {
 	db             *sql.DB
+	path           string
 	candidateLimit int
+	profile        string
 }
 
 // Open creates a Store at path and initializes its schema.
 func Open(path string, candidateLimit int) (*Store, error) {
+	return OpenWithProfile(path, candidateLimit, "")
+}
+
+// OpenWithProfile creates a Store whose embeddings are associated with the
+// supplied opaque profile.
+func OpenWithProfile(path string, candidateLimit int, profile string) (*Store, error) {
 	if candidateLimit < 0 {
 		return nil, errors.New("candidate limit must not be negative")
 	}
 	if candidateLimit == 0 {
 		candidateLimit = defaultCandidateLimit
+	}
+	if err := prepareDatabaseFile(path); err != nil {
+		return nil, err
 	}
 
 	db, err := sql.Open("sqlite", path)
@@ -67,8 +81,70 @@ func Open(path string, candidateLimit int) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureEmbeddingProfileColumn(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
-	return &Store{db: db, candidateLimit: candidateLimit}, nil
+	store := &Store{db: db, path: path, candidateLimit: candidateLimit, profile: profile}
+	if err := store.tightenPrivateFiles(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
+}
+
+func prepareDatabaseFile(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func (s *Store) tightenPrivateFiles() error {
+	for _, path := range []string{s.path, s.path + "-wal", s.path + "-shm"} {
+		if err := os.Chmod(path, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureEmbeddingProfileColumn(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "embedding_profile" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.Exec(`ALTER TABLE messages ADD COLUMN embedding_profile TEXT`)
+	return err
 }
 
 // Close closes the underlying database pool.
@@ -82,17 +158,21 @@ func (s *Store) WriteMessage(ctx context.Context, message ports.StoredMessage) e
 		INSERT INTO messages (role, content, source, created_at)
 		VALUES (?, ?, ?, ?)
 	`, message.Role, message.Content, message.Source, message.CreatedAt.UnixNano())
-	return err
+	if err != nil {
+		return err
+	}
+	return s.tightenPrivateFiles()
 }
 
 // SearchText returns keyword matches ordered by FTS5 relevance, then newest
 // message for equal relevance.
 func (s *Store) SearchText(ctx context.Context, query string, limit int) ([]ports.StoredMessage, error) {
-	if strings.TrimSpace(query) == "" {
-		return nil, errors.New("memory text search query is required")
-	}
 	if limit <= 0 {
 		return nil, errors.New("memory text search limit must be positive")
+	}
+	ftsQuery := literalFTSQuery(query)
+	if ftsQuery == "" {
+		return nil, nil
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
@@ -102,7 +182,7 @@ func (s *Store) SearchText(ctx context.Context, query string, limit int) ([]port
 		WHERE messages_fts MATCH ?
 		ORDER BY bm25(messages_fts), m.created_at DESC
 		LIMIT ?
-	`, query, limit)
+	`, ftsQuery, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -122,4 +202,31 @@ func (s *Store) SearchText(ctx context.Context, query string, limit int) ([]port
 		return nil, err
 	}
 	return messages, nil
+}
+
+func literalFTSQuery(query string) string {
+	var tokens []string
+	var token strings.Builder
+	hasBase := false
+	flush := func() {
+		if token.Len() > 0 && hasBase {
+			escaped := strings.ReplaceAll(token.String(), `"`, `""`)
+			tokens = append(tokens, `"`+escaped+`"`)
+		}
+		token.Reset()
+		hasBase = false
+	}
+	for _, value := range query {
+		switch {
+		case unicode.IsLetter(value), unicode.IsNumber(value):
+			token.WriteRune(value)
+			hasBase = true
+		case unicode.IsMark(value):
+			token.WriteRune(value)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return strings.Join(tokens, " AND ")
 }

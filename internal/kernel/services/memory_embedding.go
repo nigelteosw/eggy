@@ -30,8 +30,10 @@ func NewMemoryEmbeddingWorker(store ports.MemoryStore, embedder ports.Embedder, 
 	return &MemoryEmbeddingWorker{store: store, embedder: embedder, batchSize: batchSize}
 }
 
-// RunOnce embeds one bounded batch. It stops at the first error so rows not
-// successfully written remain pending for a later run.
+// RunOnce embeds one bounded batch. Provider calls are at least once: if a
+// provider call succeeds but persisting its vector fails, the row remains
+// pending and a later run calls the provider again. The worker stops at the
+// first error so it never advances past an unpersisted row in the batch.
 func (w *MemoryEmbeddingWorker) RunOnce(ctx context.Context) error {
 	if w == nil {
 		return nil

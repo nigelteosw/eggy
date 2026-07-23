@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"math"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -93,15 +96,72 @@ func TestStoreWriteMessageAndSearchTextRoundTrips(t *testing.T) {
 	}
 }
 
-func TestSearchTextRejectsEmptyQueryAndNonPositiveLimit(t *testing.T) {
+func TestStoreMessagesAndFTSSearchPersistAcrossCloseAndReopen(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "eggy.db")
+	store, err := Open(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleAssistant, Content: "persistent searchable phrase", Source: "web", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	results, err := reopened.SearchText(context.Background(), "searchable", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Content != "persistent searchable phrase" || results[0].Role != ports.RoleAssistant || results[0].Source != "web" {
+		t.Fatalf("reopened results = %#v", results)
+	}
+}
+
+func TestSearchTextReturnsNoMatchesForQueriesWithoutSearchableTokens(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	if _, err := store.SearchText(context.Background(), "", 1); err == nil {
-		t.Fatal("SearchText empty query error = nil, want validation error")
+	for _, query := range []string{"", " \t ", `":-++'"`} {
+		results, err := store.SearchText(context.Background(), query, 1)
+		if err != nil {
+			t.Fatalf("SearchText(%q) error = %v", query, err)
+		}
+		if len(results) != 0 {
+			t.Fatalf("SearchText(%q) results = %#v, want empty", query, results)
+		}
 	}
 	if _, err := store.SearchText(context.Background(), "durable", 0); err == nil {
 		t.Fatal("SearchText zero limit error = nil, want validation error")
+	}
+}
+
+func TestSearchTextTreatsPunctuationAsLiteralTokenSeparators(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleUser, Content: "title quoted well known owner's C++ café", Source: "web", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{`"quoted"`, "title:quoted", "well-known", "owner's", "C++", "cafe\u0301"} {
+		results, err := store.SearchText(context.Background(), query, 5)
+		if err != nil {
+			t.Fatalf("SearchText(%q) error = %v", query, err)
+		}
+		if len(results) != 1 {
+			t.Fatalf("SearchText(%q) results = %#v, want one literal-token match", query, results)
+		}
 	}
 }
 
@@ -158,6 +218,138 @@ func TestPendingEmbeddingsReturnsOnlyMessagesWithoutEmbeddings(t *testing.T) {
 	}
 	if got, want := []int64{results[0].ID, results[1].ID}, []int64{thirdID, firstID}; got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("pending message IDs = %v, want %v", got, want)
+	}
+}
+
+func TestEmbeddingProfilePersistsAndSameProfileRowsRemainSearchable(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "eggy.db")
+	store, err := OpenWithProfile(path, 100, "opaque-profile-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := writeTestMessage(t, store, "profiled memory", time.Now())
+	if err := store.SetEmbedding(context.Background(), id, []float32{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenWithProfile(path, 100, "opaque-profile-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	pending, err := reopened.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("same-profile pending = %#v, want none", pending)
+	}
+	results, err := reopened.SearchSimilar(context.Background(), []float32{1, 0}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != id {
+		t.Fatalf("same-profile results = %#v, want message %d", results, id)
+	}
+}
+
+func TestChangedEmbeddingProfileRequeuesAndFiltersOldVectors(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "eggy.db")
+	first, err := OpenWithProfile(path, 100, "opaque-profile-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := writeTestMessage(t, first, "profile changed", time.Now())
+	if err := first.SetEmbedding(context.Background(), id, []float32{1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := OpenWithProfile(path, 100, "opaque-profile-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = changed.Close() })
+	pending, err := changed.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].ID != id {
+		t.Fatalf("changed-profile pending = %#v, want message %d", pending, id)
+	}
+	results, err := changed.SearchSimilar(context.Background(), []float32{1, 0, 0}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("changed-profile results = %#v, want old vector filtered", results)
+	}
+	if err := changed.SetEmbedding(context.Background(), id, []float32{0, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	results, err = changed.SearchSimilar(context.Background(), []float32{0, 1, 0}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].ID != id {
+		t.Fatalf("re-embedded results = %#v, want message %d", results, id)
+	}
+}
+
+func TestOpenWithProfileMigratesDatabaseWithoutEmbeddingProfile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "eggy.db")
+	legacy, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`
+		CREATE TABLE messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			conversation_id TEXT NOT NULL DEFAULT 'owner',
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			source TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			embedding BLOB
+		);
+		INSERT INTO messages (role, content, source, created_at, embedding)
+		VALUES ('user', 'legacy vector', 'telegram', 1, X'0000803F00000000');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenWithProfile(path, 100, "opaque-profile-new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	pending, err := store.PendingEmbeddings(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Content != "legacy vector" {
+		t.Fatalf("migrated pending = %#v", pending)
+	}
+	var profile sql.NullString
+	if err := store.db.QueryRow(`SELECT embedding_profile FROM messages WHERE content = 'legacy vector'`).Scan(&profile); err != nil {
+		t.Fatal(err)
+	}
+	if profile.Valid {
+		t.Fatalf("legacy embedding profile = %q, want NULL until re-embedded", profile.String)
 	}
 }
 
@@ -237,6 +429,50 @@ func TestSearchSimilarRejectsMismatchedDimensions(t *testing.T) {
 	}
 	if _, err := store.SearchSimilar(context.Background(), []float32{1, 0, 0}, 1); err == nil {
 		t.Fatal("SearchSimilar mismatched dimensions error = nil, want validation error")
+	}
+}
+
+func TestOpenTightensDatabaseAndSidecarPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not supported on Windows")
+	}
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "eggy.db")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		if _, err := os.Stat(sidecar); err == nil {
+			if err := os.Chmod(sidecar, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		Role: ports.RoleUser, Content: "private files", Source: "web", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(candidate)
+		if err != nil {
+			if candidate != path && errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("%s permissions = %#o, want 0600", filepath.Base(candidate), got)
+		}
 	}
 }
 

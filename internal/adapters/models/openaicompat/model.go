@@ -173,6 +173,9 @@ func (m *Model) Embed(ctx context.Context, input string) ([]float32, error) {
 	if len(result.Data) == 0 {
 		return nil, errors.New("provider returned no embeddings")
 	}
+	if len(result.Data[0].Embedding) != m.embeddingDimensions {
+		return nil, fmt.Errorf("provider returned embedding with %d dimensions, want %d", len(result.Data[0].Embedding), m.embeddingDimensions)
+	}
 	embedding := make([]float32, len(result.Data[0].Embedding))
 	for index, value := range result.Data[0].Embedding {
 		converted := float32(value)

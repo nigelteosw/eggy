@@ -89,16 +89,36 @@ ports.MemoryStore (new, provider-neutral port)
         +-- WriteMessage(...)              -- synchronous, every turn
         |
         v
-internal/adapters/memory/sqlite (new adapter package)
+internal/adapters/memory/sqlite (new adapter package; storage only)
         |
         +-- messages table (role, content, source, created_at, embedding)
         +-- messages_fts (FTS5 virtual table, keyword search)
-        +-- background embedding worker (batches rows with embedding IS NULL)
+
+services.MemoryEmbeddingWorker (new kernel service; orchestration)
+        |
+        +-- polls ports.MemoryStore.PendingEmbeddings(...)
+        +-- calls ports.Embedder.Embed(...)
+        +-- writes results back via ports.MemoryStore.SetEmbedding(...)
                 |
                 v
-        internal/adapters/embeddings/openaicompat (new adapter package)
-        implements ports.Embedder against a configured embeddings endpoint
+        internal/adapters/models/openaicompat gains an Embed method
+        implementing ports.Embedder against a configured embeddings endpoint
 ```
+
+The embedding worker deliberately lives in `internal/kernel/services`, not
+inside the SQLite adapter: it orchestrates between two ports
+(`MemoryStore` and `Embedder`), and this codebase's existing pattern for
+"coordinate multiple ports" is a kernel service (e.g. `CodingService`
+orchestrating `Runner` + `CodingRepository` + `Implementer`), not one
+adapter reaching into another. The SQLite adapter package stays storage-only
+— it never holds a reference to an `Embedder`.
+
+Embeddings reuse `internal/adapters/models/openaicompat` (an added `Embed`
+method on the existing `Model` type, hitting `/embeddings` instead of
+`/chat/completions`) rather than a new sibling package. It's the same
+OpenAI-compatible wire protocol and the same HTTP-client/credential
+plumbing that package already owns; a separate `internal/adapters/embeddings/`
+package would just duplicate that setup for a different config section.
 
 ### Driver choice: `modernc.org/sqlite`, no CGO
 
@@ -113,21 +133,36 @@ Go:
    this project's build story than the feature itself justifies.
 2. **`modernc.org/sqlite`** (pure Go, SQLite's C source transpiled to Go via
    the `cc`/`ccgo` toolchain, published separately) — no CGO, works with the
-   existing build. It includes FTS5 (compiled into the same transpiled
-   amalgamation) but has no mechanism to load native C extensions like
+   existing build. It has no mechanism to load native C extensions like
    `sqlite-vec`, since it isn't linking against a real `libsqlite3` a
-   `.so`/`.dylib` extension could attach to.
+   `.so`/`.dylib` extension could attach to. Recent versions build FTS5 in by
+   default, but this has not been verified against the exact version this
+   project will pin — **Task 1 of the implementation plan must confirm FTS5
+   works against the pinned `modernc.org/sqlite` version before anything else
+   is built on top of it**; if it turns out not to be available, keyword
+   search falls back to a plain `LIKE`/substring query, which is a schema
+   change worth catching before, not after, other tasks depend on FTS5.
 
 This spec picks **option 2**. Vector similarity search is therefore
 implemented at the application layer: embeddings are stored as `BLOB`
 columns (raw little-endian `float32` arrays), and a query embeds its own
-text, then computes cosine similarity in Go against candidate rows, keeping
-the top-K. This is brute-force — O(n) per query — which is the explicit,
-accepted cost of staying CGO-free. If conversation history ever grows large
-enough for this to matter (realistically not for a single owner's personal
-assistant), the documented upgrade path is revisiting option 1, or moving
-just the embedding index to a purpose-built local vector store, without
-touching the rest of this design.
+text, then computes cosine similarity in Go, keeping the top-K. This is
+brute-force — O(n) per query — which is the explicit, accepted cost of
+staying CGO-free.
+
+Candidates for a similarity query are **not** an unbounded full-table scan:
+`SearchSimilar` always takes a `limit` and an implicit recency bound — the
+adapter scores only the most recent `N` embedded messages (`N` configurable,
+default a few thousand) rather than deserializing the entire embeddings
+table on every call. At realistic single-owner history sizes this is still
+comfortably fast (a few thousand 1536-dimension float32 comparisons is
+low-single-digit milliseconds of Go computation), but it also caps the
+amount of BLOB data read off disk per query as history grows into the tens
+of thousands of rows, instead of that cost growing unbounded forever. If
+conversation history ever grows large enough for even that to matter
+(realistically not for a single owner's personal assistant), the documented
+upgrade path is revisiting option 1, or moving just the embedding index to a
+purpose-built local vector store, without touching the rest of this design.
 
 ### New port
 
@@ -137,6 +172,11 @@ type MemoryStore interface {
     WriteMessage(ctx context.Context, message StoredMessage) error
     SearchText(ctx context.Context, query string, limit int) ([]StoredMessage, error)
     SearchSimilar(ctx context.Context, embedding []float32, limit int) ([]StoredMessage, error)
+    // PendingEmbeddings and SetEmbedding exist only for
+    // services.MemoryEmbeddingWorker; the SQLite adapter itself never calls
+    // an Embedder.
+    PendingEmbeddings(ctx context.Context, limit int) ([]StoredMessage, error)
+    SetEmbedding(ctx context.Context, id int64, embedding []float32) error
 }
 
 type StoredMessage struct {
@@ -146,10 +186,16 @@ type StoredMessage struct {
     Source    string    // "telegram" | "web" | "heartbeat" | "scheduled"
     CreatedAt time.Time
 }
+
+// internal/ports/ports.go
+type Embedder interface {
+    Embed(ctx context.Context, text string) ([]float32, error)
+}
 ```
 
-`internal/adapters/memory/sqlite.Store` implements this. It is registered
-only in `internal/bootstrap`, matching every other adapter.
+`internal/adapters/memory/sqlite.Store` implements `MemoryStore`. It is
+registered only in `internal/bootstrap`, matching every other adapter, and
+never imports or references `Embedder`.
 
 ### Schema
 
@@ -185,18 +231,12 @@ SQLite's single-writer model is a natural fit for the existing "exactly one
 
 ### Embeddings
 
-```go
-// internal/ports/ports.go
-type Embedder interface {
-    Embed(ctx context.Context, text string) ([]float32, error)
-}
-```
-
-`internal/adapters/embeddings/openaicompat` implements this against a
-configured OpenAI-compatible `/embeddings` endpoint, reusing the same
-HTTP-client and credential-resolution shape `internal/adapters/models/openaicompat`
-already has for chat completions, just a different endpoint and
-request/response shape. Configuration mirrors `providers`/`models`:
+`internal/adapters/models/openaicompat` gains an `Embed` method on its
+existing `Model` type, implementing the `Embedder` port defined above
+against a configured OpenAI-compatible `/embeddings` endpoint — the same
+HTTP-client and credential-resolution plumbing that package already has for
+chat completions, just a different endpoint and request/response shape.
+Configuration mirrors `providers`/`models`:
 
 ```yaml
 embeddings:
@@ -206,11 +246,11 @@ embeddings:
 ```
 
 If `embeddings` is absent from config, `internal/bootstrap` does not
-construct an `Embedder`, and the SQLite adapter's background embedding
-worker simply never runs — messages still get written and are still
-full-text searchable, only semantic (`SearchSimilar`) recall is unavailable.
-This mirrors exactly how MCP servers or Calendar behave when unconfigured:
-absence is not a startup failure.
+construct an `Embedder` or a `services.MemoryEmbeddingWorker` — messages
+still get written and are still full-text searchable, only semantic
+(`SearchSimilar`) recall is unavailable. This mirrors exactly how MCP
+servers or Calendar behave when unconfigured: absence is not a startup
+failure.
 
 ### Data flow
 
@@ -221,11 +261,13 @@ absence is not a startup failure.
   assistant's response. This is synchronous and best-effort: a write failure
   is logged, not fatal to the turn (matching how existing state writes are
   already handled defensively elsewhere).
-- **Embedding path**: a background worker, using the same periodic-loop
-  machinery the scheduler/heartbeat already use, polls for rows with
-  `embedding IS NULL` (only when an `Embedder` is configured), batches them,
-  calls `Embed`, and writes the resulting vectors back. This keeps embedding
-  latency and provider availability off the live conversation turn.
+- **Embedding path**: `services.MemoryEmbeddingWorker`, using the same
+  periodic-loop machinery the scheduler/heartbeat already use, calls
+  `MemoryStore.PendingEmbeddings` (only constructed when an `Embedder` is
+  configured), batches the results, calls `Embedder.Embed`, and writes each
+  vector back via `MemoryStore.SetEmbedding`. This keeps embedding latency
+  and provider availability off the live conversation turn, and keeps the
+  SQLite adapter itself free of any dependency on the embeddings port.
 - **Recall path**: a new agent tool, `recall_conversation`, lets the model
   search past conversation on request:
   full-text via `SearchText`, semantic via `SearchSimilar` when available.
@@ -240,12 +282,16 @@ absence is not a startup failure.
 - Adapter tests (`internal/adapters/memory/sqlite`) against a `t.TempDir()`
   SQLite file (not `:memory:`, so WAL-mode behavior is exercised the way
   production actually runs): insert/read round-trip, FTS5 keyword search
-  relevance, cosine-similarity ranking correctness against known vectors,
-  the embedding-pending background worker (rows get embeddings only once,
-  survives a restart mid-batch), and the "no embedder configured" degraded
-  path.
-- `internal/adapters/embeddings/openaicompat` tests against a fake HTTP
-  server, matching the existing `openaicompat` model adapter's test style.
+  relevance (or the `LIKE` fallback if Task 1 finds FTS5 unavailable),
+  cosine-similarity ranking correctness against known vectors, and that
+  `SearchSimilar` only scans the bounded recency window, not the whole
+  table.
+- `services.MemoryEmbeddingWorker` tests (fake `MemoryStore` + fake
+  `Embedder`): rows get embedded exactly once, a restart mid-batch doesn't
+  duplicate or skip work, and the worker never runs at all when no
+  `Embedder` is configured.
+- `openaicompat.Model.Embed` tests against a fake HTTP server, matching the
+  existing chat-completion tests' style in the same package.
 - Bootstrap/service tests proving: recalled excerpts pass through redaction,
   recall is never auto-injected into ordinary turn context, and
   heartbeat/scheduled turns never write to conversation history.
@@ -255,12 +301,15 @@ absence is not a startup failure.
 
 ## Implementation sequence constraints
 
-1. Add behavior test-first, starting with the SQLite schema/migration and
-   basic insert/read round-trip, since everything else depends on it.
+1. First confirm FTS5 actually works against the pinned `modernc.org/sqlite`
+   version (a throwaway spike is fine); only then add behavior test-first for
+   the real schema/migration and insert/read round-trip, since everything
+   else depends on it.
 2. Keep all SQL, the `modernc.org/sqlite` driver usage, and schema
-   management inside `internal/adapters/memory/sqlite`; keep all embeddings
-   HTTP/wire logic inside `internal/adapters/embeddings/openaicompat`. Wire
-   construction only in `internal/bootstrap`.
+   management inside `internal/adapters/memory/sqlite`, with no reference to
+   `Embedder` anywhere in that package. Keep the embed/poll/write-back
+   orchestration inside `services.MemoryEmbeddingWorker`, not inside the
+   adapter. Wire construction only in `internal/bootstrap`.
 3. Do not change `ports.StateStore`, `config.yaml`'s existing sections
    (`server`, `telegram`, `repositories`, `runner`, `calendar`, `mcp`, ...),
    or migrate any existing file-based state into SQLite.
@@ -279,6 +328,32 @@ absence is not a startup failure.
    actions).
 7. Verify with `make fmt vet test race build`, explicitly confirming the
    build stays CGO-free.
+
+## Known risks / open decisions
+
+Two judgment calls this spec deliberately leaves to the owner rather than
+deciding silently:
+
+- **No write-time secret filtering.** `WriteMessage` stores content exactly
+  as the conversation produced it — no `SecretGuard`-style rejection at
+  write time, only redaction later, at recall time, before results reach the
+  model. This matches how `RecentMessages` already behaves today (nothing
+  currently stops a secret pasted into chat from sitting in `state.json`).
+  The difference is permanence and reach: today that secret eventually
+  rotates out of the bounded recent-message window; with this store it
+  persists indefinitely and becomes searchable. Options: (a) accept this,
+  since it's not a regression from current behavior, just a longer memory of
+  the same exposure; (b) add `SecretGuard.Validate`-style rejection or
+  redaction on the write path too, which would need a decision on what
+  happens to a turn whose content gets rejected — silently store a redacted
+  version, or fail the write (and does a failed write ever block the
+  conversation turn itself)?
+- **No retention or pruning story.** `eggy.db` grows forever; nothing in
+  this spec deletes old messages. For a single owner this is likely fine for
+  a very long time, but it's an explicit gap, not an oversight — worth a
+  decision now (e.g. a bounded row count or age with oldest-first eviction)
+  or a deliberate "not needed yet, revisit if the file size becomes a
+  problem."
 
 ## Future extensions (explicitly out of scope now)
 

@@ -12,20 +12,23 @@ import (
 type ShippingService struct {
 	store        ports.StateStore
 	sessions     *ImplementationSessions
-	policy       ports.ApprovalPolicy
+	authorizer   ShippingAuthorizer
 	workspace    ports.WorkspaceInspector
 	committer    ports.RepositoryCommitter
 	pusher       ports.RepositoryPusher
 	pullRequests ports.PullRequestProvider
 	capabilities ports.RepositoryCapabilities
-	requester    ApprovalRequester
-	decider      ApprovalDecider
 }
 
-// ApprovalDecider immediately decides a pending approval, standing in for a
-// human Telegram tap so Ship can run the commit/push/PR chain unattended.
-type ApprovalDecider interface {
-	Decide(ctx context.Context, id string, approved bool) error
+// ShippingAuthorizer is the single authorization boundary Ship uses to issue
+// and immediately decide, then later authorize, each commit/push/pull-request
+// approval unattended -- standing in for a human Telegram tap. RequestAndApprove
+// and Authorize are still two separate calls (issue-and-decide, then
+// consume-on-use) so Commit/Push/CreatePullRequest keep re-checking the
+// workspace/diff/head state that changed between them.
+type ShippingAuthorizer interface {
+	RequestAndApprove(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error)
+	Authorize(ctx context.Context, action approvals.Action, payload any, approvalID string) error
 }
 
 var (
@@ -33,10 +36,6 @@ var (
 	ErrRepositoryPushUnavailable   = errors.New("repository push capability is unavailable")
 	ErrPullRequestUnavailable      = errors.New("pull-request capability is unavailable")
 )
-
-func (s *ShippingService) SetApprovalRequester(requester ApprovalRequester) { s.requester = requester }
-
-func (s *ShippingService) SetApprovalDecider(decider ApprovalDecider) { s.decider = decider }
 
 // Ship runs commit, push, and pull-request creation back to back, deciding
 // each step's approval itself instead of waiting for an owner Telegram tap.
@@ -46,14 +45,8 @@ func (s *ShippingService) SetApprovalDecider(decider ApprovalDecider) { s.decide
 // where the chain stopped (an unavailable capability or a protected branch)
 // with a nil error, since those are expected outcomes rather than failures.
 func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error) {
-	if s.decider == nil {
-		return ports.PullRequest{}, "", errors.New("automatic shipping approval is unavailable")
-	}
 	commitApproval, err := s.RequestCommit(ctx, runID, commitMessage)
 	if err != nil {
-		return ports.PullRequest{}, "", err
-	}
-	if err := s.decider.Decide(ctx, commitApproval.ID, true); err != nil {
 		return ports.PullRequest{}, "", err
 	}
 	if _, err := s.ExecuteApproved(ctx, commitApproval); err != nil {
@@ -65,9 +58,6 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 		if errors.Is(err, ErrRepositoryPushUnavailable) {
 			return ports.PullRequest{}, "Committed. Push is unavailable for the configured repository provider.", nil
 		}
-		return ports.PullRequest{}, "", err
-	}
-	if err := s.decider.Decide(ctx, pushApproval.ID, true); err != nil {
 		return ports.PullRequest{}, "", err
 	}
 	if _, err := s.ExecuteApproved(ctx, pushApproval); err != nil {
@@ -84,9 +74,6 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 		}
 		return ports.PullRequest{}, "", err
 	}
-	if err := s.decider.Decide(ctx, prApproval.ID, true); err != nil {
-		return ports.PullRequest{}, "", err
-	}
 	result, err := s.ExecuteApproved(ctx, prApproval)
 	if err != nil {
 		return ports.PullRequest{}, "", err
@@ -98,8 +85,8 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 	return pr, "", nil
 }
 
-func NewShippingService(store ports.StateStore, sessions *ImplementationSessions, policy ports.ApprovalPolicy, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
-	return &ShippingService{store: store, sessions: sessions, policy: policy, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
+func NewShippingService(store ports.StateStore, sessions *ImplementationSessions, authorizer ShippingAuthorizer, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
+	return &ShippingService{store: store, sessions: sessions, authorizer: authorizer, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
 }
 
 func (s *ShippingService) RequestCommit(ctx context.Context, runID, message string) (approvals.Approval, error) {
@@ -110,11 +97,8 @@ func (s *ShippingService) RequestCommit(ctx context.Context, runID, message stri
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	if s.requester == nil {
-		return approvals.Approval{}, errors.New("approval requester is unavailable")
-	}
 	payload := commitPayload{RunID: runID, Branch: session.Branch, BaseRevision: session.BaseRevision, Diff: session.Diff, Message: message}
-	return s.requester.Request(ctx, approvals.Commit, payload, "Commit changes for "+runID)
+	return s.authorizer.RequestAndApprove(ctx, approvals.Commit, payload, "Commit changes for "+runID)
 }
 
 func (s *ShippingService) RequestPush(ctx context.Context, runID, branch string) (approvals.Approval, error) {
@@ -125,11 +109,8 @@ func (s *ShippingService) RequestPush(ctx context.Context, runID, branch string)
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	if s.requester == nil {
-		return approvals.Approval{}, errors.New("approval requester is unavailable")
-	}
 	payload := pushPayload{RunID: runID, Branch: branch, Commit: session.Commit}
-	return s.requester.Request(ctx, approvals.Push, payload, "Push "+branch)
+	return s.authorizer.RequestAndApprove(ctx, approvals.Push, payload, "Push "+branch)
 }
 
 func (s *ShippingService) RequestPullRequest(ctx context.Context, runID, branch, title, body string) (approvals.Approval, error) {
@@ -140,11 +121,8 @@ func (s *ShippingService) RequestPullRequest(ctx context.Context, runID, branch,
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	if s.requester == nil {
-		return approvals.Approval{}, errors.New("approval requester is unavailable")
-	}
 	payload := pullRequestPayload{RunID: runID, Branch: branch, Commit: session.Commit, Title: title, Body: body}
-	return s.requester.Request(ctx, approvals.CreatePR, payload, "Create pull request for "+branch)
+	return s.authorizer.RequestAndApprove(ctx, approvals.CreatePR, payload, "Create pull request for "+branch)
 }
 
 func (s *ShippingService) ExecuteApproved(ctx context.Context, approval approvals.Approval) (any, error) {
@@ -199,7 +177,7 @@ func (s *ShippingService) Commit(ctx context.Context, runID, message, approvalID
 		return "", approvals.ErrPayloadChanged
 	}
 	payload := commitPayload{RunID: runID, Branch: session.Branch, BaseRevision: session.BaseRevision, Diff: session.Diff, Message: message}
-	if err := s.policy.Authorize(ctx, approvals.Commit, payload, approvalID); err != nil {
+	if err := s.authorizer.Authorize(ctx, approvals.Commit, payload, approvalID); err != nil {
 		return "", err
 	}
 	commit, err := s.committer.Commit(ctx, session.Workspace, message)
@@ -231,7 +209,7 @@ func (s *ShippingService) Push(ctx context.Context, runID, branch, approvalID st
 	if session.Commit == "" || head != session.Commit {
 		return approvals.ErrPayloadChanged
 	}
-	if err := s.policy.Authorize(ctx, approvals.Push, payload, approvalID); err != nil {
+	if err := s.authorizer.Authorize(ctx, approvals.Push, payload, approvalID); err != nil {
 		return err
 	}
 	if err := s.pusher.Push(ctx, session.Workspace, branch); err != nil {
@@ -260,7 +238,7 @@ func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, 
 	if session.Commit == "" || remoteHead != session.Commit {
 		return ports.PullRequest{}, approvals.ErrPayloadChanged
 	}
-	if err := s.policy.Authorize(ctx, approvals.CreatePR, payload, approvalID); err != nil {
+	if err := s.authorizer.Authorize(ctx, approvals.CreatePR, payload, approvalID); err != nil {
 		return ports.PullRequest{}, err
 	}
 	if existing, found, err := s.pullRequests.FindOpenPullRequest(ctx, repository, branch); err != nil {

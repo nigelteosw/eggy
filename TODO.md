@@ -27,62 +27,62 @@ branch and a post-PR-creation cleanup branch guarded by a comment admitting
 "these branches only remain reachable for a pending approval left over from
 before that change."
 
-- [ ] Keep `ShippingService` as Eggy's single repository-write boundary. Only
+- [x] Keep `ShippingService` as Eggy's single repository-write boundary. Only
       the implementation loop may call it; coding agents cannot commit, push,
       or create pull requests directly.
-- [ ] Replace its three approval roles and setter-based setup with one narrow
+- [x] Replace its three approval roles and setter-based setup with one narrow
       constructor-injected authorization dependency that issues, automatically
       decides, and authorizes an exact action and payload.
-  - [ ] Add `ApprovalService.RequestAndApprove(ctx, action, payload, summary)
+  - [x] Add `ApprovalService.RequestAndApprove(ctx, action, payload, summary)
         (approvals.Approval, error)`, doing the create-then-immediately-approve
         sequence as one `store.Update`, replacing today's separate `Request`
         call plus `decider.Decide(id, true)` call.
-  - [ ] Define one narrow interface (e.g. `ShippingAuthorizer`) with
+  - [x] Define one narrow interface (e.g. `ShippingAuthorizer`) with
         `RequestAndApprove` and `Authorize` methods; replace
         `ShippingService`'s `policy`, `requester`, and `decider` fields with a
         single field of this type.
-  - [ ] Take it as a parameter of `NewShippingService`; delete
+  - [x] Take it as a parameter of `NewShippingService`; delete
         `SetApprovalRequester`, `SetApprovalDecider`, the `ApprovalDecider`
         interface, and both setter call sites in `internal/bootstrap/app.go`.
-  - [ ] Update `Ship()` to call `RequestAndApprove` once per action (commit,
+  - [x] Update `Ship()` to call `RequestAndApprove` once per action (commit,
         push, create-pull-request) instead of Request-then-Decide, and update
         `RequestCommit`/`RequestPush`/`RequestPullRequest` and their callers
         accordingly.
-- [ ] Keep commit, push, and pull-request creation as separate authorized
+- [x] Keep commit, push, and pull-request creation as separate authorized
       operations. Preserve expiry, action and payload matching, full-diff
       binding, branch/head and remote-head checks, and protected-branch denial.
-  - [ ] Keep `Commit`/`Push`/`CreatePullRequest` (shipping.go:179-287) calling
-        `Authorize` independently per action with the workspace/diff/head
-        re-checks that already precede each one; the merged
-        `ShippingAuthorizer` interface must not collapse these into one call.
-- [ ] Remove obsolete pending shipping approvals at startup or migrate them;
+  - [x] Keep `Commit`/`Push`/`CreatePullRequest` calling `Authorize`
+        independently per action with the workspace/diff/head re-checks that
+        already precede each one; the merged `ShippingAuthorizer` interface
+        does not collapse these into one call.
+- [x] Remove obsolete pending shipping approvals at startup or migrate them;
       remove shipping from Telegram's callback executor map and delete its
       compatibility-only cleanup paths.
-  - [ ] Add a startup step (`App.Run` or `NewApp`) that loads state and calls
+  - [x] Add a startup step (`App.Run`) that loads state and calls
         `ApprovalService.Invalidate` on any `Pending` approval whose `Action`
         is `Commit`, `Push`, or `CreatePR` — these can only be leftovers from
         the retired manual-tap flow, since no code path still creates a
         pending shipping approval that waits for a human `Decide` call.
-  - [ ] Remove the `approvals.Commit`, `approvals.Push`, and `approvals.CreatePR`
-        entries from `app.approvalExecutors` (`internal/bootstrap/app.go:183-190`).
-  - [ ] Delete the rejection-cleanup branch and the post-`CreatePR`-cleanup
-        branch in `App.handleApproval` (`internal/bootstrap/app.go:520-566`),
-        along with the comment explaining they're compatibility-only.
-- [ ] Keep Telegram approval callbacks for repository registration and Calendar
+  - [x] Remove the `approvals.Commit`, `approvals.Push`, and `approvals.CreatePR`
+        entries from `app.approvalExecutors`.
+  - [x] Delete the rejection-cleanup branch and the post-`CreatePR`-cleanup
+        branch in `App.handleApproval`, along with the comment explaining
+        they're compatibility-only.
+- [x] Keep Telegram approval callbacks for repository registration and Calendar
       mutations. Pull-request merging remains unsupported.
-  - [ ] Leave the `AddRepository`, `CalendarCreate`, `CalendarUpdate`,
+  - [x] Leave the `AddRepository`, `CalendarCreate`, `CalendarUpdate`,
         `CalendarDelete`, `SkillWrite`, and `SkillDelete` entries in
         `app.approvalExecutors` untouched; only the three shipping actions move
         off the human-tap callback path.
-- [ ] Add an end-to-end test proving the implementation loop cannot bypass any
+- [x] Add an end-to-end test proving the implementation loop cannot bypass any
       repository-write authorization check.
-  - [ ] Add a test in `shipping_test.go` that drives a full run through
-        `Ship()` (reusing the existing `fakePolicy`/`fakeRepository` fixtures)
-        and asserts that a tampered diff, a moved branch/head, a moved remote
-        head, and a protected-branch push are each blocked before any
-        repository side effect — exercising `RequestAndApprove` and
-        `Authorize` together end to end, not just the already-covered
-        individual `Commit`/`Push`/`CreatePullRequest` checks.
+  - [x] Add a test in `shipping_test.go` (`TestShippingBlocksTamperedOrProtectedActionsEndToEnd`)
+        that drives a full run through `Ship()` against a real
+        `ApprovalService` and asserts that a tampered diff, a moved
+        branch/head, a moved remote head, and a protected-branch push are
+        each blocked — exercising `RequestAndApprove` and `Authorize`
+        together end to end, not just the already-covered individual
+        `Commit`/`Push`/`CreatePullRequest` checks.
 
 ### Deployment follow-up
 
@@ -143,7 +143,10 @@ grant capabilities.
 
 ## P1: Add a web chat interface
 
-See [`docs/superpowers/specs/2026-07-23-web-chat-interface-design.md`](docs/superpowers/specs/2026-07-23-web-chat-interface-design.md).
+See [`docs/superpowers/specs/2026-07-23-web-chat-interface-design.md`](docs/superpowers/specs/2026-07-23-web-chat-interface-design.md)
+for the design and [`docs/superpowers/plans/2026-07-23-web-chat-interface.md`](docs/superpowers/plans/2026-07-23-web-chat-interface.md)
+for the task-by-task, test-first implementation plan (10 tasks; run it with
+`superpowers:subagent-driven-development` or `superpowers:executing-plans`).
 Chat becomes the web UI's default view; the existing config UI moves to a
 secondary settings toggle. Reuses the existing agent loop, dispatcher, and
 event pipeline exactly as Telegram does — the web channel is a new
@@ -158,10 +161,13 @@ event pipeline exactly as Telegram does — the web channel is a new
       `SendTyping` out to both the Telegram adapter and `webchat.Hub`, with a
       compound message-ID scheme so `EditText` can route back to each
       channel's own copy of the same logical message.
-- [ ] Add `POST /api/chat/send`, `POST /api/chat/approve`, and
-      `GET /api/chat/history`, each behind the existing `requireWebSession`
-      middleware, enqueuing through the same `app.Enqueue`/dispatcher path
-      Telegram already uses — no parallel message- or approval-handling logic.
+- [ ] Add `GET /api/chat/stream` (SSE), `POST /api/chat/send`,
+      `POST /api/chat/approve`, and `GET /api/chat/history`, each behind the
+      existing `requireWebSession` middleware, enqueuing through the same
+      `app.Enqueue`/dispatcher path Telegram already uses — no parallel
+      message- or approval-handling logic. `Dispatcher.Handle` silently drops
+      any event whose `Owner` isn't set to the dispatcher's configured owner
+      string, so every enqueued event must set it explicitly.
 - [ ] Add `ChatPage.tsx` (message list, typing indicator, inline
       Approve/Reject, send box) and switch `App.tsx` to a `"chat" | "config"`
       view toggle defaulting to chat, with no router added.

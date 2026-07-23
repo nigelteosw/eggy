@@ -91,3 +91,40 @@ func TestHandleApprovalFallsBackToNewMessageWhenEditFails(t *testing.T) {
 		t.Fatalf("expected fallback delivery of rejection message, got %q", delivered)
 	}
 }
+
+// TestInvalidateStaleShippingApprovalsClearsOnlyLeftoverShippingActions
+// covers the P0 cleanup step: ShippingService.Ship now issues, decides, and
+// authorizes its own commit/push/pull-request approvals in one call, so a
+// pending approval for one of those three actions can only be a leftover
+// from before that change -- it must be invalidated at startup rather than
+// sit waiting for a Telegram tap that will never come. A pending approval
+// for an action still on the human-tap path (e.g. CalendarCreate) must be
+// left untouched.
+func TestInvalidateStaleShippingApprovalsClearsOnlyLeftoverShippingActions(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := app.approvals.Request(context.Background(), approvals.Commit, map[string]string{"run_id": "run-1"}, "Commit changes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calendar, err := app.approvals.Request(context.Background(), approvals.CalendarCreate, map[string]string{"id": "evt-1"}, "Create event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.invalidateStaleShippingApprovals(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	state, err := app.store.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := state.Approvals[commit.ID].Status; got != approvals.Invalidated {
+		t.Fatalf("stale commit approval status=%q, want %q", got, approvals.Invalidated)
+	}
+	if got := state.Approvals[calendar.ID].Status; got != approvals.Pending {
+		t.Fatalf("calendar approval status=%q, want still %q", got, approvals.Pending)
+	}
+}

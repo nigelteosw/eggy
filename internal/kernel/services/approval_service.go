@@ -48,6 +48,33 @@ func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, 
 	return approval, err
 }
 
+// RequestAndApprove creates and immediately approves an approval in one
+// store.Update, standing in for a human Telegram tap so an automated caller
+// (ShippingService.Ship) can run a chain of authorized actions unattended.
+func (s *ApprovalService) RequestAndApprove(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
+	canonical, digest, err := canonicalPayload(payload)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	now := s.now()
+	approval := approvals.Approval{
+		ID: randomID(), Action: action, PayloadDigest: digest, Payload: canonical, Summary: summary,
+		Status: approvals.Approved, CreatedAt: now, ExpiresAt: now.Add(s.ttl), DecidedAt: now,
+	}
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
+		if state.Approvals == nil {
+			state.Approvals = map[string]approvals.Approval{}
+		}
+		state.Approvals[approval.ID] = approval
+		return nil
+	})
+	return approval, err
+}
+
 func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) error {
 	state, err := s.store.Load(ctx)
 	if err != nil {

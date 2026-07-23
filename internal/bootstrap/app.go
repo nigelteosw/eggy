@@ -204,15 +204,14 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
 	}, options.Now, activeSecrets...)
 	app.shipping = services.NewShippingService(stateStore, sessions, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
-	app.shipping.SetApprovalRequester(app.approvals)
-	app.shipping.SetApprovalDecider(app.approvals)
 	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, sessions)
 	skillsStore := skillsadapter.Open(filepath.Join(config.DataDir, "skills"), 32<<10)
 	app.skillsService = services.NewSkillsService(skillsStore, stateStore, app.approvals, app.approvals, services.NewSecretGuard(activeSecrets))
+	// Commit, push, and pull-request creation are no longer decided by an
+	// owner Telegram tap: ShippingService.Ship issues, decides, and
+	// authorizes that whole chain itself (see shipping.go). Registration and
+	// Calendar mutations still go through this human-tap callback path.
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
-		approvals.Commit:        app.shipping,
-		approvals.Push:          app.shipping,
-		approvals.CreatePR:      app.shipping,
 		approvals.AddRepository: app.repositoriesService,
 		approvals.SkillWrite:    app.skillsService,
 		approvals.SkillDelete:   app.skillsService,
@@ -647,15 +646,6 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		return err
 	}
 	if !decision.Approved {
-		state, _ := a.store.Load(ctx)
-		approval := state.Approvals[decision.ApprovalID]
-		if approval.Action == approvals.Commit || approval.Action == approvals.Push || approval.Action == approvals.CreatePR {
-			var payload struct{ RunID string }
-			_ = json.Unmarshal(approval.Payload, &payload)
-			if payload.RunID != "" {
-				_ = a.coding.Cleanup(ctx, payload.RunID)
-			}
-		}
 		return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Action rejected.")
 	}
 	state, err := a.store.Load(ctx)
@@ -670,18 +660,6 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 	result, err := executor.ExecuteApproved(ctx, approval)
 	if err != nil {
 		return err
-	}
-	// Commit, push, and pull-request creation no longer pause for individual
-	// owner taps: ShippingService.Ship decides and executes that whole chain
-	// itself (see repository_tools.go and the /continue command). These
-	// branches only remain reachable for a pending approval left over from
-	// before that change.
-	if approval.Action == approvals.CreatePR {
-		var payload struct{ RunID string }
-		_ = json.Unmarshal(approval.Payload, &payload)
-		if payload.RunID != "" {
-			_ = a.coding.Cleanup(ctx, payload.RunID)
-		}
 	}
 	return telegram.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
 }
@@ -698,6 +676,9 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	if err := a.scheduler.Recover(ctx); err != nil {
+		return err
+	}
+	if err := a.invalidateStaleShippingApprovals(ctx); err != nil {
 		return err
 	}
 	if a.memoryWorker != nil {
@@ -875,6 +856,30 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	}
 	ownerChatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
 	return a.channel.Deliver(ctx, ownerChatID, result.Message.Content)
+}
+
+// invalidateStaleShippingApprovals discards any pending Commit/Push/CreatePR
+// approval found at startup. ShippingService.Ship issues, decides, and
+// authorizes that whole chain itself in one call now, so a pending shipping
+// approval can only be a leftover from before that change -- no code path
+// still creates one and waits for a human Decide call.
+func (a *App) invalidateStaleShippingApprovals(ctx context.Context) error {
+	state, err := a.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	for id, approval := range state.Approvals {
+		if approval.Status != approvals.Pending {
+			continue
+		}
+		if approval.Action != approvals.Commit && approval.Action != approvals.Push && approval.Action != approvals.CreatePR {
+			continue
+		}
+		if err := a.approvals.Invalidate(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newRunID() string {

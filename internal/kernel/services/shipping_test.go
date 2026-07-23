@@ -130,7 +130,6 @@ func TestShippingPersistsAndResumesApprovedAction(t *testing.T) {
 	repository := &fakeRepository{branch: "eggy/run"}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 	service := NewShippingService(store, sessions, gateway, repository, repository, repository, repository, fullRepositoryCapabilities)
-	service.SetApprovalRequester(gateway)
 	approval, err := service.RequestCommit(context.Background(), "run", "feat: done")
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +155,6 @@ func TestShippingRecordsDurableSessionLifecycle(t *testing.T) {
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 	repository := &fakeRepository{branch: "eggy/run"}
 	service := NewShippingService(store, sessions, &fakePolicy{}, repository, repository, repository, repository, fullRepositoryCapabilities)
-	service.SetApprovalRequester(&fakeShippingGateway{})
 
 	if _, err := service.Commit(context.Background(), "run", "feat: done", "commit-approval"); err != nil {
 		t.Fatal(err)
@@ -204,7 +202,6 @@ func TestShippingRejectsUnavailablePushAndPullRequestCapabilities(t *testing.T) 
 	gateway := &fakeShippingGateway{}
 	repository := &fakeRepository{}
 	service := NewShippingService(store, sessions, gateway, repository, repository, repository, repository, ports.RepositoryCapabilities{Commit: true})
-	service.SetApprovalRequester(gateway)
 
 	if _, err := service.RequestPush(context.Background(), "run", "eggy/run"); !errors.Is(err, ErrRepositoryPushUnavailable) {
 		t.Fatalf("push request error=%v", err)
@@ -258,6 +255,84 @@ func TestShippingReusesExistingOpenPullRequestInsteadOfCreatingDuplicate(t *test
 	}
 }
 
+// TestShippingBlocksTamperedOrProtectedActionsEndToEnd drives a full Ship()
+// call against a real ApprovalService (not a fake gateway with hand-built
+// payloads), proving the implementation loop cannot bypass any
+// repository-write authorization check: a tampered diff, a moved
+// branch/head, a moved remote head, and a protected-branch push are each
+// caught by the same RequestAndApprove/Authorize pair Ship() itself uses.
+func TestShippingBlocksTamperedOrProtectedActionsEndToEnd(t *testing.T) {
+	baseSession := func() ports.ImplementationSession {
+		return ports.ImplementationSession{ID: "run", Repository: "eggy", Workspace: "/tmp/run", Branch: "feature", BaseRevision: "abc123", Diff: "diff"}
+	}
+
+	t.Run("tampered diff", func(t *testing.T) {
+		store := newMemoryStore()
+		sessions, _ := shippingFixture(baseSession())
+		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+		repository := &fakeRepository{branch: "feature", diff: "changed-diff"}
+		service := NewShippingService(store, sessions, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+
+		if _, _, err := service.Ship(context.Background(), "run", "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
+			t.Fatalf("error=%v", err)
+		}
+		if repository.commits != 0 {
+			t.Fatalf("commit happened before authorization: %#v", repository)
+		}
+	})
+
+	t.Run("moved branch or head", func(t *testing.T) {
+		store := newMemoryStore()
+		sessions, _ := shippingFixture(baseSession())
+		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+		repository := &fakeRepository{branch: "other", head: "moved"}
+		service := NewShippingService(store, sessions, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+
+		if _, _, err := service.Ship(context.Background(), "run", "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
+			t.Fatalf("error=%v", err)
+		}
+		if repository.commits != 0 {
+			t.Fatalf("commit happened before authorization: %#v", repository)
+		}
+	})
+
+	t.Run("moved remote head", func(t *testing.T) {
+		store := newMemoryStore()
+		sessions, _ := shippingFixture(baseSession())
+		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
+		repository := &fakeRepository{branch: "feature", remoteHead: "tampered"}
+		service := NewShippingService(store, sessions, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+
+		if _, _, err := service.Ship(context.Background(), "run", "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
+			t.Fatalf("error=%v", err)
+		}
+		if repository.commits != 1 || repository.pushes != 1 || repository.prs != 0 {
+			t.Fatalf("side effects=%#v, want commit+push but no pull request", repository)
+		}
+	})
+
+	t.Run("protected branch push", func(t *testing.T) {
+		store := newMemoryStore()
+		session := baseSession()
+		session.Branch = "main"
+		sessions, _ := shippingFixture(session)
+		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main"}}}
+		repository := &fakeRepository{branch: "main"}
+		service := NewShippingService(store, sessions, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+
+		_, note, err := service.Ship(context.Background(), "run", "main", "feat: done")
+		if err != nil {
+			t.Fatalf("error=%v", err)
+		}
+		if note == "" {
+			t.Fatal("want a note explaining the protected-branch denial")
+		}
+		if repository.commits != 1 || repository.pushes != 0 {
+			t.Fatalf("side effects=%#v, want a commit but no push", repository)
+		}
+	})
+}
+
 type fakePolicy struct {
 	actions  []approvals.Action
 	payloads []any
@@ -272,14 +347,25 @@ func (p *fakePolicy) Authorize(_ context.Context, action approvals.Action, paylo
 	return p.err
 }
 
+func (p *fakePolicy) RequestAndApprove(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
+	return approvals.Approval{ID: "approval", Action: action, Summary: summary, Status: approvals.Approved}, nil
+}
+
 type fakeShippingGateway struct {
 	payload    any
 	authorized approvals.Action
 }
 
+// Request satisfies ApprovalRequester so the same fake also serves
+// RepositoriesService/SkillsService tests elsewhere in this package.
 func (g *fakeShippingGateway) Request(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
 	g.payload = payload
 	return approvals.Approval{ID: "approval", Action: action, Summary: summary}, nil
+}
+
+func (g *fakeShippingGateway) RequestAndApprove(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
+	g.payload = payload
+	return approvals.Approval{ID: "approval", Action: action, Summary: summary, Status: approvals.Approved}, nil
 }
 func (g *fakeShippingGateway) Authorize(_ context.Context, action approvals.Action, payload any, id string) error {
 	g.authorized = action

@@ -109,10 +109,12 @@ before that change."
       sharing the store-wide cap with `SOUL.md`.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
       invisible-Unicode content before durable context writes.
-- [ ] Design bounded, file-backed conversation search before implementing it;
-      do not add a database solely for transcript recall.
 - [ ] Keep recalled excerpts bounded, redacted, and explicitly marked as stale
-      historical context rather than current authority.
+      historical context rather than current authority. (Superseded by
+      "P1: Add SQLite-backed conversation memory with vector search" below —
+      durable, searchable recall is now a database, not a file-backed design,
+      at the owner's explicit direction; see
+      `docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md` for why.)
 
 Durable-context roles remain fixed: `SOUL.md` describes Eggy's identity and
 tone, `USER.md` holds stable owner preferences, and `MEMORY.md` holds compact
@@ -138,6 +140,70 @@ grant capabilities.
 - [x] Evaluate a human-editable `HEARTBEAT.md` checklist while keeping timing,
       timezone, quiet hours, limits, and prohibited actions in deterministic
       policy.
+
+## P1: Add a web chat interface
+
+See [`docs/superpowers/specs/2026-07-23-web-chat-interface-design.md`](docs/superpowers/specs/2026-07-23-web-chat-interface-design.md).
+Chat becomes the web UI's default view; the existing config UI moves to a
+secondary settings toggle. Reuses the existing agent loop, dispatcher, and
+event pipeline exactly as Telegram does — the web channel is a new
+`ports.Channel` implementation, not a new way of running the agent.
+
+- [ ] Add `internal/adapters/channels/webchat`: an SSE-based `ports.Channel`
+      implementation with a connection `Hub` and a required keepalive
+      (`: keepalive\n\n`) on a fixed interval so Railway's proxy doesn't drop
+      idle connections.
+- [ ] Add `multiChannel` (`internal/bootstrap`) fanning `Deliver`/
+      `DeliverApproval`/`DeliverTrackable`/`EditText`/`AnswerCallback`/
+      `SendTyping` out to both the Telegram adapter and `webchat.Hub`, with a
+      compound message-ID scheme so `EditText` can route back to each
+      channel's own copy of the same logical message.
+- [ ] Add `POST /api/chat/send`, `POST /api/chat/approve`, and
+      `GET /api/chat/history`, each behind the existing `requireWebSession`
+      middleware, enqueuing through the same `app.Enqueue`/dispatcher path
+      Telegram already uses — no parallel message- or approval-handling logic.
+- [ ] Add `ChatPage.tsx` (message list, typing indicator, inline
+      Approve/Reject, send box) and switch `App.tsx` to a `"chat" | "config"`
+      view toggle defaulting to chat, with no router added.
+- [ ] Add adapter, `multiChannel`, and HTTP-route tests before wiring; verify
+      `/api/chat/approve` reaches the exact same `handleApproval` a Telegram
+      callback reaches.
+
+## P1: Add SQLite-backed conversation memory with vector search
+
+See [`docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md`](docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md).
+Reopens the "no database for transcript recall" decision at the owner's
+explicit direction; additive only — `config.yaml`, `state.json`, and the
+curated `SOUL.md`/`USER.md`/`MEMORY.md` documents are unchanged. Durable,
+searchable conversation history is a building block the web chat interface
+depends on to be useful across sessions.
+
+- [ ] Confirm FTS5 works against the pinned `modernc.org/sqlite` version
+      before anything else is built on it; fall back to a plain `LIKE` query
+      if not.
+- [ ] Add `ports.MemoryStore` (`WriteMessage`, `SearchText`, `SearchSimilar`,
+      `PendingEmbeddings`, `SetEmbedding`) and
+      `internal/adapters/memory/sqlite`, storage-only, no CGO, no reference to
+      `Embedder`. `SearchSimilar` scores only a bounded recency window, never
+      an unbounded full-table scan.
+- [ ] Add `ports.Embedder` and an `Embed` method on the existing
+      `internal/adapters/models/openaicompat` `Model` type (reuse its
+      HTTP-client/credential plumbing rather than a new sibling package),
+      configured via a new `embeddings:` config section.
+- [ ] Add `services.MemoryEmbeddingWorker`: orchestrates `MemoryStore` +
+      `Embedder` (polls `PendingEmbeddings`, calls `Embed`, writes back via
+      `SetEmbedding`) on the same periodic-loop machinery the
+      scheduler/heartbeat already use. Only constructed when `embeddings` is
+      configured; conversation storage and full-text search work with zero
+      configuration either way.
+- [ ] Add a `recall_conversation` agent tool: bounded, redacted (reuse
+      `SecretGuard`-style scrubbing) results, explicitly framed as historical
+      context, never auto-injected into ordinary turn context.
+- [ ] Decide and implement the two open calls the spec deliberately left to
+      the owner rather than defaulting silently: write-time secret handling
+      (redact/reject at write time, or accept today's read-time-only
+      redaction as sufficient) and a retention/pruning story (bounded
+      row-count or age-based eviction, or explicitly "not needed yet").
 
 ## P2: Build plug-and-play capabilities
 

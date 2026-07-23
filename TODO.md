@@ -141,62 +141,31 @@ grant capabilities.
       timezone, quiet hours, limits, and prohibited actions in deterministic
       policy.
 
-## P1: Add a web chat interface
+## P1: Add a multi-thread web chat interface, independent of Telegram
 
-See [`docs/superpowers/specs/2026-07-23-web-chat-interface-design.md`](docs/superpowers/specs/2026-07-23-web-chat-interface-design.md)
-for the design and [`docs/superpowers/plans/2026-07-23-web-chat-interface.md`](docs/superpowers/plans/2026-07-23-web-chat-interface.md)
-for the task-by-task, test-first implementation plan (10 tasks; run it with
-`superpowers:subagent-driven-development` or `superpowers:executing-plans`).
-Chat becomes the web UI's default view; the existing config UI moves to a
-secondary settings toggle. Reuses the existing agent loop, dispatcher, and
-event pipeline exactly as Telegram does — the web channel is a new
-`ports.Channel` implementation, not a new way of running the agent.
+See [`docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md`](docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md)
+for the design (implementation plan not yet written). Telegram and the web
+UI are independent channels into the same agent core — a message on one
+never appears on the other — not mirrors of one shared conversation (an
+earlier design and its partial implementation assumed the latter; both are
+superseded/removed by this one). The web UI gets multiple
+independently-resumable conversation threads in a sidebar; Telegram keeps
+writing to its own single fixed thread, invisible from the web UI. No
+structural split between "conversation" and "coding run" — a thread is a
+thread; the model decides what tools to call inside one exactly as it
+already does today.
 
-- [ ] Add `internal/adapters/channels/webchat`: an SSE-based `ports.Channel`
-      implementation with a connection `Hub` and a required keepalive
-      (`: keepalive\n\n`) on a fixed interval so Railway's proxy doesn't drop
-      idle connections.
-- [ ] Add `multiChannel` (`internal/bootstrap`) fanning `Deliver`/
-      `DeliverApproval`/`DeliverTrackable`/`EditText`/`AnswerCallback`/
-      `SendTyping` out to both the Telegram adapter and `webchat.Hub`, with a
-      compound message-ID scheme so `EditText` can route back to each
-      channel's own copy of the same logical message.
-- [ ] Add `GET /api/chat/stream` (SSE), `POST /api/chat/send`,
-      `POST /api/chat/approve`, and `GET /api/chat/history`, each behind the
-      existing `requireWebSession` middleware, enqueuing through the same
-      `app.Enqueue`/dispatcher path Telegram already uses — no parallel
-      message- or approval-handling logic. `Dispatcher.Handle` silently drops
-      any event whose `Owner` isn't set to the dispatcher's configured owner
-      string, so every enqueued event must set it explicitly.
-- [ ] Add `ChatPage.tsx` (message list, typing indicator, inline
-      Approve/Reject, send box) and switch `App.tsx` to a `"chat" | "config"`
-      view toggle defaulting to chat, with no router added.
-- [ ] Add adapter, `multiChannel`, and HTTP-route tests before wiring; verify
-      `/api/chat/approve` reaches the exact same `handleApproval` a Telegram
-      callback reaches.
-
-Fast-follow, deliberately not in this iteration: Telegram has no concept of
-switching chats (one continuous stream; `/clear` only wipes the disposable
-recent-message window), but the web UI should support multiple distinct,
-saved, switchable conversation threads — a sidebar of past chats, each
-independently resumable, with the agent's turn context scoped to whichever
-thread the message came from — while Telegram keeps writing to a single
-fixed thread (e.g. `conversation_id = "telegram"`). Every message, from
-either surface, still lands in the same SQLite `messages` table; only the
-`conversation_id` column (already in the schema, hardcoded to `'owner'`
-today) differs per thread.
-
-The real blocker to solve in that spec: `State.RecentMessages` — the *live*
-recent-history window actually injected into each agent turn today — is a
-single global list, not partitioned by conversation at all, and lives in
-`state.json`, separate from the durable SQLite log. Tagging SQLite rows with
-`conversation_id` alone does not make the agent's context thread-aware;
-every thread would still see the same shared recent-window regardless of
-which one is "active." The context-building path itself needs to become
-thread-scoped: either make `RecentMessages` keyed by thread, or read live
-turn context straight from SQLite `WHERE conversation_id = X` instead of
-`state.json` for anything other than Telegram's fixed thread. Also needs:
-list/create/switch/rename/delete endpoints and the frontend sidebar UI.
+Core pieces: a `threads` table in the existing SQLite store (making
+`messages.conversation_id` — already in the schema, previously hardcoded to
+`'owner'` — meaningful); retiring `State.RecentMessages` (the single global,
+unpartitioned live-context window) in favor of thread-scoped SQLite
+queries; a `routedChannel` replacing the removed `multiChannel`, using
+`context.Context` (not a mutable `App` field, since turns run concurrently)
+to carry which channel+thread a reply belongs to; thread-scoped
+`/api/chat/threads/*` routes; and a sidebar + thread-aware `ChatPage.tsx`.
+Deliberately deferred: rename/delete/pin endpoints, and the rest of the
+reference UI shell (Skills/Artifacts/Messaging panels, command palette,
+status bar) — each is its own future spec.
 
 ## P1: Add SQLite-backed conversation memory with vector search
 

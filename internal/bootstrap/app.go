@@ -395,6 +395,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Store: stateStore, OwnerID: owner,
 	})
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {

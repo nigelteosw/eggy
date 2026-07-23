@@ -175,35 +175,42 @@ See [`docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md`](docs/superp
 Reopens the "no database for transcript recall" decision at the owner's
 explicit direction; additive only — `config.yaml`, `state.json`, and the
 curated `SOUL.md`/`USER.md`/`MEMORY.md` documents are unchanged. Durable,
-searchable conversation history is a building block the web chat interface
-depends on to be useful across sessions.
+searchable conversation history is now an explicit web-chat building block
+needed to make chats useful across sessions, not a database added merely to
+mirror another harness. The approved data policy is raw write/read-time
+redaction, with no pruning yet.
 
-- [ ] Confirm FTS5 works against the pinned `modernc.org/sqlite` version
+- [x] Complete the approved reversal: durable, searchable transcript memory
+      now supports useful web chat across sessions rather than mirroring
+      another harness. It stores raw conversation content and redacts only at
+      recall time; no retention/pruning policy is implemented yet.
+- [x] Confirm FTS5 works against the pinned `modernc.org/sqlite` version
       before anything else is built on it; fall back to a plain `LIKE` query
       if not.
-- [ ] Add `ports.MemoryStore` (`WriteMessage`, `SearchText`, `SearchSimilar`,
+- [x] Add `ports.MemoryStore` (`WriteMessage`, `SearchText`, `SearchSimilar`,
       `PendingEmbeddings`, `SetEmbedding`) and
       `internal/adapters/memory/sqlite`, storage-only, no CGO, no reference to
       `Embedder`. `SearchSimilar` scores only a bounded recency window, never
       an unbounded full-table scan.
-- [ ] Add `ports.Embedder` and an `Embed` method on the existing
+- [x] Add `ports.Embedder` and an `Embed` method on the existing
       `internal/adapters/models/openaicompat` `Model` type (reuse its
       HTTP-client/credential plumbing rather than a new sibling package),
       configured via a new `embeddings:` config section.
-- [ ] Add `services.MemoryEmbeddingWorker`: orchestrates `MemoryStore` +
+- [x] Add `services.MemoryEmbeddingWorker`: orchestrates `MemoryStore` +
       `Embedder` (polls `PendingEmbeddings`, calls `Embed`, writes back via
       `SetEmbedding`) on the same periodic-loop machinery the
       scheduler/heartbeat already use. Only constructed when `embeddings` is
       configured; conversation storage and full-text search work with zero
       configuration either way.
-- [ ] Add a `recall_conversation` agent tool: bounded, redacted (reuse
+- [x] Add a `recall_conversation` agent tool: bounded, redacted (reuse
       `SecretGuard`-style scrubbing) results, explicitly framed as historical
       context, never auto-injected into ordinary turn context.
-- [ ] Decide and implement the two open calls the spec deliberately left to
+- [x] Decide and implement the two open calls the spec deliberately left to
       the owner rather than defaulting silently: write-time secret handling
       (redact/reject at write time, or accept today's read-time-only
       redaction as sufficient) and a retention/pruning story (bounded
-      row-count or age-based eviction, or explicitly "not needed yet").
+      row-count or age-based eviction, or explicitly "not needed yet"). The
+      approved choices are raw write/read-time redaction and no pruning yet.
 
 ## P2: Build plug-and-play capabilities
 

@@ -36,7 +36,7 @@
   - `ports.MemoryStore` with `WriteMessage`, `SearchText`, `SearchSimilar`, `PendingEmbeddings`, and `SetEmbedding`
   - `sqlite.Open(path string, candidateLimit int) (*Store, error)`
 
-- [ ] **Step 1: Pin and prove FTS5 before adapter implementation**
+- [x] **Step 1: Pin and prove FTS5 before adapter implementation**
 
 Add `modernc.org/sqlite v1.54.0`, then write `TestOpenCreatesFTS5Schema` first. The test opens a real `t.TempDir()` file, inserts a row into `messages`, queries `messages_fts MATCH 'durable'`, and must fail before `Open` exists.
 
@@ -44,7 +44,7 @@ Run: `go test ./internal/adapters/memory/sqlite -run TestOpenCreatesFTS5Schema -
 
 Expected: FAIL because the adapter is not implemented.
 
-- [ ] **Step 2: Add the provider-neutral types and minimal schema**
+- [x] **Step 2: Add the provider-neutral types and minimal schema**
 
 Add to `internal/ports/ports.go`:
 
@@ -76,7 +76,7 @@ Run: `go test ./internal/adapters/memory/sqlite -run TestOpenCreatesFTS5Schema -
 
 Expected: PASS, proving the pinned driver has FTS5.
 
-- [ ] **Step 3: Test and implement durable writes and keyword ranking**
+- [x] **Step 3: Test and implement durable writes and keyword ranking**
 
 Add failing tests proving:
 
@@ -94,7 +94,7 @@ Run: `go test ./internal/adapters/memory/sqlite -run 'TestStore|TestSearchText' 
 
 Expected: PASS.
 
-- [ ] **Step 4: Test and implement vector persistence and bounded cosine ranking**
+- [x] **Step 4: Test and implement vector persistence and bounded cosine ranking**
 
 Add failing tests with known vectors proving `PendingEmbeddings` returns only rows with `embedding IS NULL`, `SetEmbedding` stores little-endian float32 BLOBs, zero-length/non-finite vectors are rejected, and `SearchSimilar` returns cosine-ranked messages while considering only the newest `candidateLimit` embedded rows.
 
@@ -121,7 +121,7 @@ Expected: PASS.
   - `Config.Embeddings EmbeddingsConfig`
   - `EmbeddingsConfig{Provider string, Model string, Dimensions int, CandidateLimit int}`
 
-- [ ] **Step 1: Test the embeddings HTTP contract**
+- [x] **Step 1: Test the embeddings HTTP contract**
 
 Add a fake-HTTP test that constructs `NewEmbedder`, calls `Embed(ctx, "remember this")`, and asserts a POST to `/embeddings` with:
 
@@ -135,7 +135,7 @@ Run: `go test ./internal/adapters/models/openaicompat -run Embed -v`
 
 Expected: FAIL before implementation, then PASS after adding `embeddingModel`/`embeddingDimensions` fields, `NewEmbedder`, `Embed`, and a shared request helper that accepts the endpoint path.
 
-- [ ] **Step 2: Test and add optional strict configuration**
+- [x] **Step 2: Test and add optional strict configuration**
 
 Add config tests proving absent `embeddings:` is valid, configured embeddings require an existing `openai_compatible` provider plus non-empty model and positive dimensions, and `candidate_limit` defaults to 5000.
 
@@ -180,7 +180,7 @@ Expected: PASS.
   - `(*MemoryEmbeddingWorker).Run(context.Context, time.Duration) error`
   - `NewRecallConversationTool(store ports.MemoryStore, embedder ports.Embedder, guard *SecretGuard) ports.Tool`
 
-- [ ] **Step 1: Test and implement worker polling semantics**
+- [x] **Step 1: Test and implement worker polling semantics**
 
 Use fakes to prove `RunOnce` requests a bounded pending batch, embeds each row once, writes each result to the same message ID, stops on the first provider/store error without marking later rows, and a second run resumes remaining null rows rather than duplicating completed work. A nil embedder makes the constructor return nil so no worker can run when the feature is absent.
 
@@ -188,7 +188,7 @@ Run: `go test ./internal/kernel/services -run MemoryEmbedding -v`
 
 Expected: FAIL before implementation, then PASS.
 
-- [ ] **Step 2: Test and implement the recall tool**
+- [x] **Step 2: Test and implement the recall tool**
 
 Define strict input:
 
@@ -230,7 +230,7 @@ Expected: PASS.
 - Consumes: Tasks 1-3 interfaces
 - Produces: unconditional `eggy.db`, registered `recall_conversation`, optional running embedding worker
 
-- [ ] **Step 1: Test durable direct-turn writes and isolation**
+- [x] **Step 1: Test durable direct-turn writes and isolation**
 
 Extend conversation/bootstrap tests first to prove a successful direct owner turn stores exactly the user and assistant messages with source `telegram` and the injected clock, while scheduled-agent, scheduled-message, heartbeat, commands, failed model turns, and approval events add no rows. Prove durable-memory write failures are logged and do not prevent delivering the assistant reply or maintaining the bounded recent window.
 
@@ -238,7 +238,7 @@ Run: `go test ./internal/kernel/services ./internal/bootstrap -run 'Conversation
 
 Expected: FAIL before wiring.
 
-- [ ] **Step 2: Wire storage and best-effort writes**
+- [x] **Step 2: Wire storage and best-effort writes**
 
 Open `<data_dir>/eggy.db` unconditionally in `NewApp`. Extend `ConversationService` to accept `ports.MemoryStore`, `now func() time.Time`, and `*slog.Logger`; after the existing bounded `StateStore` update succeeds, write `ports.StoredMessage` with the supplied source. Log durable write failures and return success so live turn delivery continues.
 
@@ -248,7 +248,7 @@ Run: `go test ./internal/kernel/services ./internal/bootstrap -run 'Conversation
 
 Expected: PASS.
 
-- [ ] **Step 3: Wire optional embedder and lifecycle**
+- [x] **Step 3: Wire optional embedder and lifecycle**
 
 When `Config.Embeddings.Provider` is non-empty, construct `openaicompat.NewEmbedder` from the selected provider's base URL/API key and create `MemoryEmbeddingWorker`; otherwise leave both nil. In `App.Run`, start the worker with a one-minute interval under the app context and wait for it during shutdown. Worker errors are logged and retried on the next interval rather than terminating Eggy.
 
@@ -264,11 +264,11 @@ Expected: PASS.
 - Modify: `TODO.md`
 - Modify: `docs/superpowers/plans/2026-07-23-sqlite-memory-db.md`
 
-- [ ] **Step 1: Mark the shipped roadmap decision**
+- [x] **Step 1: Mark the shipped roadmap decision**
 
 Mark all SQLite-memory checklist items complete, record the approved choices as “raw write/read-time redaction” and “no pruning yet,” and add a completed-item entry explaining that searchable transcript memory is now an explicit web-chat building block rather than a database added merely to mirror another harness.
 
-- [ ] **Step 2: Run focused and full verification**
+- [x] **Step 2: Run focused and full verification**
 
 Run:
 
@@ -281,6 +281,6 @@ git diff --check
 
 Expected: every command exits 0. If Docker is available, additionally run `make smoke`; otherwise report the Docker availability blocker separately.
 
-- [ ] **Step 3: Re-read the approved spec**
+- [x] **Step 3: Re-read the approved spec**
 
 Check every goal, non-goal, architecture boundary, test requirement, and implementation-sequence constraint in `docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md` against the final diff. Confirm the FTS5 test is present and passing, no SQLite import escaped the adapter, no recalled history is auto-injected, and no scheduled/heartbeat path writes transcript rows.

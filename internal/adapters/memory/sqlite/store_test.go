@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,21 +128,30 @@ func TestStoreMessagesAndFTSSearchPersistAcrossCloseAndReopen(t *testing.T) {
 	}
 }
 
-func TestSearchTextReturnsNoMatchesForQueriesWithoutSearchableTokens(t *testing.T) {
+func TestSearchTextRejectsEmptyQueryAndNonPositiveLimit(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	for _, query := range []string{"", " \t ", `":-++'"`} {
-		results, err := store.SearchText(context.Background(), query, 1)
-		if err != nil {
-			t.Fatalf("SearchText(%q) error = %v", query, err)
-		}
-		if len(results) != 0 {
-			t.Fatalf("SearchText(%q) results = %#v, want empty", query, results)
+	for _, query := range []string{"", " \t "} {
+		if _, err := store.SearchText(context.Background(), query, 1); err == nil {
+			t.Fatalf("SearchText(%q) error = nil, want validation error", query)
 		}
 	}
 	if _, err := store.SearchText(context.Background(), "durable", 0); err == nil {
 		t.Fatal("SearchText zero limit error = nil, want validation error")
+	}
+}
+
+func TestSearchTextReturnsNoMatchesForPunctuationOnlyQuery(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	results, err := store.SearchText(context.Background(), `":-++'"`, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("punctuation-only results = %#v, want empty", results)
 	}
 }
 
@@ -258,6 +268,13 @@ func TestEmbeddingProfilePersistsAndSameProfileRowsRemainSearchable(t *testing.T
 	}
 }
 
+func TestSearchSimilarUsesProfileLeadingIndex(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStoreWithProfile(t, 100, "opaque-profile")
+	assertSimilarityProfileIndexUsed(t, store)
+}
+
 func TestChangedEmbeddingProfileRequeuesAndFiltersOldVectors(t *testing.T) {
 	t.Parallel()
 
@@ -351,6 +368,7 @@ func TestOpenWithProfileMigratesDatabaseWithoutEmbeddingProfile(t *testing.T) {
 	if profile.Valid {
 		t.Fatalf("legacy embedding profile = %q, want NULL until re-embedded", profile.String)
 	}
+	assertSimilarityProfileIndexUsed(t, store)
 }
 
 func TestSetEmbeddingStoresLittleEndianFloat32Blob(t *testing.T) {
@@ -479,12 +497,53 @@ func TestOpenTightensDatabaseAndSidecarPermissions(t *testing.T) {
 func newTestStore(t *testing.T, candidateLimit int) *Store {
 	t.Helper()
 
-	store, err := Open(filepath.Join(t.TempDir(), "eggy.db"), candidateLimit)
+	return newTestStoreWithProfile(t, candidateLimit, "")
+}
+
+func newTestStoreWithProfile(t *testing.T, candidateLimit int, profile string) *Store {
+	t.Helper()
+
+	store, err := OpenWithProfile(filepath.Join(t.TempDir(), "eggy.db"), candidateLimit, profile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func assertSimilarityProfileIndexUsed(t *testing.T, store *Store) {
+	t.Helper()
+
+	rows, err := store.db.Query(`
+		EXPLAIN QUERY PLAN
+		SELECT id, role, content, source, created_at, embedding
+		FROM messages
+		WHERE embedding IS NOT NULL
+		  AND embedding_profile = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT ?
+	`, store.profile, store.candidateLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var details []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	plan := strings.Join(details, "\n")
+	if !strings.Contains(plan, "idx_messages_embedding_profile_created_at") {
+		t.Fatalf("similarity query plan = %q, want profile-leading index", plan)
+	}
 }
 
 func writeTestMessage(t *testing.T, store *Store, content string, createdAt time.Time) int64 {

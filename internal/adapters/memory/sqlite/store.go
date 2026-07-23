@@ -35,6 +35,12 @@ CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
 END;
 `
 
+const similarityProfileIndex = `
+CREATE INDEX IF NOT EXISTS idx_messages_embedding_profile_created_at
+ON messages(embedding_profile, created_at DESC, id DESC)
+WHERE embedding IS NOT NULL
+`
+
 const defaultCandidateLimit = 5000
 
 // Store is a SQLite-backed durable message store.
@@ -82,6 +88,10 @@ func OpenWithProfile(path string, candidateLimit int, profile string) (*Store, e
 		return nil, err
 	}
 	if err := ensureEmbeddingProfileColumn(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(similarityProfileIndex); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -167,6 +177,9 @@ func (s *Store) WriteMessage(ctx context.Context, message ports.StoredMessage) e
 // SearchText returns keyword matches ordered by FTS5 relevance, then newest
 // message for equal relevance.
 func (s *Store) SearchText(ctx context.Context, query string, limit int) ([]ports.StoredMessage, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, errors.New("memory text search query is required")
+	}
 	if limit <= 0 {
 		return nil, errors.New("memory text search limit must be positive")
 	}

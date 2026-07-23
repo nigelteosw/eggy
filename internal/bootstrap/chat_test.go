@@ -122,3 +122,45 @@ func TestChatSendReturns500WhenEnqueueFails(t *testing.T) {
 		t.Fatalf("status=%d", response.Code)
 	}
 }
+
+func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T) {
+	var got events.Event
+	enqueue := func(_ context.Context, event events.Event) error {
+		got = event
+		return nil
+	}
+	handler := newChatApproveHandler(enqueue, "owner-42")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approval_id":"approval-1","approved":true}`))
+	response := httptest.NewRecorder()
+	handler(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if got.Type != events.TypeApproval || got.Owner != "owner-42" {
+		t.Fatalf("event=%#v", got)
+	}
+	var decision events.ApprovalDecision
+	if err := json.Unmarshal(got.Payload, &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.ApprovalID != "approval-1" || !decision.Approved {
+		t.Fatalf("decision=%#v", decision)
+	}
+	if decision.CallbackQueryID != "" || decision.MessageID != "" {
+		t.Fatalf("expected empty Telegram-only fields, decision=%#v", decision)
+	}
+}
+
+func TestChatApproveRejectsMissingApprovalID(t *testing.T) {
+	handler := newChatApproveHandler(func(context.Context, events.Event) error { return nil }, "owner-42")
+
+	request := httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approved":true}`))
+	response := httptest.NewRecorder()
+	handler(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", response.Code)
+	}
+}

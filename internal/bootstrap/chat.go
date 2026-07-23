@@ -58,6 +58,37 @@ func newChatSendHandler(enqueue func(context.Context, events.Event) error, owner
 	}
 }
 
+func newChatApproveHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			ApprovalID string `json:"approval_id"`
+			Approved   bool   `json:"approved"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if strings.TrimSpace(input.ApprovalID) == "" {
+			writeWebError(w, http.StatusBadRequest, "approval_id is required")
+			return
+		}
+		payload, err := json.Marshal(events.ApprovalDecision{ApprovalID: input.ApprovalID, Approved: input.Approved})
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, "failed to encode decision")
+			return
+		}
+		event := buildWebEvent(owner, events.TypeApproval, payload)
+		if err := enqueue(r.Context(), event); err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusAccepted)
+		body, _ := (CommandResult{State: ResultSuccess, Title: "Decision received."}).RenderJSON()
+		_, _ = w.Write(body)
+	}
+}
+
 func newChatStreamHandler(hub *webchat.Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)

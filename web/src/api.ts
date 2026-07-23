@@ -70,3 +70,22 @@ export function setMCPServer(input: MCPServerInput): Promise<CommandResult> {
 export function removeMCPServer(name: string): Promise<CommandResult> {
   return request(`/api/config/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
+
+export type ChatEvent = {
+  kind: "message" | "typing" | "edit" | "approval";
+  id?: string;
+  text?: string;
+  approval?: { id: string; summary: string };
+};
+
+export function sendChatMessage(text: string): Promise<CommandResult> {
+  return request("/api/chat/send", { method: "POST", body: JSON.stringify({ text }) });
+}
+
+export function approveChatDecision(approvalId: string, approved: boolean): Promise<CommandResult> {
+  return request("/api/chat/approve", { method: "POST", body: JSON.stringify({ approval_id: approvalId, approved }) });
+}
+
+export function getChatHistory(): Promise<CommandResult> {
+  return request("/api/chat/history");
+}

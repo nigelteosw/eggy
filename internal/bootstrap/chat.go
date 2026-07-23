@@ -11,6 +11,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 const chatKeepaliveInterval = 15 * time.Second
@@ -86,6 +87,25 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 		w.WriteHeader(http.StatusAccepted)
 		body, _ := (CommandResult{State: ResultSuccess, Title: "Decision received."}).RenderJSON()
 		_, _ = w.Write(body)
+	}
+}
+
+func newChatHistoryHandler(store ports.StateStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		state, err := store.Load(r.Context())
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		rows := make([][]string, 0, len(state.RecentMessages))
+		for _, message := range state.RecentMessages {
+			rows = append(rows, []string{string(message.Role), message.Content})
+		}
+		writeWebResult(w, CommandResult{
+			State:        ResultSuccess,
+			TableHeaders: []string{"role", "content"},
+			TableRows:    rows,
+		})
 	}
 }
 

@@ -6,12 +6,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
+	statejson "github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func TestChatStreamDeliversABroadcastEventAsSSE(t *testing.T) {
@@ -162,5 +165,37 @@ func TestChatApproveRejectsMissingApprovalID(t *testing.T) {
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d", response.Code)
+	}
+}
+
+func TestChatHistoryReturnsRecentMessagesAsTableRows(t *testing.T) {
+	store := statejson.Open(filepath.Join(t.TempDir(), "state.json"))
+	if _, err := store.Update(context.Background(), 0, func(state *ports.State) error {
+		state.RecentMessages = []ports.Message{
+			{Role: ports.RoleUser, Content: "hi"},
+			{Role: ports.RoleAssistant, Content: "hello!"},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := newChatHistoryHandler(store)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/chat/history", nil)
+	response := httptest.NewRecorder()
+	handler(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var decoded CommandResult
+	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.TableRows) != 2 || decoded.TableRows[0][0] != "user" || decoded.TableRows[0][1] != "hi" {
+		t.Fatalf("rows=%#v", decoded.TableRows)
+	}
+	if decoded.TableRows[1][0] != "assistant" || decoded.TableRows[1][1] != "hello!" {
+		t.Fatalf("rows=%#v", decoded.TableRows)
 	}
 }

@@ -169,6 +169,18 @@ event pipeline exactly as Telegram does — the web channel is a new
       `/api/chat/approve` reaches the exact same `handleApproval` a Telegram
       callback reaches.
 
+Fast-follow, deliberately not in this iteration: Telegram has no concept of
+switching chats (one continuous stream; `/clear` only wipes the disposable
+recent-message window), but the web UI should support multiple distinct,
+saved, switchable conversation threads — a sidebar of past chats, each
+independently resumable — while Telegram keeps operating on a single
+default thread. This reuses the `conversation_id` column the SQLite memory
+store's schema already carries (deliberately left in place, hardcoded to
+`'owner'` today, for exactly this). Needs its own spec before implementation:
+list/create/switch/rename/delete endpoints, how `State.RecentMessages`
+relates to a specific thread versus the default one Telegram still writes
+to, and the frontend sidebar UI.
+
 ## P1: Add SQLite-backed conversation memory with vector search
 
 See [`docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md`](docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md).

@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
+	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
 func testWebConfig(now time.Time) WebUIConfig {
@@ -327,5 +331,49 @@ func TestWebResponseBodyIsRenderJSONShape(t *testing.T) {
 	}
 	if decoded["state"] != "success" {
 		t.Fatalf("decoded=%#v", decoded)
+	}
+}
+
+func TestWebHandlerMountsChatRoutes(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	config := testWebConfig(now)
+	config.ChatHub = webchat.NewHub()
+	enqueued := false
+	config.Enqueue = func(context.Context, events.Event) error {
+		enqueued = true
+		return nil
+	}
+	config.OwnerID = "owner-42"
+	handler := NewWebHandler("", config)
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`))
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusAccepted || !enqueued {
+		t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+	}
+}
+
+func TestWebHandlerChatRoutesRequireSession(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	config := testWebConfig(now)
+	config.ChatHub = webchat.NewHub()
+	config.Enqueue = func(context.Context, events.Event) error { return nil }
+	handler := NewWebHandler("", config)
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/chat/stream", nil),
+		httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`)),
+		httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approval_id":"x","approved":true}`)),
+		httptest.NewRequest(http.MethodGet, "/api/chat/history", nil),
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status=%d", request.URL.Path, response.Code)
+		}
 	}
 }

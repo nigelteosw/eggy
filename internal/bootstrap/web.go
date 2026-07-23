@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"net"
@@ -9,18 +10,28 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	"github.com/nigelteosw/eggy/internal/adapters/webui"
+	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // WebUIConfig holds what NewWebHandler needs beyond the config file path:
 // the single owner login credential and the key used to sign session
-// cookies (Eggy's existing EGGY_ENCRYPTION_KEY -- see the design spec at
-// docs/superpowers/specs/2026-07-22-web-config-ui-design.md).
+// cookies (Eggy's existing EGGY_ENCRYPTION_KEY -- see
+// docs/superpowers/specs/2026-07-22-web-config-ui-design.md), plus the chat
+// wiring (docs/superpowers/specs/2026-07-23-web-chat-interface-design.md):
+// ChatHub/Enqueue/Store/OwnerID are only read by the /api/chat/* routes and
+// may be left zero-valued in tests that only exercise login/config routes.
 type WebUIConfig struct {
 	UserEmail  string
 	Password   string
 	SigningKey []byte
 	Now        func() time.Time
+	ChatHub    *webchat.Hub
+	Enqueue    func(context.Context, events.Event) error
+	Store      ports.StateStore
+	OwnerID    string
 }
 
 const (
@@ -69,6 +80,11 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
+
+	mux.Handle("GET /api/chat/stream", requireWebSession(webConfig, now, newChatStreamHandler(webConfig.ChatHub)))
+	mux.Handle("POST /api/chat/send", requireWebSession(webConfig, now, newChatSendHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("GET /api/chat/history", requireWebSession(webConfig, now, newChatHistoryHandler(webConfig.Store)))
 
 	return mux
 }

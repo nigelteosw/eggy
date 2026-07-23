@@ -21,6 +21,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/calendar/google"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
+	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
 	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
 	"github.com/nigelteosw/eggy/internal/adapters/models/openaicompat"
@@ -58,6 +59,7 @@ type App struct {
 	store                   ports.StateStore
 	context                 ports.ContextStore
 	channel                 ports.Channel
+	chatHub                 *webchat.Hub
 	dispatcher              *services.Dispatcher
 	httpHandler             http.Handler
 	loop                    *agent.Loop
@@ -175,13 +177,23 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, fmt.Errorf("seed first-boot repositories: %w", err)
 		}
 	}
+	app.chatHub = webchat.NewHub()
+	webChannel := webchat.New(app.chatHub)
 	var telegramClient *telegram.Client
-	if options.FakeAdapters {
-		app.channel = noopChannel{}
-	} else {
+	// telegramChannel starts as a true nil ports.Channel (the zero value of
+	// an interface, never assigned) when FakeAdapters is set, not a nil
+	// *telegram.Client boxed into a non-nil interface -- assigning
+	// telegramClient directly here even when it's nil would produce exactly
+	// that trap (an interface value that compares != nil despite wrapping a
+	// nil pointer), which is what newMultiChannel's own nil checks rely on
+	// NOT happening. See internal/bootstrap/mcp.go's ExecuteMCPCLI for the
+	// same bug, found and fixed earlier in this project's history.
+	var telegramChannel ports.Channel
+	if !options.FakeAdapters {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
-		app.channel = telegramClient
+		telegramChannel = telegramClient
 	}
+	app.channel = newMultiChannel(telegramChannel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")

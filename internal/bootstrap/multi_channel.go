@@ -70,6 +70,7 @@ func (m *multiChannel) DeliverTrackable(ctx context.Context, chatID, text string
 
 func (m *multiChannel) EditText(ctx context.Context, chatID, messageID, text string) error {
 	var errTelegram, errWeb error
+	recognized := false
 	for _, part := range strings.Split(messageID, "|") {
 		channel, id, ok := strings.Cut(part, ":")
 		if !ok {
@@ -77,10 +78,21 @@ func (m *multiChannel) EditText(ctx context.Context, chatID, messageID, text str
 		}
 		switch channel {
 		case "telegram":
+			recognized = true
 			errTelegram = m.telegram.EditText(ctx, chatID, id, text)
 		case "web":
+			recognized = true
 			errWeb = m.web.EditText(ctx, chatID, id, text)
 		}
+	}
+	if !recognized {
+		// messageID predates the compound-ID scheme: Telegram's own
+		// approval-button callbacks report callback_query.message.message_id
+		// directly (approval messages are sent via DeliverApproval, which
+		// returns no ID at all, so they never round-trip through
+		// DeliverTrackable to pick up a "telegram:"/"web:" prefix). Treat an
+		// unrecognized, unprefixed ID as a raw Telegram message ID.
+		return m.telegram.EditText(ctx, chatID, messageID, text)
 	}
 	if errTelegram != nil && errWeb != nil {
 		return errors.Join(errTelegram, errWeb)

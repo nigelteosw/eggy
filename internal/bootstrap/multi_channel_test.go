@@ -148,6 +148,24 @@ func TestMultiChannelEditTextHandlesASingleHalfID(t *testing.T) {
 	}
 }
 
+func TestMultiChannelEditTextFallsBackToTelegramForARawUnprefixedID(t *testing.T) {
+	telegram := &fakeChannel{}
+	web := &fakeChannel{}
+	channel := newMultiChannel(telegram, web)
+
+	// A raw Telegram message ID, as reported by callback_query.message.message_id
+	// on an approval-button tap -- these never carry a "telegram:"/"web:" prefix.
+	if err := channel.EditText(context.Background(), "chat", "777", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if len(telegram.editCalls) != 1 || telegram.editCalls[0] != "777:done" {
+		t.Fatalf("telegram.editCalls=%#v", telegram.editCalls)
+	}
+	if len(web.editCalls) != 0 {
+		t.Fatalf("web.editCalls=%#v, want none", web.editCalls)
+	}
+}
+
 func TestMultiChannelAnswerCallbackOnlyReachesTelegram(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}

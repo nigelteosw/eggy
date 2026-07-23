@@ -173,13 +173,24 @@ Fast-follow, deliberately not in this iteration: Telegram has no concept of
 switching chats (one continuous stream; `/clear` only wipes the disposable
 recent-message window), but the web UI should support multiple distinct,
 saved, switchable conversation threads — a sidebar of past chats, each
-independently resumable — while Telegram keeps operating on a single
-default thread. This reuses the `conversation_id` column the SQLite memory
-store's schema already carries (deliberately left in place, hardcoded to
-`'owner'` today, for exactly this). Needs its own spec before implementation:
-list/create/switch/rename/delete endpoints, how `State.RecentMessages`
-relates to a specific thread versus the default one Telegram still writes
-to, and the frontend sidebar UI.
+independently resumable, with the agent's turn context scoped to whichever
+thread the message came from — while Telegram keeps writing to a single
+fixed thread (e.g. `conversation_id = "telegram"`). Every message, from
+either surface, still lands in the same SQLite `messages` table; only the
+`conversation_id` column (already in the schema, hardcoded to `'owner'`
+today) differs per thread.
+
+The real blocker to solve in that spec: `State.RecentMessages` — the *live*
+recent-history window actually injected into each agent turn today — is a
+single global list, not partitioned by conversation at all, and lives in
+`state.json`, separate from the durable SQLite log. Tagging SQLite rows with
+`conversation_id` alone does not make the agent's context thread-aware;
+every thread would still see the same shared recent-window regardless of
+which one is "active." The context-building path itself needs to become
+thread-scoped: either make `RecentMessages` keyed by thread, or read live
+turn context straight from SQLite `WHERE conversation_id = X` instead of
+`state.json` for anything other than Telegram's fixed thread. Also needs:
+list/create/switch/rename/delete endpoints and the frontend sidebar UI.
 
 ## P1: Add SQLite-backed conversation memory with vector search
 

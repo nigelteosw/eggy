@@ -129,7 +129,7 @@ existing behavior of Telegram-only editable progress messages during
 implementation runs is what it exists to preserve now that a second channel
 can be present.
 
-### Owner identity / chat ID
+### Owner identity, chat ID, and the dispatcher's Owner check
 
 Telegram uses the numeric owner ID as `chatID`. The web channel doesn't
 have an equivalent per-connection identity — there's exactly one owner and
@@ -137,21 +137,34 @@ one conversation — so `multiChannel` and `webchat.Hub` ignore `chatID` for
 routing entirely: every `Deliver`/`DeliverTrackable`/etc. call broadcasts to
 every currently-open SSE connection, regardless of the `chatID` argument's
 value. `POST /api/chat/send` builds an `events.Message{ChatID: "", Text: ...}`
-and lets the existing `decodeMessage` (`internal/bootstrap/app.go:446-455`)
-default the empty `ChatID` to the configured Telegram owner ID string,
-exactly as it already does for any event without one — no new decoding path
-needed.
+and lets the existing `decodeMessage` default the empty `ChatID` to the
+configured Telegram owner ID string, exactly as it already does for any
+event without one — no new decoding path needed.
+
+Separately, and more load-bearing: `events.Event` itself carries its own
+`Owner` field, which is not the same thing as `events.Message.ChatID`.
+`Dispatcher.Handle` (`internal/kernel/services/dispatcher.go`) rejects any
+event outright — `ErrOwnerDenied`, no side effects, nothing delivered — unless
+`event.Owner` exactly equals the dispatcher's configured owner string, the
+same value `NewApp` computes once as `owner := strconv.FormatInt(config.Telegram.OwnerID, 10)`
+and passes to `NewDispatcher`. Every event this design enqueues —
+`/api/chat/send` and `/api/chat/approve` alike — must set `Owner` to that
+exact string, threaded in via `WebUIConfig.OwnerID` (see below). Getting
+this wrong doesn't surface as an error the owner would ever see; the event
+is just silently dropped before `handleMessage`/`handleApproval` ever run.
 
 ## Event flow
 
 - **Sending**: `POST /api/chat/send` (behind `requireWebSession`, the same
   middleware the config API already uses) decodes `{text: string}`, builds
-  `events.Event{Type: events.TypeMessage, Source: "web", Payload: <marshaled events.Message{Text: text}>}`,
+  `events.Event{Type: events.TypeMessage, Source: "web", Owner: <configured owner>, Payload: <marshaled events.Message{Text: text}>}`,
   and calls `app.Enqueue` — the identical entry point Telegram's webhook
   handler uses. From here it is indistinguishable from a Telegram message:
   same dispatcher, same `handleMessage`, same agent loop. The web session's
   authentication (`requireWebSession`) is the trust boundary, exactly as
-  Telegram's webhook-secret validation is Telegram's.
+  Telegram's webhook-secret validation is Telegram's — `Owner` is what lets
+  the event past `Dispatcher.Handle` once it's already been authenticated,
+  not a second authentication step.
 - **Receiving**: whatever the agent loop already calls on `app.channel`
   (`Deliver` for a plain reply, `SendTyping` while working,
   `DeliverTrackable`/`EditText` for run progress, `DeliverApproval` for an
@@ -160,14 +173,15 @@ needed.
   connection: `event: message`, `event: typing`, `event: edit`,
   `event: approval`.
 - **Approving**: `POST /api/chat/approve` `{approval_id, approved}` builds
-  `events.Event{Type: events.TypeApproval, Payload: <marshaled events.ApprovalDecision{ApprovalID: ..., Approved: ...}>}`
+  `events.Event{Type: events.TypeApproval, Owner: <configured owner>, Payload: <marshaled events.ApprovalDecision{ApprovalID: ..., Approved: ...}>}`
   and calls `app.Enqueue` — again the same entry point Telegram's callback
-  handler uses, reaching the exact same `handleApproval`
-  (`internal/bootstrap/app.go:551`). No new approval-decision logic; only a
-  new way to enqueue the same event shape. `CallbackQueryID`/`MessageID`
-  are left empty — those are Telegram-specific fields `handleApproval`
-  already treats as optional (`decision.CallbackQueryID != ""` is already a
-  conditional check today).
+  handler uses, reaching the exact same `handleApproval`. No new
+  approval-decision logic; only a new way to enqueue the same event shape.
+  `CallbackQueryID`/`MessageID` are left empty — those are Telegram-specific
+  fields `handleApproval` already treats as optional
+  (`decision.CallbackQueryID != ""` is already a conditional check today,
+  and `telegram.DeliverOutcome` already falls back to `Deliver` instead of
+  `EditText` when `MessageID` is empty).
 - **Catching up**: `GET /api/chat/history` (session-cookie authenticated,
   no request body) reads `State.RecentMessages` directly — the exact same
   bounded window Telegram already relies on, no new store — and returns it

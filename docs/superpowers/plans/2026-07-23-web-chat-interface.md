@@ -800,15 +800,23 @@ with:
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
 	var telegramClient *telegram.Client
-	if options.FakeAdapters {
-		app.channel = webChannel
-	} else {
+	// telegramChannel starts as a true nil ports.Channel (the zero value of
+	// an interface, never assigned) when FakeAdapters is set, not a nil
+	// *telegram.Client boxed into a non-nil interface -- assigning
+	// telegramClient directly here even when it's nil would produce exactly
+	// that trap (an interface value that compares != nil despite wrapping a
+	// nil pointer), which is what newMultiChannel's own nil checks rely on
+	// NOT happening. See internal/bootstrap/mcp.go's ExecuteMCPCLI for the
+	// same bug, found and fixed earlier in this project's history.
+	var telegramChannel ports.Channel
+	if !options.FakeAdapters {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
-		app.channel = newMultiChannel(telegramClient, webChannel)
+		telegramChannel = telegramClient
 	}
+	app.channel = newMultiChannel(telegramChannel, webChannel)
 ```
 
-(`FakeAdapters` mode keeps `webChannel` alone rather than `noopChannel{}`, so tests exercising `FakeAdapters: true` can still observe chat delivery through the Hub if a future test wants to; this does not change any existing test's observable behavior since nothing today asserts on `noopChannel` specifically — confirm this with Step 3 below.)
+This replaces the previous `if options.FakeAdapters { app.channel = noopChannel{} } else { ... }` branching with a single call: `newMultiChannel` already returns `web` unwrapped when `telegram` is nil (Task 3), so `FakeAdapters` mode naturally ends up as `app.channel = webChannel` without a separate branch for it. `noopChannel` becomes unused by this call site once this lands — leave the type itself in place (Task 3's tests and `assistant_tools_test.go` still reference it directly) but confirm with Step 3 that nothing else in `app.go` still needs the old `else`-branch shape.
 
 - [ ] **Step 3: Verify the whole app builds and existing tests still pass**
 
@@ -1007,18 +1015,40 @@ git commit -m "Add the /api/chat/stream SSE handler"
 
 **Interfaces:**
 - Consumes: `app.Enqueue` (existing, `internal/bootstrap/app.go`), `events.Event`/`events.Message` (existing, `internal/kernel/events/events.go`).
-- Produces: `newChatSendHandler(enqueue func(context.Context, events.Event) error) http.HandlerFunc` — consumed by Task 9.
+- Produces: `newChatSendHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc`, `buildWebEvent(owner string, eventType events.Type, payload json.RawMessage) events.Event` — the latter consumed by Task 7 too.
+
+**A correctness note driving this task's design:** `Dispatcher.Handle`
+(`internal/kernel/services/dispatcher.go:33`) rejects any event with
+`ErrOwnerDenied` unless `event.Owner` exactly equals the dispatcher's
+configured owner string — the same value `NewApp` already computes as
+`owner := strconv.FormatInt(config.Telegram.OwnerID, 10)`
+(`internal/bootstrap/app.go:285`) and passes to `NewDispatcher`. An event
+built without `Owner` set is silently dropped, not an error a user would
+ever see. Every handler in this task and Task 7 must set `Owner` to that
+same string, which is why both take an `owner string` parameter.
+
+Telegram's webhook handler already establishes the event-shape convention to
+follow (`internal/adapters/channels/telegram/handler.go:86-90`): a
+descriptive, non-cryptographic ID like `"telegram:" + updateID`, `Source`
+set to the channel name, `Timestamp` set to now, and `CorrelationID` set to
+the same value as `ID` for log correlation (matching the
+`event_id=... correlation_id=...` shape already visible in this project's
+logs). Scheduled and heartbeat events follow the same pattern with their own
+prefixes (`"schedule:"`, `"heartbeat:"`) — none of them use `crypto/rand`;
+event IDs here are for correlation and de-duplication, not security. This
+task's `buildWebEvent` mirrors that convention with a `"web:"` prefix instead
+of introducing a new ID scheme.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```go
-func TestChatSendEnqueuesAMessageEvent(t *testing.T) {
+func TestChatSendEnqueuesAMessageEventWithTheOwnerSet(t *testing.T) {
 	var got events.Event
 	enqueue := func(_ context.Context, event events.Event) error {
 		got = event
 		return nil
 	}
-	handler := newChatSendHandler(enqueue)
+	handler := newChatSendHandler(enqueue, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hello Eggy"}`))
 	response := httptest.NewRecorder()
@@ -1030,6 +1060,12 @@ func TestChatSendEnqueuesAMessageEvent(t *testing.T) {
 	if got.Type != events.TypeMessage || got.Source != "web" {
 		t.Fatalf("event=%#v", got)
 	}
+	if got.Owner != "owner-42" {
+		t.Fatalf("Owner=%q, want the dispatcher's configured owner (Dispatcher.Handle rejects anything else)", got.Owner)
+	}
+	if got.ID == "" || got.CorrelationID != got.ID {
+		t.Fatalf("ID=%q CorrelationID=%q, want both set and equal, matching Telegram's event shape", got.ID, got.CorrelationID)
+	}
 	var message events.Message
 	if err := json.Unmarshal(got.Payload, &message); err != nil {
 		t.Fatal(err)
@@ -1040,7 +1076,7 @@ func TestChatSendEnqueuesAMessageEvent(t *testing.T) {
 }
 
 func TestChatSendRejectsEmptyText(t *testing.T) {
-	handler := newChatSendHandler(func(context.Context, events.Event) error { return nil })
+	handler := newChatSendHandler(func(context.Context, events.Event) error { return nil }, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":""}`))
 	response := httptest.NewRecorder()
@@ -1052,7 +1088,7 @@ func TestChatSendRejectsEmptyText(t *testing.T) {
 }
 
 func TestChatSendRejectsInvalidBody(t *testing.T) {
-	handler := newChatSendHandler(func(context.Context, events.Event) error { return nil })
+	handler := newChatSendHandler(func(context.Context, events.Event) error { return nil }, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`not json`))
 	response := httptest.NewRecorder()
@@ -1064,7 +1100,7 @@ func TestChatSendRejectsInvalidBody(t *testing.T) {
 }
 
 func TestChatSendReturns500WhenEnqueueFails(t *testing.T) {
-	handler := newChatSendHandler(func(context.Context, events.Event) error { return errors.New("queue full") })
+	handler := newChatSendHandler(func(context.Context, events.Event) error { return errors.New("queue full") }, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`))
 	response := httptest.NewRecorder()
@@ -1088,7 +1124,20 @@ Expected: FAIL — `newChatSendHandler` doesn't exist yet.
 Add to `internal/bootstrap/chat.go`:
 
 ```go
-func newChatSendHandler(enqueue func(context.Context, events.Event) error) http.HandlerFunc {
+// buildWebEvent stamps a new events.Event with the same ID/Source/Timestamp/
+// CorrelationID shape Telegram's webhook handler already uses (see
+// internal/adapters/channels/telegram/handler.go's normalize), and the
+// Owner every event must carry for Dispatcher.Handle to accept it. This is
+// shared by newChatSendHandler and newChatApproveHandler (Task 7).
+func buildWebEvent(owner string, eventType events.Type, payload json.RawMessage) events.Event {
+	id := "web:" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
+	return events.Event{
+		ID: id, Type: eventType, Source: "web", Owner: owner,
+		Timestamp: time.Now().UTC(), CorrelationID: id, Payload: payload,
+	}
+}
+
+func newChatSendHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Text string `json:"text"`
@@ -1106,10 +1155,7 @@ func newChatSendHandler(enqueue func(context.Context, events.Event) error) http.
 			writeWebError(w, http.StatusInternalServerError, "failed to encode message")
 			return
 		}
-		event := events.Event{
-			ID: randomEventID(), Type: events.TypeMessage, Source: "web",
-			Timestamp: time.Now(), Payload: payload,
-		}
+		event := buildWebEvent(owner, events.TypeMessage, payload)
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1122,15 +1168,9 @@ func newChatSendHandler(enqueue func(context.Context, events.Event) error) http.
 }
 ```
 
-Add the imports `"context"`, `"strings"`, `"time"`, and
+Add the imports `"context"`, `"strconv"`, `"strings"`, `"time"`, and
 `"github.com/nigelteosw/eggy/internal/kernel/events"` to `chat.go` if not
-already present from Task 5. `randomEventID` does not exist yet — check
-whether `internal/bootstrap` or `internal/kernel/events` already has an
-event-ID generator (grep for how the Telegram webhook handler builds
-`events.Event.ID` before adding a new one); reuse it if found, otherwise add
-a small one next to `newChatSendHandler` using the same `crypto/rand`-backed
-approach `approvals.randomID` in `internal/kernel/services/approval_service.go`
-uses.
+already present from Task 5.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1153,19 +1193,19 @@ git commit -m "Add the POST /api/chat/send handler"
 - Modify: `internal/bootstrap/chat_test.go`
 
 **Interfaces:**
-- Consumes: `app.Enqueue`, `events.ApprovalDecision` (existing).
-- Produces: `newChatApproveHandler(enqueue func(context.Context, events.Event) error) http.HandlerFunc` — consumed by Task 9.
+- Consumes: `app.Enqueue`, `events.ApprovalDecision` (existing), `buildWebEvent` (Task 6).
+- Produces: `newChatApproveHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc` — consumed by Task 9.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```go
-func TestChatApproveEnqueuesAnApprovalDecisionEvent(t *testing.T) {
+func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T) {
 	var got events.Event
 	enqueue := func(_ context.Context, event events.Event) error {
 		got = event
 		return nil
 	}
-	handler := newChatApproveHandler(enqueue)
+	handler := newChatApproveHandler(enqueue, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approval_id":"approval-1","approved":true}`))
 	response := httptest.NewRecorder()
@@ -1174,7 +1214,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEvent(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if got.Type != events.TypeApproval {
+	if got.Type != events.TypeApproval || got.Owner != "owner-42" {
 		t.Fatalf("event=%#v", got)
 	}
 	var decision events.ApprovalDecision
@@ -1190,7 +1230,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEvent(t *testing.T) {
 }
 
 func TestChatApproveRejectsMissingApprovalID(t *testing.T) {
-	handler := newChatApproveHandler(func(context.Context, events.Event) error { return nil })
+	handler := newChatApproveHandler(func(context.Context, events.Event) error { return nil }, "owner-42")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approved":true}`))
 	response := httptest.NewRecorder()
@@ -1210,7 +1250,7 @@ Expected: FAIL — `newChatApproveHandler` doesn't exist yet.
 - [ ] **Step 3: Implement**
 
 ```go
-func newChatApproveHandler(enqueue func(context.Context, events.Event) error) http.HandlerFunc {
+func newChatApproveHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ApprovalID string `json:"approval_id"`
@@ -1229,10 +1269,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error) ht
 			writeWebError(w, http.StatusInternalServerError, "failed to encode decision")
 			return
 		}
-		event := events.Event{
-			ID: randomEventID(), Type: events.TypeApproval, Source: "web",
-			Timestamp: time.Now(), Payload: payload,
-		}
+		event := buildWebEvent(owner, events.TypeApproval, payload)
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1358,14 +1395,24 @@ git commit -m "Add the GET /api/chat/history handler"
 
 **Interfaces:**
 - Consumes: `newChatStreamHandler`, `newChatSendHandler`, `newChatApproveHandler`, `newChatHistoryHandler` (Tasks 5–8), `app.chatHub` (Task 4).
-- Produces: `NewWebHandler` gains a `hub *webchat.Hub` and `enqueue func(context.Context, events.Event) error` parameter — consumed by Task 10 (the `NewApp` call site must pass `app.chatHub` and `app.Enqueue`).
+- Produces: `WebUIConfig` gains `ChatHub *webchat.Hub`, `Enqueue func(context.Context, events.Event) error`, `Store ports.StateStore`, and `OwnerID string` fields — consumed by Task 10 (the `NewApp` call site sets them when constructing `WebUIConfig`).
 
-- [ ] **Step 1: Read the current `NewWebHandler` signature and its one call site**
+**Simpler than it first looks:** rather than growing `NewWebHandler`'s
+parameter list to five or six positional arguments, the new wiring (`chatHub`,
+`enqueue`, `stateStore`, `ownerID`) is added as fields on the existing
+`WebUIConfig` struct instead. `NewWebHandler`'s own signature — `func
+NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler` —
+does not change at all, which means every pre-existing call in
+`web_test.go` (login, config, MCP routes) keeps compiling unmodified; only
+`testWebConfig` (the shared test helper) needs the new fields populated
+where a test actually exercises a chat route.
+
+- [ ] **Step 1: Read the current `WebUIConfig`, `NewWebHandler`, and their one call site**
 
 Run: `sed -n '1,65p' internal/bootstrap/web.go` and
 `grep -n "NewWebHandler(" internal/bootstrap/app.go` to confirm the exact
-current signature and call site before editing (this plan's earlier tasks
-may have shifted line numbers further from what Task 4 assumed).
+current shape before editing (this plan's earlier tasks may have shifted
+line numbers further from what Task 4 assumed).
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1374,12 +1421,15 @@ Add to `internal/bootstrap/web_test.go`:
 ```go
 func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	hub := webchat.NewHub()
+	config := testWebConfig(now)
+	config.ChatHub = webchat.NewHub()
 	enqueued := false
-	handler := NewWebHandler("", testWebConfig(now), hub, func(context.Context, events.Event) error {
+	config.Enqueue = func(context.Context, events.Event) error {
 		enqueued = true
 		return nil
-	})
+	}
+	config.OwnerID = "owner-42"
+	handler := NewWebHandler("", config)
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`))
@@ -1394,7 +1444,10 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 
 func TestWebHandlerChatRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now), webchat.NewHub(), func(context.Context, events.Event) error { return nil })
+	config := testWebConfig(now)
+	config.ChatHub = webchat.NewHub()
+	config.Enqueue = func(context.Context, events.Event) error { return nil }
+	handler := NewWebHandler("", config)
 
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/api/chat/stream", nil),
@@ -1418,21 +1471,40 @@ imports.
 - [ ] **Step 3: Run test to verify it fails**
 
 Run: `go test ./internal/bootstrap/... -run TestWebHandlerChat -v`
-Expected: FAIL — compile error (`NewWebHandler` doesn't accept these
-parameters yet) until Step 4.
+Expected: FAIL — compile error (`WebUIConfig` has no `ChatHub`/`Enqueue`/
+`OwnerID` fields yet) until Step 4.
 
 - [ ] **Step 4: Implement**
 
-Change `NewWebHandler`'s signature and add the four route registrations.
-`newChatHistoryHandler` needs a `ports.StateStore`, which `NewWebHandler`
-does not currently take as a parameter (`webConfigGetRoute`/
-`webConfigSetRoute` reach configuration indirectly through `commands`,
-which reads `config.yaml` directly, not `state.json`) — add a `stateStore
-ports.StateStore` parameter alongside `chatHub`/`enqueue`. In
-`internal/bootstrap/web.go`:
+Extend `WebUIConfig` (defined in `internal/bootstrap/web.go`) with the new
+fields, and register the four chat routes in `NewWebHandler`. Add
+`"context"`, `"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"`,
+`"github.com/nigelteosw/eggy/internal/kernel/events"`, and
+`"github.com/nigelteosw/eggy/internal/ports"` to `web.go`'s import block —
+none of them are imported there today.
 
 ```go
-func NewWebHandler(configPath string, webConfig WebUIConfig, chatHub *webchat.Hub, enqueue func(context.Context, events.Event) error, stateStore ports.StateStore) http.Handler {
+// WebUIConfig holds what NewWebHandler needs beyond the config file path:
+// the single owner login credential and the key used to sign session
+// cookies (Eggy's existing EGGY_ENCRYPTION_KEY -- see
+// docs/superpowers/specs/2026-07-22-web-config-ui-design.md), plus the chat
+// wiring (docs/superpowers/specs/2026-07-23-web-chat-interface-design.md):
+// ChatHub/Enqueue/Store/OwnerID are only read by the /api/chat/* routes and
+// may be left zero-valued in tests that only exercise login/config routes.
+type WebUIConfig struct {
+	UserEmail  string
+	Password   string
+	SigningKey []byte
+	Now        func() time.Time
+	ChatHub    *webchat.Hub
+	Enqueue    func(context.Context, events.Event) error
+	Store      ports.StateStore
+	OwnerID    string
+}
+```
+
+```go
+func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	now := webConfig.Now
 	if now == nil {
 		now = time.Now
@@ -1464,27 +1536,24 @@ func NewWebHandler(configPath string, webConfig WebUIConfig, chatHub *webchat.Hu
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
 
-	mux.Handle("GET /api/chat/stream", requireWebSession(webConfig, now, newChatStreamHandler(chatHub)))
-	mux.Handle("POST /api/chat/send", requireWebSession(webConfig, now, newChatSendHandler(enqueue)))
-	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(enqueue)))
-	mux.Handle("GET /api/chat/history", requireWebSession(webConfig, now, newChatHistoryHandler(stateStore)))
+	mux.Handle("GET /api/chat/stream", requireWebSession(webConfig, now, newChatStreamHandler(webConfig.ChatHub)))
+	mux.Handle("POST /api/chat/send", requireWebSession(webConfig, now, newChatSendHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("GET /api/chat/history", requireWebSession(webConfig, now, newChatHistoryHandler(webConfig.Store)))
 
 	return mux
 }
 ```
 
-Update every existing call to `NewWebHandler` (Task 10's call site, and
-every test in `web_test.go` that constructs one directly) to pass a
-`stateStore` argument. Existing `web_test.go` tests that only exercise
-login/config routes can pass any working fake `ports.StateStore` (check for
-one already defined in the package before adding a new one) since
-`stateStore` is unused by those paths.
+No existing call to `NewWebHandler` needs to change — its signature is
+untouched. Only Task 10's construction of `WebUIConfig` in `NewApp` needs to
+populate the four new fields.
 
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `go test ./internal/bootstrap/... -v -race 2>&1 | tail -80`
 Expected: PASS for the whole package, including every pre-existing
-`web_test.go` test updated for the new `NewWebHandler` signature.
+`web_test.go` test, unmodified.
 
 - [ ] **Step 6: Commit**
 
@@ -1501,28 +1570,32 @@ git commit -m "Mount chat routes on NewWebHandler"
 - Modify: `internal/bootstrap/app.go`
 
 **Interfaces:**
-- Consumes: `NewWebHandler`'s new signature (Task 9), `app.chatHub` (Task 4).
+- Consumes: `WebUIConfig`'s new fields (Task 9), `app.chatHub` (Task 4), the pre-existing local `owner` variable in `NewApp`.
 
-- [ ] **Step 1: Find the current call site**
+- [ ] **Step 1: Find the current call site, and confirm `owner` is already in scope there**
 
-Run: `grep -n "NewWebHandler(" internal/bootstrap/app.go`.
+Run: `grep -n "NewWebHandler(\|owner := strconv" internal/bootstrap/app.go`.
+`NewApp` already computes `owner := strconv.FormatInt(config.Telegram.OwnerID, 10)`
+(around line 285) — the exact same string `NewDispatcher(owner, ...)` uses
+as the value `Dispatcher.Handle` checks every event's `Owner` field against.
+`NewWebHandler`'s call site (around line 384) already runs after that
+assignment, so `owner` is already in scope there; do not recompute it or
+introduce a second source of truth for the owner string.
 
 - [ ] **Step 2: Implement**
 
-Update the call to pass the new parameters, e.g.:
+Update the call to populate `WebUIConfig`'s new fields:
 
 ```go
 	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-	}, app.chatHub, app.Enqueue, stateStore)
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Store: stateStore, OwnerID: owner,
+	})
 ```
 
-Match the exact parameter order Task 9 actually settled on (`chatHub`,
-`enqueue`, `stateStore` — adjust here if Task 9's implementation ordered
-them differently than drafted). `stateStore` is already a local variable in
-`NewApp` (the same one passed to `jsonfile.Open`/`app.store`) — reuse it,
-do not construct a second one.
+`stateStore` is already a local variable in `NewApp` (the same one passed to
+`jsonfile.Open`/`app.store`) — reuse it, do not construct a second one.
 
 - [ ] **Step 3: Verify build and full test suite**
 
@@ -1533,7 +1606,7 @@ Expected: build succeeds; every package passes.
 
 ```bash
 git add internal/bootstrap/app.go
-git commit -m "Pass chatHub, Enqueue, and stateStore to NewWebHandler"
+git commit -m "Pass chatHub, Enqueue, Store, and OwnerID to NewWebHandler"
 ```
 
 ---

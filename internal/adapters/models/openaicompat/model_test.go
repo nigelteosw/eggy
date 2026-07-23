@@ -5,11 +5,74 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+func TestEmbedderTranslatesEmbeddingRequest(t *testing.T) {
+	var authorization, requestURL string
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		authorization, requestURL = request.Header.Get("Authorization"), request.URL.String()
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"data":[{"embedding":[0.25,-0.5]}]}`), nil
+	})}
+
+	embedding, err := NewEmbedder("https://api.example/v1/", "top-secret-key", "text-embedding-3-small", 1536, client).Embed(context.Background(), "remember this")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestURL != "https://api.example/v1/embeddings" || authorization != "Bearer top-secret-key" || strings.Contains(string(body), "top-secret-key") {
+		t.Fatalf("url=%q authorization=%q body=%s", requestURL, authorization, body)
+	}
+	var requestBody struct {
+		Model      string `json:"model"`
+		Input      string `json:"input"`
+		Dimensions int    `json:"dimensions"`
+	}
+	if err := json.Unmarshal(body, &requestBody); err != nil {
+		t.Fatal(err)
+	}
+	if requestBody != (struct {
+		Model      string `json:"model"`
+		Input      string `json:"input"`
+		Dimensions int    `json:"dimensions"`
+	}{Model: "text-embedding-3-small", Input: "remember this", Dimensions: 1536}) {
+		t.Fatalf("request=%#v", requestBody)
+	}
+	if want := []float32{0.25, -0.5}; !reflect.DeepEqual(embedding, want) {
+		t.Fatalf("embedding=%v want=%v", embedding, want)
+	}
+}
+
+func TestEmbedderRejectsInvalidProviderResponses(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     int
+		response   string
+		dimensions int
+		want       string
+	}{
+		{name: "empty data", status: http.StatusOK, response: `{"data":[]}`, dimensions: 2, want: "no embeddings"},
+		{name: "wrong configured dimensions", status: http.StatusOK, response: `{"data":[{"embedding":[0.25]}]}`, dimensions: 0, want: "dimensions"},
+		{name: "non-finite value", status: http.StatusOK, response: `{"data":[{"embedding":[1e39,0.25]}]}`, dimensions: 2, want: "non-finite"},
+		{name: "sanitized provider error", status: http.StatusUnauthorized, response: `{"error":{"message":"bad key top-secret-key"}}`, dimensions: 2, want: "authentication"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return jsonResponse(tt.status, tt.response), nil
+			})}
+			_, err := NewEmbedder("https://api.example", "top-secret-key", "text-embedding-3-small", tt.dimensions, client).Embed(context.Background(), "remember this")
+			if err == nil || !strings.Contains(err.Error(), tt.want) || strings.Contains(err.Error(), "top-secret-key") || strings.Contains(err.Error(), "bad key") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
 
 func TestModelTranslatesChatCompletionAndUsage(t *testing.T) {
 	var authorization, requestURL string

@@ -37,6 +37,7 @@ type Config struct {
 	Agent                  AgentConfig                 `yaml:"-"`
 	Providers              map[string]ProviderConfig   `yaml:"-"`
 	ModelAliases           map[string]ModelAliasConfig `yaml:"-"`
+	Embeddings             EmbeddingsConfig            `yaml:"-"`
 	Repositories           []RepositoryConfig          `yaml:"repositories"`
 	Runner                 RunnerConfig                `yaml:"runner"`
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
@@ -59,6 +60,13 @@ type ModelAliasConfig struct {
 	Provider         string   `yaml:"provider"`
 	Model            string   `yaml:"model"`
 	ReasoningEfforts []string `yaml:"reasoning_efforts,omitempty"`
+}
+
+type EmbeddingsConfig struct {
+	Provider       string `yaml:"provider"`
+	Model          string `yaml:"model"`
+	Dimensions     int    `yaml:"dimensions"`
+	CandidateLimit int    `yaml:"candidate_limit,omitempty"`
 }
 
 type ServerConfig struct {
@@ -163,6 +171,7 @@ type configDocument struct {
 	Agent                AgentConfig                 `yaml:"agent"`
 	Providers            map[string]ProviderConfig   `yaml:"providers"`
 	Models               map[string]ModelAliasConfig `yaml:"models"`
+	Embeddings           EmbeddingsConfig            `yaml:"embeddings,omitempty"`
 	commonConfigDocument `yaml:",inline"`
 }
 
@@ -263,7 +272,7 @@ func normalizeConfig(document configDocument) Config {
 	common := document.commonConfigDocument
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
-		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
+		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Embeddings: document.Embeddings,
 		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
 	}
 }
@@ -273,7 +282,7 @@ func (c Config) commonDocument() commonConfigDocument {
 }
 
 func (c Config) MarshalYAML() (any, error) {
-	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
+	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, Embeddings: c.Embeddings, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -320,6 +329,9 @@ func (c *Config) applyDefaults() error {
 	if c.ImplementationSessions.OutputExcerptChars == 0 {
 		c.ImplementationSessions.OutputExcerptChars = 8192
 	}
+	if c.embeddingsConfigured() && c.Embeddings.CandidateLimit == 0 {
+		c.Embeddings.CandidateLimit = 5000
+	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)
@@ -354,6 +366,9 @@ func (c Config) Validate() error {
 		return errors.New("server.telegram_webhook_path must begin with /")
 	}
 	if err := c.validateProviders(); err != nil {
+		return err
+	}
+	if err := c.validateEmbeddings(); err != nil {
 		return err
 	}
 	if c.Runner.Timeout.Value() <= 0 {
@@ -492,6 +507,33 @@ func (c Config) validateProviders() error {
 	return nil
 }
 
+func (c Config) embeddingsConfigured() bool {
+	return c.Embeddings.Provider != "" || c.Embeddings.Model != "" || c.Embeddings.Dimensions != 0 || c.Embeddings.CandidateLimit != 0
+}
+
+func (c Config) validateEmbeddings() error {
+	if !c.embeddingsConfigured() {
+		return nil
+	}
+	provider, ok := c.Providers[c.Embeddings.Provider]
+	if !ok {
+		return fmt.Errorf("embeddings.provider references unknown provider %q", c.Embeddings.Provider)
+	}
+	if provider.Adapter != "openai_compatible" {
+		return fmt.Errorf("embeddings.provider %q must use openai_compatible", c.Embeddings.Provider)
+	}
+	if strings.TrimSpace(c.Embeddings.Model) == "" {
+		return errors.New("embeddings.model is required")
+	}
+	if c.Embeddings.Dimensions <= 0 {
+		return errors.New("embeddings.dimensions must be positive")
+	}
+	if c.Embeddings.CandidateLimit <= 0 {
+		return errors.New("embeddings.candidate_limit must be positive")
+	}
+	return nil
+}
+
 func (c Config) ActiveModel(alias string) (ProviderConfig, ModelAliasConfig, error) {
 	model, ok := c.ModelAliases[alias]
 	if !ok {
@@ -511,6 +553,9 @@ func (c Config) validateSecrets(s Secrets) error {
 	usedProviders := map[string]bool{}
 	for _, model := range c.ModelAliases {
 		usedProviders[model.Provider] = true
+	}
+	if c.embeddingsConfigured() {
+		usedProviders[c.Embeddings.Provider] = true
 	}
 	for providerName := range usedProviders {
 		provider := c.Providers[providerName]

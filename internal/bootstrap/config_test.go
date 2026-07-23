@@ -178,6 +178,53 @@ func TestLoadConfigNormalizesProvidersAndModels(t *testing.T) {
 	}
 }
 
+func TestEmbeddingConfigIsOptionalAndDefaultsCandidateLimit(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig(), testSecrets())
+	if err != nil {
+		t.Fatalf("config without embeddings: %v", err)
+	}
+	if cfg.Embeddings != (EmbeddingsConfig{}) {
+		t.Fatalf("absent embeddings=%#v", cfg.Embeddings)
+	}
+
+	cfg, _, err = loadText(t, validConfig()+`
+embeddings:
+  provider: deepseek
+  model: text-embedding-3-small
+  dimensions: 1536
+`, testSecrets())
+	if err != nil {
+		t.Fatalf("configured embeddings: %v", err)
+	}
+	if cfg.Embeddings != (EmbeddingsConfig{Provider: "deepseek", Model: "text-embedding-3-small", Dimensions: 1536, CandidateLimit: 5000}) {
+		t.Fatalf("embeddings=%#v", cfg.Embeddings)
+	}
+}
+
+func TestEmbeddingConfigValidation(t *testing.T) {
+	tests := []struct {
+		name, document, want string
+	}{
+		{"unknown provider", "provider: missing\n  model: text-embedding-3-small\n  dimensions: 1536", "unknown provider"},
+		{"unsupported provider adapter", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 1536", "unsupported provider adapter"},
+		{"missing model", "provider: deepseek\n  model: ''\n  dimensions: 1536", "embeddings.model"},
+		{"non-positive dimensions", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 0", "embeddings.dimensions"},
+		{"negative candidate limit", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 1536\n  candidate_limit: -1", "embeddings.candidate_limit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := validConfig() + "\nembeddings:\n  " + tt.document + "\n"
+			if tt.name == "unsupported provider adapter" {
+				body = strings.Replace(body, "adapter: openai_compatible", "adapter: unsupported", 1)
+			}
+			_, _, err := loadText(t, body, testSecrets())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestProviderValidation(t *testing.T) {
 	tests := []struct {
 		name, old, replacement, want string

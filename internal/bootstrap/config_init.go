@@ -127,6 +127,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		ModelAliases: map[string]ModelAliasConfig{
 			"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"},
 		},
+		Embeddings:   EmbeddingsConfig{},
 		Repositories: []RepositoryConfig{},
 		Runner: RunnerConfig{
 			Root:           "/data/runs",

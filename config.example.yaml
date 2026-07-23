@@ -22,6 +22,12 @@ models:
     # Optional: exposes /model effort <level> for this alias. Omit for
     # models that don't accept a reasoning_effort request parameter.
     reasoning_efforts: ["low", "medium", "high", "max"]
+# Optional conversation-memory embeddings. Configure a matching provider first.
+# embeddings:
+#   provider: "openrouter"
+#   model: "text-embedding-3-small"
+#   dimensions: 1536
+#   candidate_limit: 5000
 repositories:
   - name: "eggy"
     clone_url: "https://github.com/nigelteosw/eggy.git"

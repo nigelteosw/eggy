@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -14,9 +15,11 @@ import (
 )
 
 type Model struct {
-	baseURL string
-	apiKey  string
-	http    *http.Client
+	baseURL             string
+	apiKey              string
+	http                *http.Client
+	embeddingModel      string
+	embeddingDimensions int
 }
 
 func New(baseURL, apiKey string, client *http.Client) *Model {
@@ -24,6 +27,15 @@ func New(baseURL, apiKey string, client *http.Client) *Model {
 		client = http.DefaultClient
 	}
 	return &Model{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: client}
+}
+
+// NewEmbedder creates an OpenAI-compatible embeddings client. New remains
+// dedicated to chat completion callers and preserves its existing behavior.
+func NewEmbedder(baseURL, apiKey, model string, dimensions int, client *http.Client) *Model {
+	embedder := New(baseURL, apiKey, client)
+	embedder.embeddingModel = model
+	embedder.embeddingDimensions = dimensions
+	return embedder
 }
 
 type requestBody struct {
@@ -82,7 +94,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	if err != nil {
 		return ports.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
 	}
-	response, err := m.request(ctx, encoded)
+	response, err := m.request(ctx, "/chat/completions", encoded)
 	if err != nil {
 		return ports.ModelResponse{}, err
 	}
@@ -127,9 +139,54 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}}, nil
 }
 
-func (m *Model) request(ctx context.Context, body []byte) (*http.Response, error) {
+func (m *Model) Embed(ctx context.Context, input string) ([]float32, error) {
+	if strings.TrimSpace(m.embeddingModel) == "" {
+		return nil, errors.New("embedding model is required")
+	}
+	if m.embeddingDimensions <= 0 {
+		return nil, errors.New("embedding dimensions must be positive")
+	}
+	encoded, err := json.Marshal(struct {
+		Model      string `json:"model"`
+		Input      string `json:"input"`
+		Dimensions int    `json:"dimensions"`
+	}{Model: m.embeddingModel, Input: input, Dimensions: m.embeddingDimensions})
+	if err != nil {
+		return nil, fmt.Errorf("encode embedding request: %w", err)
+	}
+	response, err := m.request(ctx, "/embeddings", encoded)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, statusError(response.StatusCode)
+	}
+	var result struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode embedding response: %w", err)
+	}
+	if len(result.Data) == 0 {
+		return nil, errors.New("provider returned no embeddings")
+	}
+	embedding := make([]float32, len(result.Data[0].Embedding))
+	for index, value := range result.Data[0].Embedding {
+		converted := float32(value)
+		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsNaN(float64(converted)) || math.IsInf(float64(converted), 0) {
+			return nil, errors.New("provider returned non-finite embedding value")
+		}
+		embedding[index] = converted
+	}
+	return embedding, nil
+}
+
+func (m *Model) request(ctx context.Context, endpoint string, body []byte) (*http.Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/chat/completions", bytes.NewReader(body))
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}

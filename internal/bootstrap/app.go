@@ -630,9 +630,14 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 			history = append(history, recent...)
 		}
 	}
+	finishToolProgress := func() {}
+	if policy.recordConversation {
+		options.OnToolCall, finishToolProgress = a.toolCallProgress(ctx, message.ChatID)
+	}
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
 	stopTyping()
+	finishToolProgress()
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if errors.Is(runErr, agent.ErrToolStepLimit) {
 		if usageErr != nil {
@@ -672,6 +677,38 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		}
 	}
 	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)
+}
+
+// toolCallProgress returns an agent.RunOptions.OnToolCall callback and a
+// matching finish function that surface a live "Calling <tool>..."
+// indicator on the channel ctx resolves to, editing one message in place as
+// more tools are called during the turn -- the same DeliverTrackable/
+// EditText mechanism a coding run's progress already uses, reused here so
+// an ordinary tool call (e.g. current_time) is visible mid-turn too, not
+// folded silently into the final reply. finish is always safe to call, a
+// no-op if no tool was ever called.
+func (a *App) toolCallProgress(ctx context.Context, chatID string) (onToolCall func(string), finish func()) {
+	var messageID string
+	var calls []string
+	render := func(text string) {
+		if messageID != "" && a.channel.EditText(ctx, chatID, messageID, text) == nil {
+			return
+		}
+		if id, err := a.channel.DeliverTrackable(ctx, chatID, text); err == nil {
+			messageID = id
+		}
+	}
+	onToolCall = func(name string) {
+		calls = append(calls, name)
+		render("Calling " + strings.Join(calls, ", ") + "...")
+	}
+	finish = func() {
+		if len(calls) == 0 {
+			return
+		}
+		render("Called " + strings.Join(calls, ", ") + ".")
+	}
+	return onToolCall, finish
 }
 
 // truncateThreadTitle cheaply derives a web thread's auto-title from its

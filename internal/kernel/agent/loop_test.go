@@ -104,6 +104,34 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	}
 }
 
+func TestLoopSelectedFiresOnToolCallBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}},
+	}}
+	tool := &fakeTool{name: "status", result: json.RawMessage(`{}`)}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{tool}, 4)
+
+	var calledBefore []int
+	var calls []string
+	_, err := loop.RunSelected(context.Background(), "model", "", "status", nil, RunOptions{
+		OnToolCall: func(name string) {
+			calls = append(calls, name)
+			calledBefore = append(calledBefore, tool.calls)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || calls[0] != "status" || calls[1] != "status" {
+		t.Fatalf("calls=%v, want OnToolCall fired once per tool call, never for the final answer", calls)
+	}
+	if calledBefore[0] != 0 || calledBefore[1] != 1 {
+		t.Fatalf("calledBefore=%v, want OnToolCall to fire before the tool actually executes each time", calledBefore)
+	}
+}
+
 func TestRunImplementationReturnsTerminalToolArguments(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},

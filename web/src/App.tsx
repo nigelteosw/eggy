@@ -13,6 +13,11 @@ export function App() {
   const [view, setView] = useState<View>("chat");
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
+  // Below the md breakpoint, the sidebar is an off-canvas overlay (there's
+  // no room for a static 256px column next to the chat panel on a phone);
+  // at md and up, it's always visible inline, so this flag is only read on
+  // small screens (see the md:hidden/md:translate-x-0 classes below).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     checkSession()
@@ -34,16 +39,40 @@ export function App() {
       <button
         type="button"
         onClick={() => setView(view === "chat" ? "config" : "chat")}
-        className="absolute right-4 top-4 z-10 rounded-full bg-white p-2 text-slate-500 shadow hover:text-slate-900"
+        className="absolute right-4 top-4 z-40 rounded-full bg-white p-2 text-slate-500 shadow hover:text-slate-900"
         aria-label={view === "chat" ? "Open settings" : "Back to chat"}
       >
         {view === "chat" ? "⚙" : "💬"}
       </button>
       {view === "chat" ? (
         <>
-          <ThreadSidebar activeThreadId={activeThreadId} onSelect={setActiveThreadId} reloadKey={sidebarReloadKey} />
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="absolute left-4 top-4 z-40 rounded-full bg-white p-2 text-slate-500 shadow hover:text-slate-900 md:hidden"
+            aria-label="Open chat list"
+          >
+            ☰
+          </button>
+          {sidebarOpen && (
+            <div className="fixed inset-0 z-20 bg-black/30 md:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+          )}
+          <div
+            className={`fixed inset-y-0 left-0 z-30 transition-transform duration-200 md:static md:translate-x-0 ${
+              sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <ThreadSidebar
+              activeThreadId={activeThreadId}
+              onSelect={(id) => {
+                setActiveThreadId(id);
+                setSidebarOpen(false);
+              }}
+              reloadKey={sidebarReloadKey}
+            />
+          </div>
           {activeThreadId ? (
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <ChatPage
                 threadId={activeThreadId}
                 onSessionExpired={onSessionExpired}

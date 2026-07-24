@@ -21,6 +21,12 @@ type ModelTarget struct {
 
 type RunOptions struct {
 	AllowedTools map[string]bool
+	// OnToolCall, if set, fires just before each tool call executes during
+	// RunSelected -- the ordinary chat-turn loop, as distinct from
+	// RunImplementation's own separate onEvent/onToolCall mechanism for
+	// coding runs. Lets a caller surface a live "calling <tool>" indicator
+	// for any tool call, not just a coding run's.
+	OnToolCall func(name string)
 }
 
 type RunResult struct {
@@ -94,6 +100,9 @@ func (l *Loop) RunSelected(ctx context.Context, alias, effort, input string, his
 			}
 			if options.AllowedTools != nil && !options.AllowedTools[call.Name] {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
+			}
+			if options.OnToolCall != nil {
+				options.OnToolCall(call.Name)
 			}
 			output, toolErr := tool.Execute(ctx, call.Arguments)
 			if toolErr != nil {

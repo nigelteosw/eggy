@@ -966,6 +966,124 @@ func TestHandleMessageRepliesGracefullyWhenToolStepLimitReached(t *testing.T) {
 	}
 }
 
+// TestToolCallSurfacesALiveIndicatorBeforeTheFinalReply covers the gap
+// flagged after the multi-thread chat rollout: an ordinary tool call (not
+// just a coding run's) should be visible mid-turn, not folded silently into
+// the final answer. Telegram's sendMessage/editMessageText calls double as
+// an ordering probe here: the indicator must be sent, then finalized, then
+// -- and only then -- the real answer goes out as a new message.
+func TestToolCallSurfacesALiveIndicatorBeforeTheFinalReply(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var calls []string
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.URL.Host == "deepseek.test":
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"tool_call_id"`) {
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"status","arguments":"{}"}}]}}]}`), nil
+			}
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"all good"}}]}`), nil
+		case strings.Contains(request.URL.Path, "sendMessage"):
+			body, _ := io.ReadAll(request.Body)
+			var decoded struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(body, &decoded)
+			calls = append(calls, "send:"+decoded.Text)
+			return appJSON(200, `{"ok":true,"result":{"message_id":123}}`), nil
+		case strings.Contains(request.URL.Path, "editMessageText"):
+			body, _ := io.ReadAll(request.Body)
+			var decoded struct {
+				Text string `json:"text"`
+			}
+			_ = json.Unmarshal(body, &decoded)
+			calls = append(calls, "edit:"+decoded.Text)
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		case strings.Contains(request.URL.Path, "setMyCommands"):
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		default:
+			return appJSON(404, `{}`), nil
+		}
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "what's the status?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "status-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) < 2 {
+		t.Fatalf("calls=%#v, want at least an indicator and a final reply", calls)
+	}
+	if !strings.Contains(calls[0], "Calling status") {
+		t.Fatalf("calls[0]=%q, want the live indicator sent first", calls[0])
+	}
+	last := calls[len(calls)-1]
+	if !strings.Contains(last, "all good") {
+		t.Fatalf("calls=%#v, want the real answer delivered last, after any progress indicator", calls)
+	}
+	for _, call := range calls[:len(calls)-1] {
+		if strings.Contains(call, "all good") {
+			t.Fatalf("calls=%#v, the real answer must not be sent before the tool-call indicator is finalized", calls)
+		}
+	}
+}
+
+// TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt is the
+// thread-isolation counterpart: a tool call made from a web thread must
+// surface its live indicator on that thread's Hub connection only, never
+// on Telegram or a different thread -- the same routedChannel/destination
+// guarantee the rest of this design relies on.
+func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"tool_call_id"`) {
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"status","arguments":"{}"}}]}}]}`), nil
+			}
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"all good"}}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.memory.CreateThread(context.Background(), "thread-a", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	_, threadEvents, unregisterThread := app.chatHub.Register("thread-a")
+	defer unregisterThread()
+	_, telegramEvents, unregisterOther := app.chatHub.Register("some-other-thread")
+	defer unregisterOther()
+
+	payload, _ := json.Marshal(events.Message{ChatID: "thread-a", Text: "what's the status?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "web-status-1", Type: events.TypeMessage, Source: "web", Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+
+	sawIndicator := false
+	deadline := time.After(2 * time.Second)
+	for !sawIndicator {
+		select {
+		case event := <-threadEvents:
+			if strings.Contains(event.Text, "Calling status") {
+				sawIndicator = true
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for the tool-call indicator on the triggering thread")
+		}
+	}
+
+	select {
+	case event := <-telegramEvents:
+		t.Fatalf("expected no events on an unrelated thread, got %#v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	started := make(chan struct{})

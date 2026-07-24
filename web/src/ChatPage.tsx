@@ -13,24 +13,34 @@ export function ChatPage({
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  // pending holds our own just-sent messages that loadHistory hasn't
+  // corroborated yet. The backend only durably records a turn once the
+  // whole model turn finishes (see ConversationService.Record), so a
+  // history refetch mid-turn -- e.g. on an SSE auto-reconnect while the
+  // model is still thinking -- must never silently erase what the user
+  // just typed by replacing it wholesale.
+  const [pending, setPending] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const messages = [...history, ...pending];
 
   function loadHistory() {
     getChatHistory(threadId)
       .then((result) => {
         const rows = result.table_rows ?? [];
-        setMessages(
-          rows.map((row, index) => ({
-            id: `history-${index}`,
-            role: row[0] === "user" ? "user" : "assistant",
-            text: row[1] ?? "",
-          })),
-        );
+        const fetched = rows.map((row, index) => ({
+          id: `history-${index}`,
+          role: row[0] === "user" ? ("user" as const) : ("assistant" as const),
+          text: row[1] ?? "",
+        }));
+        setHistory(fetched);
+        // Drop any pending optimistic send the server has now caught up on;
+        // keep the rest showing until it does.
+        setPending((current) => current.filter((message) => !fetched.some((row) => row.role === "user" && row.text === message.text)));
       })
       .catch((err) => {
         if (err instanceof SessionExpiredError) onSessionExpired();
@@ -38,7 +48,8 @@ export function ChatPage({
   }
 
   useEffect(() => {
-    setMessages([]);
+    setHistory([]);
+    setPending([]);
     setApprovals([]);
     setTyping(false);
     loadHistory();
@@ -49,7 +60,10 @@ export function ChatPage({
     source.addEventListener("message", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
       setTyping(false);
-      setMessages((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text: event.text ?? "" }]);
+      setHistory((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text: event.text ?? "" }]);
+      // A reply means the turn that recorded our pending send has finished;
+      // reconcile now rather than waiting for the next reconnect.
+      loadHistory();
       onMessageResolved?.();
     });
 
@@ -57,7 +71,7 @@ export function ChatPage({
 
     source.addEventListener("edit", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
-      setMessages((current) => current.map((message) => (message.id === event.id ? { ...message, text: event.text ?? "" } : message)));
+      setHistory((current) => current.map((message) => (message.id === event.id ? { ...message, text: event.text ?? "" } : message)));
     });
 
     source.addEventListener("approval", (raw) => {
@@ -86,7 +100,7 @@ export function ChatPage({
     const text = draft.trim();
     if (!text) return;
     setDraft("");
-    setMessages((current) => [...current, { id: `local-${current.length}`, role: "user", text }]);
+    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text }]);
     try {
       await sendChatMessage(threadId, text);
     } catch (err) {

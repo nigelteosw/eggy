@@ -287,25 +287,40 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		_ = a.channel.AnswerCallback(ctx, decision.CallbackQueryID)
 	}
 	if err := a.approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
-		return err
+		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
 	}
 	if !decision.Approved {
 		return channelutil.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Action rejected.")
 	}
 	state, err := a.store.Load(ctx)
 	if err != nil {
-		return err
+		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
 	}
 	approval := state.Approvals[decision.ApprovalID]
 	executor, ok := a.approvalExecutors[approval.Action]
 	if !ok {
-		return errors.New("unknown approval action")
+		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, errors.New("unknown approval action"))
 	}
 	result, err := executor.ExecuteApproved(ctx, approval)
 	if err != nil {
-		return err
+		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
 	}
 	return channelutil.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
+}
+
+// deliverApprovalFailure tells the owner an approve/reject tap didn't go
+// through, instead of leaving execErr to only reach the server log (see
+// Run's event-loop goroutine, which logs and otherwise discards any
+// HandleEvent error). Without this, a tap that produces no visible outcome
+// at all is indistinguishable from a broken button, and the owner has no
+// way to learn what actually failed -- the Telegram/web message is the only
+// channel back to them. Still returns execErr so the failure remains
+// logged server-side exactly as before.
+func (a *App) deliverApprovalFailure(ctx context.Context, chatID, messageID string, execErr error) error {
+	if deliverErr := channelutil.DeliverOutcome(ctx, a.channel, chatID, messageID, fmt.Sprintf("Action failed: %v", execErr)); deliverErr != nil {
+		return errors.Join(execErr, deliverErr)
+	}
+	return execErr
 }
 
 func (a *App) Run(ctx context.Context) error {

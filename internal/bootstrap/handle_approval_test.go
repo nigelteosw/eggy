@@ -92,6 +92,48 @@ func TestHandleApprovalFallsBackToNewMessageWhenEditFails(t *testing.T) {
 	}
 }
 
+// TestHandleApprovalDeliversFailureMessageWhenExecutionFails covers the gap
+// that made a failed approve tap look identical to a broken button: before
+// this, handleApproval returned any Decide/executor-lookup/ExecuteApproved
+// error straight to Run's event-loop goroutine, which only logs it -- the
+// owner who tapped Approve saw nothing at all, with no way to tell a bug
+// apart from an ordinary provider failure (e.g. an expired Calendar OAuth
+// token). Approving a CalendarCreate here with no calendar executor
+// registered (appTestConfig leaves Calendar disabled) reproduces that
+// "unknown approval action" failure path and asserts it now reaches the
+// owner.
+func TestHandleApprovalDeliversFailureMessageWhenExecutionFails(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var delivered []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case strings.Contains(request.URL.Path, "editMessageText"):
+			var payload map[string]any
+			body, _ := io.ReadAll(request.Body)
+			_ = json.Unmarshal(body, &payload)
+			delivered, _ = json.Marshal(payload)
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		default:
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		}
+	})}
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := app.approvals.Request(context.Background(), approvals.CalendarCreate, map[string]string{"id": "evt-1"}, "Create event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: true, CallbackQueryID: "cb-1", MessageID: "777"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err == nil {
+		t.Fatal("expected HandleEvent to still surface the underlying error")
+	}
+	if !strings.Contains(string(delivered), "Action failed") {
+		t.Fatalf("expected a delivered failure message, got %q", delivered)
+	}
+}
+
 // TestInvalidateStaleShippingApprovalsClearsOnlyLeftoverShippingActions
 // covers the P0 cleanup step: ShippingService.Ship now issues, decides, and
 // authorizes its own commit/push/pull-request approvals in one call, so a

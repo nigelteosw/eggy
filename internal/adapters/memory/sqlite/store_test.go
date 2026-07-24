@@ -494,6 +494,173 @@ func TestOpenTightensDatabaseAndSidecarPermissions(t *testing.T) {
 	}
 }
 
+func TestCreateThreadIsUntitledAndListThreadsOrdersByMostRecentlyUpdated(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
+	if _, err := store.CreateThread(context.Background(), "thread-1", "web", base); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateThread(context.Background(), "thread-2", "web", base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	threads, err := store.ListThreads(context.Background(), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 2 || threads[0].ID != "thread-2" || threads[1].ID != "thread-1" {
+		t.Fatalf("threads=%#v, want thread-2 first (most recently updated)", threads)
+	}
+	if threads[0].Title != "" {
+		t.Fatalf("title=%q, want untitled thread", threads[0].Title)
+	}
+}
+
+func TestListThreadsOnlyReturnsMatchingChannel(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	now := time.Now()
+	if _, err := store.CreateThread(context.Background(), "web-thread", "web", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateThread(context.Background(), "telegram", "telegram", now); err != nil {
+		t.Fatal(err)
+	}
+
+	threads, err := store.ListThreads(context.Background(), "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 1 || threads[0].ID != "web-thread" {
+		t.Fatalf("threads=%#v, want only the web thread", threads)
+	}
+}
+
+func TestGetThreadReportsNotFoundForAnUnknownID(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	if _, found, err := store.GetThread(context.Background(), "missing"); err != nil {
+		t.Fatal(err)
+	} else if found {
+		t.Fatal("expected found=false for an unknown thread ID")
+	}
+}
+
+func TestSetThreadTitleNeverOverwritesAnAlreadyTitledThread(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	if _, err := store.CreateThread(context.Background(), "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThreadTitle(context.Background(), "thread-1", "First title"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThreadTitle(context.Background(), "thread-1", "Second title"); err != nil {
+		t.Fatal(err)
+	}
+
+	thread, found, err := store.GetThread(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || thread.Title != "First title" {
+		t.Fatalf("thread=%#v, want title unchanged after a second SetThreadTitle call", thread)
+	}
+}
+
+func TestRecentMessagesIsScopedToOneConversationOldestFirstAndBounded(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
+	for index, text := range []string{"one", "two", "three"} {
+		if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+			ConversationID: "thread-a", Role: ports.RoleUser, Content: text, Source: "web",
+			CreatedAt: base.Add(time.Duration(index) * time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: "thread-b", Role: ports.RoleUser, Content: "other thread", Source: "web", CreatedAt: base,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := store.RecentMessages(context.Background(), "thread-a", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Content != "two" || messages[1].Content != "three" {
+		t.Fatalf("messages=%#v, want the last 2 of thread-a, oldest first", messages)
+	}
+}
+
+func TestResetConversationHidesEarlierMessagesButLeavesThemSearchable(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: "thread-a", Role: ports.RoleUser, Content: "before reset unique-phrase", Source: "web", CreatedAt: base,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetConversation(context.Background(), "thread-a", base.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: "thread-a", Role: ports.RoleUser, Content: "after reset", Source: "web", CreatedAt: base.Add(2 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := store.RecentMessages(context.Background(), "thread-a", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].Content != "after reset" {
+		t.Fatalf("messages=%#v, want only the post-reset message", messages)
+	}
+
+	found, err := store.SearchText(context.Background(), "unique-phrase", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("search results=%#v, want the pre-reset message still searchable", found)
+	}
+}
+
+func TestWriteMessageTouchesItsThreadsUpdatedAt(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
+	if _, err := store.CreateThread(context.Background(), "thread-a", "web", base); err != nil {
+		t.Fatal(err)
+	}
+	written := base.Add(time.Hour)
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: "thread-a", Role: ports.RoleUser, Content: "hi", Source: "web", CreatedAt: written,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	thread, found, err := store.GetThread(context.Background(), "thread-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || !thread.UpdatedAt.Equal(written) {
+		t.Fatalf("thread=%#v, want updated_at bumped to %v", thread, written)
+	}
+}
+
 func newTestStore(t *testing.T, candidateLimit int) *Store {
 	t.Helper()
 

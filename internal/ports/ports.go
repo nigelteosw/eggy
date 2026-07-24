@@ -128,16 +128,29 @@ type ContextStore interface {
 // StoredMessage is one durable conversation message. It deliberately carries
 // only provider-neutral conversation data, never an embedding representation.
 type StoredMessage struct {
-	ID        int64
-	Role      Role
-	Content   string
-	Source    string
-	CreatedAt time.Time
+	ID int64
+	// ConversationID scopes a message to one thread: a web thread's own
+	// generated ID, or Telegram's fixed, reserved thread ID. Never empty for
+	// a message written through MemoryStore.WriteMessage.
+	ConversationID string
+	Role           Role
+	Content        string
+	Source         string
+	CreatedAt      time.Time
 }
 
 // MemoryStore persists and recalls durable conversation messages.
 type MemoryStore interface {
 	WriteMessage(context.Context, StoredMessage) error
+	// RecentMessages returns conversationID's most recent messages, oldest
+	// first, bounded to limit -- the thread-scoped live turn-context window
+	// that replaced the old global State.RecentMessages.
+	RecentMessages(ctx context.Context, conversationID string, limit int) ([]StoredMessage, error)
+	// ResetConversation clears conversationID's live turn-context window
+	// (later RecentMessages calls only see messages recorded after at) without
+	// deleting its durable history: SearchText/SearchSimilar keep finding
+	// everything.
+	ResetConversation(ctx context.Context, conversationID string, at time.Time) error
 	SearchText(context.Context, string, int) ([]StoredMessage, error)
 	SearchSimilar(context.Context, []float32, int) ([]StoredMessage, error)
 	PendingEmbeddings(context.Context, int) ([]StoredMessage, error)

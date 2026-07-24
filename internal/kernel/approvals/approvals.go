@@ -48,4 +48,9 @@ type Approval struct {
 	CreatedAt     time.Time       `json:"created_at"`
 	ExpiresAt     time.Time       `json:"expires_at"`
 	DecidedAt     time.Time       `json:"decided_at,omitempty"`
+	// Destination is the channel this approval's eventual decision should be
+	// delivered back to, stamped once at request time from the requesting
+	// turn's ctx. The zero value (Kind: "") behaves as Telegram, matching
+	// approvals persisted before this field existed.
+	Destination Destination `json:"destination,omitempty"`
 }

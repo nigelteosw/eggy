@@ -118,6 +118,12 @@ type memorySimilarCall struct {
 
 func (s *fakeMemoryStore) WriteMessage(context.Context, ports.StoredMessage) error { return nil }
 
+func (s *fakeMemoryStore) RecentMessages(context.Context, string, int) ([]ports.StoredMessage, error) {
+	return nil, nil
+}
+
+func (s *fakeMemoryStore) ResetConversation(context.Context, string, time.Time) error { return nil }
+
 func (s *fakeMemoryStore) SearchText(_ context.Context, query string, limit int) ([]ports.StoredMessage, error) {
 	s.textCalls = append(s.textCalls, memorySearchCall{query: query, limit: limit})
 	return append([]ports.StoredMessage(nil), s.searchText...), nil

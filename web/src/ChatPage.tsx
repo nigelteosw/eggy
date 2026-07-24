@@ -4,7 +4,15 @@ import { ChatEvent, SessionExpiredError, approveChatDecision, getChatHistory, se
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
 type PendingApproval = { id: string; summary: string };
 
-export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function ChatPage({
+  threadId,
+  onSessionExpired,
+  onMessageResolved,
+}: {
+  threadId: string;
+  onSessionExpired: () => void;
+  onMessageResolved?: () => void;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
@@ -13,7 +21,7 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   function loadHistory() {
-    getChatHistory()
+    getChatHistory(threadId)
       .then((result) => {
         const rows = result.table_rows ?? [];
         setMessages(
@@ -30,8 +38,11 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
   }
 
   useEffect(() => {
+    setMessages([]);
+    setApprovals([]);
+    setTyping(false);
     loadHistory();
-    const source = new EventSource("/api/chat/stream");
+    const source = new EventSource(`/api/chat/threads/${encodeURIComponent(threadId)}/stream`);
 
     source.addEventListener("open", loadHistory);
 
@@ -39,6 +50,7 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
       setTyping(false);
       setMessages((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text: event.text ?? "" }]);
+      onMessageResolved?.();
     });
 
     source.addEventListener("typing", () => setTyping(true));
@@ -63,7 +75,7 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
 
     return () => source.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [threadId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -76,7 +88,7 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
     setDraft("");
     setMessages((current) => [...current, { id: `local-${current.length}`, role: "user", text }]);
     try {
-      await sendChatMessage(text);
+      await sendChatMessage(threadId, text);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
@@ -100,7 +112,7 @@ export function ChatPage({ onSessionExpired }: { onSessionExpired: () => void })
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-100">
+    <div className="flex h-full flex-col bg-slate-100">
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 overflow-y-auto p-6">
         {messages.map((message) => (
           <div

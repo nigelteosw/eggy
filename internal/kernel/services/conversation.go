@@ -8,15 +8,20 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+// ConversationService records and recalls one thread's live turn-context
+// window. SQLite (ports.MemoryStore) is its only dependency: since it is
+// already mandatory (always opened in NewApp, never a feature flag), it is
+// the single source of truth for both the durable log and the live
+// recent-window, scoped per conversationID -- there is no separate
+// unpartitioned store that could drift from it.
 type ConversationService struct {
-	store       ports.StateStore
 	memory      ports.MemoryStore
 	recentLimit int
 	now         func() time.Time
 	logger      *slog.Logger
 }
 
-func NewConversationService(store ports.StateStore, memory ports.MemoryStore, recentLimit int, now func() time.Time, logger *slog.Logger) *ConversationService {
+func NewConversationService(memory ports.MemoryStore, recentLimit int, now func() time.Time, logger *slog.Logger) *ConversationService {
 	if recentLimit <= 0 {
 		recentLimit = 20
 	}
@@ -26,43 +31,48 @@ func NewConversationService(store ports.StateStore, memory ports.MemoryStore, re
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &ConversationService{store: store, memory: memory, recentLimit: recentLimit, now: now, logger: logger}
+	return &ConversationService{memory: memory, recentLimit: recentLimit, now: now, logger: logger}
 }
 
-func (s *ConversationService) Record(ctx context.Context, message ports.Message, source string) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
+// RecentMessages returns conversationID's live turn-context window, oldest
+// first, bounded to recentLimit.
+func (s *ConversationService) RecentMessages(ctx context.Context, conversationID string) ([]ports.Message, error) {
+	if s.memory == nil {
+		return nil, nil
 	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		state.RecentMessages = append(state.RecentMessages, message)
-		if excess := len(state.RecentMessages) - s.recentLimit; excess > 0 {
-			state.RecentMessages = append([]ports.Message(nil), state.RecentMessages[excess:]...)
-		}
-		return nil
-	})
+	stored, err := s.memory.RecentMessages(ctx, conversationID, s.recentLimit)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	messages := make([]ports.Message, 0, len(stored))
+	for _, message := range stored {
+		messages = append(messages, ports.Message{Role: message.Role, Content: message.Content})
+	}
+	return messages, nil
+}
+
+// Record durably persists message under conversationID. A write failure is
+// logged, never returned: a flaky durable store should never fail the turn
+// that produced the message.
+func (s *ConversationService) Record(ctx context.Context, conversationID string, message ports.Message, source string) error {
 	if s.memory == nil {
 		return nil
 	}
 	if err := s.memory.WriteMessage(ctx, ports.StoredMessage{
-		Role: message.Role, Content: message.Content, Source: source, CreatedAt: s.now(),
+		ConversationID: conversationID, Role: message.Role, Content: message.Content, Source: source, CreatedAt: s.now(),
 	}); err != nil {
-		s.logger.Error("durable conversation write failed", "role", message.Role, "source", source, "error", err)
+		s.logger.Error("durable conversation write failed", "conversation_id", conversationID, "role", message.Role, "source", source, "error", err)
 	}
 	return nil
 }
 
-func (s *ConversationService) Reset(ctx context.Context) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		state.RecentMessages = nil
+// Reset clears conversationID's live turn-context window without deleting
+// its durable history: later RecentMessages calls for this conversation
+// only see messages recorded after this point, while recall/search keeps
+// finding everything.
+func (s *ConversationService) Reset(ctx context.Context, conversationID string) error {
+	if s.memory == nil {
 		return nil
-	})
-	return err
+	}
+	return s.memory.ResetConversation(ctx, conversationID, s.now())
 }

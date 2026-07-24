@@ -11,17 +11,17 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
+	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
 	"github.com/nigelteosw/eggy/internal/adapters/webui"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // WebUIConfig holds what NewWebHandler needs beyond the config file path:
 // the single owner login credential and the key used to sign session
 // cookies (Eggy's existing EGGY_ENCRYPTION_KEY -- see
 // docs/superpowers/specs/2026-07-22-web-config-ui-design.md), plus the chat
-// wiring (docs/superpowers/specs/2026-07-23-web-chat-interface-design.md):
-// ChatHub/Enqueue/Store/OwnerID are only read by the /api/chat/* routes and
+// wiring (docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md):
+// ChatHub/Enqueue/Memory/OwnerID are only read by the /api/chat/* routes and
 // may be left zero-valued in tests that only exercise login/config routes.
 type WebUIConfig struct {
 	UserEmail  string
@@ -30,7 +30,7 @@ type WebUIConfig struct {
 	Now        func() time.Time
 	ChatHub    *webchat.Hub
 	Enqueue    func(context.Context, events.Event) error
-	Store      ports.StateStore
+	Memory     *memorysqlite.Store
 	OwnerID    string
 }
 
@@ -81,10 +81,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
 
-	mux.Handle("GET /api/chat/stream", requireWebSession(webConfig, now, newChatStreamHandler(webConfig.ChatHub)))
-	mux.Handle("POST /api/chat/send", requireWebSession(webConfig, now, newChatSendHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Memory)))
+	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Memory, now)))
+	mux.Handle("GET /api/chat/threads/{id}/history", requireWebSession(webConfig, now, newThreadHistoryHandler(webConfig.Memory)))
+	mux.Handle("GET /api/chat/threads/{id}/stream", requireWebSession(webConfig, now, newThreadStreamHandler(webConfig.ChatHub, webConfig.Memory)))
+	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Memory)))
 	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
-	mux.Handle("GET /api/chat/history", requireWebSession(webConfig, now, newChatHistoryHandler(webConfig.Store)))
 
 	return mux
 }

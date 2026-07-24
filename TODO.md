@@ -141,32 +141,6 @@ grant capabilities.
       timezone, quiet hours, limits, and prohibited actions in deterministic
       policy.
 
-## P1: Add a multi-thread web chat interface, independent of Telegram
-
-See [`docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md`](docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md)
-for the design (implementation plan not yet written). Telegram and the web
-UI are independent channels into the same agent core — a message on one
-never appears on the other — not mirrors of one shared conversation (an
-earlier design and its partial implementation assumed the latter; both are
-superseded/removed by this one). The web UI gets multiple
-independently-resumable conversation threads in a sidebar; Telegram keeps
-writing to its own single fixed thread, invisible from the web UI. No
-structural split between "conversation" and "coding run" — a thread is a
-thread; the model decides what tools to call inside one exactly as it
-already does today.
-
-Core pieces: a `threads` table in the existing SQLite store (making
-`messages.conversation_id` — already in the schema, previously hardcoded to
-`'owner'` — meaningful); retiring `State.RecentMessages` (the single global,
-unpartitioned live-context window) in favor of thread-scoped SQLite
-queries; a `routedChannel` replacing the removed `multiChannel`, using
-`context.Context` (not a mutable `App` field, since turns run concurrently)
-to carry which channel+thread a reply belongs to; thread-scoped
-`/api/chat/threads/*` routes; and a sidebar + thread-aware `ChatPage.tsx`.
-Deliberately deferred: rename/delete/pin endpoints, and the rest of the
-reference UI shell (Skills/Artifacts/Messaging panels, command palette,
-status bar) — each is its own future spec.
-
 ## P1: Add SQLite-backed conversation memory with vector search
 
 See [`docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md`](docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md).

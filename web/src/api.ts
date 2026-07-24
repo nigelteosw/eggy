@@ -13,13 +13,13 @@ export type CommandResult = {
 
 export class SessionExpiredError extends Error {}
 
-async function request(path: string, init?: RequestInit): Promise<CommandResult> {
+async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  const body = (await response.json()) as CommandResult;
+  const body = (await response.json()) as T & Partial<CommandResult>;
   if (response.status === 401) {
     throw new SessionExpiredError(body.title ?? "Not authenticated");
   }
@@ -78,14 +78,26 @@ export type ChatEvent = {
   approval?: { id: string; summary: string };
 };
 
-export function sendChatMessage(text: string): Promise<CommandResult> {
-  return request("/api/chat/send", { method: "POST", body: JSON.stringify({ text }) });
+export type Thread = { id: string; title: string; updatedAt: string };
+
+export function listThreads(): Promise<Thread[]> {
+  return request("/api/chat/threads").then((result) =>
+    (result.table_rows ?? []).map((row) => ({ id: row[0], title: row[1], updatedAt: row[2] })),
+  );
+}
+
+export function createThread(): Promise<string> {
+  return request<{ id: string }>("/api/chat/threads", { method: "POST" }).then((result) => result.id);
+}
+
+export function sendChatMessage(threadId: string, text: string): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text }) });
 }
 
 export function approveChatDecision(approvalId: string, approved: boolean): Promise<CommandResult> {
   return request("/api/chat/approve", { method: "POST", body: JSON.stringify({ approval_id: approvalId, approved }) });
 }
 
-export function getChatHistory(): Promise<CommandResult> {
-  return request("/api/chat/history");
+export function getChatHistory(threadId: string): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/history`);
 }

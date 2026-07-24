@@ -1149,7 +1149,8 @@ func handleMemory(ctx context.Context, s *CommandService, req CommandRequest) (C
 }
 
 func handleClear(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if err := s.conversation.Reset(ctx); err != nil {
+	conversationID := approvals.DestinationFromContext(ctx).ConversationID()
+	if err := s.conversation.Reset(ctx, conversationID); err != nil {
 		return CommandResult{}, err
 	}
 	return CommandResult{

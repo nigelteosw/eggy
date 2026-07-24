@@ -185,7 +185,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// *telegram.Client boxed into a non-nil interface -- assigning
 	// telegramClient directly here even when it's nil would produce exactly
 	// that trap (an interface value that compares != nil despite wrapping a
-	// nil pointer), which is what newMultiChannel's own nil checks rely on
+	// nil pointer), which is what newRoutedChannel's own nil checks rely on
 	// NOT happening. See internal/bootstrap/mcp.go's ExecuteMCPCLI for the
 	// same bug, found and fixed earlier in this project's history.
 	var telegramChannel ports.Channel
@@ -193,7 +193,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
 		telegramChannel = telegramClient
 	}
-	app.channel = newMultiChannel(telegramChannel, webChannel)
+	app.channel = newRoutedChannel(telegramChannel, webChannel, strconv.FormatInt(config.Telegram.OwnerID, 10))
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
@@ -228,7 +228,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		approvals.SkillWrite:    app.skillsService,
 		approvals.SkillDelete:   app.skillsService,
 	}
-	app.conversation = services.NewConversationService(stateStore, memoryStore, 20, options.Now, options.Logger)
+	app.conversation = services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
 
 	aliases := make([]string, 0, len(config.ModelAliases))
 	targets := make(map[string]agent.ModelTarget, len(config.ModelAliases))
@@ -395,7 +395,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Store: stateStore, OwnerID: owner,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, OwnerID: owner,
 	})
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {
@@ -500,6 +500,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if source == "" {
 			source = "telegram"
 		}
+		ctx = approvals.WithDestination(ctx, destinationFromEvent(event, message))
 		return a.handleMessage(ctx, message, agent.RunOptions{}, messageHandlingPolicy{
 			includeRecentHistory: true,
 			recordConversation:   true,
@@ -535,6 +536,17 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	default:
 		return errors.New("unsupported event type")
 	}
+}
+
+// destinationFromEvent derives a turn's destination from the triggering
+// event: web populates events.Message.ChatID with the thread ID (see
+// newThreadSendHandler); every other source (Telegram, schedules,
+// heartbeats) maps to the fixed Telegram destination.
+func destinationFromEvent(event events.Event, message events.Message) approvals.Destination {
+	if event.Source == "web" {
+		return approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: message.ChatID}
+	}
+	return approvals.Destination{Kind: approvals.DestinationTelegram}
 }
 
 func decodeMessage(event events.Event, ownerID int64) (events.Message, error) {
@@ -609,8 +621,14 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
+	destination := approvals.DestinationFromContext(ctx)
 	if policy.includeRecentHistory {
-		history = append(history, state.RecentMessages...)
+		recent, err := a.conversation.RecentMessages(ctx, destination.ConversationID())
+		if err != nil {
+			a.logger.Error("recent conversation window unavailable", "conversation_id", destination.ConversationID(), "error", err)
+		} else {
+			history = append(history, recent...)
+		}
 	}
 	stopTyping := telegram.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
@@ -629,11 +647,17 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		return usageErr
 	}
 	if policy.recordConversation {
-		if err := a.conversation.Record(ctx, ports.Message{Role: ports.RoleUser, Content: message.Text}, policy.source); err != nil {
+		conversationID := destination.ConversationID()
+		if err := a.conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: message.Text}, policy.source); err != nil {
 			return err
 		}
-		if err := a.conversation.Record(ctx, result.Message, policy.source); err != nil {
+		if err := a.conversation.Record(ctx, conversationID, result.Message, policy.source); err != nil {
 			return err
+		}
+		if destination.Kind == approvals.DestinationWeb {
+			if err := a.memory.SetThreadTitle(ctx, destination.ThreadID, truncateThreadTitle(message.Text)); err != nil {
+				a.logger.Error("thread auto-titling failed", "thread_id", destination.ThreadID, "error", err)
+			}
 		}
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
@@ -650,7 +674,25 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)
 }
 
+// truncateThreadTitle cheaply derives a web thread's auto-title from its
+// first user message: no separate model call for v1 (see the design spec's
+// Auto-titling section).
+func truncateThreadTitle(text string) string {
+	const maxRunes = 60
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return strings.TrimSpace(string(runes[:maxRunes])) + "…"
+}
+
 func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecision) error {
+	preState, err := a.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = approvals.WithDestination(ctx, preState.Approvals[decision.ApprovalID].Destination)
 	chatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
 	if decision.CallbackQueryID != "" {
 		_ = a.channel.AnswerCallback(ctx, decision.CallbackQueryID)

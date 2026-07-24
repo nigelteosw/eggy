@@ -338,6 +338,7 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	config := testWebConfig(now)
 	config.ChatHub = webchat.NewHub()
+	config.Memory = newTestMemoryStore(t)
 	enqueued := false
 	config.Enqueue = func(context.Context, events.Event) error {
 		enqueued = true
@@ -347,7 +348,21 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	handler := NewWebHandler("", config)
 	cookie := webLoginCookie(t, handler)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`))
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/chat/threads", nil)
+	createRequest.AddCookie(cookie)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/chat/threads/"+created.ID+"/send", strings.NewReader(`{"text":"hi"}`))
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -361,14 +376,17 @@ func TestWebHandlerChatRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	config := testWebConfig(now)
 	config.ChatHub = webchat.NewHub()
+	config.Memory = newTestMemoryStore(t)
 	config.Enqueue = func(context.Context, events.Event) error { return nil }
 	handler := NewWebHandler("", config)
 
 	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodGet, "/api/chat/stream", nil),
-		httptest.NewRequest(http.MethodPost, "/api/chat/send", strings.NewReader(`{"text":"hi"}`)),
+		httptest.NewRequest(http.MethodGet, "/api/chat/threads", nil),
+		httptest.NewRequest(http.MethodPost, "/api/chat/threads", nil),
+		httptest.NewRequest(http.MethodGet, "/api/chat/threads/thread-1/stream", nil),
+		httptest.NewRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`{"text":"hi"}`)),
 		httptest.NewRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approval_id":"x","approved":true}`)),
-		httptest.NewRequest(http.MethodGet, "/api/chat/history", nil),
+		httptest.NewRequest(http.MethodGet, "/api/chat/threads/thread-1/history", nil),
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

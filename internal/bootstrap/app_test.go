@@ -370,7 +370,13 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 	}
 }
 
-func TestDurableMemoryFailureIsLoggedWithoutBlockingReplyOrRecentState(t *testing.T) {
+// TestDurableMemoryFailureIsLoggedWithoutBlockingReply covers SQLite now
+// being the single source of truth for the live turn-context window (see
+// docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md): a
+// durable-store outage degrades the read (no recent history injected) and
+// is logged on both the read and the two post-turn writes, but a turn
+// still completes and still delivers a reply rather than failing outright.
+func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	var logs bytes.Buffer
 	var delivered atomic.Int32
@@ -403,12 +409,8 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReplyOrRecentState(t *testin
 	if delivered.Load() != 1 {
 		t.Fatalf("delivered=%d", delivered.Load())
 	}
-	state, err := app.store.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(state.RecentMessages) != 2 || state.RecentMessages[1].Content != "reply still delivered" {
-		t.Fatalf("recent messages=%#v", state.RecentMessages)
+	if count := strings.Count(logs.String(), "recent conversation window unavailable"); count != 1 {
+		t.Fatalf("read failure logs=%d: %s", count, logs.String())
 	}
 	if count := strings.Count(logs.String(), "durable conversation write failed"); count != 2 {
 		t.Fatalf("durable failure logs=%d: %s", count, logs.String())

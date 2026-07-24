@@ -19,13 +19,13 @@ func recv(t *testing.T, events <-chan Event) Event {
 	}
 }
 
-func TestChannelDeliverBroadcastsAMessageEvent(t *testing.T) {
+func TestChannelDeliverBroadcastsAMessageEventToTheGivenThread(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register()
+	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	if err := channel.Deliver(context.Background(), "any-chat-id", "hello"); err != nil {
+	if err := channel.Deliver(context.Background(), "thread-1", "hello"); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)
@@ -34,19 +34,35 @@ func TestChannelDeliverBroadcastsAMessageEvent(t *testing.T) {
 	}
 }
 
+func TestChannelDeliverNeverReachesADifferentThread(t *testing.T) {
+	hub := NewHub()
+	channel := New(hub)
+	_, events, unregister := hub.Register("thread-2")
+	defer unregister()
+
+	if err := channel.Deliver(context.Background(), "thread-1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected no event for an unrelated thread, got %#v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestChannelDeliverTrackableReturnsAUsableEditableID(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register()
+	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	id, err := channel.DeliverTrackable(context.Background(), "any-chat-id", "starting...")
+	id, err := channel.DeliverTrackable(context.Background(), "thread-1", "starting...")
 	if err != nil || id == "" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
 	recv(t, events) // the initial message
 
-	if err := channel.EditText(context.Background(), "any-chat-id", id, "done"); err != nil {
+	if err := channel.EditText(context.Background(), "thread-1", id, "done"); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)
@@ -58,10 +74,10 @@ func TestChannelDeliverTrackableReturnsAUsableEditableID(t *testing.T) {
 func TestChannelSendTypingBroadcastsATypingEvent(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register()
+	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	if err := channel.SendTyping(context.Background(), "any-chat-id"); err != nil {
+	if err := channel.SendTyping(context.Background(), "thread-1"); err != nil {
 		t.Fatal(err)
 	}
 	if event := recv(t, events); event.Kind != EventTyping {
@@ -72,11 +88,11 @@ func TestChannelSendTypingBroadcastsATypingEvent(t *testing.T) {
 func TestChannelDeliverApprovalBroadcastsAnApprovalEvent(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register()
+	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
 	approval := approvals.Approval{ID: "approval-1", Summary: "Add repository eggy"}
-	if err := channel.DeliverApproval(context.Background(), "any-chat-id", approval); err != nil {
+	if err := channel.DeliverApproval(context.Background(), "thread-1", approval); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)

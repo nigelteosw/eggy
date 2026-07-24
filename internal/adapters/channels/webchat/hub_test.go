@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-func TestHubBroadcastsToEveryRegisteredConnection(t *testing.T) {
+func TestHubBroadcastsToEveryConnectionRegisteredForThatThread(t *testing.T) {
 	hub := NewHub()
-	_, eventsA, unregisterA := hub.Register()
+	_, eventsA, unregisterA := hub.Register("thread-1")
 	defer unregisterA()
-	_, eventsB, unregisterB := hub.Register()
+	_, eventsB, unregisterB := hub.Register("thread-1")
 	defer unregisterB()
 
-	hub.Broadcast(Event{Kind: EventMessage, Text: "hello"})
+	hub.Broadcast("thread-1", Event{Kind: EventMessage, Text: "hello"})
 
 	for _, events := range []<-chan Event{eventsA, eventsB} {
 		select {
@@ -26,12 +26,37 @@ func TestHubBroadcastsToEveryRegisteredConnection(t *testing.T) {
 	}
 }
 
+func TestHubBroadcastNeverReachesAConnectionRegisteredForAnotherThread(t *testing.T) {
+	hub := NewHub()
+	_, eventsA, unregisterA := hub.Register("thread-1")
+	defer unregisterA()
+	_, eventsB, unregisterB := hub.Register("thread-2")
+	defer unregisterB()
+
+	hub.Broadcast("thread-1", Event{Kind: EventMessage, Text: "for thread 1 only"})
+
+	select {
+	case event := <-eventsA:
+		if event.Text != "for thread 1 only" {
+			t.Fatalf("event=%#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for broadcast")
+	}
+
+	select {
+	case event := <-eventsB:
+		t.Fatalf("expected thread-2's connection to receive nothing, got event=%#v", event)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestHubUnregisterStopsDelivery(t *testing.T) {
 	hub := NewHub()
-	_, events, unregister := hub.Register()
+	_, events, unregister := hub.Register("thread-1")
 	unregister()
 
-	hub.Broadcast(Event{Kind: EventMessage, Text: "after unregister"})
+	hub.Broadcast("thread-1", Event{Kind: EventMessage, Text: "after unregister"})
 
 	select {
 	case event, ok := <-events:
@@ -45,13 +70,13 @@ func TestHubUnregisterStopsDelivery(t *testing.T) {
 
 func TestHubBroadcastNeverBlocksOnASlowReader(t *testing.T) {
 	hub := NewHub()
-	_, _, unregister := hub.Register() // never read from this connection's channel
+	_, _, unregister := hub.Register("thread-1") // never read from this connection's channel
 	defer unregister()
 
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 1000; i++ {
-			hub.Broadcast(Event{Kind: EventMessage, Text: "spam"})
+			hub.Broadcast("thread-1", Event{Kind: EventMessage, Text: "spam"})
 		}
 		close(done)
 	}()

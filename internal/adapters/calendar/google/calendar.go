@@ -207,7 +207,11 @@ func (a *Adapter) Create(ctx context.Context, event ports.CalendarEvent) (ports.
 		return ports.CalendarEvent{}, errors.New("calendar create requires idempotency key")
 	}
 	sum := sha256.Sum256([]byte(event.IdempotencyKey))
-	eventID := "eggy" + hex.EncodeToString(sum[:20])
+	// Google's events.insert requires a custom id to be base32hex: lowercase
+	// a-v and digits 0-9 only (RFC 4648 section 7). hex.EncodeToString only
+	// ever emits 0-9a-f, a subset of that range, so "egg" (not "eggy" -- 'y'
+	// is outside a-v) keeps the whole id valid.
+	eventID := "egg" + hex.EncodeToString(sum[:20])
 	googleValue := toGoogleEvent(event)
 	googleValue.ID = eventID
 	body, _ := json.Marshal(googleValue)

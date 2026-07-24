@@ -37,7 +37,7 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 				t.Fatalf("refresh form=%v", request.Form)
 			}
 			return calendarJSON(http.StatusOK, `{"access_token":"access","expires_in":3600}`), nil
-		case request.Method == http.MethodGet && strings.Contains(request.URL.Path, "/events/eggy"):
+		case request.Method == http.MethodGet && strings.Contains(request.URL.Path, "/events/egg"):
 			return calendarJSON(http.StatusOK, `{"id":"event-1","etag":"tag-2","summary":"Lunch","start":{"dateTime":"2026-07-20T12:00:00Z"},"end":{"dateTime":"2026-07-20T13:00:00Z"}}`), nil
 		case request.Method == http.MethodGet:
 			listAttempts++
@@ -50,6 +50,17 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 				ID string `json:"id"`
 			}
 			_ = json.NewDecoder(request.Body).Decode(&body)
+			// Real Google Calendar rejects a custom event id with HTTP 400
+			// unless it is base32hex: lowercase a-v and digits 0-9 only (RFC
+			// 4648 section 7). The fake server enforces that here so a
+			// future ID scheme that reintroduces an out-of-range character
+			// (as "eggy" did with its 'y') fails this test instead of only
+			// failing against the real API in production.
+			for _, r := range body.ID {
+				if (r < 'a' || r > 'v') && (r < '0' || r > '9') {
+					t.Fatalf("event id %q contains %q, outside Google's allowed base32hex id range (a-v, 0-9)", body.ID, r)
+				}
+			}
 			createIDs = append(createIDs, body.ID)
 			if len(createIDs) == 2 {
 				return calendarJSON(http.StatusConflict, `{}`), nil
@@ -92,7 +103,7 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 	if _, err := adapter.Create(context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
-	if len(createIDs) != 2 || createIDs[0] == "" || createIDs[0] != createIDs[1] || !strings.HasPrefix(createIDs[0], "eggy") {
+	if len(createIDs) != 2 || createIDs[0] == "" || createIDs[0] != createIDs[1] || !strings.HasPrefix(createIDs[0], "egg") {
 		t.Fatalf("idempotent IDs=%v paths=%v", createIDs, paths)
 	}
 	event.ID = "event-1"

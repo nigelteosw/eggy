@@ -1,4 +1,4 @@
-package telegram
+package channelutil
 
 import (
 	"context"
@@ -8,9 +8,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 )
 
-func newCountingClient() (*Client, *int32counter) {
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+func newCountingClient() (*telegram.Client, *int32counter) {
 	counter := &int32counter{}
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if strings.Contains(r.URL.Path, "sendChatAction") {
@@ -18,7 +24,7 @@ func newCountingClient() (*Client, *int32counter) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	return NewClient("https://api.telegram.test", "token", httpClient), counter
+	return telegram.NewClient("https://api.telegram.test", "token", httpClient), counter
 }
 
 type int32counter struct {

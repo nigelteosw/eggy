@@ -1,4 +1,4 @@
-package telegram
+package channelutil
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 )
 
 func TestDeliverOutcomeEditsInPlaceWhenMessageIDPresent(t *testing.T) {
@@ -22,7 +24,7 @@ func TestDeliverOutcomeEditsInPlaceWhenMessageIDPresent(t *testing.T) {
 		sent = append(sent, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", httpClient)
 	if err := DeliverOutcome(context.Background(), client, "42", "555", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +49,7 @@ func TestDeliverOutcomeSendsNewMessageWhenMessageIDAbsent(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", httpClient)
 	if err := DeliverOutcome(context.Background(), client, "42", "", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestDeliverOutcomeFallsBackToNewMessageWhenEditFails(t *testing.T) {
 		sent = append(sent, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", httpClient)
 	if err := DeliverOutcome(context.Background(), client, "42", "555", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}

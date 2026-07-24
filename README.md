@@ -1,6 +1,6 @@
 # Eggy
 
-Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram. A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Read-only repository questions (browsing files, searching, checking status/branches, reading GitHub issue/PR/check metadata) are answered directly, without starting a repository-modifying run. The same configured reasoning model owns editing, testing, and debugging too, using its own `read_file`/`terminal`/`patch`/`write_file` tools inside an isolated branch — there is no separate coding agent or CLI to install. A validated implementation run is committed, pushed, and opened as a pull request automatically, with no Telegram approval in between; the owner reviews the resulting pull request on GitHub. Calendar writes still require a separate Telegram approval.
+Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram, with an optional embedded web chat UI as a second, independent channel (see [Web UI](#web-ui)). A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Read-only repository questions (browsing files, searching, checking status/branches, reading GitHub issue/PR/check metadata) are answered directly, without starting a repository-modifying run. The same configured reasoning model owns editing, testing, and debugging too, using its own `read_file`/`terminal`/`patch`/`write_file` tools inside an isolated branch — there is no separate coding agent or CLI to install. A validated implementation run is committed, pushed, and opened as a pull request automatically, with no Telegram approval in between; the owner reviews the resulting pull request on GitHub. Calendar writes still require a separate Telegram approval.
 
 Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica. This is the operator guide; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the current internal architecture and [`docs/adr/`](docs/adr/) for durable design decisions.
 
@@ -19,6 +19,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated server failures, and encrypted durable OAuth.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
 - `eggyd`, the companion `eggy` CLI, Docker, Railway, and a fake-adapter smoke mode.
+- An optional embedded web UI: session-authenticated multi-threaded chat with SSE streaming and inline approvals, plus a settings panel for providers/models/calendar/MCP — an independent channel into the same agent core as Telegram, not a mirror of it.
 
 ## Local setup
 
@@ -94,6 +95,18 @@ Procedural skills are Markdown files under `skills/` in `data_dir`, each with a 
 `/status` is a deterministic local read and consumes no model tokens. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
 
 For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs the bounded implementation loop with the selected model, captures the diff and validation, then commits, pushes, and opens a pull request in sequence with no owner tap in between. Protected branches are still denied at push time regardless of automation. Eggy never merges; the owner reviews and merges the pull request on GitHub.
+
+## Web UI
+
+Eggy also ships an embedded web UI — a React/TypeScript/Tailwind single-page app, built by `make build-web` and served directly by `eggyd` itself (no separate hosting, no separate process). It's optional and off by default: set `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD`, and `EGGY_ENCRYPTION_KEY` to enable it, then it's reachable at Eggy's public URL.
+
+Telegram and the web UI are independent channels into the same agent core — the same dispatcher, tool loop, and approval engine — not mirrors of one shared conversation. A message sent on one never appears on, or affects, the other. Telegram keeps writing to its own single, fixed, continuous thread exactly as described above. The web UI instead gives you a sidebar of multiple, independently-resumable conversation threads: switch between them, start a new one, and whatever the model does inside a thread — general chat, a coding run, a calendar action — is just tool calls within that thread's turn, the same as it already works for Telegram. New threads are auto-titled from their first message.
+
+Authentication is a single owner login (the `EGGY_UI_USER_EMAIL`/`EGGY_UI_PASSWORD` pair, submitted once at `/api/login`), backed by a signed session cookie (`EGGY_ENCRYPTION_KEY`, 12-hour TTL) rather than a per-request credential; repeated failed logins from the same address are throttled with an increasing delay. There is no per-user account system — Eggy is still single-owner, the web UI is just a second door to the same owner.
+
+Besides chat, the web UI has a settings panel that mirrors the same `/config` surface available via Telegram/CLI — providers, model aliases, the Calendar toggle, and MCP server definitions — and renders the same inline approve/reject buttons Telegram's callback buttons trigger, for an approval requested during a web-chat turn.
+
+The route surface: `POST /api/login`, `POST /api/logout`, and `GET /api/session` for auth; `GET /api/chat/threads` and `POST /api/chat/threads` to list/create threads; `GET .../history`, `GET .../stream` (SSE), and `POST .../send` under `/api/chat/threads/{id}/`; `POST /api/chat/approve` for approval decisions (shape-compatible with Telegram's callback flow); and `GET`/`POST` `/api/config/{providers,models,calendar,mcp}` plus `DELETE /api/config/mcp/{name}` for the settings panel. Everything except login is behind the session cookie.
 
 ## Google Calendar
 

@@ -1,8 +1,38 @@
 import { useEffect, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, getChatHistory, sendChatMessage } from "./api";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
 type PendingApproval = { id: string; summary: string };
+
+// Eggy's replies (and often what a user types back) are markdown -- bold,
+// lists, code blocks, links. Rendering it raw is what made the web chat
+// hard to read; this renders it properly instead, styled to fit a compact
+// chat bubble rather than a full article (see tailwind.config.js's
+// @tailwindcss/typography plugin for the prose classes below).
+function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
+  return (
+    <div
+      className={`prose prose-sm max-w-none break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
+        isUserBubble ? "prose-invert" : ""
+      }`}
+    >
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children, ...props }: React.ComponentPropsWithoutRef<"a">) => (
+            <a {...props} target="_blank" rel="noreferrer noopener">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {text}
+      </Markdown>
+    </div>
+  );
+}
 
 export function ChatPage({
   threadId,
@@ -135,7 +165,7 @@ export function ChatPage({
               message.role === "user" ? "self-end bg-slate-900 text-white" : "self-start bg-white text-slate-900 shadow"
             }`}
           >
-            {message.text}
+            <MessageBody text={message.text} isUserBubble={message.role === "user"} />
           </div>
         ))}
         {typing && <div className="self-start text-xs text-slate-400">Eggy is typing...</div>}

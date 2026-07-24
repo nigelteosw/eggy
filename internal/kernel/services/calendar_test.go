@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -120,11 +121,68 @@ func TestCalendarResumesPersistedApprovedMutation(t *testing.T) {
 	}
 }
 
+// TestCalendarExecuteApprovedFormatsCreateOutcomeWithCalendarNameAndURL
+// covers the approval-completion message App.handleApproval renders with a
+// bare %v: before CalendarMutationOutcome existed, that printed
+// ports.CalendarEvent's raw Go struct fields (e.g. a
+// "...@group.calendar.google.com" address, never a name the owner
+// recognizes) instead of something readable.
+func TestCalendarExecuteApprovedFormatsCreateOutcomeWithCalendarNameAndURL(t *testing.T) {
+	provider := &fakeCalendar{calendars: []ports.CalendarInfo{{ID: "cal-1", Name: "🤍"}}}
+	gateway := &fakeCalendarApprovals{}
+	service := NewCalendarService(provider, gateway, gateway)
+	event := ports.CalendarEvent{CalendarID: "cal-1", Title: "[L+N] Zoo", Start: time.Now(), End: time.Now().Add(time.Hour), IdempotencyKey: "key"}
+	approval, _ := service.RequestCreate(context.Background(), event)
+	approval.Payload, _ = json.Marshal(calendarPayload(event))
+
+	result, err := service.ExecuteApproved(context.Background(), approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, ok := result.(CalendarMutationOutcome)
+	if !ok {
+		t.Fatalf("result type=%T, want CalendarMutationOutcome", result)
+	}
+	if outcome.CalendarName != "🤍" {
+		t.Fatalf("calendar name=%q, want 🤍", outcome.CalendarName)
+	}
+	rendered := outcome.String()
+	if !strings.Contains(rendered, "Added to Calendar: 🤍") || !strings.Contains(rendered, "[L+N] Zoo") || !strings.Contains(rendered, "https://calendar.example/event/created") {
+		t.Fatalf("rendered=%q", rendered)
+	}
+}
+
+// TestCalendarExecuteApprovedFallsBackToRawCalendarIDWhenNameLookupFails
+// ensures a Calendars() failure (e.g. a transient list error) never hides
+// an already-successful create behind a hard error -- the owner still gets
+// a confirmation, just with the raw ID instead of the friendly name.
+func TestCalendarExecuteApprovedFallsBackToRawCalendarIDWhenNameLookupFails(t *testing.T) {
+	provider := &fakeCalendar{listCalendarsErr: errors.New("calendar list unavailable")}
+	gateway := &fakeCalendarApprovals{}
+	service := NewCalendarService(provider, gateway, gateway)
+	event := ports.CalendarEvent{CalendarID: "cal-1", Title: "Lunch", Start: time.Now(), End: time.Now().Add(time.Hour), IdempotencyKey: "key"}
+	approval, _ := service.RequestCreate(context.Background(), event)
+	approval.Payload, _ = json.Marshal(calendarPayload(event))
+
+	result, err := service.ExecuteApproved(context.Background(), approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, ok := result.(CalendarMutationOutcome)
+	if !ok {
+		t.Fatalf("result type=%T, want CalendarMutationOutcome", result)
+	}
+	if outcome.CalendarName != "cal-1" {
+		t.Fatalf("calendar name=%q, want fallback to raw id cal-1", outcome.CalendarName)
+	}
+}
+
 type fakeCalendar struct {
 	events                    []ports.CalendarEvent
 	calendars                 []ports.CalendarInfo
 	eventsByCalendar          map[string][]ports.CalendarEvent
 	listedCalendars           []string
+	listCalendarsErr          error
 	creates, updates, deletes int
 }
 
@@ -134,6 +192,9 @@ func (f *fakeCalendar) ExchangeCode(context.Context, string) (ports.CalendarAuth
 }
 
 func (f *fakeCalendar) ListCalendars(context.Context) ([]ports.CalendarInfo, error) {
+	if f.listCalendarsErr != nil {
+		return nil, f.listCalendarsErr
+	}
 	return f.calendars, nil
 }
 func (f *fakeCalendar) List(_ context.Context, calendarID string, _ time.Time, _ time.Time) ([]ports.CalendarEvent, error) {
@@ -146,6 +207,7 @@ func (f *fakeCalendar) List(_ context.Context, calendarID string, _ time.Time, _
 func (f *fakeCalendar) Create(_ context.Context, event ports.CalendarEvent) (ports.CalendarEvent, error) {
 	f.creates++
 	event.ID = "created"
+	event.URL = "https://calendar.example/event/created"
 	return event, nil
 }
 func (f *fakeCalendar) Update(_ context.Context, event ports.CalendarEvent) (ports.CalendarEvent, error) {

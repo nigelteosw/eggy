@@ -102,13 +102,17 @@ func (a *Adapter) accessToken(ctx context.Context) (string, error) {
 }
 
 type googleEvent struct {
-	ID          string          `json:"id,omitempty"`
-	ETag        string          `json:"etag,omitempty"`
-	Summary     string          `json:"summary,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Start       googleEventTime `json:"start"`
-	End         googleEventTime `json:"end"`
-	Attendees   []struct {
+	ID          string `json:"id,omitempty"`
+	ETag        string `json:"etag,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+	Description string `json:"description,omitempty"`
+	// HTMLLink is Google's own web link for viewing the event. Only ever
+	// present on a response, never sent on a mutation request -- toGoogleEvent
+	// never sets it.
+	HTMLLink  string          `json:"htmlLink,omitempty"`
+	Start     googleEventTime `json:"start"`
+	End       googleEventTime `json:"end"`
+	Attendees []struct {
 		Email string `json:"email"`
 	} `json:"attendees,omitempty"`
 	ExtendedProperties struct {
@@ -333,7 +337,7 @@ func fromGoogleEvent(calendarID string, event googleEvent) (ports.CalendarEvent,
 	if err != nil {
 		return ports.CalendarEvent{}, err
 	}
-	result := ports.CalendarEvent{ID: event.ID, CalendarID: calendarID, Title: event.Summary, Description: event.Description, Start: start, End: end, ETag: event.ETag, IdempotencyKey: event.ExtendedProperties.Private["eggy_idempotency_key"]}
+	result := ports.CalendarEvent{ID: event.ID, CalendarID: calendarID, Title: event.Summary, Description: event.Description, Start: start, End: end, ETag: event.ETag, IdempotencyKey: event.ExtendedProperties.Private["eggy_idempotency_key"], URL: event.HTMLLink}
 	for _, attendee := range event.Attendees {
 		result.Participants = append(result.Participants, attendee.Email)
 	}

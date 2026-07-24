@@ -139,12 +139,59 @@ func (s *CalendarService) ExecuteApproved(ctx context.Context, approval approval
 	event := ports.CalendarEvent{ID: payload.ID, CalendarID: payload.CalendarID, Title: payload.Title, Description: payload.Description, Start: payload.Start, End: payload.End, Participants: payload.Participants, ETag: payload.ETag, IdempotencyKey: payload.IdempotencyKey}
 	switch approval.Action {
 	case approvals.CalendarCreate:
-		return s.Create(ctx, event, approval.ID)
+		created, err := s.Create(ctx, event, approval.ID)
+		if err != nil {
+			return nil, err
+		}
+		return s.mutationOutcome(ctx, "Added to", created), nil
 	case approvals.CalendarUpdate:
-		return s.Update(ctx, event, approval.ID)
+		updated, err := s.Update(ctx, event, approval.ID)
+		if err != nil {
+			return nil, err
+		}
+		return s.mutationOutcome(ctx, "Updated in", updated), nil
 	case approvals.CalendarDelete:
 		return nil, s.Delete(ctx, payload.CalendarID, payload.ID, payload.ETag, approval.ID)
 	default:
 		return nil, fmt.Errorf("approval is not a Calendar action")
 	}
+}
+
+// CalendarMutationOutcome is what ExecuteApproved returns for a create or
+// update, in place of a bare ports.CalendarEvent: App.handleApproval
+// formats an approval's result with fmt's default %v, so without a String
+// method here the owner would see the event struct's raw Go field dump
+// instead of a readable confirmation.
+type CalendarMutationOutcome struct {
+	Verb         string
+	CalendarName string
+	Event        ports.CalendarEvent
+}
+
+func (o CalendarMutationOutcome) String() string {
+	message := fmt.Sprintf("%s Calendar: %s — %s", o.Verb, o.CalendarName, o.Event.Title)
+	if o.Event.URL != "" {
+		message += "\n" + o.Event.URL
+	}
+	return message
+}
+
+// mutationOutcome resolves event.CalendarID to the human name the owner
+// actually recognizes it by (e.g. "🤍", not the opaque
+// ...@group.calendar.google.com address) for CalendarMutationOutcome's
+// display. A lookup failure falls back to the raw ID rather than failing
+// the whole outcome -- the create/update itself already succeeded by the
+// time this runs, and that must never be hidden by a secondary lookup
+// error.
+func (s *CalendarService) mutationOutcome(ctx context.Context, verb string, event ports.CalendarEvent) CalendarMutationOutcome {
+	name := event.CalendarID
+	if calendars, err := s.Calendars(ctx); err == nil {
+		for _, calendar := range calendars {
+			if calendar.ID == event.CalendarID {
+				name = calendar.Name
+				break
+			}
+		}
+	}
+	return CalendarMutationOutcome{Verb: verb, CalendarName: name, Event: event}
 }

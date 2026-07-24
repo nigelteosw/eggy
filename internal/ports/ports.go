@@ -536,6 +536,10 @@ type CalendarEvent struct {
 	Participants   []string  `json:"participants,omitempty"`
 	ETag           string    `json:"etag,omitempty"`
 	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	// URL is the provider's own web link for viewing this event (e.g.
+	// Google Calendar's htmlLink), populated by List/Create/Update -- never
+	// sent back on a mutation request, since it is provider-assigned.
+	URL string `json:"url,omitempty"`
 }
 
 type CalendarInfo struct {

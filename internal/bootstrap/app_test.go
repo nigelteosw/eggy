@@ -1226,6 +1226,7 @@ func appTestConfig(dataDir string) Config {
 	return Config{
 		DataDir:      dataDir,
 		Server:       ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
+		Owner:        OwnerConfig{ID: "42"},
 		Telegram:     TelegramConfig{OwnerID: 42},
 		Agent:        AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},

@@ -300,7 +300,7 @@ func TestLoadConfigValidation(t *testing.T) {
 		rewrite func(string) string
 		want    string
 	}{
-		{"owner", func(s string) string { return strings.Replace(s, "owner_id: 42", "owner_id: 0", 1) }, "telegram.owner_id"},
+		{"owner", func(s string) string { return strings.Replace(s, "owner_id: 42", "owner_id: 0", 1) }, "owner.id must be set"},
 		{"base URL", func(s string) string {
 			return strings.Replace(s, "public_base_url: https://eggy.example", "public_base_url: ftp://bad", 1)
 		}, "server.public_base_url"},

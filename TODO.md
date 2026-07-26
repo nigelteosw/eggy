@@ -44,7 +44,7 @@ Every safety invariant survives unchanged — payload-digest approvals,
 protected-branch denial, HEAD revalidation before push and PR, never merging.
 None of them required two loops; they are properties of `ShippingService`.
 
-- [ ] Write ADR 0006 recording this as the continuation of ADR 0002 (one
+- [x] Write ADR 0006 recording this as the continuation of ADR 0002 (one
       engine, one context model) rather than a reversal of it, and recording
       the deliberate narrowing of the scheduled/heartbeat repository-write
       invariant (see "Let scheduled and heartbeat turns propose changes").

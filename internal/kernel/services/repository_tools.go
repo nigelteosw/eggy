@@ -10,11 +10,11 @@ import (
 )
 
 type RepositoryModifier interface {
-	Start(context.Context, string, ports.Repository, string, func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error)
+	Start(context.Context, string, ports.Repository, string, ports.ProgressReporter) (ports.ImplementationSession, ports.CodingResult, error)
 }
 
 type RepositoryResumer interface {
-	Resume(context.Context, string, string, func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error)
+	Resume(context.Context, string, string, ports.ProgressReporter) (ports.ImplementationSession, ports.CodingResult, error)
 }
 
 // Shipper runs the commit -> push -> pull-request chain unattended and
@@ -44,7 +44,7 @@ func NewRepositoryTools(
 	modifier RepositoryModifier,
 	shipper Shipper,
 	newRunID func() string,
-	progress func(ports.CodingProgress),
+	progress ports.ProgressReporter,
 ) []ports.Tool {
 	list := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
@@ -99,9 +99,9 @@ func NewRepositoryTools(
 		runID := newRunID()
 		trackedProgress := progress
 		if progress != nil {
-			trackedProgress = func(event ports.CodingProgress) {
+			trackedProgress = func(ctx context.Context, event ports.CodingProgress) {
 				event.RunID = runID
-				progress(event)
+				progress(ctx, event)
 			}
 		}
 		run, result, err := modifier.Start(ctx, runID, repository, input.Instruction, trackedProgress)
@@ -128,9 +128,9 @@ func NewRepositoryTools(
 		}
 		trackedProgress := progress
 		if progress != nil {
-			trackedProgress = func(event ports.CodingProgress) {
+			trackedProgress = func(ctx context.Context, event ports.CodingProgress) {
 				event.RunID = input.RunID
-				progress(event)
+				progress(ctx, event)
 			}
 		}
 		run, result, err := resumer.Resume(ctx, input.RunID, input.Instruction, trackedProgress)

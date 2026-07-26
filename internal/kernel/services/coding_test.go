@@ -19,7 +19,7 @@ func TestCodingServiceRunsImplementerCapturesDiffAndPersistsResult(t *testing.T)
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	service := NewCodingService(store, runner, repository, implementer, func() time.Time { return now }, sessions)
 	var updates []ports.CodingProgress
-	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(progress ports.CodingProgress) { updates = append(updates, progress) })
+	run, result, err := service.Start(context.Background(), "run-1", ports.Repository{Name: "eggy", BaseBranch: "main"}, "implement", func(_ context.Context, progress ports.CodingProgress) { updates = append(updates, progress) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,10 +202,10 @@ type fakeImplementer struct {
 	onRun                         func()
 }
 
-func (a *fakeImplementer) Implement(_ context.Context, request ImplementationRequest, _ func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+func (a *fakeImplementer) Implement(_ context.Context, request ImplementationRequest, _ func(ports.ImplementationSessionEvent), progress ports.ProgressReporter) (ports.CodingResult, error) {
 	a.runID, a.workspace, a.instruction, a.history = request.RunID, request.Workspace, request.Instruction, request.History
 	if progress != nil {
-		progress(ports.CodingProgress{Kind: "message", Message: "working"})
+		progress(context.Background(), ports.CodingProgress{Kind: "message", Message: "working"})
 	}
 	if a.onRun != nil {
 		a.onRun()

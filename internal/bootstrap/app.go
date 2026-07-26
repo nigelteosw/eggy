@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/calendar/google"
+	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
@@ -312,7 +313,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 	}
-	progress := telegram.NewProgressTracker(app.channel, owner)
+	progress := channelutil.NewProgressTracker(app.channel, owner)
 	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err

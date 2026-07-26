@@ -1,4 +1,4 @@
-package telegram
+package channelutil
 
 import (
 	"context"
@@ -8,14 +8,22 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// ProgressTracker keeps one live Telegram message per implementation run, editing it
-// in place as new progress events arrive instead of sending a message per
-// step. Tracking is in-memory only: if an edit fails (e.g. the message is
-// too old, or Eggy restarted and lost the mapping) it falls back to sending
-// a fresh message and tracks that one going forward.
+// ProgressTracker keeps one live message per implementation run on whatever
+// channel it is given, editing it in place as new progress events arrive
+// instead of sending a message per step. Tracking is in-memory only: if an
+// edit fails (e.g. the message is too old, or Eggy restarted and lost the
+// mapping) it falls back to sending a fresh message and tracks that one
+// going forward.
+//
+// It depends on nothing but ports.Channel, which is why it lives here rather
+// than in a specific channel adapter: a run started from any surface reports
+// back to that surface.
 type ProgressTracker struct {
 	channel ports.Channel
-	owner   string
+	// fallbackChatID is passed as ports.Channel's chatID argument, which a
+	// routing channel ignores in favour of the destination carried on the
+	// delivering ctx. It only matters for a single, unrouted channel.
+	fallbackChatID string
 
 	mu     sync.Mutex
 	active map[string]trackedProgress
@@ -26,15 +34,17 @@ type trackedProgress struct {
 	entries   []string
 }
 
-func NewProgressTracker(channel ports.Channel, owner string) *ProgressTracker {
-	return &ProgressTracker{channel: channel, owner: owner, active: map[string]trackedProgress{}}
+func NewProgressTracker(channel ports.Channel, fallbackChatID string) *ProgressTracker {
+	return &ProgressTracker{channel: channel, fallbackChatID: fallbackChatID, active: map[string]trackedProgress{}}
 }
 
-func (t *ProgressTracker) Deliver(progress ports.CodingProgress) {
+// Deliver renders progress on the channel ctx resolves to. It satisfies
+// ports.ProgressReporter: ctx is the turn's own context, so a run started
+// from the web UI reports into that web thread rather than into Telegram.
+func (t *ProgressTracker) Deliver(ctx context.Context, progress ports.CodingProgress) {
 	if progress.Message == "" {
 		return
 	}
-	ctx := context.Background()
 	t.mu.Lock()
 	tracked, exists := t.active[progress.RunID]
 	if exists {
@@ -42,7 +52,7 @@ func (t *ProgressTracker) Deliver(progress ports.CodingProgress) {
 		t.active[progress.RunID] = tracked
 	}
 	t.mu.Unlock()
-	if exists && t.channel.EditText(ctx, t.owner, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
+	if exists && t.channel.EditText(ctx, t.fallbackChatID, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
 		t.clearIfTerminal(progress)
 		return
 	}
@@ -50,7 +60,7 @@ func (t *ProgressTracker) Deliver(progress ports.CodingProgress) {
 	if exists {
 		entries = tracked.entries
 	}
-	if id, err := t.channel.DeliverTrackable(ctx, t.owner, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
+	if id, err := t.channel.DeliverTrackable(ctx, t.fallbackChatID, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
 		t.mu.Lock()
 		t.active[progress.RunID] = trackedProgress{messageID: id, entries: entries}
 		t.mu.Unlock()

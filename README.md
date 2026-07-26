@@ -12,7 +12,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
-- A native Go implementation loop (`read_file`, `terminal`, `patch`, `write_file`, `finish_implementation`) that runs the same selected model against an isolated branch checkout, with its own step budget, normalized to the same Telegram progress.
+- A native Go implementation loop (`read_file`, `terminal`, `patch`, `write_file`, `finish_implementation`) that runs the same selected model against an isolated branch checkout, with its own step budget, normalized to the same progress milestones, rendered on whichever channel started the run.
 - Narrow, provider-neutral read-only repository tools (`read_file`, `terminal`, GitHub repository/issue/pull-request/check-run metadata) that never start an implementation run, create a branch, or leave a diff.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.

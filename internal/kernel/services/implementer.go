@@ -22,7 +22,7 @@ const implementationSystemPrompt = `Eggy implementation contract
 // Implementer runs the bounded, tool-driven implementation loop against an
 // already-prepared workspace and returns its structured result.
 type Implementer interface {
-	Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error)
+	Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress ports.ProgressReporter) (ports.CodingResult, error)
 	Interrupt(runID string) error
 }
 
@@ -45,7 +45,7 @@ func NewNativeImplementer(loop *agent.Loop, aliasFor func(context.Context) (alia
 	return &NativeImplementer{loop: loop, aliasFor: aliasFor, active: map[string]context.CancelFunc{}}
 }
 
-func (n *NativeImplementer) Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+func (n *NativeImplementer) Implement(ctx context.Context, request ImplementationRequest, onEvent func(ports.ImplementationSessionEvent), progress ports.ProgressReporter) (ports.CodingResult, error) {
 	runID, workspace, instruction := request.RunID, request.Workspace, request.Instruction
 	runContext, cancel := context.WithCancel(ctx)
 	n.mu.Lock()
@@ -79,7 +79,9 @@ func (n *NativeImplementer) Implement(ctx context.Context, request Implementatio
 			return
 		}
 		if message := implementationProgressMessage(event); message != "" {
-			progress(ports.CodingProgress{Kind: "milestone", Message: message, RunID: runID})
+			// Reported on ctx, not runContext: interrupting a run must not
+			// also cancel delivery of the milestone that says so.
+			progress(ctx, ports.CodingProgress{Kind: "milestone", Message: message, RunID: runID})
 		}
 	})
 	if err != nil {

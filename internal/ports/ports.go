@@ -273,6 +273,12 @@ type CodingProgress struct {
 	RunID   string
 }
 
+// ProgressReporter delivers one implementation run's progress to a surface.
+// ctx is the turn's own context, so a reporter that ultimately writes to a
+// Channel routes to the destination that started the run rather than to a
+// fixed default. A nil ProgressReporter means "nobody is watching".
+type ProgressReporter func(context.Context, CodingProgress)
+
 type CodingResult struct {
 	Summary       string
 	Validation    string

@@ -89,6 +89,100 @@ before that change."
 - [ ] Reset Railway's deployed `/data/config.yaml` so the next boot generates
       the current unversioned config shape. This is a manual deployment step.
 
+## P0: Separate the agent core from its control surfaces
+
+Telegram and the web UI are meant to be independent, equal channels into one
+agent core, but the seam between them is still Telegram-shaped. `ports.Channel`
+carries a `chatID` parameter that `routedChannel` documents as ignored
+(`internal/bootstrap/routed_channel.go:14-19`), so every caller passes a value
+with no effect; `AnswerCallback` is a Telegram button-tap concept webchat
+no-ops and `routedChannel` hardcodes to Telegram; `config.Telegram.OwnerID` is
+the universal owner identity even for web-only events; and `events.Message`'s
+`ChatID` means "Telegram chat" or "web thread" depending on a string comparison
+against `event.Source` (`app_events.go:605-610`). The live consequence is that
+`telegram.ProgressTracker` must invent `context.Background()`
+(`progress_tracker.go:36`) because the progress callback type
+`func(ports.CodingProgress)` carries no context, so `DestinationFromContext`
+finds nothing and a web-initiated implementation run streams its whole progress
+timeline to Telegram instead of the web thread.
+
+Above that, `internal/bootstrap` is 10.5k lines holding four layers at once:
+the composition root (`app.go`), the turn orchestrator (`app_events.go`), the
+command surface (`commands*.go`, `command_catalog.go`, `command_result.go`),
+and the HTTP surface (`web.go`, `chat.go`, `server.go`). The turn orchestrator
+is core agentic behavior, not wiring — including the
+`readOnlyRunOptions`/`heartbeatRunOptions` allowlists (`app_events.go:623-646`)
+that encode a documented safety invariant in the one package no kernel test can
+guard.
+
+### Route every surface through the turn's destination
+
+- [x] Thread a context through coding progress so a run reports to the surface
+      that started it.
+  - [x] Add `ports.ProgressReporter` (`func(context.Context, CodingProgress)`)
+        and adopt it across `CodingService.Start`/`Resume`/`ResumeLatest`/
+        `implement`/`reporter`, `Implementer.Implement`, and the
+        `RepositoryModifier`/`RepositoryResumer` interfaces.
+  - [x] Pass the per-turn `ctx` already available in the tool's `Execute`, and
+        delete `ProgressTracker.Deliver`'s `context.Background()`.
+  - [x] Cover it: a web-destination turn's progress reaches the web thread and
+        never Telegram.
+- [x] Move `ProgressTracker` out of the Telegram adapter into
+      `internal/adapters/channels/channelutil`; it depends only on
+      `ports.Channel`, exactly like the `DeliverOutcome` and `StartTyping`
+      helpers already there.
+  - [ ] Its `fallbackChatID` is still the Telegram owner ID, which a
+        web-only deployment would use as a thread ID. Removing `chatID` from
+        `ports.Channel` (below) retires it.
+- [ ] Remove the `chatID` parameter from `ports.Channel`. The Telegram adapter
+      binds its owner chat ID at construction; webchat resolves
+      `Destination.ThreadID` from the context. Drop the now-unused `owner`
+      argument from `skillProposeTool`, `calendarTools`, `NewProgressTracker`,
+      and the `CommandService.owner` field.
+- [ ] Take `AnswerCallback` off `ports.Channel` entirely — acking a callback
+      query is a detail of *receiving* a Telegram update, so it belongs in
+      `telegram`'s webhook handler, not in a delivery port every other surface
+      must no-op. Consider splitting what remains into `Channel`
+      (`Deliver`/`DeliverApproval`) plus optional `TrackableChannel`
+      (`DeliverTrackable`/`EditText`) and `TypingChannel`.
+- [ ] Move `Destination` out of `internal/kernel/approvals` into its own kernel
+      package; approvals, events, and the turn orchestrator are all consumers,
+      and none of them is approvals-specific.
+- [ ] Put a typed `Destination` on `events.Event` and let each surface
+      construct its own, replacing `events.Message.ChatID`'s dual meaning.
+      `destinationFromEvent`'s `event.Source == "web"` check and
+      `decodeMessage`'s Telegram-owner default both disappear.
+- [ ] Introduce a canonical `config.Owner.ID` instead of using
+      `config.Telegram.OwnerID` (13 non-test call sites) as the system-wide
+      identity; the Telegram adapter maps its numeric ID onto it. A web-only
+      deployment must not need a Telegram owner ID configured.
+
+### Split bootstrap into a core and its surfaces
+
+- [ ] Move the turn orchestrator (`handleMessage`, `handleHeartbeat`,
+      `handleApproval`, `messageHandlingPolicy`, and the read-only/heartbeat
+      tool allowlists) out of `internal/bootstrap/app_events.go` into a kernel
+      `TurnService` that accepts a neutral turn request (destination, text,
+      policy). Telegram and web then become peers that each only build that
+      request.
+  - [ ] Land the allowlist invariant as a kernel test: a scheduled or
+        heartbeat turn cannot reach `repository_modify`, `repository_continue`,
+        or any MCP tool.
+- [ ] Extract the command surface (`CommandService`, catalog, `CommandResult`)
+      into its own package, and the HTTP surface (`web.go`, `chat.go`,
+      `server.go`) into another. `internal/bootstrap` keeps wiring only.
+- [ ] Add a `ports.ThreadStore` (create/list/get/set-title over a neutral
+      `Thread` type). Today `web.go` and `chat.go` depend on the concrete
+      `*memorysqlite.Store` and its adapter-owned `sqlite.Thread` type for a
+      concept `ports.MemoryStore` doesn't model at all.
+- [ ] Give each surface a narrow interface onto the core rather than the whole
+      36-field `App` struct.
+- [ ] Make the proactive-output surface explicit configuration. `handleHeartbeat`
+      delivers to the Telegram owner chat ID directly and
+      `events.TypeScheduledMessage` inherits the Telegram default, so "which
+      channel receives unprompted output" is currently a fallthrough rather
+      than a decision.
+
 ## P1: Make context and capabilities inspectable
 
 - [ ] Add a deterministic `/capabilities` view showing the selected reasoning

@@ -19,7 +19,7 @@ func TestNativeImplementerReturnsStructuredResultAndReportsToolProgress(t *testi
 	implementer := NewNativeImplementer(loop, func(context.Context) (string, string, error) { return "deepseek-pro", "", nil })
 
 	var updates []ports.CodingProgress
-	result, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, func(p ports.CodingProgress) { updates = append(updates, p) })
+	result, err := implementer.Implement(context.Background(), ImplementationRequest{RunID: "run-1", Workspace: "/tmp/run-1", Instruction: "fix the bug"}, nil, func(_ context.Context, p ports.CodingProgress) { updates = append(updates, p) })
 	if err != nil {
 		t.Fatal(err)
 	}

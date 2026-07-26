@@ -188,8 +188,11 @@ the prior commit approval is invalidated and a fresh one is required. Before
 a model call would exceed the configured context budget, Eggy checkpoints
 the objective, decisions, inspected/changed files, validations, and blockers,
 and the next call receives that checkpoint plus the recent transcript tail
-instead of the full history. Telegram renders concise semantic milestones
-(`Plan: ...`, `Edited: ...`, `Validation: ...`), not raw tool-call noise.
+instead of the full history. Progress renders as concise semantic milestones
+(`Plan: ...`, `Edited: ...`, `Validation: ...`), not raw tool-call noise, on
+the surface that started the run: a `ports.ProgressReporter` takes the turn's
+own context, so a run started from a web thread reports into that thread and
+one started from Telegram reports into Telegram.
 
 ## Shipping and authorization
 

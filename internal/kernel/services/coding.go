@@ -38,7 +38,7 @@ func (s *CodingService) requireSessions() error {
 	return nil
 }
 
-func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+func (s *CodingService) Start(ctx context.Context, runID string, repository ports.Repository, instruction string, progress ports.ProgressReporter) (ports.ImplementationSession, ports.CodingResult, error) {
 	if err := s.requireSessions(); err != nil {
 		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
@@ -51,19 +51,19 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 		_ = s.runner.Destroy(ctx, workspace)
 		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
-	report := s.reporter(ctx, runID, progress)
-	checkpoint(report, "Preparing an isolated workspace for "+repository.Name)
+	report := s.reporter(runID, progress)
+	checkpoint(ctx, report, "Preparing an isolated workspace for "+repository.Name)
 	fail := func(cause error) (ports.ImplementationSession, ports.CodingResult, error) {
 		_ = s.sessions.SetPhase(ctx, runID, ports.PhaseBlocked, "Blocked: "+cause.Error())
 		_ = s.sessions.MarkFinished(ctx, runID, s.now())
 		return session, ports.CodingResult{}, cause
 	}
-	checkpoint(report, "Cloning "+repository.Name+"@"+repository.BaseBranch)
+	checkpoint(ctx, report, "Cloning "+repository.Name+"@"+repository.BaseBranch)
 	if err := s.repository.Clone(ctx, repository, workspace); err != nil {
 		return fail(err)
 	}
 	branch := "eggy/" + runID
-	checkpoint(report, "Creating branch "+branch)
+	checkpoint(ctx, report, "Creating branch "+branch)
 	if err := s.repository.CreateBranch(ctx, workspace, branch); err != nil {
 		return fail(err)
 	}
@@ -85,7 +85,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if guidance != "" {
 		prompt = fmt.Sprintf("%s\n\nRepository guidance from AGENTS.md:\n%s\n\nTask:\n%s", modifyingRunnerContract, guidance, instruction)
 	}
-	checkpoint(report, "Starting the implementation run")
+	checkpoint(ctx, report, "Starting the implementation run")
 	result, err := s.implement(ctx, ImplementationRequest{RunID: runID, Workspace: workspace, Instruction: prompt}, report)
 	if err != nil {
 		return fail(err)
@@ -100,7 +100,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	if actualRevision.Head != expectedRevision.Head {
 		return fail(errors.New("coding agent changed HEAD before commit approval"))
 	}
-	checkpoint(report, "Capturing diff and validation evidence")
+	checkpoint(ctx, report, "Capturing diff and validation evidence")
 	diff, err := s.repository.Diff(ctx, workspace)
 	if err != nil {
 		return fail(err)
@@ -118,7 +118,7 @@ func (s *CodingService) Start(ctx context.Context, runID string, repository port
 	return session, result, nil
 }
 
-func (s *CodingService) Resume(ctx context.Context, runID, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+func (s *CodingService) Resume(ctx context.Context, runID, instruction string, progress ports.ProgressReporter) (ports.ImplementationSession, ports.CodingResult, error) {
 	if err := s.requireSessions(); err != nil {
 		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
@@ -150,7 +150,7 @@ func (s *CodingService) Resume(ctx context.Context, runID, instruction string, p
 	if err := s.sessions.SetPhase(ctx, runID, ports.PhaseRunning, ""); err != nil {
 		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
-	report := s.reporter(ctx, runID, progress)
+	report := s.reporter(runID, progress)
 	guidance, err := s.repository.Inspect(ctx, session.Workspace)
 	if err != nil {
 		return s.resumeFailure(ctx, session, err)
@@ -189,7 +189,7 @@ func (s *CodingService) Resume(ctx context.Context, runID, instruction string, p
 
 // ResumeLatest resumes the most recently updated session that can safely be
 // continued. It is used by the explicit owner command when no run ID is given.
-func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, progress func(ports.CodingProgress)) (ports.ImplementationSession, ports.CodingResult, error) {
+func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, progress ports.ProgressReporter) (ports.ImplementationSession, ports.CodingResult, error) {
 	if err := s.requireSessions(); err != nil {
 		return ports.ImplementationSession{}, ports.CodingResult{}, err
 	}
@@ -203,7 +203,7 @@ func (s *CodingService) ResumeLatest(ctx context.Context, instruction string, pr
 	return s.Resume(ctx, sessions[0].ID, instruction, progress)
 }
 
-func (s *CodingService) implement(ctx context.Context, request ImplementationRequest, progress func(ports.CodingProgress)) (ports.CodingResult, error) {
+func (s *CodingService) implement(ctx context.Context, request ImplementationRequest, progress ports.ProgressReporter) (ports.CodingResult, error) {
 	var record func(ports.ImplementationSessionEvent)
 	if s.sessions != nil {
 		record = func(event ports.ImplementationSessionEvent) { _, _ = s.sessions.Append(ctx, request.RunID, event) }
@@ -211,8 +211,12 @@ func (s *CodingService) implement(ctx context.Context, request ImplementationReq
 	return s.implementer.Implement(ctx, request, record, progress)
 }
 
-func (s *CodingService) reporter(ctx context.Context, runID string, progress func(ports.CodingProgress)) func(ports.CodingProgress) {
-	return func(event ports.CodingProgress) {
+// reporter stamps the run ID onto every event, redacts it, records it as a
+// session milestone, and forwards it. The returned reporter takes its own
+// ctx rather than closing over one, so the turn's destination reaches
+// whatever surface is rendering the run's progress.
+func (s *CodingService) reporter(runID string, progress ports.ProgressReporter) ports.ProgressReporter {
+	return func(ctx context.Context, event ports.CodingProgress) {
 		event.RunID = runID
 		if s.sessions != nil {
 			event.Message = s.sessions.RedactProgress(event.Message)
@@ -221,7 +225,7 @@ func (s *CodingService) reporter(ctx context.Context, runID string, progress fun
 			_, _ = s.sessions.Append(ctx, runID, ports.ImplementationSessionEvent{Kind: ports.SessionMilestone, Message: event.Message})
 		}
 		if progress != nil {
-			progress(event)
+			progress(ctx, event)
 		}
 	}
 }
@@ -232,11 +236,11 @@ func (s *CodingService) resumeFailure(ctx context.Context, session ports.Impleme
 	return session, ports.CodingResult{}, cause
 }
 
-func checkpoint(progress func(ports.CodingProgress), message string) {
+func checkpoint(ctx context.Context, progress ports.ProgressReporter, message string) {
 	if progress == nil {
 		return
 	}
-	progress(ports.CodingProgress{Kind: "checkpoint", Message: message})
+	progress(ctx, ports.CodingProgress{Kind: "checkpoint", Message: message})
 }
 
 const modifyingRunnerContract = `Eggy runner contract:

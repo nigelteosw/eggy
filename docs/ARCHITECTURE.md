@@ -141,22 +141,47 @@ Only the outer direct-owner loop receives these projected tools. The explicit sc
 
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server under `/data/mcp/<server>/oauth.json`, independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
 
-### Repository tools
+### The primitive tool set
 
+`services.NewPrimitiveTools` builds the one kernel-owned CRUD-over-a-workspace
+set — `read_file`, `write_file`, `patch`, `terminal`. Bootstrap builds it
+*once* and hands the same tool values to both the conversational registry and
+the implementation loop, so a primitive name resolves to one definition and one
+implementation regardless of which loop is running. `services.PrimitiveNames`
+names them, and a bootstrap test asserts exactly one definition per name across
+both loops; because `ToolRegistry.Register` rejects duplicates and MCP tools are
+registered last, an adapter that tries to shadow a primitive fails bootstrap.
+
+None of them takes a `repository` argument. Each resolves its workspace from
+session state via `services.WorkspaceSessions.Resolve`, which prefers the
+active implementation run's branched checkout and otherwise uses the checkout
+attached to the calling conversation thread. With neither, the call fails with
+`ErrNoWorkspace`.
+
+Writes are gated by *result*, not by registry membership: `patch` and
+`write_file` are always in the model's tool list and return
+`ErrWorkspaceReadOnly` when the resolved workspace is an inspection checkout.
+The model learns why an edit was refused instead of silently losing the
+capability between turns.
+
+### Repository and workspace tools
+
+- `workspace_open` — attaches a read-only checkout of a configured repository
+  to the calling thread. It persists across turns, so successive greps and
+  reads accumulate against one clone rather than paying a clone per call. No
+  branch, no diff, no approval.
+- `workspace_close` — detaches and destroys that checkout. Every attached
+  checkout is also reaped on shutdown.
 - `repository_list` — configured repository names and safe metadata.
-- `repository_github` — read-only GitHub issue/PR/check-run metadata.
-- `read_file`, `terminal` — bounded read/shell access. Outside a
-  `repository_modify` run these operate against an ephemeral, read-only
-  checkout that's destroyed after the turn: no branch, no diff, no approval.
+- `repository_github` — read-only GitHub issue/PR/check-run metadata; never
+  clones.
 - `repository_modify` — starts a bounded implementation run (see below).
 - `repository_continue` — resumes a named or most-recent resumable
   implementation session.
 
-Inside an active `repository_modify` run, a second, bounded `Loop` gets three
-additional tools that are never registered outside that run: `patch` (exact
-old-string → new-string replacement), `write_file` (create or overwrite), and
-`finish_implementation` (the required structured terminal call:
-`{summary, validation, commit_message, changed_files}`).
+The implementation loop adds exactly one tool the conversational loop does not
+have: `finish_implementation`, the required structured terminal call
+(`{summary, validation, commit_message, changed_files}`) that ends the run.
 
 ## Implementation runs and durable sessions
 

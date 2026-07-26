@@ -78,6 +78,7 @@ type App struct {
 	approvals               *services.ApprovalService
 	approvalExecutors       map[approvals.Action]ApprovalExecutor
 	coding                  *services.CodingService
+	workspaces              *services.WorkspaceSessions
 	shipping                *services.ShippingService
 	calendar                *services.CalendarService
 	mcp                     *mcpadapter.Manager
@@ -292,7 +293,13 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	sort.Strings(aliases)
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, efforts)
-	app.implementationLoop = agent.NewSelectedLoop(targets, services.NewImplementationTools(runner, repositoryAdapter), 48)
+	// One kernel-owned primitive set, built once: the same tool values are
+	// registered in the conversational registry below and handed to the
+	// implementation loop, so a primitive name never resolves to two
+	// definitions depending on which loop is running.
+	app.workspaces = services.NewWorkspaceSessions(stateStore, runner, repositoryAdapter, newRunID)
+	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
+	app.implementationLoop = agent.NewSelectedLoop(targets, append(append([]ports.Tool(nil), primitives...), services.NewFinishImplementationTool()), 48)
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, string, error) {
 		alias, err := app.agentRuntime.SelectedModel(ctx)
 		if err != nil {
@@ -323,7 +330,20 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 	}
-	for _, tool := range services.NewRepositoryReadTools(stateStore, runner, repositoryAdapter, repositoryAdapter, newRunID) {
+	for _, tool := range services.NewRepositoryMetadataTools(stateStore, repositoryAdapter) {
+		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	for _, tool := range app.workspaces.Tools() {
+		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	// Registered after every other kernel tool and before MCP: the registry
+	// rejects duplicates, so an adapter that tries to shadow a primitive
+	// fails bootstrap rather than silently winning.
+	for _, tool := range primitives {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}

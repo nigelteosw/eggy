@@ -101,7 +101,12 @@ func decodeMessage(event events.Event) (events.Message, error) {
 func readOnlyRunOptions() agent.RunOptions {
 	return agent.RunOptions{AllowedTools: map[string]bool{
 		"status": true, "repository_list": true, "calendar_list": true,
+		// read_file and terminal resolve their workspace from session
+		// state, so a read-only turn needs workspace_open/close to have
+		// anything to read. Both stay read-only: an attached checkout has
+		// no branch, and the write primitives remain off this list.
 		"read_file": true, "terminal": true, "repository_github": true,
+		"workspace_open": true, "workspace_close": true,
 		"skill_read": true,
 	}}
 }
@@ -310,6 +315,15 @@ func (a *App) Run(ctx context.Context) error {
 		defer a.memory.Close()
 	}
 	defer a.workers.Wait()
+	if a.workspaces != nil {
+		// Thread-attached inspection checkouts outlive a turn but never a
+		// process: reap them on shutdown so a restart never leaks one.
+		defer func() {
+			if err := a.workspaces.CloseAll(context.WithoutCancel(ctx)); err != nil {
+				slog.Error("workspace cleanup failed", "error", err)
+			}
+		}()
+	}
 	if a.mcp != nil {
 		defer a.mcp.Close()
 	}

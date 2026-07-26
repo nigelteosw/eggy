@@ -10,65 +10,43 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-func TestRepositoryReadToolsCloneIntoEphemeralWorkspaceAndDestroyIt(t *testing.T) {
+func TestRepositoryMetadataToolsReadGitHubWithoutCloning(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
-	runner := &fakeReadWorkspaceRunner{workspace: "/tmp/runs/read-1", commandResult: ports.CommandResult{Stdout: "README.md\n"}}
 	reader := &fakeRepositoryReader{
-		content: "line one\n",
 		summary: ports.RepositorySummary{Title: "eggy", DefaultBranch: "main"},
 		checks:  []ports.CheckRun{{Name: "build", Status: "completed", Conclusion: "success"}},
 	}
-	tools := NewRepositoryReadTools(store, runner, reader, reader, func() string { return "run-1" })
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
+	tools := NewRepositoryMetadataTools(store, reader)
+	if len(tools) != 1 || tools[0].Definition().Name != "repository_github" {
+		t.Fatalf("metadata tools must be repository_github alone, got %#v", tools)
 	}
+	metadata := tools[0]
 
-	read, err := byName["read_file"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","path":"README.md"}`))
-	if err != nil || !strings.Contains(string(read), "line one") {
-		t.Fatalf("read=%s err=%v", read, err)
-	}
-	terminal, err := byName["terminal"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","command":"ls"}`))
-	if err != nil || !strings.Contains(string(terminal), "README.md") {
-		t.Fatalf("terminal=%s err=%v", terminal, err)
-	}
-	if runner.command.Dir != "/tmp/runs/read-1" || runner.command.Argv[0] != "sh" {
-		t.Fatalf("command=%#v", runner.command)
-	}
-	summary, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"repository"}`))
+	summary, err := metadata.Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"repository"}`))
 	if err != nil || !strings.Contains(string(summary), "eggy") {
 		t.Fatalf("summary=%s err=%v", summary, err)
 	}
-	checks, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"checks","ref":"abc123"}`))
+	checks, err := metadata.Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"checks","ref":"abc123"}`))
 	if err != nil || !strings.Contains(string(checks), "build") {
 		t.Fatalf("checks=%s err=%v", checks, err)
 	}
-	if reader.cloned != 2 {
-		t.Fatalf("expected 2 clones for read_file and terminal; repository_github must not clone, got %d", reader.cloned)
-	}
-	if !runner.created || !runner.destroyed {
-		t.Fatalf("runner=%#v", runner)
+	if reader.cloned != 0 {
+		t.Fatalf("repository_github must never clone, got %d clones", reader.cloned)
 	}
 }
 
-func TestRepositoryReadToolsRejectUnknownRepositoryAndUnsupportedKind(t *testing.T) {
+func TestRepositoryMetadataToolsRejectUnknownRepositoryAndUnsupportedKind(t *testing.T) {
 	store := newMemoryStore()
-	runner := &fakeReadWorkspaceRunner{workspace: "/tmp/runs/read-2"}
-	reader := &fakeRepositoryReader{}
-	tools := NewRepositoryReadTools(store, runner, reader, reader, func() string { return "run-2" })
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
-	}
-	if _, err := byName["read_file"].Execute(context.Background(), json.RawMessage(`{"repository":"missing","path":"README.md"}`)); err == nil {
+	metadata := NewRepositoryMetadataTools(store, &fakeRepositoryReader{})[0]
+	if _, err := metadata.Execute(context.Background(), json.RawMessage(`{"repository":"missing","kind":"repository"}`)); err == nil {
 		t.Fatal("expected unknown repository error")
 	}
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
-	if _, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"issue"}`)); err == nil || !strings.Contains(err.Error(), "number is required") {
+	if _, err := metadata.Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"issue"}`)); err == nil || !strings.Contains(err.Error(), "number is required") {
 		t.Fatalf("error=%v", err)
 	}
-	if _, err := byName["repository_github"].Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"bogus"}`)); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
+	if _, err := metadata.Execute(context.Background(), json.RawMessage(`{"repository":"eggy","kind":"bogus"}`)); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -110,7 +88,7 @@ func (r *fakeRepositoryReader) Clone(context.Context, ports.Repository, string) 
 }
 func (r *fakeRepositoryReader) Inspect(context.Context, string) (string, error) { return "", nil }
 func (r *fakeRepositoryReader) CreateBranch(context.Context, string, string) error {
-	return errors.New("read tools must never create a branch")
+	return errors.New("inspection checkouts must never create a branch")
 }
 func (r *fakeRepositoryReader) Diff(context.Context, string) (string, error) { return "", nil }
 

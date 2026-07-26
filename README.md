@@ -12,8 +12,10 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
-- A native Go implementation loop (`read_file`, `terminal`, `patch`, `write_file`, `finish_implementation`) that runs the same selected model against an isolated branch checkout, with its own step budget, normalized to the same progress milestones, rendered on whichever channel started the run.
-- Narrow, provider-neutral read-only repository tools (`read_file`, `terminal`, GitHub repository/issue/pull-request/check-run metadata) that never start an implementation run, create a branch, or leave a diff.
+- One kernel-owned primitive tool set (`read_file`, `write_file`, `patch`, `terminal`) shared by conversation and implementation alike. Each resolves its workspace from session state rather than a `repository` argument, and the writes stay registered everywhere, failing with an explicit read-only error instead of vanishing from the tool list.
+- Thread-attached read-only checkouts (`workspace_open`/`workspace_close`) so repository exploration accumulates against one clone instead of paying a clone per call, and never creates a branch, diff, or approval.
+- A native Go implementation loop that runs the same selected model and the same primitives against an isolated branch checkout, ending on `finish_implementation`, with its own step budget, normalized to the same progress milestones, rendered on whichever channel started the run.
+- Provider-neutral GitHub metadata reads (repository/issue/pull-request/check-run) that never clone.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
 - Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated server failures, and encrypted durable OAuth.

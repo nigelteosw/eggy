@@ -51,30 +51,42 @@ None of them required two loops; they are properties of `ShippingService`.
 
 ### Unify the tool surface
 
-- [ ] Define one kernel-owned primitive tool set (`read_file`, `terminal`,
+- [x] Define one kernel-owned primitive tool set (`read_file`, `terminal`,
       `patch`, `write_file`) that resolves its workspace from session state
       instead of from a `repository` argument or a run-scoped ctx value.
-- [ ] Gate writes by *result*, not by registry membership: `patch` and
+- [x] Gate writes by *result*, not by registry membership: `patch` and
       `write_file` stay registered and return an explicit error when the
       session's workspace is read-only, rather than being absent from the
       model's tool list depending on which loop is running.
-- [ ] Delete `NewImplementationTools` and the duplicate `read_file`/`terminal`
+- [x] Delete `NewImplementationTools` and the duplicate `read_file`/`terminal`
       in `NewRepositoryReadTools`, keeping `repository_list` and
       `repository_github` as ordinary non-primitive tools.
-- [ ] Cover it: one tool definition per primitive name across the whole
+- [x] Cover it: one tool definition per primitive name across the whole
       registry, asserted as a test so a future adapter cannot reintroduce a
       shadowing primitive.
 
+Landed as `services.NewPrimitiveTools` + `services.WorkspaceSessions`.
+`workspace_open`/`workspace_close` were pulled forward from the next section
+because the primitives resolve their workspace from session state: without a
+way to attach one, conversational repository reading would have regressed.
+
 ### Attach the workspace to the session, not the run
 
-- [ ] Add `workspace_open(repository)` — clones once onto the durable volume
-      under `runner.root` and records the checkout on the session — and
-      `workspace_close`, which destroys it.
+- [x] Add `workspace_open(repository)` and `workspace_close`. Landed with the
+      previous section. Still in-memory only (`WorkspaceSessions.bound`): the
+      clone goes onto the durable volume under `runner.root`, but the binding
+      itself is not persisted, so a restart orphans nothing but forgets which
+      thread had what open.
+- [ ] Persist the thread → checkout binding so an open workspace survives a
+      restart instead of being reaped by `CloseAll`.
 - [ ] Move the workspace off `ports.ImplementationSession` as a run property
       and onto the conversation thread, so inspect → edit → discuss is one
       continuous transcript with no lane transition and no re-clone.
-- [ ] Retire the ephemeral clone-per-call path in `repository_read_tools.go`
-      and the `withWorkspace`/`workspaceFromContext` ctx smuggling.
+- [x] Retire the ephemeral clone-per-call path in `repository_read_tools.go`
+      (now `repository_metadata_tools.go`, GitHub metadata only).
+- [ ] Retire the remaining `withWorkspace`/`workspaceFromContext` ctx
+      smuggling, which `WorkspaceSessions.Resolve` still consults first so an
+      implementation run's branched checkout outranks the thread's.
 - [ ] Keep workspace cleanup bounded: extend `CleanupExpired` to reap
       thread-attached workspaces whose thread has gone idle past a cutoff.
 

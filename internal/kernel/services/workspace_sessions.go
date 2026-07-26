@@ -17,18 +17,21 @@ import (
 var ErrNoWorkspace = errors.New("no workspace is attached to this session: call workspace_open with a configured repository first")
 
 // ErrWorkspaceReadOnly is returned by the write primitives when the
-// session's workspace is an inspection checkout rather than an
-// implementation run's branch. It is a *result*, not an absence: patch and
-// write_file stay in the model's tool list either way, so the model learns
-// why the edit was refused instead of silently losing the capability.
-var ErrWorkspaceReadOnly = errors.New("this workspace is read-only: it is an inspection checkout with no branch, so edits cannot be shipped. Use repository_modify to make changes")
+// thread's workspace is still an inspection checkout with no branch. It is
+// a *result*, not an absence: patch and write_file stay in the model's tool
+// list either way, so the model learns why the edit was refused instead of
+// silently losing the capability.
+var ErrWorkspaceReadOnly = errors.New("this workspace is read-only: it is an inspection checkout with no branch, so edits cannot be shipped. Call workspace_edit first to branch it")
 
 // WorkspaceBinding is the checkout a session's primitive tools act on.
 type WorkspaceBinding struct {
 	Repository string
 	Path       string
-	// Writable is true only for an implementation run's branched checkout.
+	// Writable is true once workspace_edit has branched the checkout.
 	Writable bool
+	// Session is the ImplementationSession recording this checkout's edits,
+	// empty until it is branched. propose_change ships it.
+	Session string
 }
 
 // WorkspaceSessions owns the mapping from a conversation thread to the
@@ -41,9 +44,10 @@ type WorkspaceBinding struct {
 // instead of being reaped on shutdown. Recover reconciles those records
 // against what actually exists on disk at boot.
 //
-// Resolution order is run first, then thread: while an implementation run
-// is executing, its own branched workspace wins, so the run's tools act on
-// the branch being shipped rather than on whatever the thread had open.
+// There is exactly one resolution source: the calling thread. An
+// implementation run does not bring its own checkout — it branches the
+// thread's, so inspect -> edit -> discuss is one continuous transcript
+// against one directory, with no lane transition and no re-clone.
 type WorkspaceSessions struct {
 	store    ports.StateStore
 	threads  ports.ThreadStore
@@ -66,9 +70,6 @@ func NewWorkspaceSessions(store ports.StateStore, threads ports.ThreadStore, run
 
 // Resolve returns the workspace the current turn's primitives act on.
 func (s *WorkspaceSessions) Resolve(ctx context.Context) (WorkspaceBinding, error) {
-	if workspace, ok := workspaceFromContext(ctx); ok {
-		return WorkspaceBinding{Path: workspace, Writable: true}, nil
-	}
 	if s.threads == nil {
 		return WorkspaceBinding{}, ErrNoWorkspace
 	}
@@ -79,7 +80,43 @@ func (s *WorkspaceSessions) Resolve(ctx context.Context) (WorkspaceBinding, erro
 	if !found || thread.Workspace == "" {
 		return WorkspaceBinding{}, ErrNoWorkspace
 	}
-	return WorkspaceBinding{Repository: thread.WorkspaceRepository, Path: thread.Workspace}, nil
+	return bindingOf(thread), nil
+}
+
+func bindingOf(thread ports.Thread) WorkspaceBinding {
+	return WorkspaceBinding{Repository: thread.WorkspaceRepository, Path: thread.Workspace, Writable: thread.WorkspaceBranch != "", Session: thread.WorkspaceSession}
+}
+
+// Adopt returns the checkout editing should happen in. When the thread
+// already has repositoryName open, that same checkout is reused — the edits
+// land in what the owner was just reading, instead of paying for a second
+// clone of the same repository. Any other state (no workspace, or one for a
+// different repository) opens a fresh checkout.
+func (s *WorkspaceSessions) Adopt(ctx context.Context, repositoryName string) (WorkspaceBinding, error) {
+	if s.threads != nil {
+		thread, found, err := s.threads.GetThread(ctx, destination.FromContext(ctx).ConversationID())
+		if err != nil {
+			return WorkspaceBinding{}, err
+		}
+		// Only a clean inspection clone is adopted: a checkout already on a
+		// previous session's branch would carry that session's uncommitted
+		// work into this one's diff.
+		if found && thread.Workspace != "" && thread.WorkspaceRepository == repositoryName && thread.WorkspaceBranch == "" {
+			return bindingOf(thread), nil
+		}
+	}
+	return s.Open(ctx, repositoryName)
+}
+
+// MarkEditing records the branch created in the thread's checkout and the
+// session recording its edits, which is what the write primitives resolve
+// as writable. Passing an empty branch demotes the checkout back to an
+// inspection clone.
+func (s *WorkspaceSessions) MarkEditing(ctx context.Context, branch, session string) error {
+	if s.threads == nil {
+		return ErrNoWorkspace
+	}
+	return s.threads.SetWorkspaceEdit(ctx, destination.FromContext(ctx).ConversationID(), branch, session)
 }
 
 // Open clones repositoryName into a checkout attached to the calling
@@ -210,7 +247,7 @@ func (s *WorkspaceSessions) CleanupIdle(ctx context.Context, cutoff time.Time) (
 func (s *WorkspaceSessions) Tools() []ports.Tool {
 	open := repositoryTool{definition: ports.ToolDefinition{
 		Name:        "workspace_open",
-		Description: "Attach a read-only checkout of a configured repository to this conversation so read_file and terminal can explore it. The checkout persists across turns and across restarts until workspace_close; it creates no branch, commit, or approval.",
+		Description: "Attach a read-only checkout of a configured repository to this conversation so read_file and terminal can explore it. The checkout persists across turns and across restarts until workspace_close; it creates no branch, commit, or approval. Call workspace_edit afterwards when you need to change files.",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1}},"required":["repository"],"additionalProperties":false}`),
 	}}
 	open.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {

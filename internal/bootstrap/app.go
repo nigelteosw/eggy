@@ -60,6 +60,12 @@ type AppOptions struct {
 	RequestRestart   func()
 }
 
+// maxToolStepsPerTurn bounds one turn's tool calls. With a single loop it
+// stopped meaning "how much work fits in a coding run" and became a runaway
+// guard: a turn that keeps making progress -- reading, editing, validating,
+// proposing -- runs to its natural end well inside it.
+const maxToolStepsPerTurn = 48
+
 type App struct {
 	config                  Config
 	store                   ports.StateStore
@@ -69,7 +75,6 @@ type App struct {
 	dispatcher              *services.Dispatcher
 	httpHandler             http.Handler
 	loop                    *agent.Loop
-	implementationLoop      *agent.Loop
 	agentRuntime            *services.AgentRuntime
 	manifest                agent.CapabilityManifest
 	commands                *CommandService
@@ -78,6 +83,9 @@ type App struct {
 	approvals               *services.ApprovalService
 	approvalExecutors       map[approvals.Action]ApprovalExecutor
 	coding                  *services.CodingService
+	sessions                *services.ImplementationSessions
+	progress                *channelutil.ProgressTracker
+	turns                   *services.ActiveTurns
 	workspaces              *services.WorkspaceSessions
 	shipping                *services.ShippingService
 	calendar                *services.CalendarService
@@ -298,23 +306,16 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	sort.Strings(aliases)
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, efforts)
-	// One kernel-owned primitive set, built once: the same tool values are
-	// registered in the conversational registry below and handed to the
-	// implementation loop, so a primitive name never resolves to two
-	// definitions depending on which loop is running.
+	// One kernel-owned primitive set, built once and registered in the one
+	// registry the one loop runs on: a primitive name resolves to exactly one
+	// definition and one implementation, because there is no second loop for
+	// it to mean something else in.
 	app.workspaces = services.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
-	app.implementationLoop = agent.NewSelectedLoop(targets, append(append([]ports.Tool(nil), primitives...), services.NewFinishImplementationTool()), 48)
-	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, string, error) {
-		alias, err := app.agentRuntime.SelectedModel(ctx)
-		if err != nil {
-			return "", "", err
-		}
-		effort, err := app.agentRuntime.ReasoningEffort(ctx)
-		return alias, effort, err
-	})
 	registry := services.NewToolRegistry()
-	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
+	app.coding = services.NewCodingService(sessions)
+	app.sessions = sessions
+	app.turns = services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		services.NewStatusTool(stateStore, sessions),
@@ -330,7 +331,13 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	progress := channelutil.NewProgressTracker(app.channel)
-	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID, progress.Deliver) {
+	app.progress = progress
+	for _, tool := range services.NewRepositoryTools(stateStore) {
+		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	for _, tool := range services.NewChangeTools(stateStore, app.workspaces, sessions, repositoryAdapter, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
@@ -399,7 +406,9 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, 40)
+	// One budget for one loop. It is a runaway guard, not a work cap: a turn
+	// that is still making progress edits, validates, and ships within it.
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, maxToolStepsPerTurn)
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -418,7 +427,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	if app.mcp != nil {
 		app.commands.mcp = app.mcp
 	}

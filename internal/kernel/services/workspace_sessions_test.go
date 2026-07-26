@@ -70,6 +70,7 @@ func (s *fakeThreadStore) AttachWorkspace(_ context.Context, id, channel, reposi
 		thread = ports.Thread{ID: id, Channel: channel, CreatedAt: at}
 	}
 	thread.Workspace, thread.WorkspaceRepository, thread.UpdatedAt = workspace, repository, at
+	thread.WorkspaceBranch, thread.WorkspaceSession = "", ""
 	s.threads[id] = thread
 	return nil
 }
@@ -81,7 +82,19 @@ func (s *fakeThreadStore) DetachWorkspace(_ context.Context, id string) error {
 	if !found {
 		return nil
 	}
-	thread.Workspace, thread.WorkspaceRepository = "", ""
+	thread.Workspace, thread.WorkspaceRepository, thread.WorkspaceBranch, thread.WorkspaceSession = "", "", "", ""
+	s.threads[id] = thread
+	return nil
+}
+
+func (s *fakeThreadStore) SetWorkspaceEdit(_ context.Context, id, branch, session string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thread, found := s.threads[id]
+	if !found {
+		return nil
+	}
+	thread.WorkspaceBranch, thread.WorkspaceSession = branch, session
 	s.threads[id] = thread
 	return nil
 }
@@ -282,16 +295,66 @@ func TestWorkspaceBindingIsScopedToItsOwnThread(t *testing.T) {
 	}
 }
 
-func TestRunWorkspaceOutranksTheThreadCheckoutAndIsWritable(t *testing.T) {
+// A run branches the thread's own checkout instead of cloning its own, so
+// the same path keeps resolving -- writable only once the branch exists.
+func TestMarkEditingMakesTheThreadCheckoutWritableInPlace(t *testing.T) {
 	threads := newFakeThreadStore()
-	sessions := newTestWorkspaceSessions(t, &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}, threads)
+	runner := &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}
+	sessions := newTestWorkspaceSessions(t, runner, threads)
 	ctx := webThread("thread-a")
 	if _, err := sessions.Open(ctx, "eggy"); err != nil {
 		t.Fatal(err)
 	}
-	binding, err := sessions.Resolve(withWorkspace(ctx, "/tmp/runs/run-7"))
-	if err != nil || binding.Path != "/tmp/runs/run-7" || !binding.Writable {
+	if err := sessions.MarkEditing(ctx, "eggy/run-7", "run-7"); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := sessions.Resolve(ctx)
+	if err != nil || binding.Path != "/tmp/runs/workspace-1" || !binding.Writable {
 		t.Fatalf("binding=%#v err=%v", binding, err)
+	}
+}
+
+// Adopt is the no-re-clone path: a run over the repository the thread
+// already has open works in that very checkout.
+func TestAdoptReusesTheThreadsOpenCheckoutForTheSameRepository(t *testing.T) {
+	threads := newFakeThreadStore()
+	reader := &fakeRepositoryReader{}
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	sessions := NewWorkspaceSessions(store, threads, &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}, reader, func() string { return "1" }, nil, nil)
+	ctx := webThread("thread-a")
+	if _, err := sessions.Open(ctx, "eggy"); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := sessions.Adopt(ctx, "eggy")
+	if err != nil || binding.Path != "/tmp/runs/workspace-1" {
+		t.Fatalf("binding=%#v err=%v", binding, err)
+	}
+	if reader.cloned != 1 {
+		t.Fatalf("cloned=%d, want the open checkout adopted without a second clone", reader.cloned)
+	}
+}
+
+// A checkout already carrying a previous run's branch is not adopted: its
+// uncommitted work would land in the new run's diff.
+func TestAdoptOpensAFreshCheckoutWhenTheThreadsIsAlreadyBranched(t *testing.T) {
+	threads := newFakeThreadStore()
+	reader := &fakeRepositoryReader{}
+	store := newMemoryStore()
+	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
+	sessions := NewWorkspaceSessions(store, threads, &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}, reader, func() string { return "1" }, nil, nil)
+	ctx := webThread("thread-a")
+	if _, err := sessions.Open(ctx, "eggy"); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessions.MarkEditing(ctx, "eggy/run-1", "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Adopt(ctx, "eggy"); err != nil {
+		t.Fatal(err)
+	}
+	if reader.cloned != 2 {
+		t.Fatalf("cloned=%d, want a fresh clone rather than a branched checkout", reader.cloned)
 	}
 }
 

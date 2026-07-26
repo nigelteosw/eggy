@@ -190,13 +190,26 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		}
 	}
 	finishToolProgress := func() {}
+	onToolCall := func(string) {}
 	if policy.recordConversation {
-		options.OnToolCall, finishToolProgress = a.toolCallProgress(ctx)
+		onToolCall, finishToolProgress = a.toolCallProgress(ctx)
 	}
+	options.OnEvent = a.turnEvents(ctx, onToolCall)
+	turnContext, endTurn := a.turns.Begin(ctx)
+	defer endTurn()
 	stopTyping := channelutil.StartTyping(ctx, a.channel, 4*time.Second)
-	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
+	result, runErr := a.loop.Run(turnContext, alias, effort, message.Text, history, options)
 	stopTyping()
 	finishToolProgress()
+	endTurn()
+	if errors.Is(runErr, context.Canceled) && ctx.Err() == nil {
+		// The turn was stopped by the owner, not by the surface going away:
+		// the milestone is reported on ctx so it still reaches them.
+		if usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage); usageErr != nil {
+			return usageErr
+		}
+		return a.channel.Deliver(ctx, "Stopped. The workspace is left as it was, so you can look at it or ask me to continue.")
+	}
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if errors.Is(runErr, agent.ErrToolStepLimit) {
 		if usageErr != nil {
@@ -238,7 +251,49 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	return a.channel.Deliver(ctx, result.Message.Content)
 }
 
-// toolCallProgress returns an agent.RunOptions.OnToolCall callback and a
+// turnEvents fans one loop event stream out to everything that watches a
+// turn: the live "Calling <tool>..." indicator, and -- when this thread has
+// an open editing session -- that session's durable transcript plus the
+// owner-facing milestone stream (`Inspected:`, `Edited:`, `Validation:`),
+// unchanged from what an implementation run used to report. Milestones are
+// redacted through the same secret guard the transcript uses before they
+// reach a channel.
+func (a *App) turnEvents(ctx context.Context, onToolCall func(string)) func(agent.Event) {
+	session := a.editingSession(ctx)
+	return func(event agent.Event) {
+		if event.Kind == agent.EventToolStart {
+			onToolCall(event.Call.Name)
+		}
+		if session == "" {
+			return
+		}
+		if _, err := a.sessions.Append(ctx, session, services.TurnSessionEvent(event)); err != nil {
+			a.logger.Error("session transcript append failed", "session_id", session, "error", err)
+		}
+		if a.progress == nil {
+			return
+		}
+		if message := services.TurnProgressMessage(event); message != "" {
+			a.progress.Deliver(ctx, ports.CodingProgress{Kind: "milestone", Message: a.sessions.RedactProgress(message), RunID: session})
+		}
+	}
+}
+
+// editingSession returns the session recording this thread's edits, or ""
+// when the thread has no branched workspace. Looking it up once per turn
+// keeps the transcript wiring out of the loop itself.
+func (a *App) editingSession(ctx context.Context) string {
+	if a.workspaces == nil {
+		return ""
+	}
+	binding, err := a.workspaces.Resolve(ctx)
+	if err != nil {
+		return ""
+	}
+	return binding.Session
+}
+
+// toolCallProgress returns a tool-call callback and a
 // matching finish function that surface a live "Calling <tool>..."
 // indicator on the channel ctx resolves to, editing one message in place as
 // more tools are called during the turn -- the same DeliverTrackable/
@@ -454,20 +509,13 @@ func (a *App) runMemoryEmbeddingWorker(ctx context.Context) {
 	}
 }
 
-// hasActiveProtectedWork reports whether an implementation run is currently
-// executing. A heartbeat tick is skipped entirely while one is active rather
-// than interleaving a curation/check-in turn with it.
-func (a *App) hasActiveProtectedWork(ctx context.Context) (bool, error) {
-	sessions, err := a.coding.List(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, session := range sessions {
-		if session.Phase == ports.PhaseRunning {
-			return true, nil
-		}
-	}
-	return false, nil
+// hasActiveProtectedWork reports whether a turn is currently executing. A
+// heartbeat tick is skipped entirely while one is, rather than interleaving
+// a curation/check-in turn with live work. With one loop this is a property
+// of the turn registry rather than of any session's phase: an owner editing
+// a repository is simply a turn in progress.
+func (a *App) hasActiveProtectedWork(context.Context) (bool, error) {
+	return a.turns.Active(), nil
 }
 
 // handleHeartbeat runs a small, self-contained heartbeat turn: no ambient
@@ -519,7 +567,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	} else {
 		instruction = "A proactive check-in cannot be sent right now (quiet hours or the proactive-message limit). Do not attempt one. " + instruction + fmt.Sprintf(" Reply with exactly %q.", services.HeartbeatNoReportSentinel)
 	}
-	result, runErr := a.loop.RunSelected(ctx, alias, effort, instruction, history, options)
+	result, runErr := a.loop.Run(ctx, alias, effort, instruction, history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr

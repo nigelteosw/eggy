@@ -8,32 +8,28 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 )
 
-// TestPrimitiveToolsHaveExactlyOneDefinitionAcrossBothLoops is the guard on
-// the unified tool surface: a primitive name must resolve to one definition
-// no matter which loop is running, so a future adapter cannot reintroduce a
-// shadowing read_file or terminal.
-func TestPrimitiveToolsHaveExactlyOneDefinitionAcrossBothLoops(t *testing.T) {
+// TestPrimitiveToolsHaveExactlyOneDefinition is the guard on the unified
+// tool surface. It used to say "across both loops"; there is one loop now,
+// so the invariant is simply that a primitive name resolves once, and no
+// adapter can reintroduce a shadowing read_file or terminal.
+func TestPrimitiveToolsHaveExactlyOneDefinition(t *testing.T) {
 	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	names := app.loop.ToolNames(agent.RunOptions{})
 	for _, name := range services.PrimitiveNames {
-		conversational := count(app.loop.ToolNames(agent.RunOptions{}), name)
-		implementation := count(app.implementationLoop.ToolNames(agent.RunOptions{}), name)
-		if conversational != 1 {
-			t.Fatalf("primitive %q appears %d times in the conversational tool surface, want exactly 1", name, conversational)
-		}
-		if implementation != 1 {
-			t.Fatalf("primitive %q appears %d times in the implementation tool surface, want exactly 1", name, implementation)
+		if got := count(names, name); got != 1 {
+			t.Fatalf("primitive %q appears %d times in the tool surface, want exactly 1", name, got)
 		}
 	}
 }
 
-// TestWritePrimitivesAreRegisteredForConversationalTurnsToo pins the "gate
-// by result, not by registry membership" rule: patch and write_file are in
-// the conversational tool list and refuse at execution time when the
-// session's workspace is read-only.
-func TestWritePrimitivesAreRegisteredForConversationalTurnsToo(t *testing.T) {
+// TestWritePrimitivesAreRegisteredForEveryTurn pins the "gate by result, not
+// by registry membership" rule: patch and write_file are always in the tool
+// list and refuse at execution time when the thread's workspace has no
+// branch.
+func TestWritePrimitivesAreRegisteredForEveryTurn(t *testing.T) {
 	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
@@ -41,24 +37,32 @@ func TestWritePrimitivesAreRegisteredForConversationalTurnsToo(t *testing.T) {
 	names := app.loop.ToolNames(agent.RunOptions{})
 	for _, name := range []string{"patch", "write_file"} {
 		if !slices.Contains(names, name) {
-			t.Fatalf("%q must stay registered for conversational turns; write gating is a result, not an absence. names=%v", name, names)
+			t.Fatalf("%q must stay registered; write gating is a result, not an absence. names=%v", name, names)
 		}
 	}
 }
 
-// TestFinishImplementationIsNotAConversationalTool keeps the run-terminal
-// tool out of the ordinary chat surface: RunSelected ends when the model
-// stops calling tools, so a terminal tool there means nothing.
-func TestFinishImplementationIsNotAConversationalTool(t *testing.T) {
+// The terminal tool is gone with the second loop: shipping is an action
+// whose result the model reads, so nothing ends a turn but the model
+// choosing to stop calling tools.
+func TestShippingIsAnOrdinaryToolAndNoTerminalToolSurvives(t *testing.T) {
 	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(app.loop.ToolNames(agent.RunOptions{}), "finish_implementation") {
-		t.Fatal("finish_implementation must exist only in the implementation loop")
+	names := app.loop.ToolNames(agent.RunOptions{})
+	if slices.Contains(names, "finish_implementation") {
+		t.Fatal("finish_implementation must not exist: no tool terminates a turn")
 	}
-	if !slices.Contains(app.implementationLoop.ToolNames(agent.RunOptions{}), "finish_implementation") {
-		t.Fatal("the implementation loop needs its terminal tool")
+	for _, gone := range []string{"repository_modify", "repository_continue"} {
+		if slices.Contains(names, gone) {
+			t.Fatalf("%q must not exist: changing a repository is ordinary turns, not a nested run", gone)
+		}
+	}
+	for _, name := range []string{"workspace_open", "workspace_edit", "propose_change", "workspace_close"} {
+		if !slices.Contains(names, name) {
+			t.Fatalf("%q must be registered. names=%v", name, names)
+		}
 	}
 }
 

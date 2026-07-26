@@ -3,9 +3,6 @@ package bootstrap
 import (
 	"context"
 	"sort"
-	"strings"
-
-	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
@@ -19,8 +16,8 @@ func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (Com
 	if len(sessions) == 0 {
 		return CommandResult{
 			State:  ResultInfo,
-			Title:  "No coding runs.",
-			Detail: "An implementation run starts when you ask Eggy to change a configured repository, or with /continue.",
+			Title:  "No coding sessions.",
+			Detail: "A session starts when Eggy branches this conversation's workspace to change a configured repository.",
 		}, nil
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].ID < sessions[j].ID })
@@ -33,61 +30,25 @@ func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (Com
 		rows = append(rows, []string{session.ID, session.Repository, string(session.Phase), validation})
 	}
 	return CommandResult{
-		TableHeaders: []string{"Run", "Repository", "Status", "Validation"},
+		TableHeaders: []string{"Session", "Repository", "Status", "Validation"},
 		TableRows:    rows,
-		Next:         []string{"/continue <run-id>", "/stop <run-id>"},
+		Next:         []string{"/stop"},
 	}, nil
 }
 
-func handleContinue(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.coding == nil || s.shipping == nil {
-		return CommandResult{State: ResultInfo, Title: "Coding is not configured."}, nil
-	}
-	var runID, instruction string
-	if len(req.Args) > 0 {
-		runID = req.Args[0]
-		instruction = strings.TrimSpace(strings.TrimPrefix(req.Tail, runID))
-	}
-	if instruction == "" {
-		instruction = "Continue the approved task, inspect the current state, and complete the next safe implementation step."
-	}
-	var run ports.ImplementationSession
-	var result ports.CodingResult
-	var err error
-	if runID == "" {
-		run, result, err = s.coding.ResumeLatest(ctx, instruction, nil)
-	} else {
-		run, result, err = s.coding.Resume(ctx, runID, instruction, nil)
-	}
-	if err != nil {
-		return errorResult(err), nil
-	}
-	pr, note, err := s.shipping.Ship(ctx, run.ID, run.Branch, result.CommitMessage)
-	if err != nil {
-		return errorResult(err), nil
-	}
-	if note != "" {
-		return CommandResult{
-			Title:  "Implementation session " + run.ID,
-			Detail: note,
-		}, nil
-	}
-	_ = s.coding.Cleanup(ctx, run.ID)
-	return CommandResult{
-		Title:  "Implementation session " + run.ID + " shipped",
-		Fields: []ResultField{{Label: "Pull request", Value: pr.URL}},
-	}, nil
-}
-
+// handleStop cancels the turn running in this conversation. There is no run
+// ID to name any more: continuing an unfinished change is ordinary
+// conversation against a thread whose workspace is still open.
 func handleStop(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.coding == nil {
-		return CommandResult{State: ResultInfo, Title: "Coding is not configured."}, nil
+	if s.turns == nil {
+		return CommandResult{State: ResultInfo, Title: "Nothing to stop."}, nil
 	}
-	if len(req.Args) != 1 {
-		return usageHelp(mustEntry("stop"), "Expected exactly one <run-id>."), nil
+	if !s.turns.Stop(ctx) {
+		return CommandResult{State: ResultInfo, Title: "Nothing is running in this conversation."}, nil
 	}
-	if err := s.coding.Stop(req.Args[0]); err != nil {
-		return CommandResult{}, err
-	}
-	return CommandResult{Title: "Stop requested for " + req.Args[0] + ".", Next: []string{"/runs"}}, nil
+	return CommandResult{
+		Title:  "Stopping.",
+		Detail: "The workspace is left as it was; ask me to continue when you want to pick it back up.",
+		Next:   []string{"/runs"},
+	}, nil
 }

@@ -1,0 +1,220 @@
+package services
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/nigelteosw/eggy/internal/ports"
+)
+
+// ErrWorkspaceNotEditable is returned by propose_change when the thread's
+// checkout has never been branched, so there is nothing to ship.
+var ErrWorkspaceNotEditable = errors.New("this conversation's workspace has no branch: call workspace_edit before proposing a change")
+
+// NewChangeTools returns the two tools that turn an attached checkout into a
+// pull request: workspace_edit branches it, propose_change ships what is in
+// it. Neither is terminal. propose_change returns the pull-request URL as an
+// ordinary tool result, so the model reads it, reports it conversationally,
+// and can keep working -- editing again, or proposing a second change later
+// in the same thread -- instead of the turn ending because a run ended.
+//
+// The safety invariants are unchanged and remain Eggy's, not the model's:
+// Eggy captures the diff itself, verifies the checkout is still on the
+// branch and HEAD it recorded before it commits anything, and every step of
+// the commit -> push -> pull-request chain still goes through
+// ShippingService's payload-digest approvals.
+func NewChangeTools(
+	store ports.StateStore,
+	workspaces *WorkspaceSessions,
+	sessions *ImplementationSessions,
+	repository ports.CodingRepository,
+	shipper Shipper,
+	newRunID func() string,
+	progress ports.ProgressReporter,
+) []ports.Tool {
+	edit := repositoryTool{definition: ports.ToolDefinition{
+		Name:        "workspace_edit",
+		Description: "Create a branch in this conversation's attached checkout so patch and write_file can change files in it. Call it once before your first edit; the branch and its session persist across turns until the change is proposed. It creates no commit and no approval.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1}},"additionalProperties":false}`),
+	}}
+	edit.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var input struct {
+			Repository string `json:"repository"`
+		}
+		if err := decodeStrict(raw, &input); err != nil {
+			return nil, err
+		}
+		if workspaces == nil || sessions == nil || repository == nil || newRunID == nil {
+			return nil, errors.New("repository editing is unavailable")
+		}
+		binding, err := workspaces.Resolve(ctx)
+		if err != nil && !errors.Is(err, ErrNoWorkspace) {
+			return nil, err
+		}
+		// Editing an already-branched checkout is a no-op rather than an
+		// error: the model asking twice in a thread should keep working in
+		// the branch it already has, not start a second one.
+		if binding.Writable {
+			return json.Marshal(map[string]any{"status": "already_editing", "repository": binding.Repository, "branch": branchOfSession(ctx, sessions, binding.Session), "session": binding.Session})
+		}
+		repositoryName := strings.TrimSpace(input.Repository)
+		if repositoryName == "" {
+			repositoryName = binding.Repository
+		}
+		if repositoryName == "" {
+			return nil, errors.New("no workspace is attached: pass repository, or call workspace_open first")
+		}
+		configured, err := lookupRepository(ctx, store, repositoryName)
+		if err != nil {
+			return nil, err
+		}
+		adopted, err := workspaces.Adopt(ctx, configured.Name)
+		if err != nil {
+			return nil, err
+		}
+		runID := newRunID()
+		branch := "eggy/" + runID
+		report(ctx, progress, runID, "Creating branch "+branch)
+		if err := repository.CreateBranch(ctx, adopted.Path, branch); err != nil {
+			return nil, err
+		}
+		revision, err := repository.WorkspaceRevision(ctx, adopted.Path)
+		if err != nil {
+			return nil, err
+		}
+		if revision.Branch != branch {
+			return nil, fmt.Errorf("repository created unexpected branch %q", revision.Branch)
+		}
+		if _, err := sessions.Create(ctx, ports.ImplementationSession{
+			ID: runID, Repository: configured.Name, Workspace: adopted.Path,
+			Branch: branch, BaseRevision: revision.Head, Phase: ports.PhaseRunning,
+		}); err != nil {
+			return nil, err
+		}
+		if err := workspaces.MarkEditing(ctx, branch, runID); err != nil {
+			return nil, err
+		}
+		guidance, err := repository.Inspect(ctx, adopted.Path)
+		if err != nil {
+			return nil, err
+		}
+		result := map[string]any{"status": "editing", "repository": configured.Name, "branch": branch, "session": runID}
+		if guidance != "" {
+			result["repository_guidance"] = guidance
+		}
+		return json.Marshal(result)
+	}
+
+	propose := repositoryTool{definition: ports.ToolDefinition{
+		Name:        "propose_change",
+		Description: "Propose the edits currently in this conversation's branched checkout as a pull request: Eggy captures the diff itself, commits, pushes, and opens (or updates) the pull request, then returns its URL. Call it once the change is complete and you have run this repository's own build/test/lint commands via terminal. Report the returned pull-request URL to the owner. You can keep editing afterwards and propose again.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","minLength":1},"validation":{"type":"string","minLength":1},"commit_message":{"type":"string","minLength":1}},"required":["summary","validation","commit_message"],"additionalProperties":false}`),
+	}}
+	propose.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var input struct {
+			Summary       string `json:"summary"`
+			Validation    string `json:"validation"`
+			CommitMessage string `json:"commit_message"`
+		}
+		if err := decodeStrict(raw, &input); err != nil {
+			return nil, err
+		}
+		for field, value := range map[string]string{"summary": input.Summary, "commit_message": input.CommitMessage} {
+			if strings.TrimSpace(value) == "" {
+				return nil, errors.New(field + " must not be empty")
+			}
+		}
+		if strings.TrimSpace(input.Validation) == "" {
+			return nil, errors.New("validation must not be empty: describe the build/test/lint command you ran and its result")
+		}
+		if workspaces == nil || sessions == nil || repository == nil || shipper == nil {
+			return nil, errors.New("proposing a change is unavailable")
+		}
+		binding, err := workspaces.Resolve(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !binding.Writable || binding.Session == "" {
+			return nil, ErrWorkspaceNotEditable
+		}
+		session, err := sessions.Load(ctx, binding.Session)
+		if err != nil {
+			return nil, err
+		}
+		// Eggy re-derives the state it is about to ship rather than trusting
+		// the model's account of it: the checkout must still be on the branch
+		// and HEAD recorded when editing started, or something committed or
+		// switched branches behind the approval chain.
+		revision, err := repository.WorkspaceRevision(ctx, session.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		if revision.Branch != session.Branch {
+			return nil, fmt.Errorf("the checkout moved from branch %q to %q; nothing was shipped", session.Branch, revision.Branch)
+		}
+		if revision.Head != session.BaseRevision {
+			return nil, errors.New("the checkout's HEAD moved before the change was approved; nothing was shipped")
+		}
+		report(ctx, progress, session.ID, "Capturing diff and validation evidence")
+		diff, err := repository.Diff(ctx, session.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(diff) == "" {
+			return nil, errors.New("there are no changes in this workspace to propose")
+		}
+		if err := sessions.RecordImplementation(ctx, session.ID, diff, input.Validation); err != nil {
+			return nil, err
+		}
+		if err := sessions.SetPhase(ctx, session.ID, ports.PhaseReady, "Ready to ship"); err != nil {
+			return nil, err
+		}
+		pr, note, err := shipper.Ship(ctx, session.ID, session.Branch, input.CommitMessage)
+		if err != nil {
+			return nil, err
+		}
+		if note != "" {
+			return json.Marshal(map[string]any{"status": "partial", "session": session.ID, "branch": session.Branch, "summary": input.Summary, "note": note})
+		}
+		// Rebase the session's recorded baseline onto the commit just made,
+		// so a second round of edits in this same thread verifies against
+		// where the branch actually is now rather than where it started.
+		after, err := repository.WorkspaceRevision(ctx, session.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		if err := sessions.SetBranch(ctx, session.ID, session.Branch, after.Head); err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{
+			"status": "shipped", "session": session.ID, "branch": session.Branch,
+			"summary": input.Summary, "validation": input.Validation,
+			"pull_request_url": pr.URL, "pull_request_number": pr.Number,
+		})
+	}
+
+	return []ports.Tool{edit, propose}
+}
+
+// branchOfSession reports the branch an already-editing thread is on, best
+// effort: the tool result is more useful with it, but not wrong without it.
+func branchOfSession(ctx context.Context, sessions *ImplementationSessions, id string) string {
+	if id == "" {
+		return ""
+	}
+	session, err := sessions.Load(ctx, id)
+	if err != nil {
+		return ""
+	}
+	return session.Branch
+}
+
+func report(ctx context.Context, progress ports.ProgressReporter, runID, message string) {
+	if progress == nil {
+		return
+	}
+	progress(ctx, ports.CodingProgress{Kind: "checkpoint", Message: message, RunID: runID})
+}

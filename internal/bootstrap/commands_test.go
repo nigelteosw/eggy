@@ -140,10 +140,27 @@ func TestCommandConfigReportsUnconfigured(t *testing.T) {
 	}
 }
 
-func TestCommandContinueRequiresConfiguredCoding(t *testing.T) {
-	output, handled, err := (&CommandService{}).Execute(context.Background(), "/continue")
-	if err != nil || !handled || output != "Coding is not configured." {
+// /stop cancels this conversation's turn. There is no run to name any more,
+// and nothing running is an ordinary answer rather than an error.
+func TestCommandStopReportsWhenNothingIsRunning(t *testing.T) {
+	commands := &CommandService{turns: services.NewActiveTurns()}
+	output, handled, err := commands.Execute(context.Background(), "/stop")
+	if err != nil || !handled || !strings.Contains(output, "Nothing is running") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+}
+
+func TestCommandStopCancelsTheConversationsActiveTurn(t *testing.T) {
+	turns := services.NewActiveTurns()
+	turnContext, release := turns.Begin(context.Background())
+	defer release()
+	commands := &CommandService{turns: turns}
+	output, handled, err := commands.Execute(context.Background(), "/stop")
+	if err != nil || !handled || !strings.Contains(output, "Stopping") {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	if turnContext.Err() == nil {
+		t.Fatal("expected the running turn's context to be cancelled")
 	}
 }
 
@@ -151,7 +168,7 @@ func TestCommandRestartInvokesCallback(t *testing.T) {
 	var calls int
 	commands := &CommandService{restart: func() { calls++ }}
 	output, handled, err := commands.Execute(context.Background(), "/restart")
-	if err != nil || !handled || !strings.Contains(output, "Restarting Eggy to pick up config changes. Back in a few seconds.") || !strings.Contains(output, "resumed with /continue") {
+	if err != nil || !handled || !strings.Contains(output, "Restarting Eggy to pick up config changes. Back in a few seconds.") || !strings.Contains(output, "interrupted safely") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
 	if calls != 1 {

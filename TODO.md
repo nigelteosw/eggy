@@ -44,56 +44,70 @@ resolves its workspace from `services.WorkspaceSessions`. `workspace_open`/
 
 ### Attach the workspace to the session, not the run
 
-- [ ] Move the workspace off `ports.ImplementationSession` as a run property
+- [x] Move the workspace off `ports.ImplementationSession` as a run property
       and onto the conversation thread, so inspect → edit → discuss is one
       continuous transcript with no lane transition and no re-clone.
-- [ ] Retire the remaining `withWorkspace`/`workspaceFromContext` ctx
+- [x] Retire the remaining `withWorkspace`/`workspaceFromContext` ctx
       smuggling (`services/workspace_context.go`), which
       `WorkspaceSessions.Resolve` still consults first so an implementation
       run's branched checkout outranks the thread's.
 
-What remains here is the *run* side: an implementation run still carries its
-own `ports.ImplementationSession.Workspace` and still smuggles it through ctx,
-so a run and a thread are two different lanes. Collapsing them is what makes
-inspect → edit → discuss one continuous transcript, and it is coupled to
-"Make shipping an action, not a run outcome" below — the ctx smuggling only
-disappears once a run stops being a separate loop invocation.
-
-### Hoist compaction and streaming into the one loop
-
-- [ ] Move the checkpoint/compaction logic and the append-only event
-      transcript out of `ImplementationSessions` (`/data/sessions/<id>/`) into
-      `agent.Loop`, so every turn gets a durable transcript and a compaction
-      checkpoint rather than only a coding run.
-- [ ] Replace the fixed 40/48-step budgets with a context-budget checkpoint:
-      the step limit stops meaning "how much work fits in a run" and starts
-      meaning "when to compact."
-- [ ] Keep the semantic-milestone rendering (`Plan:`, `Edited:`,
-      `Validation:`) and `ports.ProgressReporter` destination routing exactly
-      as they are; they are the streaming surface the unified loop reports on.
+`WorkspaceSessions.Resolve` now has exactly one source: the calling thread.
+A run no longer creates a checkout — `CodingService.Start` calls
+`WorkspaceSessions.Adopt`, which reuses the thread's already-open checkout of
+that repository (no second clone) and otherwise opens one, then records the
+branch it creates via `MarkWritable`. `ports.Thread.WorkspaceBranch` (a new
+`workspace_branch` column, migrated in place) is what makes a checkout
+writable, so the write primitives read writability off the thread rather than
+off ctx. `CodingService.Cleanup` releases the run's claim on the checkout but
+no longer destroys the directory: the thread keeps it, and
+`WorkspaceSessions.CleanupIdle` is what eventually reaps it.
+`ImplementationSession.Workspace` remains only as the run's record of where it
+worked, for resume verification and diffing.
 
 ### Make shipping an action, not a run outcome
 
-- [ ] Replace the terminal `finish_implementation` with a non-terminal
+- [x] Replace the terminal `finish_implementation` with a non-terminal
       `propose_change(summary, validation, commit_message)` that fires the
       existing commit → push → pull-request chain and **returns the
-      pull-request URL as a tool result**. The loop continues afterwards, so
-      the model reports the URL conversationally and can open a second pull
-      request later in the same thread.
-- [ ] Delete `NativeImplementer`, `Implementer`,
+      pull-request URL as a tool result**.
+- [x] Delete `NativeImplementer`, `Implementer`,
       `RunImplementationWithEvents`, `RunImplementation`,
-      `implementationSystemPrompt` (`services/implementer.go:15`), and
-      `modifyingRunnerContract` (`services/coding.go:246`); fold what remains
-      of `CodingService` into workspace lifecycle plus session bookkeeping.
-- [ ] Delete `repository_modify` and `repository_continue`. "Continue" becomes
+      `implementationSystemPrompt`, and `modifyingRunnerContract`; fold what
+      remains of `CodingService` into session bookkeeping.
+- [x] Delete `repository_modify` and `repository_continue`. "Continue" is
       ordinary conversation against a thread whose workspace is still open.
-- [ ] Keep the diff and validation capture Eggy performs *independently* of
-      the model before shipping, and keep the pre-ship branch/HEAD equality
-      checks that today live in `CodingService.Start`/`Resume`.
-- [ ] Update the `hardRuntimePolicy` repository paragraph
-      (`agent/prompt.go:49`) — it is written entirely around
-      `repository_modify`/`repository_continue` and the run/approval framing
-      that this step removes.
+- [x] Keep the diff and validation capture Eggy performs *independently* of
+      the model before shipping, and the pre-ship branch/HEAD equality checks.
+- [x] Update the `hardRuntimePolicy` repository paragraph.
+
+There is one `agent.Loop.Run` with one termination condition: the model stops
+calling tools. `workspace_edit` branches the thread's checkout in place and
+opens the session; `propose_change` verifies branch/HEAD, captures the diff
+itself, ships, and returns the pull-request URL as an ordinary tool result,
+rebasing the session's baseline so a second round updates the same pull
+request. `/continue` is gone; `/stop` cancels the calling conversation's turn
+via `services.ActiveTurns`, which is also what the heartbeat now checks
+instead of a session phase.
+
+### Hoist compaction and streaming into the one loop
+
+- [x] Keep the semantic-milestone rendering (`Inspected:`, `Edited:`,
+      `Validation:`) and `ports.ProgressReporter` destination routing exactly
+      as they are; they are the streaming surface the unified loop reports on.
+      `services.TurnProgressMessage`/`TurnSessionEvent` now render loop events
+      for every turn, redacted through the same secret guard.
+- [ ] Move the checkpoint/compaction logic and the append-only event
+      transcript out of `ImplementationSessions` (`/data/sessions/<id>/`) into
+      `agent.Loop`, so every turn gets a durable transcript and a compaction
+      checkpoint rather than only an editing session. Today `App.turnEvents`
+      wires the loop's events into the session transcript only when the thread
+      has an open editing session; a thread with no workspace still has no
+      durable transcript.
+- [ ] Replace the fixed `maxToolStepsPerTurn` guard with a context-budget
+      checkpoint: the step limit stops meaning "how much work fits in a turn"
+      and starts meaning "when to compact." The two budgets are already one
+      constant, so this is now a single change in one place.
 
 ### Make turns asynchronous and steerable
 

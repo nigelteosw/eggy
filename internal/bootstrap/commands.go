@@ -24,6 +24,7 @@ type CommandService struct {
 	context      ports.ContextStore
 	conversation *services.ConversationService
 	coding       *services.CodingService
+	turns        *services.ActiveTurns
 	shipping     *services.ShippingService
 	repositories *services.RepositoriesService
 	skills       *services.SkillsService
@@ -93,7 +94,7 @@ func ExecuteConfigCLI(ctx context.Context, configPath string, args []string) (Co
 // topLevelCommandOrder is the stable display order for the bare /help
 // listing, eggy help, and Telegram's autocomplete list.
 var topLevelCommandOrder = []string{
-	"start", "help", "status", "repositories", "runs", "continue", "stop",
+	"start", "help", "status", "repositories", "runs", "stop",
 	"schedules", "memory", "skills", "model", "thinking", "config", "usage", "clear",
 	"calendar_auth", "mcp", "restart",
 }
@@ -288,18 +289,10 @@ func init() {
 			Handler: handleRuns,
 		},
 		{
-			Path:    "continue",
-			Summary: "Resume the latest (or a specific) coding session",
-			Examples: []Example{
-				{Telegram: "/continue run-1 add the missing test", CLI: "eggy continue run-1 add the missing test"},
-			},
-			Handler: handleContinue,
-		},
-		{
 			Path:    "stop",
-			Summary: "Stop a running coding-agent run",
+			Summary: "Stop the turn currently running in this conversation",
 			Examples: []Example{
-				{Telegram: "/stop run-1", CLI: "eggy stop run-1"},
+				{Telegram: "/stop", CLI: "eggy stop"},
 			},
 			Handler: handleStop,
 		},

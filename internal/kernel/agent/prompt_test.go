@@ -29,7 +29,7 @@ func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 		t.Fatalf("manifest=%s", manifest)
 	}
 	policy := messages[0].Content
-	if !strings.Contains(strings.ToLower(policy), "operator-configured credentials") || !strings.Contains(policy, "capability manifest reports push and pull-request readiness") || !strings.Contains(policy, "automatically requests the next independent approval") || !strings.Contains(policy, "Do not invent local recovery commands") {
+	if !strings.Contains(strings.ToLower(policy), "operator-configured credentials") || !strings.Contains(policy, "capability manifest reports push and pull-request readiness") || !strings.Contains(policy, "the independent approvals for push and pull-request creation") || !strings.Contains(policy, "Do not invent local recovery commands") {
 		t.Fatalf("policy=%s", policy)
 	}
 	if !strings.Contains(strings.ToLower(policy), "direct owner messages") || !strings.Contains(policy, "do not grant repository write access") || strings.Contains(policy, "reads as an explicit implementation request") {

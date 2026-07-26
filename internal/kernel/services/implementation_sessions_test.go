@@ -52,23 +52,6 @@ func TestImplementationSessionsCompactsAndRedactsTranscript(t *testing.T) {
 	}
 }
 
-func TestImplementationSessionsListsOnlyResumableSessionsNewestFirst(t *testing.T) {
-	store := newMemorySessionStore()
-	now := time.Date(2026, 7, 21, 10, 0, 0, 0, time.UTC)
-	sessions := NewImplementationSessions(store, SessionPolicy{}, func() time.Time { return now })
-	for _, session := range []ports.ImplementationSession{
-		{ID: "old", Phase: ports.PhaseInterrupted, UpdatedAt: now.Add(-time.Minute)},
-		{ID: "done", Phase: ports.PhaseCompleted, UpdatedAt: now.Add(time.Minute)},
-		{ID: "new", Phase: ports.PhaseReady, UpdatedAt: now},
-	} {
-		store.sessions[session.ID] = session
-	}
-	result, err := sessions.ListResumable(context.Background())
-	if err != nil || len(result) != 2 || result[0].ID != "new" || result[1].ID != "old" {
-		t.Fatalf("result=%#v err=%v", result, err)
-	}
-}
-
 type memorySessionStore struct {
 	sessions map[string]ports.ImplementationSession
 }

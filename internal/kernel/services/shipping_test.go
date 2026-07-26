@@ -375,6 +375,7 @@ func (g *fakeShippingGateway) Authorize(_ context.Context, action approvals.Acti
 type fakeRepository struct {
 	clones, branches, commits, pushes, prs int
 	diff, head, remoteHead, branch         string
+	noDiff                                 bool
 	guidance                               string
 	existingPR                             *ports.PullRequest
 	updatedPRNumber                        int
@@ -419,6 +420,9 @@ func (r *fakeRepository) RemoteHead(context.Context, string, string) (string, er
 	return "abc123", nil
 }
 func (r *fakeRepository) Diff(context.Context, string) (string, error) {
+	if r.noDiff {
+		return "", nil
+	}
 	if r.diff != "" {
 		return r.diff, nil
 	}

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -71,24 +70,6 @@ func (s *ImplementationSessions) Load(ctx context.Context, id string) (ports.Imp
 	return s.store.Load(ctx, id)
 }
 
-func (s *ImplementationSessions) ListResumable(ctx context.Context) ([]ports.ImplementationSession, error) {
-	if s.store == nil {
-		return nil, errors.New("implementation session store is unavailable")
-	}
-	sessions, err := s.store.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ports.ImplementationSession, 0, len(sessions))
-	for _, session := range sessions {
-		if resumablePhase(session.Phase) {
-			result = append(result, session)
-		}
-	}
-	sort.SliceStable(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
-	return result, nil
-}
-
 // List returns every persisted session, most-recently-updated first.
 func (s *ImplementationSessions) List(ctx context.Context) ([]ports.ImplementationSession, error) {
 	if s.store == nil {
@@ -113,22 +94,6 @@ func (s *ImplementationSessions) Append(ctx context.Context, id string, event po
 		session.UpdatedAt = s.now()
 		return nil
 	})
-}
-
-func (s *ImplementationSessions) ResumeContext(ctx context.Context, id string) ([]ports.Message, ports.ImplementationSession, error) {
-	session, err := s.Load(ctx, id)
-	if err != nil {
-		return nil, ports.ImplementationSession{}, err
-	}
-	if !resumablePhase(session.Phase) {
-		return nil, ports.ImplementationSession{}, errors.New("implementation session is not resumable")
-	}
-	messages := make([]ports.Message, 0, len(session.Context.RecentMessages)+1)
-	if session.Context.Summary != "" {
-		messages = append(messages, ports.Message{Role: ports.RoleSystem, Content: "Previous implementation session:\n" + session.Context.Summary})
-	}
-	messages = append(messages, session.Context.RecentMessages...)
-	return messages, session, nil
 }
 
 // SetPhase transitions a session to phase, optionally recording message as a
@@ -230,15 +195,6 @@ func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, erro
 		count++
 	}
 	return count, nil
-}
-
-func resumablePhase(phase ports.SessionPhase) bool {
-	switch phase {
-	case ports.PhaseInterrupted, ports.PhaseBlocked, ports.PhaseReady:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *ImplementationSessions) nextContext(context ports.SessionContext, event ports.ImplementationSessionEvent) ports.SessionContext {

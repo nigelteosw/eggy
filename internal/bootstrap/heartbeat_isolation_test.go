@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	sessionjson "github.com/nigelteosw/eggy/internal/adapters/sessions/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -175,26 +174,24 @@ func TestHeartbeatSentinelSuppressesDelivery(t *testing.T) {
 	}
 }
 
-// TestHeartbeatSkipsEntirelyWhileImplementationRunIsActive proves a
-// heartbeat tick defers to the next cadence, with no model call at all,
-// while an implementation run is actively executing.
-func TestHeartbeatSkipsEntirelyWhileImplementationRunIsActive(t *testing.T) {
+// TestHeartbeatSkipsEntirelyWhileATurnIsActive proves a heartbeat tick
+// defers to the next cadence, with no model call at all, while a turn is
+// executing. With one loop this is a property of the turn registry rather
+// than of a session's phase: an owner editing a repository is just a turn.
+func TestHeartbeatSkipsEntirelyWhileATurnIsActive(t *testing.T) {
 	dataDir := t.TempDir()
 	noon := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	harness := newHeartbeatTestHarness(t, dataDir, noon, "All clear.")
-	sessionStore := sessionjson.Open(filepath.Join(dataDir, "sessions"))
-	sessions := services.NewImplementationSessions(sessionStore, services.SessionPolicy{}, func() time.Time { return noon })
-	if _, err := sessions.Create(context.Background(), ports.ImplementationSession{ID: "active-run"}); err != nil {
-		t.Fatal(err)
-	}
+	_, release := harness.app.turns.Begin(context.Background())
+	defer release()
 	harness.triggerHeartbeat(t)
 	harness.mu.Lock()
 	defer harness.mu.Unlock()
 	if len(harness.modelBodies) != 0 {
-		t.Fatalf("expected no model call while an implementation run is active, got %d", len(harness.modelBodies))
+		t.Fatalf("expected no model call while a turn is active, got %d", len(harness.modelBodies))
 	}
 	if len(harness.telegramTexts) != 0 {
-		t.Fatalf("expected no check-in while an implementation run is active, got %v", harness.telegramTexts)
+		t.Fatalf("expected no check-in while a turn is active, got %v", harness.telegramTexts)
 	}
 }
 

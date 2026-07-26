@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS threads (
     created_at           INTEGER NOT NULL,
     updated_at           INTEGER NOT NULL,
     workspace            TEXT,
-    workspace_repository TEXT
+    workspace_repository TEXT,
+    workspace_branch     TEXT,
+    workspace_session    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_threads_channel_updated_at ON threads(channel, updated_at DESC);
 
@@ -151,14 +153,21 @@ func ensureEmbeddingProfileColumn(db *sql.DB) error {
 }
 
 // ensureThreadWorkspaceColumns migrates a threads table created before
-// workspaces were attachable to a thread. Fresh databases get both columns
+// workspaces were attachable to a thread. Fresh databases get the columns
 // from the schema; existing ones get them added here, defaulting to NULL
-// (no workspace attached), so no /data/memory.db needs replacing.
+// (no workspace attached, no branch), so no /data/memory.db needs
+// replacing.
 func ensureThreadWorkspaceColumns(db *sql.DB) error {
 	if err := ensureColumn(db, "threads", "workspace", "TEXT"); err != nil {
 		return err
 	}
-	return ensureColumn(db, "threads", "workspace_repository", "TEXT")
+	if err := ensureColumn(db, "threads", "workspace_repository", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "threads", "workspace_branch", "TEXT"); err != nil {
+		return err
+	}
+	return ensureColumn(db, "threads", "workspace_session", "TEXT")
 }
 
 // ensureColumn adds column to table when it is absent, so an existing
@@ -270,7 +279,7 @@ func (s *Store) ResetConversation(ctx context.Context, conversationID string, at
 	return err
 }
 
-const threadColumns = `id, title, channel, created_at, updated_at, workspace, workspace_repository`
+const threadColumns = `id, title, channel, created_at, updated_at, workspace, workspace_repository, workspace_branch, workspace_session`
 
 // CreateThread persists a new, untitled thread with no workspace attached.
 func (s *Store) CreateThread(ctx context.Context, id, channel string, at time.Time) (ports.Thread, error) {
@@ -346,6 +355,8 @@ func (s *Store) AttachWorkspace(ctx context.Context, id, channel, repository, wo
 		ON CONFLICT(id) DO UPDATE SET
 			workspace = excluded.workspace,
 			workspace_repository = excluded.workspace_repository,
+			workspace_branch = NULL,
+			workspace_session = NULL,
 			updated_at = excluded.updated_at
 	`, id, channel, at.UnixNano(), at.UnixNano(), workspace, repository)
 	return err
@@ -355,8 +366,20 @@ func (s *Store) AttachWorkspace(ctx context.Context, id, channel, repository, wo
 // that has none, or that does not exist, is not an error.
 func (s *Store) DetachWorkspace(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE threads SET workspace = NULL, workspace_repository = NULL WHERE id = ?
+		UPDATE threads SET workspace = NULL, workspace_repository = NULL, workspace_branch = NULL, workspace_session = NULL WHERE id = ?
 	`, id)
+	return err
+}
+
+// SetWorkspaceEdit records the branch created in the thread's checkout and
+// the session recording its edits, which together make the checkout
+// writable. An empty branch demotes it back to an inspection clone.
+func (s *Store) SetWorkspaceEdit(ctx context.Context, id, branch, session string) error {
+	var branchValue, sessionValue any
+	if branch != "" {
+		branchValue, sessionValue = branch, session
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE threads SET workspace_branch = ?, workspace_session = ? WHERE id = ?`, branchValue, sessionValue, id)
 	return err
 }
 
@@ -374,14 +397,16 @@ type rowScanner interface {
 
 func scanThread(row rowScanner) (ports.Thread, error) {
 	var thread ports.Thread
-	var title, workspace, workspaceRepository sql.NullString
+	var title, workspace, workspaceRepository, workspaceBranch, workspaceSession sql.NullString
 	var createdAt, updatedAt int64
-	if err := row.Scan(&thread.ID, &title, &thread.Channel, &createdAt, &updatedAt, &workspace, &workspaceRepository); err != nil {
+	if err := row.Scan(&thread.ID, &title, &thread.Channel, &createdAt, &updatedAt, &workspace, &workspaceRepository, &workspaceBranch, &workspaceSession); err != nil {
 		return ports.Thread{}, err
 	}
 	thread.Title = title.String
 	thread.Workspace = workspace.String
 	thread.WorkspaceRepository = workspaceRepository.String
+	thread.WorkspaceBranch = workspaceBranch.String
+	thread.WorkspaceSession = workspaceSession.String
 	thread.CreatedAt = time.Unix(0, createdAt).UTC()
 	thread.UpdatedAt = time.Unix(0, updatedAt).UTC()
 	return thread, nil

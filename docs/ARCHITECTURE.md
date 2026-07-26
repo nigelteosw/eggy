@@ -45,18 +45,15 @@ flowchart TB
     daemon -->|slash command| commands
 
     subgraph kernel[Provider-neutral kernel - internal/kernel and internal/ports]
-        outer[Outer agent loop]
+        outer[The agent loop]
         services[Domain services<br/>context, scheduling, Calendar, repositories]
-        coding[Coding and shipping services]
-        inner[Bounded implementation loop]
+        coding[Session bookkeeping and shipping services]
         ports[Small provider-neutral ports]
 
         outer --> services
-        outer -->|repository_modify or repository_continue| coding
-        coding --> inner
+        outer -->|workspace_edit, propose_change| coding
         services --> ports
         coding --> ports
-        inner --> ports
     end
 
     daemon -->|owner message| outer
@@ -102,9 +99,9 @@ Solid arrows show runtime calls and message flow. The dotted adapter-to-port
 arrow shows dependency inversion: kernel code depends on ports, while adapters
 implement those ports and are selected only by bootstrap. Direct commands and
 deterministic scheduled messages skip the model loop; scheduled agent turns
-and heartbeat turns enter the outer loop with a restricted tool set and no
-ambient conversation history; repository modifications enter the separate
-bounded implementation loop.
+and heartbeat turns enter the loop with a restricted tool set and no ambient
+conversation history. Repository changes are not a separate lane: they are
+tool calls in the same loop.
 
 ## The agent loop
 
@@ -118,15 +115,22 @@ verbatim. Everything else enters the loop with the selected model alias, the
 tools available for that message's source, current runtime capabilities, and
 durable context (`SOUL.md`, `USER.md`, `MEMORY.md`).
 
+A turn ends on exactly one condition: the model stops calling tools. No tool
+is terminal — shipping a change is an action the model takes mid-turn and
+whose result it reads, so it reports the pull-request URL conversationally
+and can keep working afterwards. `maxToolStepsPerTurn` is a runaway guard,
+not a work budget, and a failing tool is handed back as that tool's result
+rather than ending the turn, which is why a rejected `patch` is recoverable
+without starting anything new.
+
 Direct owner Telegram messages additionally see recent conversation history
-and get the full tool set, including `repository_modify` and
-`repository_continue` plus discovered MCP tools. Scheduled agent turns and heartbeat turns are
+and get the full tool set, including `workspace_edit` and `propose_change`
+plus discovered MCP tools. Scheduled agent turns and heartbeat turns are
 self-contained instead: no ambient recent-conversation history (so an old
 chat instruction cannot be silently revived) and an explicit read-only
-allowlist — they can never start or resume an implementation run. A
-heartbeat turn additionally sees the owner-editable `HEARTBEAT.md` checklist
-and is skipped entirely, with no model call, while an implementation run is
-active; silent `USER.md`/`MEMORY.md` curation on a heartbeat turn is never
+allowlist — they can never branch a checkout or ship. A heartbeat turn
+additionally sees the owner-editable `HEARTBEAT.md` checklist and is skipped
+entirely, with no model call, while any turn is active; silent `USER.md`/`MEMORY.md` curation on a heartbeat turn is never
 gated by quiet hours or the weekly proactive-message limit, only the
 Telegram check-in itself is.
 
@@ -146,7 +150,7 @@ run as tool calls in this same loop instead of a delegated coding-agent CLI.
 
 `internal/adapters/tools/mcp` is a generic remote MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
 
-Only the outer direct-owner loop receives these projected tools. The explicit scheduled/heartbeat allowlists omit them, and the separate implementation loop is constructed from its own repository tools. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
+Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
 
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server under `/data/mcp/<server>/oauth.json`, independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
 
@@ -154,22 +158,20 @@ OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers,
 
 `services.NewPrimitiveTools` builds the one kernel-owned CRUD-over-a-workspace
 set — `read_file`, `write_file`, `patch`, `terminal`. Bootstrap builds it
-*once* and hands the same tool values to both the conversational registry and
-the implementation loop, so a primitive name resolves to one definition and one
-implementation regardless of which loop is running. `services.PrimitiveNames`
-names them, and a bootstrap test asserts exactly one definition per name across
-both loops; because `ToolRegistry.Register` rejects duplicates and MCP tools are
+*once* into the one registry the one loop runs on, so a primitive name
+resolves to one definition and one implementation. `services.PrimitiveNames`
+names them, and a bootstrap test asserts exactly one definition per name;
+because `ToolRegistry.Register` rejects duplicates and MCP tools are
 registered last, an adapter that tries to shadow a primitive fails bootstrap.
 
 None of them takes a `repository` argument. Each resolves its workspace from
-session state via `services.WorkspaceSessions.Resolve`, which prefers the
-active implementation run's branched checkout and otherwise uses the checkout
-attached to the calling conversation thread. With neither, the call fails with
-`ErrNoWorkspace`.
+`services.WorkspaceSessions.Resolve`, which has exactly one source: the
+checkout attached to the calling conversation thread. Without one, the call
+fails with `ErrNoWorkspace`.
 
 Writes are gated by *result*, not by registry membership: `patch` and
 `write_file` are always in the model's tool list and return
-`ErrWorkspaceReadOnly` when the resolved workspace is an inspection checkout.
+`ErrWorkspaceReadOnly` when the thread's checkout has no branch yet.
 The model learns why an edit was refused instead of silently losing the
 capability between turns.
 
@@ -179,6 +181,10 @@ capability between turns.
   to the calling thread. It persists across turns *and across restarts*, so
   successive greps and reads accumulate against one clone rather than paying a
   clone per call. No branch, no diff, no approval.
+- `workspace_edit` — branches that same checkout in place (`eggy/<session-id>`)
+  so the write primitives resolve it as writable, and opens the session that
+  records the edits. It never re-clones: the checkout the owner was reading is
+  the one the edits land in.
 - `workspace_close` — detaches and destroys that checkout.
 
 The binding lives on `ports.ThreadStore` (a `threads.workspace` /
@@ -202,23 +208,21 @@ Shutdown deliberately destroys nothing: surviving a restart is the point.
 - `repository_list` — configured repository names and safe metadata.
 - `repository_github` — read-only GitHub issue/PR/check-run metadata; never
   clones.
-- `repository_modify` — starts a bounded implementation run (see below).
-- `repository_continue` — resumes a named or most-recent resumable
-  implementation session.
+- `propose_change` — ships whatever is in the thread's branched checkout:
+  Eggy captures the diff itself, verifies the checkout is still on the branch
+  and HEAD it recorded, then runs the commit → push → pull-request chain and
+  returns the pull-request URL as an ordinary tool result. It is not terminal,
+  so a second round of edits in the same thread updates the same pull request.
 
-The implementation loop adds exactly one tool the conversational loop does not
-have: `finish_implementation`, the required structured terminal call
-(`{summary, validation, commit_message, changed_files}`) that ends the run.
+## Editing sessions
 
-## Implementation runs and durable sessions
+`workspace_edit` branches the thread's checkout and opens a session;
+`propose_change` ships it. Neither drives a nested loop — the editing in
+between is ordinary turns. The workspace lives under the configured
+`runner.root`, which must be on the durable Railway volume (e.g. `/data/runs`)
+for a session to survive a restart.
 
-A `repository_modify` call: clones the configured base branch, creates
-`eggy/<run-id>`, loads root `AGENTS.md`, runs the inner loop, captures the
-diff and validation evidence, then requests commit approval. The workspace
-lives under the configured `runner.root`, which must be on the durable
-Railway volume (e.g. `/data/runs`) for a session to survive a restart.
-
-Each run is backed by a durable implementation session under
+Each is backed by a durable session under
 `/data/sessions/<session-id>/` — separate from `/data/state.json` so the
 core state schema needs no migration for it:
 
@@ -233,18 +237,16 @@ The session store is the source of truth for agent history, checkpoints, and
 resumability; `CodingRun` in `state.json` remains the source of truth for the
 commit/push/PR lifecycle, using the session ID as its run ID.
 
-Resumption is explicit only: the owner asks Eggy to continue a run, never the
-reverse. On restart, a session persisted as `running` is marked
-`interrupted` and is never auto-resumed. If a resumed run changes the diff,
-the prior commit approval is invalidated and a fresh one is required. Before
-a model call would exceed the configured context budget, Eggy checkpoints
-the objective, decisions, inspected/changed files, validations, and blockers,
-and the next call receives that checkpoint plus the recent transcript tail
-instead of the full history. Progress renders as concise semantic milestones
-(`Plan: ...`, `Edited: ...`, `Validation: ...`), not raw tool-call noise, on
-the surface that started the run: a `ports.ProgressReporter` takes the turn's
-own context, so a run started from a web thread reports into that thread and
-one started from Telegram reports into Telegram.
+Continuing is ordinary conversation: the thread's workspace is still open and
+still branched, so the owner simply says what to do next. On restart, a
+session persisted as `running` is marked `interrupted` and is never
+auto-resumed. Progress renders as concise semantic milestones (`Inspected:
+...`, `Edited: ...`, `Validation: ...`), not raw tool-call noise, on the
+surface that started the turn: a `ports.ProgressReporter` takes the turn's own
+context, so a turn from a web thread reports into that thread and one from
+Telegram reports into Telegram. `/stop` cancels the turn running in the
+calling conversation (`services.ActiveTurns`); the checkout and its session
+survive, so a stopped turn leaves the work inspectable.
 
 ## Shipping and authorization
 
@@ -288,7 +290,7 @@ the same `config.yaml`/`state.json`/session files for local/offline
 inspection and `config` management without constructing the full runtime.
 
 Both surfaces share one command set: `/status`, `/repositories`, `/runs`,
-`/continue [run-id] [instruction...]`, `/stop <run-id>`, `/schedules`,
+`/stop`, `/schedules`,
 `/memory`, `/clear`, `/model [alias|default]`, `/config get|set ...`,
 `/usage [reset]`, `/calendar_auth`, `/mcp [status|probe|login|logout|reload]`, and `/restart`. `/restart` triggers a
 self-exec-in-place process restart to pick up an edited `config.yaml`/`.env`
@@ -343,7 +345,9 @@ These hold regardless of what else changes in the kernel or an adapter:
   bounded, and binary content is represented only by metadata.
 - Independent commit, push, and pull-request authorization with
   protected-branch denial, whether decided by an owner tap or automatically.
-- Scheduled and heartbeat turns cannot reach `repository_modify` or
-  `repository_continue`.
-- Scheduled, heartbeat, and implementation turns cannot reach MCP tools.
+- Scheduled and heartbeat turns cannot reach `workspace_edit`,
+  `propose_change`, or the write primitives.
+- Scheduled and heartbeat turns cannot reach MCP tools.
+- Eggy captures the diff and verifies branch/HEAD equality itself before
+  shipping, independently of what the model reports.
 - Exactly one `eggyd` replica while operational state is file-backed.

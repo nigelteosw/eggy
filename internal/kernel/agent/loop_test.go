@@ -16,7 +16,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, Usage: ports.ModelUsage{PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6}},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, 4)
-	result, err := loop.RunSelected(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
+	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
 	if err != nil || result.Message.Content != "ready" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -28,7 +28,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 			t.Fatalf("model=%q", request.Model)
 		}
 	}
-	if _, err := loop.RunSelected(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
+	if _, err := loop.Run(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
 		t.Fatal("expected unknown alias error")
 	}
 }
@@ -39,7 +39,7 @@ func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, ReasoningContent: "the tool confirmed readiness"},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, 4)
-	result, err := loop.RunSelected(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
+	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestLoopFiltersTools(t *testing.T) {
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, 4)
-	if _, err := loop.RunSelected(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
+	if _, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests) != 1 || len(model.requests[0].Tools) != 1 || model.requests[0].Tools[0].Name != "status" {
@@ -67,7 +67,7 @@ func TestLoopOffersAllToolsWithoutAnAllowlist(t *testing.T) {
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, 4)
 
-	if _, err := loop.RunSelected(context.Background(), "model", "", "inspect", nil, RunOptions{}); err != nil {
+	if _, err := loop.Run(context.Background(), "model", "", "inspect", nil, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests[0].Tools) != 2 {
@@ -95,7 +95,7 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	tool := &fakeTool{name: "repository_modify"}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{tool}, 4)
 
-	_, err := loop.RunSelected(context.Background(), "model", "", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
+	_, err := loop.Run(context.Background(), "model", "", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
 	if !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("err=%v, want ErrUnknownTool", err)
 	}
@@ -104,7 +104,7 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	}
 }
 
-func TestLoopSelectedFiresOnToolCallBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *testing.T) {
+func TestLoopFiresToolStartBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
@@ -115,9 +115,12 @@ func TestLoopSelectedFiresOnToolCallBeforeEachToolExecutesAndNeverForTheFinalAns
 
 	var calledBefore []int
 	var calls []string
-	_, err := loop.RunSelected(context.Background(), "model", "", "status", nil, RunOptions{
-		OnToolCall: func(name string) {
-			calls = append(calls, name)
+	_, err := loop.Run(context.Background(), "model", "", "status", nil, RunOptions{
+		OnEvent: func(event Event) {
+			if event.Kind != EventToolStart {
+				return
+			}
+			calls = append(calls, event.Call.Name)
 			calledBefore = append(calledBefore, tool.calls)
 		},
 	})
@@ -125,120 +128,85 @@ func TestLoopSelectedFiresOnToolCallBeforeEachToolExecutesAndNeverForTheFinalAns
 		t.Fatal(err)
 	}
 	if len(calls) != 2 || calls[0] != "status" || calls[1] != "status" {
-		t.Fatalf("calls=%v, want OnToolCall fired once per tool call, never for the final answer", calls)
+		t.Fatalf("calls=%v, want a tool_start event per tool call, never for the final answer", calls)
 	}
 	if calledBefore[0] != 0 || calledBefore[1] != 1 {
-		t.Fatalf("calledBefore=%v, want OnToolCall to fire before the tool actually executes each time", calledBefore)
+		t.Fatalf("calledBefore=%v, want tool_start to fire before the tool actually executes each time", calledBefore)
 	}
 }
 
-func TestRunImplementationReturnsTerminalToolArguments(t *testing.T) {
+// There is no terminal tool: a turn ends when the model stops calling
+// tools, whether it spent that turn answering a question or shipping a
+// change. propose_change is an ordinary tool whose result the model reads.
+func TestLoopEndsWhenTheModelStopsCallingToolsNotWhenAToolIsCalled(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "propose_change", Arguments: json.RawMessage(`{"summary":"done"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "Opened https://example.test/pr/7"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
-		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
-		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
-	}, 4)
+	propose := &fakeTool{name: "propose_change", result: json.RawMessage(`{"pull_request_url":"https://example.test/pr/7"}`)}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{propose}, 4)
 
-	raw, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
+	result, err := loop.Run(context.Background(), "model", "", "ship it", nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var result struct {
-		Summary       string `json:"summary"`
-		CommitMessage string `json:"commit_message"`
+	if result.Message.Content != "Opened https://example.test/pr/7" {
+		t.Fatalf("message=%#v, want the turn to continue past the tool and report its result", result.Message)
 	}
-	if err := json.Unmarshal(raw, &result); err != nil || result.Summary != "done" || result.CommitMessage != "feat: done" {
-		t.Fatalf("raw=%s err=%v", raw, err)
+	if propose.calls != 1 {
+		t.Fatalf("calls=%d, want 1", propose.calls)
 	}
 }
 
-func TestRunImplementationWithEventsPreservesToolTranscript(t *testing.T) {
+func TestLoopEmitsTheFullEventStreamForATurn(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"docs: done"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "read it"}},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
 		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
-		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{"status":"received"}`)},
 	}, 4)
 	var kinds []string
-	result, err := loop.RunImplementationWithEvents(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(event ImplementationEvent) {
-		kinds = append(kinds, event.Kind)
+	if _, err := loop.Run(context.Background(), "model", "", "read", nil, RunOptions{
+		OnEvent: func(event Event) { kinds = append(kinds, event.Kind) },
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(kinds, ","), "assistant_message,tool_start,tool_end"; got != want {
+		t.Fatalf("event kinds=%s, want %s", got, want)
+	}
+}
+
+// A failing tool is a result the model reacts to, not the end of the turn:
+// this is why a rejected patch is recoverable without starting anything new.
+func TestLoopHandsAToolFailureBackToTheModelAndContinues(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "patch", Arguments: json.RawMessage(`{"path":"main.go"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "patch", Arguments: json.RawMessage(`{"path":"main.go"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "fixed"}},
+	}}
+	patch := &sequencedTool{name: "patch", results: []json.RawMessage{nil, json.RawMessage(`{"status":"ok"}`)}, errs: []error{errors.New("old_string not found"), nil}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{patch}, 4)
+
+	var kinds []string
+	result, err := loop.Run(context.Background(), "model", "", "edit", nil, RunOptions{
+		OnEvent: func(event Event) { kinds = append(kinds, event.Kind) },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(kinds, ","), "assistant_message,tool_start,tool_end,assistant_message,tool_start,terminal"; got != want {
-		t.Fatalf("event kinds=%s, want %s", got, want)
+	if patch.calls != 2 || result.Message.Content != "fixed" {
+		t.Fatalf("calls=%d message=%#v", patch.calls, result.Message)
 	}
-	if len(result.Messages) != 4 || result.Messages[1].Role != ports.RoleAssistant || result.Messages[2].Role != ports.RoleTool || result.Messages[3].Role != ports.RoleAssistant {
-		t.Fatalf("messages=%#v", result.Messages)
-	}
-}
-
-func TestRunImplementationRetriesAfterTerminalToolValidationError(t *testing.T) {
-	model := &queuedModel{responses: []ports.ModelResponse{
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "finish_implementation", Arguments: json.RawMessage(`{}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
-	}}
-	finish := &sequencedTool{name: "finish_implementation", errs: []error{errors.New("summary must not be empty"), nil}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{finish}, 4)
-
-	raw, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if finish.calls != 2 {
-		t.Fatalf("calls=%d, want 2", finish.calls)
-	}
-	var result struct {
-		Summary string `json:"summary"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil || result.Summary != "done" {
-		t.Fatalf("raw=%s err=%v", raw, err)
+	if !strings.Contains(strings.Join(kinds, ","), "tool_error") {
+		t.Fatalf("kinds=%v, want the failure reported as an event", kinds)
 	}
 }
 
-func TestRunImplementationFailsWhenStepLimitReachedWithoutTerminalTool(t *testing.T) {
-	model := &queuedModel{responses: []ports.ModelResponse{
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
-	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
-		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
-	}, 1)
-
-	_, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", nil)
-	if !errors.Is(err, ErrToolStepLimit) {
-		t.Fatalf("err=%v, want ErrToolStepLimit", err)
-	}
-}
-
-func TestRunImplementationReportsUnknownModelAlias(t *testing.T) {
+func TestLoopReportsUnknownModelAlias(t *testing.T) {
 	loop := NewSelectedLoop(nil, nil, 4)
-	if _, _, err := loop.RunImplementation(context.Background(), "missing", "", nil, "finish_implementation", nil); err == nil {
+	if _, err := loop.Run(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
 		t.Fatal("expected unknown alias error")
-	}
-}
-
-func TestRunImplementationInvokesOnToolCallForNonTerminalTools(t *testing.T) {
-	model := &queuedModel{responses: []ports.ModelResponse{
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "terminal", Arguments: json.RawMessage(`{}`)}}}},
-		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "finish_implementation", Arguments: json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)}}}},
-	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
-		&fakeTool{name: "terminal", result: json.RawMessage(`{}`)},
-		&fakeTool{name: "finish_implementation", result: json.RawMessage(`{}`)},
-	}, 4)
-	var called []string
-	if _, _, err := loop.RunImplementation(context.Background(), "model", "", []ports.Message{{Role: ports.RoleUser, Content: "implement"}}, "finish_implementation", func(name string) { called = append(called, name) }); err != nil {
-		t.Fatal(err)
-	}
-	if len(called) != 1 || called[0] != "terminal" {
-		t.Fatalf("called=%v", called)
 	}
 }
 

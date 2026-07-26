@@ -162,23 +162,6 @@ func TestWriteFileCreatesFileAndParentDirectories(t *testing.T) {
 	}
 }
 
-func TestFinishImplementationRequiresSummaryValidationAndCommitMessage(t *testing.T) {
-	finish := NewFinishImplementationTool()
-	if _, err := finish.Execute(context.Background(), json.RawMessage(`{"commit_message":"x"}`)); err == nil {
-		t.Fatal("expected summary required error")
-	}
-	if _, err := finish.Execute(context.Background(), json.RawMessage(`{"summary":"done","validation":"go test ./... passed"}`)); err == nil {
-		t.Fatal("expected commit_message required error")
-	}
-	if _, err := finish.Execute(context.Background(), json.RawMessage(`{"summary":"done","commit_message":"feat: done"}`)); err == nil {
-		t.Fatal("expected validation required error")
-	}
-	result, err := finish.Execute(context.Background(), json.RawMessage(`{"summary":"done","validation":"go test ./... passed","commit_message":"feat: done"}`))
-	if err != nil || !strings.Contains(string(result), "received") {
-		t.Fatalf("result=%s err=%v", result, err)
-	}
-}
-
 type recordingRunner struct {
 	command ports.Command
 	result  ports.CommandResult

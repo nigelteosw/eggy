@@ -45,7 +45,7 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 			t.Fatalf("heartbeatRunOptions missing memory-curation tool %q", tool)
 		}
 	}
-	for _, tool := range []string{"repository_modify", "repository_continue"} {
+	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
 		if heartbeat.AllowedTools[tool] {
 			t.Fatalf("heartbeatRunOptions unexpectedly allows repository write tool %q", tool)
 		}
@@ -67,9 +67,6 @@ func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
 	scheduled := app.loop.ToolNames(readOnlyRunOptions())
 	if !slices.Contains(direct, "railway__list_projects") || slices.Contains(scheduled, "railway__list_projects") {
 		t.Fatalf("direct=%v scheduled=%v mcp_status=%#v mcp_tools=%v", direct, scheduled, app.mcp.Statuses(), toolDefinitionNames(app.mcp.Tools()))
-	}
-	if slices.Contains(app.implementationLoop.ToolNames(agent.RunOptions{}), "railway__list_projects") {
-		t.Fatal("MCP leaked into implementation loop")
 	}
 }
 
@@ -158,11 +155,11 @@ func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t 
 		t.Fatalf("model requests=%d, want 2", len(modelBodies))
 	}
 	directTools := requestedToolNames(t, modelBodies[0])
-	if !directTools["repository_modify"] || !directTools["repository_continue"] {
+	if !directTools["workspace_edit"] || !directTools["propose_change"] {
 		t.Fatalf("direct owner message did not advertise repository tools: %s", modelBodies[0])
 	}
 	scheduledTools := requestedToolNames(t, modelBodies[1])
-	if scheduledTools["repository_modify"] || scheduledTools["repository_continue"] {
+	if scheduledTools["workspace_edit"] || scheduledTools["propose_change"] {
 		t.Fatalf("scheduled turn advertised repository tools: %s", modelBodies[1])
 	}
 }
@@ -170,7 +167,7 @@ func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t 
 // requestedToolNames parses the tools array out of a serialized model
 // request body. It deliberately does not use a raw substring search over
 // the whole body — the hard runtime policy's prose legitimately mentions
-// tool names like "repository_modify" regardless of which tools are
+// tool names like "workspace_edit" regardless of which tools are
 // actually offered, so a substring check would false-positive on that text.
 func requestedToolNames(t *testing.T, body []byte) map[string]bool {
 	t.Helper()
@@ -536,7 +533,7 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.loop.RunSelected(context.Background(), "deepseek-pro", "", "recall it", nil, agent.RunOptions{}); err != nil {
+	if _, err := app.loop.Run(context.Background(), "deepseek-pro", "", "recall it", nil, agent.RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(secondBody), "bare-ui-password") || !strings.Contains(string(secondBody), "[redacted]") {
@@ -748,17 +745,15 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	}
 }
 
-// TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer proves the
-// full native path end to end with no CLI subprocess and no real model call:
-// an explicit implementation request clones a real local git remote, the
-// model calls repository_modify, the bounded implementation loop reads a
-// file and then calls finish_implementation, and Eggy commits and pushes
-// that result without pausing for an owner tap. Pull-request creation is
-// exercised against a local, non-GitHub-shaped remote, so it fails on the
-// owner/repository slug rather than succeeding; the test only asserts on the
-// parts that don't depend on a real GitHub API (commit, push, no pending
-// approval).
-func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T) {
+// TestOneLoopEditsAndShipsWithinASingleTurn proves the collapsed path end to
+// end with no second loop and no real model call: one turn branches a real
+// local git remote's checkout, reads a file, patches it, calls
+// propose_change, reads the result, and replies -- every step an ordinary
+// tool call in the same loop. Pull-request creation is exercised against a
+// local, non-GitHub-shaped remote, so it fails on the owner/repository slug
+// rather than succeeding; the test only asserts on the parts that don't
+// depend on a real GitHub API (commit, push, no pending approval).
+func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	remote := createLocalGitRemote(t)
 	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
@@ -773,13 +768,13 @@ func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T
 			modelBodies = append(modelBodies, body)
 			switch len(modelBodies) {
 			case 1:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"repository_modify","arguments":"{\"repository\":\"eggy\",\"instruction\":\"note that the repo was reviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"workspace_edit","arguments":"{\"repository\":\"eggy\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			case 2:
 				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-2","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			case 3:
 				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-3","type":"function","function":{"name":"patch","arguments":"{\"path\":\"README.md\",\"old_string\":\"initial\",\"new_string\":\"initial\\nreviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			case 4:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-4","type":"function","function":{"name":"finish_implementation","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"none needed\",\"commit_message\":\"docs: note reviewed\",\"changed_files\":[\"README.md\"]}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-4","type":"function","function":{"name":"propose_change","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"go build ./... passed\",\"commit_message\":\"docs: note reviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
 			default:
 				// The outer loop asks once more for a final reply after
 				// seeing the repository_modify tool result; this is that
@@ -805,10 +800,14 @@ func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T
 		t.Fatal(err)
 	}
 	if len(modelBodies) != 5 {
-		t.Fatalf("model requests=%d, want 5 (repository_modify, read_file, patch, finish_implementation, wrap-up reply): %q", len(modelBodies), modelBodies)
+		t.Fatalf("model requests=%d, want 5 (workspace_edit, read_file, patch, propose_change, wrap-up reply): %q", len(modelBodies), modelBodies)
 	}
-	if !requestedToolNames(t, modelBodies[0])["repository_modify"] {
-		t.Fatalf("first turn did not offer repository_modify: %s", modelBodies[0])
+	// Every step saw the same tool surface: there was only ever one loop.
+	for i, body := range modelBodies {
+		names := requestedToolNames(t, body)
+		if !names["workspace_edit"] || !names["propose_change"] || !names["patch"] || !names["read_file"] {
+			t.Fatalf("step %d saw a different tool surface: %s", i, body)
+		}
 	}
 	runs, err := app.coding.List(context.Background())
 	if err != nil {

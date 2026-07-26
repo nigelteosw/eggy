@@ -198,12 +198,21 @@ type MemoryStore interface {
 // Keeping them here rather than on an implementation run is what makes
 // inspect -> edit -> discuss one continuous thread rather than a lane
 // transition.
+//
+// WorkspaceBranch is empty while the checkout is an inspection clone still
+// sitting on the base branch, and holds the branch name once the thread has
+// started editing. It is what makes the checkout writable: the same
+// directory keeps serving the thread's reads before, during, and after the
+// edits, with no second clone. WorkspaceSession is the ImplementationSession
+// recording those edits, which propose_change ships.
 type Thread struct {
 	ID                  string
 	Title               string
 	Channel             string
 	Workspace           string
 	WorkspaceRepository string
+	WorkspaceBranch     string
+	WorkspaceSession    string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -224,6 +233,11 @@ type ThreadStore interface {
 	// row if this is a surface (Telegram) that never explicitly created
 	// one. Replaces any previously attached workspace.
 	AttachWorkspace(ctx context.Context, id, channel, repository, workspace string, at time.Time) error
+	// SetWorkspaceEdit records the branch created in the thread's
+	// already-attached checkout, and the session recording the edits,
+	// promoting the checkout from an inspection clone to a writable one. An
+	// empty branch demotes it back.
+	SetWorkspaceEdit(ctx context.Context, id, branch, session string) error
 	// DetachWorkspace clears a thread's attached workspace. Detaching a
 	// thread with none is not an error.
 	DetachWorkspace(ctx context.Context, id string) error
@@ -361,13 +375,6 @@ type CodingProgress struct {
 // Channel routes to the destination that started the run rather than to a
 // fixed default. A nil ProgressReporter means "nobody is watching".
 type ProgressReporter func(context.Context, CodingProgress)
-
-type CodingResult struct {
-	Summary       string
-	Validation    string
-	CommitMessage string
-	ChangedFiles  []string
-}
 
 // SessionPhase is the single lifecycle phase for an implementation
 // session, replacing the formerly separate CodingRun.Status string and

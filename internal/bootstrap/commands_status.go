@@ -93,6 +93,6 @@ func handleRestart(ctx context.Context, s *CommandService, req CommandRequest) (
 	s.restart()
 	return CommandResult{
 		Title:  "Restarting Eggy to pick up config changes. Back in a few seconds.",
-		Detail: "Any active implementation session is interrupted safely and can be resumed with /continue once Eggy is back.",
+		Detail: "Any active editing session is interrupted safely; ask Eggy to continue once it is back, in the thread whose workspace is still open.",
 	}, nil
 }

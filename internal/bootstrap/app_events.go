@@ -157,6 +157,16 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		}
 		return a.channel.Deliver(ctx, output)
 	}
+	// A message that arrives while a steerable turn is already running joins
+	// that turn rather than starting a competing one. The owner gets to
+	// redirect work in progress -- "actually, skip the tests" -- instead of
+	// waiting for it to finish or racing it.
+	if policy.recordConversation && a.turns.Steer(ctx, message.Text) {
+		if err := a.conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: message.Text}, policy.source); err != nil {
+			return err
+		}
+		return a.channel.Deliver(ctx, "Got it — folding that into what I'm working on.")
+	}
 	agentContext, err := a.context.Load(ctx)
 	if err != nil {
 		return err
@@ -195,8 +205,12 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		onToolCall, finishToolProgress = a.toolCallProgress(ctx)
 	}
 	options.OnEvent = a.turnEvents(ctx, onToolCall)
-	turnContext, endTurn := a.turns.Begin(ctx)
+	// Only a direct owner turn is steerable: a scheduled or heartbeat turn is
+	// deliberately self-contained, and folding an owner message into one would
+	// hand it the ambient instruction that isolation exists to prevent.
+	turnContext, endTurn := a.turns.Begin(ctx, policy.recordConversation)
 	defer endTurn()
+	options.PendingInput = func() []ports.Message { return a.turns.Pending(ctx) }
 	stopTyping := channelutil.StartTyping(ctx, a.channel, 4*time.Second)
 	result, runErr := a.loop.Run(turnContext, alias, effort, message.Text, history, options)
 	stopTyping()
@@ -557,6 +571,11 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	}
 	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	options := heartbeatRunOptions()
+	// Registered but not steerable: /stop can cancel a heartbeat turn, and a
+	// second one cannot start while it runs, but an owner message never joins
+	// it.
+	heartbeatContext, endTurn := a.turns.Begin(ctx, false)
+	defer endTurn()
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, agent.HeartbeatChecklistMessage(agentContext.Heartbeat))
@@ -567,7 +586,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	} else {
 		instruction = "A proactive check-in cannot be sent right now (quiet hours or the proactive-message limit). Do not attempt one. " + instruction + fmt.Sprintf(" Reply with exactly %q.", services.HeartbeatNoReportSentinel)
 	}
-	result, runErr := a.loop.Run(ctx, alias, effort, instruction, history, options)
+	result, runErr := a.loop.Run(heartbeatContext, alias, effort, instruction, history, options)
 	usageErr := a.agentRuntime.RecordUsage(ctx, alias, result.Usage)
 	if runErr != nil {
 		return runErr

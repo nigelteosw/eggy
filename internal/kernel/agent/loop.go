@@ -44,6 +44,12 @@ type RunOptions struct {
 	// renders live progress and records a transcript; the loop itself keeps
 	// no history beyond the messages it sends to the model.
 	OnEvent func(Event)
+	// PendingInput, if set, is drained at each step boundary and appended to
+	// the messages the next model call sees. It is how an owner steers a turn
+	// that is already running: the message joins the turn in progress instead
+	// of starting a competing one. The loop never blocks on it -- a turn with
+	// nothing pending proceeds exactly as before.
+	PendingInput func() []ports.Message
 }
 
 type RunResult struct {
@@ -111,6 +117,18 @@ func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []p
 	result := RunResult{}
 	steps := 0
 	for {
+		// The step boundary is also where a stopped turn actually stops.
+		// Checking here rather than relying on the model adapter or a tool to
+		// notice ctx means /stop is honoured even by a tool that ignores it.
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		// The step boundary is where steering lands: after any tool results
+		// from the previous step are in the transcript, before the model is
+		// asked what to do next.
+		if options.PendingInput != nil {
+			messages = append(messages, options.PendingInput()...)
+		}
 		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: messages, Tools: definitions, ReasoningEffort: effort})
 		if err != nil {
 			return result, err

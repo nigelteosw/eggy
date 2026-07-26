@@ -229,3 +229,30 @@ func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured
 		t.Fatal("expected newRoutedChannel to return the sole non-nil channel directly, not wrap it")
 	}
 }
+
+// A web-only deployment must not have unprompted output redirected into a
+// web thread: with no Telegram configured, Telegram-addressed delivery is
+// dropped, while web-addressed delivery still routes normally.
+func TestWebOnlyDeploymentDropsTelegramAddressedDeliveryInsteadOfRedirectingIt(t *testing.T) {
+	web := &fakeChannel{name: "web"}
+	channel := newRoutedChannel(nil, web)
+
+	proactive := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
+	if err := channel.Deliver(proactive, "heartbeat check-in"); err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.DeliverApproval(proactive, approvals.Approval{ID: "approval-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(web.delivered) != 0 || len(web.approvalDelivered) != 0 {
+		t.Fatalf("web delivered=%v approvals=%v, want unprompted output dropped, not redirected", web.delivered, web.approvalDelivered)
+	}
+
+	owner := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-a"})
+	if err := channel.Deliver(owner, "reply"); err != nil {
+		t.Fatal(err)
+	}
+	if len(web.delivered) != 1 || web.delivered[0] != "reply" {
+		t.Fatalf("web delivered=%v, want owner-initiated web turns unaffected", web.delivered)
+	}
+}

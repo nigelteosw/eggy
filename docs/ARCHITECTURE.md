@@ -140,7 +140,14 @@ Unprompted output — heartbeat, scheduled agent turns, and scheduled messages
 `destination.FromContext`'s Telegram fallback, so an event carrying a web
 destination is still overridden. The web UI is a pull surface the owner
 opens, and one proactive channel keeps `HeartbeatPolicy`'s quiet-hours and
-weekly-limit accounting meaningful rather than per-channel. See [ADR
+weekly-limit accounting meaningful rather than per-channel.
+
+It follows that a web-only deployment produces no unprompted output at all.
+`newRoutedChannel` gives it a router over a *noop* Telegram rather than the
+web channel unwrapped, so Telegram-addressed delivery is dropped instead of
+redirected into a thread the owner never asked to be pushed to. The turns
+themselves still run — a heartbeat's silent `USER.md`/`MEMORY.md` curation is
+unaffected — only the outbound check-in disappears. See [ADR
 0001](adr/0001-single-configured-model.md)
 for why there is exactly one selected model with no automatic escalation, and
 [ADR 0002](adr/0002-native-implementation-loop.md) for why repository edits
@@ -244,9 +251,24 @@ auto-resumed. Progress renders as concise semantic milestones (`Inspected:
 ...`, `Edited: ...`, `Validation: ...`), not raw tool-call noise, on the
 surface that started the turn: a `ports.ProgressReporter` takes the turn's own
 context, so a turn from a web thread reports into that thread and one from
-Telegram reports into Telegram. `/stop` cancels the turn running in the
-calling conversation (`services.ActiveTurns`); the checkout and its session
-survive, so a stopped turn leaves the work inspectable.
+Telegram reports into Telegram.
+
+Turns run in the background: every surface enqueues its event and `App.Run`
+dispatches each one on its own goroutine, so no inbound request is held open
+for a turn's duration. That makes a turn something the owner can talk to
+while it runs. `services.ActiveTurns` holds both halves of that:
+
+- **Steering.** A message arriving while a steerable turn is running joins it
+  at the next step boundary (`agent.RunOptions.PendingInput`) instead of
+  starting a competing turn — the owner redirects work in progress rather than
+  racing it. Only direct owner turns are steerable; a scheduled or heartbeat
+  turn refuses, because folding an owner message into one would hand it the
+  ambient instruction that self-contained turns exist to prevent.
+- **Stopping.** `/stop` cancels the turn running in the calling conversation,
+  and `agent.Loop.Run` checks `ctx.Err()` at each step boundary so the stop is
+  honoured even by a tool that ignores ctx. The checkout and its session
+  survive: stopping is not a rollback, so a stopped turn leaves the work
+  inspectable and resumable by simply saying so.
 
 ## Shipping and authorization
 

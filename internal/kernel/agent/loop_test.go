@@ -263,3 +263,74 @@ func (t *fakeTool) Execute(context.Context, json.RawMessage) (json.RawMessage, e
 	t.calls++
 	return t.result, t.err
 }
+
+// Steering: a message that arrives mid-turn joins the messages the next model
+// call sees, at the step boundary, rather than starting a competing turn.
+func TestLoopAppendsSteeredInputAtEachStepBoundary(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ok, skipping the tests"}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
+	}, 4)
+
+	steered := []ports.Message{{Role: ports.RoleUser, Content: "actually, skip the tests"}}
+	if _, err := loop.Run(context.Background(), "model", "", "have a look", nil, RunOptions{
+		PendingInput: func() []ports.Message {
+			pending := steered
+			steered = nil
+			return pending
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("requests=%d", len(model.requests))
+	}
+	// The first call was already in flight, so the steer lands on the second.
+	last := model.requests[1].Messages
+	found := false
+	for _, message := range last {
+		if message.Role == ports.RoleUser && message.Content == "actually, skip the tests" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("steered message never reached the model: %#v", last)
+	}
+}
+
+// Draining must not replay: a steered message appended once stays once, or a
+// long turn would repeat the owner's instruction at every step.
+func TestLoopDoesNotReplaySteeredInput(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "done"}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
+	}, 4)
+	delivered := false
+	if _, err := loop.Run(context.Background(), "model", "", "go", nil, RunOptions{
+		PendingInput: func() []ports.Message {
+			if delivered {
+				return nil
+			}
+			delivered = true
+			return []ports.Message{{Role: ports.RoleUser, Content: "one more thing"}}
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	occurrences := 0
+	for _, message := range model.requests[len(model.requests)-1].Messages {
+		if message.Content == "one more thing" {
+			occurrences++
+		}
+	}
+	if occurrences != 1 {
+		t.Fatalf("steered message appears %d times, want exactly 1", occurrences)
+	}
+}

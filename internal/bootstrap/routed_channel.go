@@ -32,9 +32,18 @@ type routedChannel struct {
 	web      ports.Channel
 }
 
-// newRoutedChannel returns telegram or web directly, unwrapped, if only one
-// is configured (nil is acceptable for either), a routedChannel if both
-// are, or noopChannel{} if neither is.
+// newRoutedChannel returns telegram directly, unwrapped, when it is the only
+// configured surface, a routedChannel when a web surface exists, or
+// noopChannel{} if neither is.
+//
+// A web-only deployment deliberately gets a routedChannel over a *noop*
+// Telegram rather than the web channel unwrapped. Unprompted output
+// (heartbeat check-ins, scheduled messages) is addressed to Telegram by
+// decision -- see proactiveDestination -- so unwrapping to web here would
+// quietly redirect it into a web thread the owner never asked to be pushed
+// to. Dropping it instead keeps "no Telegram configured" meaning "no
+// unprompted output", while owner-initiated web turns, which stamp their own
+// web destination, still route normally.
 func newRoutedChannel(telegram, web ports.Channel) ports.Channel {
 	switch {
 	case telegram == nil && web == nil:
@@ -42,7 +51,7 @@ func newRoutedChannel(telegram, web ports.Channel) ports.Channel {
 	case web == nil:
 		return telegram
 	case telegram == nil:
-		return web
+		return &routedChannel{telegram: noopChannel{}, web: web}
 	default:
 		return &routedChannel{telegram: telegram, web: web}
 	}

@@ -111,18 +111,29 @@ instead of a session phase.
 
 ### Make turns asynchronous and steerable
 
-- [ ] Run a turn in the background rather than blocking the inbound event, so
-      a long editing turn does not hold the Telegram or web request open.
-- [ ] Let an owner message that arrives during an active turn append to that
+- [x] Run a turn in the background rather than blocking the inbound event.
+      This was already true: both surfaces `Enqueue`, and `App.Run` dispatches
+      each queued event on its own goroutine tracked by `a.workers`, so the
+      Telegram webhook and the web request return immediately. The item was
+      stale, not undone.
+- [x] Let an owner message that arrives during an active turn append to that
       turn's message list at the next step boundary, instead of starting a
-      competing turn or queueing behind `Dispatcher.lockEvent`
-      (`services/dispatcher.go:76`). This is the steering behavior — it is a
-      dispatcher change, not a model change.
-- [ ] Keep interruption working: `/stop` cancels the turn's context, and the
-      cancellation milestone is still delivered on the turn's own destination
-      (the existing "report on ctx, not runContext" property).
-- [ ] Cover it: a message delivered mid-turn changes the turn's subsequent
-      tool calls, and a `/stop` mid-turn leaves the workspace inspectable.
+      competing turn. `ActiveTurns.Steer`/`Pending` hold the inbox and
+      `agent.RunOptions.PendingInput` drains it at each step boundary.
+      `Dispatcher.lockEvent` never needed changing — it keys on event ID, not
+      conversation, so a mid-turn message was never queued behind the turn.
+- [x] Keep interruption working: `/stop` cancels the turn's context, and the
+      cancellation milestone is still delivered on the turn's own destination.
+      `agent.Loop.Run` now also checks `ctx.Err()` at each step boundary, so a
+      stop is honoured even by a tool or model adapter that ignores ctx.
+- [x] Cover it: a message delivered mid-turn changes the turn's subsequent
+      tool calls, and a `/stop` mid-turn leaves the workspace inspectable
+      (`internal/bootstrap/steering_test.go`).
+
+Only a direct owner turn is steerable. A scheduled or heartbeat turn is
+registered so it can be stopped, but refuses steering: folding an owner
+message into one would hand it exactly the ambient instruction that
+self-contained turns exist to prevent.
 
 ### Close the loop with pull-request checks
 
@@ -189,8 +200,10 @@ agent turns, and scheduled messages all stamp `proactiveDestination()`
 `destination.FromContext`'s Telegram fallback, and a test pins it. The web UI
 is a pull surface the owner opens, not one Eggy pushes to, and a single
 proactive channel keeps `HeartbeatPolicy`'s quiet-hours and weekly-limit
-accounting meaningful rather than per-channel. Revisit only if the web UI
-gains real push delivery.
+accounting meaningful rather than per-channel. A web-only deployment
+therefore produces no unprompted output at all: `newRoutedChannel` routes it
+at a noop Telegram rather than redirecting it into a web thread. Revisit only
+if the web UI gains real push delivery.
 
 ### Split bootstrap into a core and its surfaces
 

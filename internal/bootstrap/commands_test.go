@@ -152,7 +152,7 @@ func TestCommandStopReportsWhenNothingIsRunning(t *testing.T) {
 
 func TestCommandStopCancelsTheConversationsActiveTurn(t *testing.T) {
 	turns := services.NewActiveTurns()
-	turnContext, release := turns.Begin(context.Background())
+	turnContext, release := turns.Begin(context.Background(), true)
 	defer release()
 	commands := &CommandService{turns: turns}
 	output, handled, err := commands.Execute(context.Background(), "/stop")

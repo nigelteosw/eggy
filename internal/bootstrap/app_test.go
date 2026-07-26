@@ -1268,11 +1268,21 @@ func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T)
 		t.Fatalf("the Telegram webhook must not be live without Telegram configured, status=%d", response.Code)
 	}
 
-	// Delivery on a Telegram-shaped destination (what heartbeats and
-	// schedules still use) must not panic on the absent client.
-	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
-	if err := app.channel.Deliver(ctx, "proactive output"); err != nil {
-		t.Fatalf("deliver=%v", err)
+	// A scheduled message is unprompted output. With no Telegram configured
+	// it must be dropped, not redirected into a web thread the owner never
+	// asked to be pushed to.
+	web := &fakeChannel{name: "web"}
+	app.channel = newRoutedChannel(nil, web)
+	payload, err := json.Marshal(events.Message{Text: "scheduled reminder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := events.Event{ID: "schedule:1", Type: events.TypeScheduledMessage, Owner: "owner-42", Payload: payload}
+	if err := app.processEvent(context.Background(), event); err != nil {
+		t.Fatalf("an unprompted turn must not fail on a web-only deployment: %v", err)
+	}
+	if len(web.delivered) != 0 {
+		t.Fatalf("web delivered=%v, want a web-only deployment to produce no unprompted output", web.delivered)
 	}
 }
 

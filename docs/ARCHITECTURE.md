@@ -128,7 +128,16 @@ heartbeat turn additionally sees the owner-editable `HEARTBEAT.md` checklist
 and is skipped entirely, with no model call, while an implementation run is
 active; silent `USER.md`/`MEMORY.md` curation on a heartbeat turn is never
 gated by quiet hours or the weekly proactive-message limit, only the
-Telegram check-in itself is. See [ADR 0001](adr/0001-single-configured-model.md)
+Telegram check-in itself is.
+
+Unprompted output — heartbeat, scheduled agent turns, and scheduled messages
+— is Telegram-only by decision, not by default. Each of those paths stamps
+`proactiveDestination()` on the turn's ctx explicitly rather than relying on
+`destination.FromContext`'s Telegram fallback, so an event carrying a web
+destination is still overridden. The web UI is a pull surface the owner
+opens, and one proactive channel keeps `HeartbeatPolicy`'s quiet-hours and
+weekly-limit accounting meaningful rather than per-channel. See [ADR
+0001](adr/0001-single-configured-model.md)
 for why there is exactly one selected model with no automatic escalation, and
 [ADR 0002](adr/0002-native-implementation-loop.md) for why repository edits
 run as tool calls in this same loop instead of a delegated coding-agent CLI.

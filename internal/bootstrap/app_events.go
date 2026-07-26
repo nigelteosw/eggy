@@ -67,6 +67,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
+		ctx = destination.With(ctx, proactiveDestination())
 		return a.handleMessage(ctx, message, readOnlyRunOptions(), messageHandlingPolicy{})
 	case events.TypeScheduledMessage:
 		// A deterministic, pre-rendered notification (a reminder or
@@ -76,7 +77,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		return a.channel.Deliver(ctx, message.Text)
+		return a.channel.Deliver(destination.With(ctx, proactiveDestination()), message.Text)
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {
@@ -84,7 +85,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		}
 		return a.handleApproval(ctx, decision)
 	case events.TypeHeartbeat:
-		return a.handleHeartbeat(ctx)
+		return a.handleHeartbeat(destination.With(ctx, proactiveDestination()))
 	default:
 		return errors.New("unsupported event type")
 	}
@@ -96,6 +97,21 @@ func decodeMessage(event events.Event) (events.Message, error) {
 		return events.Message{}, err
 	}
 	return message, nil
+}
+
+// proactiveDestination is where every unprompted turn -- heartbeat,
+// scheduled agent turn, scheduled message -- reports. Unprompted output is
+// Telegram's, deliberately and for now: the web UI is a pull surface the
+// owner opens, not one Eggy pushes to, and one proactive channel keeps the
+// quiet-hours and weekly-limit accounting in HeartbeatPolicy meaningful
+// rather than per-channel.
+//
+// This is a decision, not a default. Every proactive path stamps it on ctx
+// explicitly instead of relying on destination.FromContext's Telegram
+// fallback, so making the surface configurable later means changing this
+// one function rather than finding the paths that silently fell through.
+func proactiveDestination() destination.Destination {
+	return destination.Destination{Kind: destination.Telegram}
 }
 
 func readOnlyRunOptions() agent.RunOptions {
@@ -391,7 +407,7 @@ func (a *App) Run(ctx context.Context) error {
 					eventType = events.TypeScheduledMessage
 				}
 				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: destination.Destination{Kind: destination.Telegram}, Payload: payload}
+				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
 				a.workers.Add(1)
 				go func() {
 					defer a.workers.Done()
@@ -408,7 +424,7 @@ func (a *App) Run(ctx context.Context) error {
 				}()
 			}
 		case now := <-heartbeatTicker.C:
-			_ = a.HandleEvent(ctx, events.Event{ID: "heartbeat:" + now.Format(time.RFC3339Nano), Type: events.TypeHeartbeat, Owner: a.config.Owner.ID, Timestamp: now, Payload: json.RawMessage(`{}`)})
+			_ = a.HandleEvent(ctx, events.Event{ID: "heartbeat:" + now.Format(time.RFC3339Nano), Type: events.TypeHeartbeat, Owner: a.config.Owner.ID, Timestamp: now, Destination: proactiveDestination(), Payload: json.RawMessage(`{}`)})
 		}
 	}
 }

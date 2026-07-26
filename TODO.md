@@ -14,14 +14,9 @@ Eggy still runs two `agent.Loop` instances — the conversational loop
 (`internal/bootstrap/app.go:397`) and the implementation loop (`app.go:302`) —
 and `repository_modify` (`internal/kernel/services/repository_tools.go:82`) is
 a blocking outer-loop tool call that synchronously drives the inner loop to
-completion (`services/coding.go:41`). Three consequences followed; the first is
-now resolved:
+completion (`services/coding.go:41`). The duplicate primitive registries are
+gone (see ADR 0006); two consequences remain:
 
-- ~~`read_file` and `terminal` are defined twice with different schemas and
-  different workspace resolution.~~ **Done.** The two registries are no longer
-  disjoint: one kernel-owned primitive set is built once and shared by both
-  loops, resolving its workspace from session state — and that state is now
-  durable, so conversational exploration accumulates across a restart.
 - The two loops have incompatible termination conditions: `RunSelected`
   (`agent/loop.go:70`) ends when the model emits no tool calls;
   `RunImplementationWithEvents` (`loop.go:154`) ends when `finish_implementation`
@@ -42,56 +37,20 @@ Every safety invariant survives unchanged — payload-digest approvals,
 protected-branch denial, HEAD revalidation before push and PR, never merging.
 None of them required two loops; they are properties of `ShippingService`.
 
-- [x] Write ADR 0006 recording this as the continuation of ADR 0002 (one
-      engine, one context model) rather than a reversal of it, and recording
-      the deliberate narrowing of the scheduled/heartbeat repository-write
-      invariant (see "Let scheduled and heartbeat turns propose changes").
-
-### Unify the tool surface
-
-- [x] Define one kernel-owned primitive tool set (`read_file`, `terminal`,
-      `patch`, `write_file`) that resolves its workspace from session state
-      instead of from a `repository` argument or a run-scoped ctx value.
-- [x] Gate writes by *result*, not by registry membership: `patch` and
-      `write_file` stay registered and return an explicit error when the
-      session's workspace is read-only, rather than being absent from the
-      model's tool list depending on which loop is running.
-- [x] Delete `NewImplementationTools` and the duplicate `read_file`/`terminal`
-      in `NewRepositoryReadTools`, keeping `repository_list` and
-      `repository_github` as ordinary non-primitive tools.
-- [x] Cover it: one tool definition per primitive name across the whole
-      registry, asserted as a test so a future adapter cannot reintroduce a
-      shadowing primitive.
-
-Landed as `services.NewPrimitiveTools` + `services.WorkspaceSessions`.
-`workspace_open`/`workspace_close` were pulled forward from the next section
-because the primitives resolve their workspace from session state: without a
-way to attach one, conversational repository reading would have regressed.
+The tool surface is unified: `services.NewPrimitiveTools` defines each
+primitive once, gates writes by result rather than by registry membership, and
+resolves its workspace from `services.WorkspaceSessions`. `workspace_open`/
+`workspace_close` and the durable thread → checkout binding landed with it.
 
 ### Attach the workspace to the session, not the run
 
-- [x] Add `workspace_open(repository)` and `workspace_close`, cloning once onto
-      the durable volume under `runner.root`.
-- [x] Add `ports.ThreadStore` — neutral `Thread` type over create/list/get/
-      set-title plus workspace attach/detach. `chat.go` and `web.go` no longer
-      reference `*memorysqlite.Store`.
-- [x] Persist the thread → checkout binding on that store (`threads.workspace`,
-      `threads.workspace_repository`; existing databases migrate in place) so
-      an open workspace survives a restart. `WorkspaceSessions.Recover` runs
-      before the first turn and drops any binding whose directory is gone,
-      probing through the new `ports.WorkspaceProbe`. Shutdown no longer
-      destroys anything.
 - [ ] Move the workspace off `ports.ImplementationSession` as a run property
       and onto the conversation thread, so inspect → edit → discuss is one
       continuous transcript with no lane transition and no re-clone.
-- [x] Retire the ephemeral clone-per-call path in `repository_read_tools.go`
-      (now `repository_metadata_tools.go`, GitHub metadata only).
 - [ ] Retire the remaining `withWorkspace`/`workspaceFromContext` ctx
-      smuggling, which `WorkspaceSessions.Resolve` still consults first so an
-      implementation run's branched checkout outranks the thread's.
-- [x] Keep workspace cleanup bounded: `WorkspaceSessions.CleanupIdle` reaps
-      thread-attached workspaces whose thread has gone idle past the
-      `runner.retention` cutoff, on the same ticker as `CleanupExpired`.
+      smuggling (`services/workspace_context.go`), which
+      `WorkspaceSessions.Resolve` still consults first so an implementation
+      run's branched checkout outranks the thread's.
 
 What remains here is the *run* side: an implementation run still carries its
 own `ports.ImplementationSession.Workspace` and still smuggles it through ctx,
@@ -184,13 +143,6 @@ deliberately rather than keeping the proxy.
 - [ ] Update `docs/ARCHITECTURE.md`'s safety-invariant list and the standing
       constraint at the bottom of this file together with the code, not after.
 
-## P0: Finish the architecture simplification
-
-### Deployment follow-up
-
-- [ ] Reset Railway's deployed `/data/config.yaml` so the next boot generates
-      the current unversioned config shape. This is a manual deployment step.
-
 ## P0: Separate the agent core from its control surfaces
 
 Telegram and the web UI are meant to be independent, equal channels into one
@@ -212,29 +164,19 @@ is core agentic behavior, not wiring — including the
 that encode a documented safety invariant in the one package no kernel test can
 guard.
 
-### Route every surface through the turn's destination
+The destination seam itself is done: `destination` is its own kernel package,
+`events.Event` carries a typed `Destination` each surface builds for itself,
+`config.Owner.ID` is the system-wide identity, and the Telegram block is
+optional so a web-only deployment boots without it.
 
-- [x] Move `Destination` out of `internal/kernel/approvals` into its own kernel
-      package; approvals, events, and the turn orchestrator are all consumers,
-      and none of them is approvals-specific.
-- [x] Put a typed `Destination` on `events.Event` and let each surface
-      construct its own, replacing `events.Message.ChatID`'s dual meaning.
-      `destinationFromEvent`'s `event.Source == "web"` check and
-      `decodeMessage`'s Telegram-owner default both disappear.
-- [x] Introduce a canonical `config.Owner.ID` as the system-wide identity;
-      the Telegram adapter maps its numeric ID onto it (`config.go:327`).
-- [x] Make the Telegram block optional and validate `owner.id` on its own, so
-      a web-only deployment boots with no `telegram.owner_id`, no
-      `TELEGRAM_BOT_TOKEN`, and no `TELEGRAM_WEBHOOK_SECRET`. First boot
-      accepts `EGGY_OWNER_ID` as an alternative to `EGGY_TELEGRAM_OWNER_ID`
-      and omits the generated block entirely.
-
-One gap remains for web-only deployments, tracked under "Split bootstrap into
-a core and its surfaces" below: scheduled and heartbeat turns still stamp
-`destination.Telegram` (`app_events.go:394`, `handleHeartbeat`). Nothing
-breaks — `newRoutedChannel` collapses to the web channel when Telegram is
-absent — but "which channel receives unprompted output" is still a
-fallthrough rather than a decision.
+Unprompted output stays Telegram-only, deliberately. Heartbeat, scheduled
+agent turns, and scheduled messages all stamp `proactiveDestination()`
+(`app_events.go`) on ctx explicitly rather than relying on
+`destination.FromContext`'s Telegram fallback, and a test pins it. The web UI
+is a pull surface the owner opens, not one Eggy pushes to, and a single
+proactive channel keeps `HeartbeatPolicy`'s quiet-hours and weekly-limit
+accounting meaningful rather than per-channel. Revisit only if the web UI
+gains real push delivery.
 
 ### Split bootstrap into a core and its surfaces
 
@@ -249,16 +191,13 @@ fallthrough rather than a decision.
 - [ ] Extract the command surface (`CommandService`, catalog, `CommandResult`)
       into its own package, and the HTTP surface (`web.go`, `chat.go`,
       `server.go`) into another. `internal/bootstrap` keeps wiring only.
-- [x] Add a `ports.ThreadStore` (create/list/get/set-title over a neutral
-      `Thread` type). Landed with "Attach the workspace to the session, not the
-      run", which it blocked.
 - [ ] Give each surface a narrow interface onto the core rather than the whole
       36-field `App` struct.
-- [ ] Make the proactive-output surface explicit configuration. `handleHeartbeat`
-      delivers to the Telegram owner chat ID directly and
-      `events.TypeScheduledMessage` inherits the Telegram default, so "which
-      channel receives unprompted output" is currently a fallthrough rather
-      than a decision.
+- [x] Make the proactive-output surface an explicit decision rather than a
+      fallthrough: every unprompted path now stamps `proactiveDestination()`
+      on ctx. Telegram-only stands for now (see the note above); turning it
+      into *configuration* is deferred until the web UI can actually push,
+      and would change that one function.
 
 ## P1: Make context and capabilities inspectable
 
@@ -280,12 +219,10 @@ fallthrough rather than a decision.
       sharing the store-wide cap with `SOUL.md`.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
       invisible-Unicode content before durable context writes.
-- [ ] Keep recalled excerpts bounded, redacted, and explicitly marked as stale
-      historical context rather than current authority. (Superseded by the
-      SQLite-backed conversation memory work, now landed — durable, searchable
-      recall is a database, not a file-backed design, at the owner's explicit
-      direction; see
-      `docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md` for why.)
+
+Bounded, redacted, stale-marked recall excerpts are no longer tracked here: the
+SQLite-backed conversation memory replaced the file-backed recall design it
+described (`docs/superpowers/specs/2026-07-23-sqlite-memory-db-design.md`).
 
 Durable-context roles remain fixed: `SOUL.md` describes Eggy's identity and
 tone, `USER.md` holds stable owner preferences, and `MEMORY.md` holds compact
@@ -338,6 +275,12 @@ it must never destructively modify the owner's checkout.
       capabilities, bounded resources, and an explicit network policy.
 - [ ] Keep credentials outside coding workspaces and forward only the minimum
       environment required by each subprocess.
+
+## Operational follow-ups
+
+- [ ] Reset Railway's deployed `/data/config.yaml` so the next boot generates
+      the current unversioned config shape. Manual deployment step, not a code
+      change.
 
 ## Standing constraints
 

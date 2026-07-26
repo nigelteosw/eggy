@@ -1276,3 +1276,40 @@ func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T)
 		t.Fatalf("deliver=%v", err)
 	}
 }
+
+// Unprompted output is Telegram's, deliberately: heartbeat, scheduled agent
+// turns, and scheduled messages all report there and never to a web thread.
+// Pinned as a test so a future destination change is a decision rather than
+// an accident.
+func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
+	if kind := proactiveDestination().Kind; kind != destination.Telegram {
+		t.Fatalf("proactive destination=%q, want Telegram", kind)
+	}
+
+	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	telegramChannel, webChannel := &fakeChannel{name: "telegram"}, &fakeChannel{name: "web"}
+	app.channel = newRoutedChannel(telegramChannel, webChannel)
+
+	payload, err := json.Marshal(events.Message{Text: "scheduled reminder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately handed a *web* destination on the event: the proactive
+	// path must override it rather than honour it.
+	event := events.Event{
+		ID: "schedule:1", Type: events.TypeScheduledMessage, Owner: "42",
+		Destination: destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}, Payload: payload,
+	}
+	if err := app.processEvent(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if len(telegramChannel.delivered) != 1 || telegramChannel.delivered[0] != "scheduled reminder" {
+		t.Fatalf("telegram delivered=%v, want the scheduled message", telegramChannel.delivered)
+	}
+	if len(webChannel.delivered) != 0 {
+		t.Fatalf("web delivered=%v, want unprompted output kept off the web channel", webChannel.delivered)
+	}
+}

@@ -42,12 +42,12 @@ func TestClientDeliverSplitsLongMessagesAcrossMultipleSends(t *testing.T) {
 		sends++
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":1}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
 	var lines []string
 	for i := 0; i < 400; i++ {
 		lines = append(lines, "line number is here")
 	}
-	if err := client.Deliver(context.Background(), "99", strings.Join(lines, "\n")); err != nil {
+	if err := client.Deliver(context.Background(), strings.Join(lines, "\n")); err != nil {
 		t.Fatal(err)
 	}
 	if sends < 2 {
@@ -59,8 +59,8 @@ func TestClientDeliverTrackableReturnsFinalChunkMessageID(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":555}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
-	messageID, err := client.DeliverTrackable(context.Background(), "99", "hello there")
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	messageID, err := client.DeliverTrackable(context.Background(), "hello there")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func TestClientEditTextSendsMessageIDAndFormattedText(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
-	if err := client.EditText(context.Background(), "99", "555", "**Approved.**"); err != nil {
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	if err := client.EditText(context.Background(), "555", "**Approved.**"); err != nil {
 		t.Fatal(err)
 	}
 	if request["chat_id"] != "99" || request["message_id"] != "555" || request["text"] != "<b>Approved.</b>" || request["parse_mode"] != "HTML" {
@@ -97,7 +97,7 @@ func TestClientAnswerCallbackCallsAnswerCallbackQuery(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
 	if err := client.AnswerCallback(context.Background(), "cb-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -116,8 +116,8 @@ func TestClientSendTypingCallsSendChatAction(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
-	if err := client.SendTyping(context.Background(), "99"); err != nil {
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	if err := client.SendTyping(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if request["chat_id"] != "99" || request["action"] != "typing" {
@@ -135,7 +135,7 @@ func TestClientSetCommandsSendsCommandListToTelegram(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
 	err := client.SetCommands(context.Background(), []BotCommand{
 		{Name: "status", Description: "Show operational status"},
 		{Name: "clear", Description: "Clear the context window"},
@@ -165,8 +165,8 @@ func TestClientDeliverFallsBackToPlainTextWhenTelegramRejectsFormatting(t *testi
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":9}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
-	if err := client.Deliver(context.Background(), "99", "some *odd_ markdown"); err != nil {
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	if err := client.Deliver(context.Background(), "some *odd_ markdown"); err != nil {
 		t.Fatal(err)
 	}
 	if len(requests) != 2 {

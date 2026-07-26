@@ -59,7 +59,7 @@ func TestTelegramAndCLIProduceTheSameSemanticResult(t *testing.T) {
 	checker := &commandTestChecker{}
 	gateway := &commandTestApprovalGateway{approval: approvals.Approval{ID: "approval-1", Action: approvals.AddRepository}}
 	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" }, nil)
-	repoCommands := &CommandService{store: store, repositories: repositories, channel: &commandTestChannel{}, owner: "42"}
+	repoCommands := &CommandService{store: store, repositories: repositories, channel: &commandTestChannel{}}
 
 	telegramReq, ok = ParseTelegramInput(catalogIndex, "/repositories add eggy https://github.com/nigelteosw/eggy.git main")
 	if !ok {
@@ -256,7 +256,7 @@ func TestCommandRepositoriesListsAddsAndRemoves(t *testing.T) {
 	repositories := services.NewRepositoriesService(store, runner, checker, gateway, gateway, ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}, func() string { return "check-1" }, nil)
 	var delivered approvals.Approval
 	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
-	commands := &CommandService{store: store, repositories: repositories, channel: channel, owner: "42"}
+	commands := &CommandService{store: store, repositories: repositories, channel: channel}
 	ctx := context.Background()
 
 	output, handled, err := commands.Execute(ctx, "/repositories")
@@ -326,19 +326,18 @@ func (g *commandTestApprovalGateway) Authorize(_ context.Context, action approva
 
 type commandTestChannel struct{ onApproval func(approvals.Approval) }
 
-func (c *commandTestChannel) Deliver(context.Context, string, string) error { return nil }
-func (c *commandTestChannel) DeliverApproval(_ context.Context, _ string, approval approvals.Approval) error {
+func (c *commandTestChannel) Deliver(context.Context, string) error { return nil }
+func (c *commandTestChannel) DeliverApproval(_ context.Context, approval approvals.Approval) error {
 	if c.onApproval != nil {
 		c.onApproval(approval)
 	}
 	return nil
 }
-func (c *commandTestChannel) DeliverTrackable(context.Context, string, string) (string, error) {
+func (c *commandTestChannel) DeliverTrackable(context.Context, string) (string, error) {
 	return "", nil
 }
-func (c *commandTestChannel) EditText(context.Context, string, string, string) error { return nil }
-func (c *commandTestChannel) AnswerCallback(context.Context, string) error           { return nil }
-func (c *commandTestChannel) SendTyping(context.Context, string) error               { return nil }
+func (c *commandTestChannel) EditText(context.Context, string, string) error { return nil }
+func (c *commandTestChannel) SendTyping(context.Context) error               { return nil }
 
 func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	dir := t.TempDir()

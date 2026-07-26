@@ -110,7 +110,7 @@ func handleRepositoriesAdd(ctx context.Context, s *CommandService, req CommandRe
 		return errorResult(err), nil
 	}
 	if s.channel != nil {
-		if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
+		if err := s.channel.DeliverApproval(ctx, approval); err != nil {
 			return CommandResult{}, err
 		}
 	}

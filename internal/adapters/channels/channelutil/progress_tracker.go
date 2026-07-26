@@ -20,10 +20,6 @@ import (
 // back to that surface.
 type ProgressTracker struct {
 	channel ports.Channel
-	// fallbackChatID is passed as ports.Channel's chatID argument, which a
-	// routing channel ignores in favour of the destination carried on the
-	// delivering ctx. It only matters for a single, unrouted channel.
-	fallbackChatID string
 
 	mu     sync.Mutex
 	active map[string]trackedProgress
@@ -34,8 +30,8 @@ type trackedProgress struct {
 	entries   []string
 }
 
-func NewProgressTracker(channel ports.Channel, fallbackChatID string) *ProgressTracker {
-	return &ProgressTracker{channel: channel, fallbackChatID: fallbackChatID, active: map[string]trackedProgress{}}
+func NewProgressTracker(channel ports.Channel) *ProgressTracker {
+	return &ProgressTracker{channel: channel, active: map[string]trackedProgress{}}
 }
 
 // Deliver renders progress on the channel ctx resolves to. It satisfies
@@ -52,7 +48,7 @@ func (t *ProgressTracker) Deliver(ctx context.Context, progress ports.CodingProg
 		t.active[progress.RunID] = tracked
 	}
 	t.mu.Unlock()
-	if exists && t.channel.EditText(ctx, t.fallbackChatID, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
+	if exists && t.channel.EditText(ctx, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
 		t.clearIfTerminal(progress)
 		return
 	}
@@ -60,7 +56,7 @@ func (t *ProgressTracker) Deliver(ctx context.Context, progress ports.CodingProg
 	if exists {
 		entries = tracked.entries
 	}
-	if id, err := t.channel.DeliverTrackable(ctx, t.fallbackChatID, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
+	if id, err := t.channel.DeliverTrackable(ctx, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
 		t.mu.Lock()
 		t.active[progress.RunID] = trackedProgress{messageID: id, entries: entries}
 		t.mu.Unlock()

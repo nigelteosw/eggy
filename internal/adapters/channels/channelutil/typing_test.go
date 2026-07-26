@@ -24,7 +24,7 @@ func newCountingClient() (*telegram.Client, *int32counter) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	return telegram.NewClient("https://api.telegram.test", "token", httpClient), counter
+	return telegram.NewClient("https://api.telegram.test", "token", "99", httpClient), counter
 }
 
 type int32counter struct {
@@ -46,7 +46,7 @@ func (c *int32counter) get() int {
 
 func TestStartTypingSendsImmediately(t *testing.T) {
 	client, counter := newCountingClient()
-	stop := StartTyping(context.Background(), client, "42", time.Hour)
+	stop := StartTyping(context.Background(), client, time.Hour)
 	stop()
 	if counter.get() != 1 {
 		t.Fatalf("typing sends=%d", counter.get())
@@ -55,7 +55,7 @@ func TestStartTypingSendsImmediately(t *testing.T) {
 
 func TestStartTypingRepeatsAtInterval(t *testing.T) {
 	client, counter := newCountingClient()
-	stop := StartTyping(context.Background(), client, "42", 5*time.Millisecond)
+	stop := StartTyping(context.Background(), client, 5*time.Millisecond)
 	time.Sleep(30 * time.Millisecond)
 	stop()
 	if counter.get() < 3 {
@@ -65,7 +65,7 @@ func TestStartTypingRepeatsAtInterval(t *testing.T) {
 
 func TestStartTypingStopsSendingAfterStopReturns(t *testing.T) {
 	client, counter := newCountingClient()
-	stop := StartTyping(context.Background(), client, "42", 5*time.Millisecond)
+	stop := StartTyping(context.Background(), client, 5*time.Millisecond)
 	time.Sleep(12 * time.Millisecond)
 	stop()
 	countAtStop := counter.get()

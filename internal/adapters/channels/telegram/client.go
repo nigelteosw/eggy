@@ -18,26 +18,30 @@ const maxMessageLength = 3500
 type Client struct {
 	baseURL string
 	token   string
-	http    *http.Client
+	// chatID is the single owner chat this bot ever talks to. Telegram is
+	// one fixed conversation, so the target is bound here at construction
+	// rather than passed on every ports.Channel call.
+	chatID string
+	http   *http.Client
 }
 
-func NewClient(baseURL, token string, client *http.Client) *Client {
+func NewClient(baseURL, token, chatID string, client *http.Client) *Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, http: client}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, chatID: chatID, http: client}
 }
 
-func (c *Client) Deliver(ctx context.Context, chatID, text string) error {
-	_, err := c.deliver(ctx, chatID, text, nil)
+func (c *Client) Deliver(ctx context.Context, text string) error {
+	_, err := c.deliver(ctx, text, nil)
 	return err
 }
 
-func (c *Client) DeliverTrackable(ctx context.Context, chatID, text string) (string, error) {
-	return c.deliver(ctx, chatID, text, nil)
+func (c *Client) DeliverTrackable(ctx context.Context, text string) (string, error) {
+	return c.deliver(ctx, text, nil)
 }
 
-func (c *Client) deliver(ctx context.Context, chatID, text string, extra map[string]any) (string, error) {
+func (c *Client) deliver(ctx context.Context, text string, extra map[string]any) (string, error) {
 	chunks := splitMessage(text)
 	var messageID string
 	for i, chunk := range chunks {
@@ -47,7 +51,7 @@ func (c *Client) deliver(ctx context.Context, chatID, text string, extra map[str
 				payloadExtra[key] = value
 			}
 		}
-		id, err := c.sendMessage(ctx, chatID, chunk, payloadExtra)
+		id, err := c.sendMessage(ctx, chunk, payloadExtra)
 		if err != nil {
 			return messageID, err
 		}
@@ -56,18 +60,18 @@ func (c *Client) deliver(ctx context.Context, chatID, text string, extra map[str
 	return messageID, nil
 }
 
-func (c *Client) DeliverApproval(ctx context.Context, chatID string, approval approvals.Approval) error {
+func (c *Client) DeliverApproval(ctx context.Context, approval approvals.Approval) error {
 	markup := map[string]any{"inline_keyboard": [][]map[string]string{{
 		{"text": "Approve", "callback_data": "approval:" + approval.ID + ":approve"},
 		{"text": "Reject", "callback_data": "approval:" + approval.ID + ":reject"},
 	}}}
-	_, err := c.deliver(ctx, chatID, approval.Summary, map[string]any{"reply_markup": markup})
+	_, err := c.deliver(ctx, approval.Summary, map[string]any{"reply_markup": markup})
 	return err
 }
 
-func (c *Client) EditText(ctx context.Context, chatID, messageID, text string) error {
+func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 	build := func(html bool) map[string]any {
-		payload := map[string]any{"chat_id": chatID, "message_id": messageID}
+		payload := map[string]any{"chat_id": c.chatID, "message_id": messageID}
 		if html {
 			payload["text"] = toTelegramHTML(text)
 			payload["parse_mode"] = "HTML"
@@ -83,13 +87,16 @@ func (c *Client) EditText(ctx context.Context, chatID, messageID, text string) e
 	return err
 }
 
+// AnswerCallback acknowledges a button tap so Telegram stops showing the
+// user a spinner. It is not part of ports.Channel: it belongs to receiving
+// an update, and WebhookHandler calls it as the update arrives.
 func (c *Client) AnswerCallback(ctx context.Context, callbackQueryID string) error {
 	_, err := c.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackQueryID})
 	return err
 }
 
-func (c *Client) SendTyping(ctx context.Context, chatID string) error {
-	_, err := c.call(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": "typing"})
+func (c *Client) SendTyping(ctx context.Context) error {
+	_, err := c.call(ctx, "sendChatAction", map[string]any{"chat_id": c.chatID, "action": "typing"})
 	return err
 }
 
@@ -107,9 +114,9 @@ func (c *Client) SetCommands(ctx context.Context, commands []BotCommand) error {
 	return err
 }
 
-func (c *Client) sendMessage(ctx context.Context, chatID, text string, extra map[string]any) (string, error) {
+func (c *Client) sendMessage(ctx context.Context, text string, extra map[string]any) (string, error) {
 	build := func(html bool) map[string]any {
-		payload := map[string]any{"chat_id": chatID}
+		payload := map[string]any{"chat_id": c.chatID}
 		if html {
 			payload["text"] = toTelegramHTML(text)
 			payload["parse_mode"] = "HTML"

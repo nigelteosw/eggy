@@ -76,7 +76,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		return a.channel.Deliver(ctx, message.ChatID, message.Text)
+		return a.channel.Deliver(ctx, message.Text)
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {
@@ -148,7 +148,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		if err != nil {
 			return err
 		}
-		return a.channel.Deliver(ctx, message.ChatID, output)
+		return a.channel.Deliver(ctx, output)
 	}
 	agentContext, err := a.context.Load(ctx)
 	if err != nil {
@@ -184,9 +184,9 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	}
 	finishToolProgress := func() {}
 	if policy.recordConversation {
-		options.OnToolCall, finishToolProgress = a.toolCallProgress(ctx, message.ChatID)
+		options.OnToolCall, finishToolProgress = a.toolCallProgress(ctx)
 	}
-	stopTyping := channelutil.StartTyping(ctx, a.channel, message.ChatID, 4*time.Second)
+	stopTyping := channelutil.StartTyping(ctx, a.channel, 4*time.Second)
 	result, runErr := a.loop.RunSelected(ctx, alias, effort, message.Text, history, options)
 	stopTyping()
 	finishToolProgress()
@@ -195,7 +195,7 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		if usageErr != nil {
 			return usageErr
 		}
-		return a.channel.Deliver(ctx, message.ChatID, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
+		return a.channel.Deliver(ctx, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
 	}
 	if runErr != nil {
 		return runErr
@@ -223,12 +223,12 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 			return err
 		}
 		if showThinking {
-			if err := a.channel.Deliver(ctx, message.ChatID, "Thinking:\n"+result.ReasoningContent); err != nil {
+			if err := a.channel.Deliver(ctx, "Thinking:\n"+result.ReasoningContent); err != nil {
 				return err
 			}
 		}
 	}
-	return a.channel.Deliver(ctx, message.ChatID, result.Message.Content)
+	return a.channel.Deliver(ctx, result.Message.Content)
 }
 
 // toolCallProgress returns an agent.RunOptions.OnToolCall callback and a
@@ -239,14 +239,14 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 // an ordinary tool call (e.g. current_time) is visible mid-turn too, not
 // folded silently into the final reply. finish is always safe to call, a
 // no-op if no tool was ever called.
-func (a *App) toolCallProgress(ctx context.Context, chatID string) (onToolCall func(string), finish func()) {
+func (a *App) toolCallProgress(ctx context.Context) (onToolCall func(string), finish func()) {
 	var messageID string
 	var calls []string
 	render := func(text string) {
-		if messageID != "" && a.channel.EditText(ctx, chatID, messageID, text) == nil {
+		if messageID != "" && a.channel.EditText(ctx, messageID, text) == nil {
 			return
 		}
-		if id, err := a.channel.DeliverTrackable(ctx, chatID, text); err == nil {
+		if id, err := a.channel.DeliverTrackable(ctx, text); err == nil {
 			messageID = id
 		}
 	}
@@ -282,30 +282,26 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 		return err
 	}
 	ctx = approvals.WithDestination(ctx, preState.Approvals[decision.ApprovalID].Destination)
-	chatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
-	if decision.CallbackQueryID != "" {
-		_ = a.channel.AnswerCallback(ctx, decision.CallbackQueryID)
-	}
 	if err := a.approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
-		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
+		return a.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
 	if !decision.Approved {
-		return channelutil.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, "Action rejected.")
+		return channelutil.DeliverOutcome(ctx, a.channel, decision.MessageID, "Action rejected.")
 	}
 	state, err := a.store.Load(ctx)
 	if err != nil {
-		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
+		return a.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
 	approval := state.Approvals[decision.ApprovalID]
 	executor, ok := a.approvalExecutors[approval.Action]
 	if !ok {
-		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, errors.New("unknown approval action"))
+		return a.deliverApprovalFailure(ctx, decision.MessageID, errors.New("unknown approval action"))
 	}
 	result, err := executor.ExecuteApproved(ctx, approval)
 	if err != nil {
-		return a.deliverApprovalFailure(ctx, chatID, decision.MessageID, err)
+		return a.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
-	return channelutil.DeliverOutcome(ctx, a.channel, chatID, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
+	return channelutil.DeliverOutcome(ctx, a.channel, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
 }
 
 // deliverApprovalFailure tells the owner an approve/reject tap didn't go
@@ -316,8 +312,8 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 // way to learn what actually failed -- the Telegram/web message is the only
 // channel back to them. Still returns execErr so the failure remains
 // logged server-side exactly as before.
-func (a *App) deliverApprovalFailure(ctx context.Context, chatID, messageID string, execErr error) error {
-	if deliverErr := channelutil.DeliverOutcome(ctx, a.channel, chatID, messageID, fmt.Sprintf("Action failed: %v", execErr)); deliverErr != nil {
+func (a *App) deliverApprovalFailure(ctx context.Context, messageID string, execErr error) error {
+	if deliverErr := channelutil.DeliverOutcome(ctx, a.channel, messageID, fmt.Sprintf("Action failed: %v", execErr)); deliverErr != nil {
 		return errors.Join(execErr, deliverErr)
 	}
 	return execErr
@@ -513,8 +509,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	if err := a.heartbeat.Record(ctx, a.store, a.now()); err != nil {
 		return err
 	}
-	ownerChatID := strconv.FormatInt(a.config.Telegram.OwnerID, 10)
-	return a.channel.Deliver(ctx, ownerChatID, result.Message.Content)
+	return a.channel.Deliver(ctx, result.Message.Content)
 }
 
 // invalidateStaleShippingApprovals discards any pending Commit/Push/CreatePR

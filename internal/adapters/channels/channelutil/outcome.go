@@ -10,9 +10,9 @@ import (
 // captured for it, falling back to a new message when no ID is available
 // (e.g. after a restart) or the edit itself fails (e.g. the message is too
 // old for the channel to edit).
-func DeliverOutcome(ctx context.Context, channel ports.Channel, chatID, messageID, text string) error {
-	if messageID != "" && channel.EditText(ctx, chatID, messageID, text) == nil {
+func DeliverOutcome(ctx context.Context, channel ports.Channel, messageID, text string) error {
+	if messageID != "" && channel.EditText(ctx, messageID, text) == nil {
 		return nil
 	}
-	return channel.Deliver(ctx, chatID, text)
+	return channel.Deliver(ctx, text)
 }

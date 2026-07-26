@@ -92,19 +92,14 @@ before that change."
 ## P0: Separate the agent core from its control surfaces
 
 Telegram and the web UI are meant to be independent, equal channels into one
-agent core, but the seam between them is still Telegram-shaped. `ports.Channel`
-carries a `chatID` parameter that `routedChannel` documents as ignored
-(`internal/bootstrap/routed_channel.go:14-19`), so every caller passes a value
-with no effect; `AnswerCallback` is a Telegram button-tap concept webchat
-no-ops and `routedChannel` hardcodes to Telegram; `config.Telegram.OwnerID` is
-the universal owner identity even for web-only events; and `events.Message`'s
-`ChatID` means "Telegram chat" or "web thread" depending on a string comparison
-against `event.Source` (`app_events.go:605-610`). The live consequence is that
-`telegram.ProgressTracker` must invent `context.Background()`
-(`progress_tracker.go:36`) because the progress callback type
-`func(ports.CodingProgress)` carries no context, so `DestinationFromContext`
-finds nothing and a web-initiated implementation run streams its whole progress
-timeline to Telegram instead of the web thread.
+agent core, but the seam between them is still Telegram-shaped. The delivery
+port itself is now clean — `ports.Channel` carries no chat identifier, each
+channel resolves the turn's destination itself, and acking a Telegram button
+tap has moved into that adapter's webhook handler. What remains is on the
+receiving side: `config.Telegram.OwnerID` is still the universal owner
+identity even for web-only events, and `events.Message`'s `ChatID` still means
+"Telegram chat" or "web thread" depending on a string comparison against
+`event.Source` (`app_events.go`'s `destinationFromEvent`).
 
 Above that, `internal/bootstrap` is 10.5k lines holding four layers at once:
 the composition root (`app.go`), the turn orchestrator (`app_events.go`), the
@@ -131,20 +126,24 @@ guard.
       `internal/adapters/channels/channelutil`; it depends only on
       `ports.Channel`, exactly like the `DeliverOutcome` and `StartTyping`
       helpers already there.
-  - [ ] Its `fallbackChatID` is still the Telegram owner ID, which a
-        web-only deployment would use as a thread ID. Removing `chatID` from
-        `ports.Channel` (below) retires it.
-- [ ] Remove the `chatID` parameter from `ports.Channel`. The Telegram adapter
+  - [x] Retire its `fallbackChatID` along with `ports.Channel`'s `chatID`.
+- [x] Remove the `chatID` parameter from `ports.Channel`. The Telegram adapter
       binds its owner chat ID at construction; webchat resolves
-      `Destination.ThreadID` from the context. Drop the now-unused `owner`
-      argument from `skillProposeTool`, `calendarTools`, `NewProgressTracker`,
-      and the `CommandService.owner` field.
-- [ ] Take `AnswerCallback` off `ports.Channel` entirely — acking a callback
-      query is a detail of *receiving* a Telegram update, so it belongs in
-      `telegram`'s webhook handler, not in a delivery port every other surface
-      must no-op. Consider splitting what remains into `Channel`
-      (`Deliver`/`DeliverApproval`) plus optional `TrackableChannel`
-      (`DeliverTrackable`/`EditText`) and `TypingChannel`.
+      `Destination.ThreadID` from the context, and drops a call carrying no
+      web destination rather than fanning it out. Dropped the now-unused
+      `owner` argument from `skillProposeTool`, `calendarTools`,
+      `NewProgressTracker`, `DeliverOutcome`, `StartTyping`,
+      `newRoutedChannel`, and the `CommandService.owner` field.
+- [x] Take `AnswerCallback` off `ports.Channel` entirely — acking a callback
+      query is a detail of *receiving* a Telegram update, so it now happens in
+      `telegram.WebhookHandler` as the tap arrives, and
+      `events.ApprovalDecision.CallbackQueryID` is gone with it.
+  - [ ] Still optional: split what remains into `Channel`
+        (`Deliver`/`DeliverApproval`) plus optional `TrackableChannel`
+        (`DeliverTrackable`/`EditText`) and `TypingChannel`, so a surface
+        without in-place edits or typing indicators can implement the port
+        honestly. Every channel today supports all five, so this buys nothing
+        until a surface that doesn't shows up.
 - [ ] Move `Destination` out of `internal/kernel/approvals` into its own kernel
       package; approvals, events, and the turn orchestrator are all consumers,
       and none of them is approvals-specific.

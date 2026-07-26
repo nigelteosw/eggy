@@ -243,6 +243,23 @@ self-exec-in-place process restart to pick up an edited `config.yaml`/`.env`
 without an external supervisor — see
 [ADR 0004](adr/0004-self-exec-in-place-restart.md).
 
+### The channel port
+
+`ports.Channel` carries no chat or thread identifier. A turn's target is the
+`approvals.Destination` stamped on its context, and each channel resolves it
+itself: the Telegram client is bound to the single owner chat at
+construction, and webchat reads the destination's thread ID off the same
+context. `bootstrap.routedChannel` therefore only *chooses* a channel. A tool
+or helper built once at startup consequently reports into whichever
+conversation is actually running rather than into a fixed one, which is what
+makes progress, typing indicators, and approval prompts follow the surface
+that triggered them.
+
+The port covers delivery only. Acknowledging a Telegram callback query is
+part of receiving an update, so `telegram.WebhookHandler` does it as the tap
+arrives; no other surface implements a concept it doesn't have, and the
+callback query ID never travels on an `events.Event`.
+
 ## Safety invariants
 
 These hold regardless of what else changes in the kernel or an adapter:

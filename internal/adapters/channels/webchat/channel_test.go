@@ -8,6 +8,12 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 )
 
+// webTurn returns a context stamped with the destination a turn running in
+// threadID carries, which is how Channel resolves its broadcast target.
+func webTurn(threadID string) context.Context {
+	return approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: threadID})
+}
+
 func recv(t *testing.T, events <-chan Event) Event {
 	t.Helper()
 	select {
@@ -25,7 +31,7 @@ func TestChannelDeliverBroadcastsAMessageEventToTheGivenThread(t *testing.T) {
 	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	if err := channel.Deliver(context.Background(), "thread-1", "hello"); err != nil {
+	if err := channel.Deliver(webTurn("thread-1"), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)
@@ -40,7 +46,7 @@ func TestChannelDeliverNeverReachesADifferentThread(t *testing.T) {
 	_, events, unregister := hub.Register("thread-2")
 	defer unregister()
 
-	if err := channel.Deliver(context.Background(), "thread-1", "hello"); err != nil {
+	if err := channel.Deliver(webTurn("thread-1"), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -56,13 +62,13 @@ func TestChannelDeliverTrackableReturnsAUsableEditableID(t *testing.T) {
 	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	id, err := channel.DeliverTrackable(context.Background(), "thread-1", "starting...")
+	id, err := channel.DeliverTrackable(webTurn("thread-1"), "starting...")
 	if err != nil || id == "" {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
 	recv(t, events) // the initial message
 
-	if err := channel.EditText(context.Background(), "thread-1", id, "done"); err != nil {
+	if err := channel.EditText(webTurn("thread-1"), id, "done"); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)
@@ -77,7 +83,7 @@ func TestChannelSendTypingBroadcastsATypingEvent(t *testing.T) {
 	_, events, unregister := hub.Register("thread-1")
 	defer unregister()
 
-	if err := channel.SendTyping(context.Background(), "thread-1"); err != nil {
+	if err := channel.SendTyping(webTurn("thread-1")); err != nil {
 		t.Fatal(err)
 	}
 	if event := recv(t, events); event.Kind != EventTyping {
@@ -92,7 +98,7 @@ func TestChannelDeliverApprovalBroadcastsAnApprovalEvent(t *testing.T) {
 	defer unregister()
 
 	approval := approvals.Approval{ID: "approval-1", Summary: "Add repository eggy"}
-	if err := channel.DeliverApproval(context.Background(), "thread-1", approval); err != nil {
+	if err := channel.DeliverApproval(webTurn("thread-1"), approval); err != nil {
 		t.Fatal(err)
 	}
 	event := recv(t, events)
@@ -101,9 +107,25 @@ func TestChannelDeliverApprovalBroadcastsAnApprovalEvent(t *testing.T) {
 	}
 }
 
-func TestChannelAnswerCallbackIsANoOp(t *testing.T) {
-	channel := New(NewHub())
-	if err := channel.AnswerCallback(context.Background(), "unused"); err != nil {
+// A turn that isn't running in a web thread (a Telegram turn, a heartbeat)
+// has no thread to broadcast to, so the call is dropped rather than fanned
+// out to every open connection.
+func TestChannelDropsDeliveryForANonWebTurn(t *testing.T) {
+	hub := NewHub()
+	channel := New(hub)
+	_, events, unregister := hub.Register("thread-1")
+	defer unregister()
+
+	if err := channel.Deliver(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
+	}
+	id, err := channel.DeliverTrackable(context.Background(), "starting...")
+	if err != nil || id != "" {
+		t.Fatalf("id=%q err=%v", id, err)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("expected no event for a turn with no web destination, got %#v", event)
+	case <-time.After(100 * time.Millisecond):
 	}
 }

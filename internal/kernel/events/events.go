@@ -38,8 +38,9 @@ type Message struct {
 }
 
 type ApprovalDecision struct {
-	ApprovalID      string `json:"approval_id"`
-	Approved        bool   `json:"approved"`
-	CallbackQueryID string `json:"callback_query_id"`
-	MessageID       string `json:"message_id"`
+	ApprovalID string `json:"approval_id"`
+	Approved   bool   `json:"approved"`
+	// MessageID identifies an already-delivered approval message to edit in
+	// place with the outcome, when the originating surface tracks one.
+	MessageID string `json:"message_id"`
 }

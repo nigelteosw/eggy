@@ -29,7 +29,6 @@ type CommandService struct {
 	skills       *services.SkillsService
 	agentRuntime *services.AgentRuntime
 	channel      ports.Channel
-	owner        string
 	defaultModel string
 	configPath   string
 	modelAliases []string

@@ -26,14 +26,14 @@ func (c *recordingChannel) record(ctx context.Context) {
 	c.destinations = append(c.destinations, approvals.DestinationFromContext(ctx))
 }
 
-func (c *recordingChannel) DeliverTrackable(ctx context.Context, _, text string) (string, error) {
+func (c *recordingChannel) DeliverTrackable(ctx context.Context, text string) (string, error) {
 	c.record(ctx)
 	c.sent = append(c.sent, text)
 	c.nextID++
 	return string(rune('0' + c.nextID)), nil
 }
 
-func (c *recordingChannel) EditText(ctx context.Context, _, _, text string) error {
+func (c *recordingChannel) EditText(ctx context.Context, _, text string) error {
 	c.record(ctx)
 	if c.editFails {
 		return errors.New("message to edit not found")
@@ -42,16 +42,15 @@ func (c *recordingChannel) EditText(ctx context.Context, _, _, text string) erro
 	return nil
 }
 
-func (c *recordingChannel) Deliver(context.Context, string, string) error { return nil }
-func (c *recordingChannel) DeliverApproval(context.Context, string, approvals.Approval) error {
+func (c *recordingChannel) Deliver(context.Context, string) error { return nil }
+func (c *recordingChannel) DeliverApproval(context.Context, approvals.Approval) error {
 	return nil
 }
-func (c *recordingChannel) AnswerCallback(context.Context, string) error { return nil }
-func (c *recordingChannel) SendTyping(context.Context, string) error     { return nil }
+func (c *recordingChannel) SendTyping(context.Context) error { return nil }
 
 func TestProgressTrackerDeliversOnTheTurnsDestination(t *testing.T) {
 	channel := &recordingChannel{}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	ctx := approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: "thread-1"})
 	tracker.Deliver(ctx, ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "run started"})
 	tracker.Deliver(ctx, ports.CodingProgress{RunID: "run-1", Kind: "command", Message: "go test ./..."})
@@ -67,7 +66,7 @@ func TestProgressTrackerDeliversOnTheTurnsDestination(t *testing.T) {
 
 func TestProgressTrackerKeepsAConciseTimelineForEachRun(t *testing.T) {
 	channel := &recordingChannel{}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "Codex run started"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "command", Message: "go test ./..."})
 	if len(channel.sent) != 1 || len(channel.edited) != 1 {
@@ -80,7 +79,7 @@ func TestProgressTrackerKeepsAConciseTimelineForEachRun(t *testing.T) {
 
 func TestProgressTrackerClearsTrackingOnTerminalKind(t *testing.T) {
 	channel := &recordingChannel{}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "started"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "completed", Message: "done"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "started again"})
@@ -94,7 +93,7 @@ func TestProgressTrackerClearsTrackingOnTerminalKind(t *testing.T) {
 
 func TestProgressTrackerTracksSeparateRunsIndependently(t *testing.T) {
 	channel := &recordingChannel{}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "run one started"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-2", Kind: "started", Message: "run two started"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "command", Message: "run one step"})
@@ -105,7 +104,7 @@ func TestProgressTrackerTracksSeparateRunsIndependently(t *testing.T) {
 
 func TestProgressTrackerFallsBackToNewMessageWhenEditFails(t *testing.T) {
 	channel := &recordingChannel{editFails: true}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "started"})
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "command", Message: "step"})
 	if len(channel.sent) != 2 {
@@ -115,7 +114,7 @@ func TestProgressTrackerFallsBackToNewMessageWhenEditFails(t *testing.T) {
 
 func TestProgressTrackerIgnoresEmptyMessages(t *testing.T) {
 	channel := &recordingChannel{}
-	tracker := NewProgressTracker(channel, "42")
+	tracker := NewProgressTracker(channel)
 	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Kind: "diagnostic", Message: ""})
 	if len(channel.sent) != 0 || len(channel.edited) != 0 {
 		t.Fatalf("unexpected delivery for an empty message: sent=%v edited=%v", channel.sent, channel.edited)

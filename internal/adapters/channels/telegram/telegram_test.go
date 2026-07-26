@@ -15,7 +15,7 @@ import (
 
 func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil })
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil)
 	body := `{"update_id":7,"message":{"message_id":3,"from":{"id":42},"chat":{"id":99},"text":"hello"}}`
 
 	for _, tc := range []struct {
@@ -57,9 +57,17 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	}
 }
 
+type recordingAcknowledger struct{ acked []string }
+
+func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryID string) error {
+	a.acked = append(a.acked, callbackQueryID)
+	return nil
+}
+
 func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil })
+	acknowledger := &recordingAcknowledger{}
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, acknowledger)
 	body := `{"update_id":8,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":99}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
@@ -70,8 +78,31 @@ func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	}
 	var decision events.ApprovalDecision
 	_ = json.Unmarshal(got.Payload, &decision)
-	if decision.ApprovalID != "abc" || !decision.Approved || decision.CallbackQueryID != "cb" || decision.MessageID != "123" {
+	if decision.ApprovalID != "abc" || !decision.Approved || decision.MessageID != "123" {
 		t.Fatalf("decision=%#v", decision)
+	}
+	// The tap is acked as the update arrives, not later on the async event
+	// path, so the callback query ID never has to travel on the event.
+	if len(acknowledger.acked) != 1 || acknowledger.acked[0] != "cb" {
+		t.Fatalf("acked=%v", acknowledger.acked)
+	}
+}
+
+// An unauthorized or malformed update must never be acked: acking is only
+// for a tap Eggy has actually accepted.
+func TestWebhookDoesNotAcknowledgeARejectedCallback(t *testing.T) {
+	acknowledger := &recordingAcknowledger{}
+	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { return nil }, acknowledger)
+	body := `{"update_id":9,"callback_query":{"id":"cb","from":{"id":43},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":99}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if len(acknowledger.acked) != 0 {
+		t.Fatalf("acked a rejected callback: %v", acknowledger.acked)
 	}
 }
 
@@ -83,12 +114,12 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 		requests = append(requests, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", httpClient)
-	if err := client.Deliver(context.Background(), "99", `<ready> & "safe"`); err != nil {
+	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	if err := client.Deliver(context.Background(), `<ready> & "safe"`); err != nil {
 		t.Fatal(err)
 	}
 	approval := approvals.Approval{ID: "id-1", Action: approvals.Commit, Summary: "Commit changes"}
-	if err := client.DeliverApproval(context.Background(), "99", approval); err != nil {
+	if err := client.DeliverApproval(context.Background(), approval); err != nil {
 		t.Fatal(err)
 	}
 	if len(requests) != 2 || requests[0]["parse_mode"] != "HTML" || requests[0]["text"] != `&lt;ready&gt; &amp; "safe"` {

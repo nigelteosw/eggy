@@ -64,7 +64,7 @@ func TestCalendarListRangesResolveInOwnerTimezone(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 7, 19, 12, 34, 56, 0, location) }
 	provider := &recordingCalendarProvider{events: []ports.CalendarEvent{{ID: "event-1", Title: "Lunch"}}}
 	calendar := services.NewCalendarService(provider, nil, nil)
-	tools := calendarTools(calendar, noopChannel{}, "42", "primary", now, location, "Asia/Singapore")
+	tools := calendarTools(calendar, noopChannel{}, "primary", now, location, "Asia/Singapore")
 	list := tools[0]
 
 	tests := []struct {
@@ -122,7 +122,7 @@ func TestCalendarListReadsAcrossAllCalendarsWhenCalendarIDOmitted(t *testing.T) 
 		},
 	}
 	calendar := services.NewCalendarService(provider, nil, nil)
-	list := calendarTools(calendar, noopChannel{}, "42", "primary", func() time.Time {
+	list := calendarTools(calendar, noopChannel{}, "primary", func() time.Time {
 		return time.Date(2026, 7, 20, 8, 0, 0, 0, location)
 	}, location, "Asia/Singapore")[0]
 
@@ -150,7 +150,7 @@ func TestCalendarCalendarsListsAccessibleCalendarMetadata(t *testing.T) {
 		{ID: "hidden", Name: "Hidden", AccessRole: "reader", Hidden: true},
 	}}
 	calendar := services.NewCalendarService(provider, nil, nil)
-	tools := calendarTools(calendar, noopChannel{}, "42", "primary", time.Now, location, "UTC")
+	tools := calendarTools(calendar, noopChannel{}, "primary", time.Now, location, "UTC")
 	var discovery ports.Tool
 	for _, tool := range tools {
 		if tool.Definition().Name == "calendar_calendars" {

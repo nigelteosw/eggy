@@ -83,13 +83,21 @@ type Tool interface {
 	Execute(context.Context, json.RawMessage) (json.RawMessage, error)
 }
 
+// Channel delivers agent output to one surface. It deliberately carries no
+// chat or thread identifier: the target is the destination stamped on ctx
+// for the turn (see internal/kernel/approvals.Destination), so a tool or
+// helper constructed once at startup reports into whichever conversation is
+// actually running rather than into a fixed one baked in at construction.
+//
+// The port covers delivery only. Acknowledging a Telegram callback query is
+// part of *receiving* an update and lives in that adapter's webhook handler,
+// not here, so no other surface has to implement a concept it doesn't have.
 type Channel interface {
-	Deliver(context.Context, string, string) error
-	DeliverApproval(context.Context, string, approvals.Approval) error
-	DeliverTrackable(ctx context.Context, chatID, text string) (messageID string, err error)
-	EditText(ctx context.Context, chatID, messageID, text string) error
-	AnswerCallback(ctx context.Context, callbackQueryID string) error
-	SendTyping(ctx context.Context, chatID string) error
+	Deliver(ctx context.Context, text string) error
+	DeliverApproval(ctx context.Context, approval approvals.Approval) error
+	DeliverTrackable(ctx context.Context, text string) (messageID string, err error)
+	EditText(ctx context.Context, messageID, text string) error
+	SendTyping(ctx context.Context) error
 }
 
 type AgentContext struct {

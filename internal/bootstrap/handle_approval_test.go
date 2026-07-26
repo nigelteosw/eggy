@@ -12,7 +12,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
-func TestHandleApprovalAnswersCallbackAndEditsRejectionMessageInPlace(t *testing.T) {
+func TestHandleApprovalEditsRejectionMessageInPlace(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	var editRequests []map[string]any
 	var answerRequests []map[string]any
@@ -46,12 +46,12 @@ func TestHandleApprovalAnswersCallbackAndEditsRejectionMessageInPlace(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, CallbackQueryID: "cb-1", MessageID: "777"})
+	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, MessageID: "777"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
-	if len(answerRequests) != 1 || answerRequests[0]["callback_query_id"] != "cb-1" {
-		t.Fatalf("answer=%#v", answerRequests)
+	if len(answerRequests) != 0 {
+		t.Fatalf("acking a tapped button belongs to the Telegram webhook handler, not the approval path: %#v", answerRequests)
 	}
 	if len(editRequests) != 1 || editRequests[0]["chat_id"] != "42" || editRequests[0]["message_id"] != "777" {
 		t.Fatalf("edit=%#v", editRequests)
@@ -83,7 +83,7 @@ func TestHandleApprovalFallsBackToNewMessageWhenEditFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, CallbackQueryID: "cb-1", MessageID: "777"})
+	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, MessageID: "777"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestHandleApprovalDeliversFailureMessageWhenExecutionFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: true, CallbackQueryID: "cb-1", MessageID: "777"})
+	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: true, MessageID: "777"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err == nil {
 		t.Fatal("expected HandleEvent to still surface the underlying error")
 	}

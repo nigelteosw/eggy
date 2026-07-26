@@ -12,45 +12,38 @@ import (
 type fakeChannel struct {
 	name              string
 	delivered         []string
-	deliveredChatIDs  []string
 	trackableID       string
 	trackableErr      error
 	editCalls         []string
-	typingCalls       []string
-	answerCalls       []string
+	typingCalls       int
 	approvalDelivered []approvals.Approval
 	deliverErr        error
 }
 
-func (f *fakeChannel) Deliver(_ context.Context, chatID string, text string) error {
+func (f *fakeChannel) Deliver(_ context.Context, text string) error {
 	if f.deliverErr != nil {
 		return f.deliverErr
 	}
 	f.delivered = append(f.delivered, text)
-	f.deliveredChatIDs = append(f.deliveredChatIDs, chatID)
 	return nil
 }
-func (f *fakeChannel) DeliverApproval(_ context.Context, _ string, approval approvals.Approval) error {
+func (f *fakeChannel) DeliverApproval(_ context.Context, approval approvals.Approval) error {
 	f.approvalDelivered = append(f.approvalDelivered, approval)
 	return nil
 }
-func (f *fakeChannel) DeliverTrackable(_ context.Context, _ string, text string) (string, error) {
+func (f *fakeChannel) DeliverTrackable(_ context.Context, text string) (string, error) {
 	if f.trackableErr != nil {
 		return "", f.trackableErr
 	}
 	f.delivered = append(f.delivered, text)
 	return f.trackableID, nil
 }
-func (f *fakeChannel) EditText(_ context.Context, _ string, messageID, text string) error {
+func (f *fakeChannel) EditText(_ context.Context, messageID, text string) error {
 	f.editCalls = append(f.editCalls, messageID+":"+text)
 	return nil
 }
-func (f *fakeChannel) AnswerCallback(_ context.Context, callbackQueryID string) error {
-	f.answerCalls = append(f.answerCalls, callbackQueryID)
-	return nil
-}
-func (f *fakeChannel) SendTyping(_ context.Context, chatID string) error {
-	f.typingCalls = append(f.typingCalls, chatID)
+func (f *fakeChannel) SendTyping(context.Context) error {
+	f.typingCalls++
 	return nil
 }
 
@@ -65,12 +58,12 @@ func webCtx(threadID string) context.Context {
 func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.Deliver(webCtx("thread-1"), "ignored", "hello"); err != nil {
+	if err := channel.Deliver(webCtx("thread-1"), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if len(web.delivered) != 1 || web.deliveredChatIDs[0] != "thread-1" {
+	if len(web.delivered) != 1 {
 		t.Fatalf("web=%#v", web)
 	}
 	if len(telegram.delivered) != 0 {
@@ -78,16 +71,16 @@ func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 	}
 }
 
-func TestRoutedChannelDeliverResolvesTelegramsOwnerChatIDRegardlessOfCallerArgument(t *testing.T) {
+func TestRoutedChannelDeliverReachesTelegramForATelegramDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.Deliver(telegramCtx(), "whatever-the-caller-passed", "hello"); err != nil {
+	if err := channel.Deliver(telegramCtx(), "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if len(telegram.delivered) != 1 || telegram.deliveredChatIDs[0] != "owner-42" {
-		t.Fatalf("telegram=%#v, want the configured owner chat ID substituted", telegram)
+	if len(telegram.delivered) != 1 {
+		t.Fatalf("telegram=%#v", telegram)
 	}
 	if len(web.delivered) != 0 {
 		t.Fatalf("web=%#v, want untouched", web)
@@ -97,9 +90,9 @@ func TestRoutedChannelDeliverResolvesTelegramsOwnerChatIDRegardlessOfCallerArgum
 func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.Deliver(context.Background(), "chat", "hello"); err != nil {
+	if err := channel.Deliver(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
 	}
 	if len(telegram.delivered) != 1 {
@@ -110,9 +103,9 @@ func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T)
 func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{deliverErr: errors.New("web down")}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.Deliver(webCtx("thread-1"), "chat", "hello"); err == nil {
+	if err := channel.Deliver(webCtx("thread-1"), "hello"); err == nil {
 		t.Fatal("expected the web channel's error to propagate")
 	}
 }
@@ -120,9 +113,9 @@ func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) 
 func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{trackableID: "123"}
 	web := &fakeChannel{trackableID: "abc"}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	id, err := channel.DeliverTrackable(webCtx("thread-1"), "chat", "working...")
+	id, err := channel.DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +127,9 @@ func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.EditText(webCtx("thread-1"), "chat", "abc", "done"); err != nil {
+	if err := channel.EditText(webCtx("thread-1"), "abc", "done"); err != nil {
 		t.Fatal(err)
 	}
 	if len(web.editCalls) != 1 || web.editCalls[0] != "abc:done" {
@@ -147,45 +140,29 @@ func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 	}
 }
 
-func TestRoutedChannelAnswerCallbackOnlyReachesTelegram(t *testing.T) {
-	telegram := &fakeChannel{}
-	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
-
-	if err := channel.AnswerCallback(webCtx("thread-1"), "callback-1"); err != nil {
-		t.Fatal(err)
-	}
-	if len(telegram.answerCalls) != 1 {
-		t.Fatalf("telegram.answerCalls=%#v", telegram.answerCalls)
-	}
-	if len(web.answerCalls) != 0 {
-		t.Fatalf("web.answerCalls=%#v, want none", web.answerCalls)
-	}
-}
-
 func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.SendTyping(webCtx("thread-1"), "chat"); err != nil {
+	if err := channel.SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatal(err)
 	}
-	if len(web.typingCalls) != 1 || web.typingCalls[0] != "thread-1" {
-		t.Fatalf("web.typingCalls=%#v", web.typingCalls)
+	if web.typingCalls != 1 {
+		t.Fatalf("web.typingCalls=%d", web.typingCalls)
 	}
-	if len(telegram.typingCalls) != 0 {
-		t.Fatalf("telegram.typingCalls=%#v, want none", telegram.typingCalls)
+	if telegram.typingCalls != 0 {
+		t.Fatalf("telegram.typingCalls=%d, want none", telegram.typingCalls)
 	}
 }
 
 func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, "owner-42")
+	channel := newRoutedChannel(telegram, web)
 
 	approval := approvals.Approval{ID: "approval-1"}
-	if err := channel.DeliverApproval(webCtx("thread-1"), "chat", approval); err != nil {
+	if err := channel.DeliverApproval(webCtx("thread-1"), approval); err != nil {
 		t.Fatal(err)
 	}
 	if len(web.approvalDelivered) != 1 {
@@ -198,7 +175,7 @@ func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 
 func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured(t *testing.T) {
 	telegram := &fakeChannel{}
-	channel := newRoutedChannel(telegram, nil, "owner-42")
+	channel := newRoutedChannel(telegram, nil)
 	if channel != ports.Channel(telegram) {
 		t.Fatal("expected newRoutedChannel to return the sole non-nil channel directly, not wrap it")
 	}

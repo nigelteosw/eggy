@@ -327,7 +327,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T)
 	if decision.ApprovalID != "approval-1" || !decision.Approved {
 		t.Fatalf("decision=%#v", decision)
 	}
-	if decision.CallbackQueryID != "" || decision.MessageID != "" {
+	if decision.MessageID != "" {
 		t.Fatalf("expected empty Telegram-only fields, decision=%#v", decision)
 	}
 }

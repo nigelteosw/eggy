@@ -194,12 +194,16 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// nil pointer), which is what newRoutedChannel's own nil checks rely on
 	// NOT happening. See internal/bootstrap/mcp.go's ExecuteMCPCLI for the
 	// same bug, found and fixed earlier in this project's history.
+	// telegramAcknowledger is kept as a separate interface variable for the
+	// same reason, so NewWebhookHandler's own nil check stays meaningful.
 	var telegramChannel ports.Channel
+	var telegramAcknowledger telegram.CallbackAcknowledger
 	if !options.FakeAdapters {
-		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, options.HTTPClient)
+		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
 		telegramChannel = telegramClient
+		telegramAcknowledger = telegramClient
 	}
-	app.channel = newRoutedChannel(telegramChannel, webChannel, strconv.FormatInt(config.Telegram.OwnerID, 10))
+	app.channel = newRoutedChannel(telegramChannel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
@@ -307,13 +311,13 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
-	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel, owner))
+	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel))
 	for _, tool := range baseTools {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
 	}
-	progress := channelutil.NewProgressTracker(app.channel, owner)
+	progress := channelutil.NewProgressTracker(app.channel)
 	for _, tool := range services.NewRepositoryTools(stateStore, app.coding, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
@@ -358,7 +362,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, stateStore, key, options.Now)
-		for _, tool := range calendarTools(app.calendar, app.channel, strconv.FormatInt(config.Telegram.OwnerID, 10), config.Calendar.DefaultCalendar, options.Now, location, timezone) {
+		for _, tool := range calendarTools(app.calendar, app.channel, config.Calendar.DefaultCalendar, options.Now, location, timezone) {
 			if err := registry.Register(tool); err != nil {
 				return nil, err
 			}
@@ -389,7 +393,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, owner: owner, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	if app.mcp != nil {
 		app.commands.mcp = app.mcp
 	}
@@ -397,7 +401,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
-	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue)
+	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
 	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
@@ -501,9 +505,8 @@ func (e deterministicEmbedder) Embed(_ context.Context, input string) ([]float32
 
 type noopChannel struct{}
 
-func (noopChannel) Deliver(context.Context, string, string) error                     { return nil }
-func (noopChannel) DeliverApproval(context.Context, string, approvals.Approval) error { return nil }
-func (noopChannel) DeliverTrackable(context.Context, string, string) (string, error)  { return "", nil }
-func (noopChannel) EditText(context.Context, string, string, string) error            { return nil }
-func (noopChannel) AnswerCallback(context.Context, string) error                      { return nil }
-func (noopChannel) SendTyping(context.Context, string) error                          { return nil }
+func (noopChannel) Deliver(context.Context, string) error                     { return nil }
+func (noopChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
+func (noopChannel) DeliverTrackable(context.Context, string) (string, error)  { return "", nil }
+func (noopChannel) EditText(context.Context, string, string) error            { return nil }
+func (noopChannel) SendTyping(context.Context) error                          { return nil }

@@ -111,7 +111,7 @@ func handleSkillsWrite(ctx context.Context, s *CommandService, req CommandReques
 		return errorResult(err), nil
 	}
 	if s.channel != nil {
-		if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
+		if err := s.channel.DeliverApproval(ctx, approval); err != nil {
 			return CommandResult{}, err
 		}
 	}
@@ -135,7 +135,7 @@ func handleSkillsRemove(ctx context.Context, s *CommandService, req CommandReque
 		return errorResult(err), nil
 	}
 	if s.channel != nil {
-		if err := s.channel.DeliverApproval(ctx, s.owner, approval); err != nil {
+		if err := s.channel.DeliverApproval(ctx, approval); err != nil {
 			return CommandResult{}, err
 		}
 	}

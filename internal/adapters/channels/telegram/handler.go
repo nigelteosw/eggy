@@ -15,14 +15,26 @@ import (
 
 type EventSink func(context.Context, events.Event) error
 
+// CallbackAcknowledger clears the loading spinner Telegram shows on a
+// tapped inline button. *Client implements it.
+type CallbackAcknowledger interface {
+	AnswerCallback(ctx context.Context, callbackQueryID string) error
+}
+
 type WebhookHandler struct {
 	ownerID int64
 	secret  string
 	sink    EventSink
+	// acknowledger acks a tapped button as the update arrives. Acking is
+	// part of receiving a Telegram update, not of delivering a reply, so it
+	// happens here rather than on the asynchronous event path -- and it
+	// keeps the callback query ID, a Telegram-only concept, out of the
+	// events the rest of Eggy handles. May be nil (fake-adapter mode).
+	acknowledger CallbackAcknowledger
 }
 
-func NewWebhookHandler(ownerID int64, secret string, sink EventSink) *WebhookHandler {
-	return &WebhookHandler{ownerID: ownerID, secret: secret, sink: sink}
+func NewWebhookHandler(ownerID int64, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
+	return &WebhookHandler{ownerID: ownerID, secret: secret, sink: sink, acknowledger: acknowledger}
 }
 
 type update struct {
@@ -76,6 +88,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if incoming.Callback != nil && h.acknowledger != nil {
+		// Best-effort: a failed ack only leaves a spinner on the owner's
+		// button, and must not stop the decision itself from being handled.
+		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID)
+	}
 	if err := h.sink(r.Context(), event); err != nil {
 		http.Error(w, "update failed", http.StatusInternalServerError)
 		return
@@ -99,10 +116,9 @@ func normalize(incoming update) (events.Event, int64, error) {
 			return events.Event{}, 0, fmt.Errorf("invalid approval callback")
 		}
 		payload, _ := json.Marshal(events.ApprovalDecision{
-			ApprovalID:      parts[1],
-			Approved:        parts[2] == "approve",
-			CallbackQueryID: incoming.Callback.ID,
-			MessageID:       strconv.FormatInt(incoming.Callback.Message.MessageID, 10),
+			ApprovalID: parts[1],
+			Approved:   parts[2] == "approve",
+			MessageID:  strconv.FormatInt(incoming.Callback.Message.MessageID, 10),
 		})
 		base.Type, base.Owner, base.Payload = events.TypeApproval, strconv.FormatInt(incoming.Callback.From.ID, 10), payload
 		return base, incoming.Callback.From.ID, nil

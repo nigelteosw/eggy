@@ -18,7 +18,7 @@ func TestCommandSkillsAddShowDisableEnableRemove(t *testing.T) {
 	skills := services.NewSkillsService(skillsStore, store, gateway, gateway, nil)
 	var delivered approvals.Approval
 	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
-	commands := &CommandService{store: store, skills: skills, channel: channel, owner: "42"}
+	commands := &CommandService{store: store, skills: skills, channel: channel}
 	ctx := context.Background()
 
 	output, handled, err := commands.Execute(ctx, "/skills")
@@ -94,7 +94,7 @@ func TestSkillProposeToolStagesApprovalWithoutWriting(t *testing.T) {
 	skills := services.NewSkillsService(skillsStore, store, gateway, gateway, nil)
 	var delivered approvals.Approval
 	channel := &commandTestChannel{onApproval: func(approval approvals.Approval) { delivered = approval }}
-	tool := skillProposeTool(skills, channel, "42")
+	tool := skillProposeTool(skills, channel)
 
 	ctx := context.Background()
 	result, err := tool.Execute(ctx, []byte(`{"name":"fix-flaky-tests","description":"Use when a test intermittently fails","content":"1. Rerun with -count=10"}`))

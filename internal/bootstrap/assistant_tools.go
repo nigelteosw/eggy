@@ -35,7 +35,7 @@ func currentTimeTool(now func() time.Time, location *time.Location, timezone str
 	return tool
 }
 
-func calendarTools(calendar *services.CalendarService, channel ports.Channel, owner, defaultCalendar string, now func() time.Time, location *time.Location, timezone string) []ports.Tool {
+func calendarTools(calendar *services.CalendarService, channel ports.Channel, defaultCalendar string, now func() time.Time, location *time.Location, timezone string) []ports.Tool {
 	list := bootstrapTool{definition: toolDefinition("calendar_list", "List events across all non-hidden readable calendars by default; set calendar_id only to limit the read to one calendar; use range=today, tomorrow, or this_week for relative dates so Eggy resolves trusted boundaries; reads do not require approval", `{"type":"object","properties":{"calendar_id":{"type":"string"},"range":{"type":"string","enum":["today","tomorrow","this_week"]},"from":{"type":"string"},"to":{"type":"string"}},"additionalProperties":false}`)}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -94,7 +94,7 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		if err != nil {
 			return nil, err
 		}
-		if err := channel.DeliverApproval(ctx, owner, approval); err != nil {
+		if err := channel.DeliverApproval(ctx, approval); err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
@@ -112,7 +112,7 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		if err != nil {
 			return nil, err
 		}
-		if err := channel.DeliverApproval(ctx, owner, approval); err != nil {
+		if err := channel.DeliverApproval(ctx, approval); err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
@@ -134,7 +134,7 @@ func calendarTools(calendar *services.CalendarService, channel ports.Channel, ow
 		if err != nil {
 			return nil, err
 		}
-		if err := channel.DeliverApproval(ctx, owner, approval); err != nil {
+		if err := channel.DeliverApproval(ctx, approval); err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})
@@ -185,7 +185,7 @@ func resolveCalendarRange(named, rawFrom, rawTo string, now time.Time, location 
 // mirroring calendar_create's shape: it only ever requests approval — like
 // calendar mutations, it needs channel.DeliverApproval, which is available
 // only here in the bootstrap wiring layer, not in kernel/services.
-func skillProposeTool(skills *services.SkillsService, channel ports.Channel, owner string) ports.Tool {
+func skillProposeTool(skills *services.SkillsService, channel ports.Channel) ports.Tool {
 	propose := bootstrapTool{definition: toolDefinition("skill_propose", "Propose creating or updating a procedural skill worth reusing later, e.g. after a successful complex workflow, a recovered failure, or an owner correction; requires owner approval before anything is written", `{"type":"object","properties":{"name":{"type":"string","minLength":1},"description":{"type":"string","minLength":1},"content":{"type":"string","minLength":1}},"required":["name","description","content"],"additionalProperties":false}`)}
 	propose.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -200,7 +200,7 @@ func skillProposeTool(skills *services.SkillsService, channel ports.Channel, own
 		if err != nil {
 			return nil, err
 		}
-		if err := channel.DeliverApproval(ctx, owner, approval); err != nil {
+		if err := channel.DeliverApproval(ctx, approval); err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]string{"approval_id": approval.ID, "status": "awaiting_owner"})

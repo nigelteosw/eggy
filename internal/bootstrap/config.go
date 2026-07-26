@@ -33,6 +33,7 @@ func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 type Config struct {
 	Server                 ServerConfig                `yaml:"server"`
 	DataDir                string                      `yaml:"data_dir"`
+	Owner                  OwnerConfig                 `yaml:"owner"`
 	Telegram               TelegramConfig              `yaml:"telegram"`
 	Agent                  AgentConfig                 `yaml:"-"`
 	Providers              map[string]ProviderConfig   `yaml:"-"`
@@ -73,6 +74,15 @@ type ServerConfig struct {
 	Listen              string `yaml:"listen"`
 	PublicBaseURL       string `yaml:"public_base_url"`
 	TelegramWebhookPath string `yaml:"telegram_webhook_path"`
+}
+
+// OwnerConfig is Eggy's system-wide identity: the one owner every surface
+// (Telegram, web, schedules, heartbeats) authorizes against, independent of
+// how any one surface authenticates that owner. See TelegramConfig.OwnerID
+// for Telegram's own surface-specific numeric chat ID, which the Telegram
+// adapter maps onto this ID rather than the reverse.
+type OwnerConfig struct {
+	ID string `yaml:"id"`
 }
 
 type TelegramConfig struct {
@@ -158,6 +168,7 @@ type Secrets struct {
 type commonConfigDocument struct {
 	Server                 ServerConfig                `yaml:"server"`
 	DataDir                string                      `yaml:"data_dir"`
+	Owner                  OwnerConfig                 `yaml:"owner"`
 	Telegram               TelegramConfig              `yaml:"telegram"`
 	Repositories           []RepositoryConfig          `yaml:"repositories"`
 	Runner                 RunnerConfig                `yaml:"runner"`
@@ -271,14 +282,14 @@ func decodeKnownYAML(data []byte, destination any) error {
 func normalizeConfig(document configDocument) Config {
 	common := document.commonConfigDocument
 	return Config{
-		Server: common.Server, DataDir: common.DataDir, Telegram: common.Telegram,
+		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Embeddings: document.Embeddings,
 		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -307,6 +318,14 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.DataDir == "" {
 		c.DataDir = "/data"
+	}
+	// A config written before owner.id existed only carries
+	// telegram.owner_id; derive the canonical identity from it so existing
+	// deployments keep working unchanged. A config that sets owner.id
+	// directly (a web-only deployment with no Telegram section) needs no
+	// Telegram configuration at all.
+	if c.Owner.ID == "" && c.Telegram.OwnerID != 0 {
+		c.Owner.ID = strconv.FormatInt(c.Telegram.OwnerID, 10)
 	}
 	if c.Runner.Root == "" {
 		c.Runner.Root = filepath.Join(c.DataDir, "runs")
@@ -355,8 +374,18 @@ var (
 )
 
 func (c Config) Validate() error {
+	if strings.TrimSpace(c.Owner.ID) == "" {
+		return errors.New("owner.id must be set")
+	}
+	// Telegram construction is still unconditional in NewApp (see TODO.md's
+	// "Split bootstrap into a core and its surfaces"), so telegram.owner_id
+	// remains required here too even though owner.id is now the identity
+	// every other surface reads.
 	if c.Telegram.OwnerID <= 0 {
 		return errors.New("telegram.owner_id must be positive")
+	}
+	if strconv.FormatInt(c.Telegram.OwnerID, 10) != c.Owner.ID {
+		return errors.New("owner.id must match telegram.owner_id when Telegram is configured")
 	}
 	u, err := url.Parse(c.Server.PublicBaseURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {

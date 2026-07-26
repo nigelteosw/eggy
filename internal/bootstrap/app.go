@@ -303,7 +303,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	})
 	registry := services.NewToolRegistry()
 	app.coding = services.NewCodingService(stateStore, runner, repositoryAdapter, implementer, options.Now, sessions, app.approvals)
-	owner := strconv.FormatInt(config.Telegram.OwnerID, 10)
+	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		services.NewStatusTool(stateStore, sessions),
 		currentTimeTool(options.Now, location, timezone),

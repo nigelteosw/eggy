@@ -5,9 +5,12 @@ import { McpCard } from "./McpCard";
 
 export function ConfigPage({ onSessionExpired }: { onSessionExpired: () => void }) {
   return (
-    <div className="min-h-screen bg-slate-100 p-8">
+    <div className="min-h-screen bg-background px-4 py-10 sm:px-8">
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        <h1 className="text-2xl font-semibold text-slate-900">Eggy config</h1>
+        <header className="flex flex-col gap-1 pb-2">
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-sm text-muted-foreground">Providers, models, and integrations for your Eggy instance.</p>
+        </header>
         <ProvidersCard onSessionExpired={onSessionExpired} />
         <ModelsCard onSessionExpired={onSessionExpired} />
         <CalendarCard onSessionExpired={onSessionExpired} />

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, MCPServerInput, SessionExpiredError, listMCPServers, removeMCPServer, setMCPServer } from "./api";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import { DataTable } from "./components/ui/data-table";
+import { Input } from "./components/ui/input";
+import { Select } from "./components/ui/select";
+import { Switch } from "./components/ui/switch";
 
 export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null);
@@ -65,80 +71,61 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
   }
 
   return (
-    <section className="rounded-lg bg-white p-6 shadow">
-      <h2 className="mb-4 text-lg font-semibold text-slate-900">MCP servers</h2>
-      {result?.table_rows && result.table_rows.length > 0 ? (
-        <table className="mb-4 w-full text-left text-sm">
-          <thead>
-            <tr>
-              {result.table_headers?.map((header) => (
-                <th key={header} className="border-b border-slate-200 pb-2 pr-4 font-medium text-slate-500">
-                  {header}
-                </th>
-              ))}
-              <th className="border-b border-slate-200 pb-2 font-medium text-slate-500" />
-            </tr>
-          </thead>
-          <tbody>
-            {result.table_rows.map((row) => (
-              <tr key={row[0]}>
-                {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="border-b border-slate-100 py-2 pr-4 text-slate-700">
-                    {cell}
-                  </td>
-                ))}
-                <td className="border-b border-slate-100 py-2">
-                  <button type="button" onClick={() => handleRemove(row[0])} className="text-sm text-red-600 hover:underline">
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="mb-4 text-sm text-slate-500">No MCP servers configured yet.</p>
-      )}
-      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-        <input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} className="rounded border border-slate-300 px-3 py-2" required />
-        <input
-          placeholder="url (https://...)"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          className="rounded border border-slate-300 px-3 py-2"
-          required
+    <Card>
+      <CardHeader>
+        <CardTitle>MCP servers</CardTitle>
+        <CardDescription>External tool servers Eggy can call during a turn.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <DataTable
+          headers={result?.table_headers}
+          rows={result?.table_rows}
+          empty="No MCP servers configured yet."
+          renderRowAction={(row) => (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleRemove(row[0])}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              Remove
+            </Button>
+          )}
         />
-        <select
-          value={auth}
-          onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])}
-          className="rounded border border-slate-300 px-3 py-2"
-        >
-          <option value="oauth">oauth</option>
-          <option value="bearer-env">bearer-env</option>
-          <option value="none">none</option>
-        </select>
-        {auth === "bearer-env" && (
-          <input
-            placeholder="bearer_token_env"
-            value={bearerTokenEnv}
-            onChange={(e) => setBearerTokenEnv(e.target.value)}
-            className="rounded border border-slate-300 px-3 py-2"
-            required
-          />
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <Input placeholder="url (https://...)" value={url} onChange={(e) => setUrl(e.target.value)} required />
+          <Select value={auth} onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])}>
+            <option value="oauth">oauth</option>
+            <option value="bearer-env">bearer-env</option>
+            <option value="none">none</option>
+          </Select>
+          {auth === "bearer-env" && (
+            <Input
+              placeholder="bearer_token_env"
+              value={bearerTokenEnv}
+              onChange={(e) => setBearerTokenEnv(e.target.value)}
+              required
+            />
+          )}
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5 sm:col-span-2">
+            <Switch checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
+          </div>
+          <Button type="submit" disabled={saving} className="sm:col-span-2">
+            {saving ? "Saving..." : "Add / update server"}
+          </Button>
+        </form>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          An oauth server still needs <code className="rounded bg-muted px-1 py-0.5 text-[0.9em]">/mcp login &lt;name&gt;</code> via
+          Telegram/CLI after restart. Advanced settings (timeouts, tool filters) stay config.yaml-only.
+        </p>
+        {error && (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
         )}
-        <label className="col-span-2 flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          Enabled
-        </label>
-        <button type="submit" disabled={saving} className="col-span-2 rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50">
-          {saving ? "Saving..." : "Add / update server"}
-        </button>
-      </form>
-      <p className="mt-3 text-xs text-slate-500">
-        An oauth server still needs /mcp login &lt;name&gt; via Telegram/CLI after restart. Advanced settings (timeouts, tool
-        filters) stay config.yaml-only.
-      </p>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

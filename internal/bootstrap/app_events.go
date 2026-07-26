@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -370,7 +369,7 @@ func (a *App) Run(ctx context.Context) error {
 					eventType = events.TypeScheduledMessage
 				}
 				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Destination: destination.Destination{Kind: destination.Telegram}, Payload: payload}
+				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: destination.Destination{Kind: destination.Telegram}, Payload: payload}
 				a.workers.Add(1)
 				go func() {
 					defer a.workers.Done()
@@ -387,7 +386,7 @@ func (a *App) Run(ctx context.Context) error {
 				}()
 			}
 		case now := <-heartbeatTicker.C:
-			_ = a.HandleEvent(ctx, events.Event{ID: "heartbeat:" + now.Format(time.RFC3339Nano), Type: events.TypeHeartbeat, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Payload: json.RawMessage(`{}`)})
+			_ = a.HandleEvent(ctx, events.Event{ID: "heartbeat:" + now.Format(time.RFC3339Nano), Type: events.TypeHeartbeat, Owner: a.config.Owner.ID, Timestamp: now, Payload: json.RawMessage(`{}`)})
 		}
 	}
 }

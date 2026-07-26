@@ -26,7 +26,12 @@ export function App() {
   }, []);
 
   if (status === "checking") {
-    return <div className="flex min-h-screen items-center justify-center text-slate-500">Loading...</div>;
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-muted-foreground">
+        <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
+        <span className="text-sm">Loading...</span>
+      </div>
+    );
   }
   if (status === "unauthenticated") {
     return <LoginPage onLoggedIn={() => setStatus("authenticated")} />;
@@ -35,30 +40,45 @@ export function App() {
   const onSessionExpired = () => setStatus("unauthenticated");
 
   return (
-    <div className="relative flex h-screen overflow-hidden">
+    <div className="relative flex h-screen overflow-hidden bg-background">
       <button
         type="button"
         onClick={() => setView(view === "chat" ? "config" : "chat")}
-        className="absolute right-4 top-4 z-40 rounded-full bg-white p-2 text-slate-500 shadow hover:text-slate-900"
+        className="absolute right-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         aria-label={view === "chat" ? "Open settings" : "Back to chat"}
       >
-        {view === "chat" ? "⚙" : "💬"}
+        {view === "chat" ? (
+          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="10" cy="10" r="2.6" />
+            <path d="M16.1 12.1a1.3 1.3 0 0 0 .26 1.44l.05.05a1.6 1.6 0 1 1-2.26 2.26l-.05-.05a1.3 1.3 0 0 0-1.44-.26 1.3 1.3 0 0 0-.79 1.19v.14a1.6 1.6 0 0 1-3.2 0v-.07a1.3 1.3 0 0 0-.85-1.19 1.3 1.3 0 0 0-1.44.26l-.05.05a1.6 1.6 0 1 1-2.26-2.26l.05-.05a1.3 1.3 0 0 0 .26-1.44 1.3 1.3 0 0 0-1.19-.79h-.14a1.6 1.6 0 0 1 0-3.2h.07a1.3 1.3 0 0 0 1.19-.85 1.3 1.3 0 0 0-.26-1.44l-.05-.05a1.6 1.6 0 1 1 2.26-2.26l.05.05a1.3 1.3 0 0 0 1.44.26h.07a1.3 1.3 0 0 0 .79-1.19v-.14a1.6 1.6 0 1 1 3.2 0v.07a1.3 1.3 0 0 0 .79 1.19 1.3 1.3 0 0 0 1.44-.26l.05-.05a1.6 1.6 0 1 1 2.26 2.26l-.05.05a1.3 1.3 0 0 0-.26 1.44v.07a1.3 1.3 0 0 0 1.19.79h.14a1.6 1.6 0 0 1 0 3.2h-.07a1.3 1.3 0 0 0-1.19.79Z" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 12.1a1.6 1.6 0 0 1-1.6 1.6H5.8L2.6 16.9V4.3A1.6 1.6 0 0 1 4.2 2.7h11.2A1.6 1.6 0 0 1 17 4.3Z" />
+          </svg>
+        )}
       </button>
       {view === "chat" ? (
         <>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="absolute left-4 top-4 z-40 rounded-full bg-white p-2 text-slate-500 shadow hover:text-slate-900 md:hidden"
+            className="absolute left-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
             aria-label="Open chat list"
           >
-            ☰
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+              <path d="M3.5 6h13M3.5 10h13M3.5 14h13" />
+            </svg>
           </button>
           {sidebarOpen && (
-            <div className="fixed inset-0 z-20 bg-black/30 md:hidden" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+            <div
+              className="fixed inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
+              onClick={() => setSidebarOpen(false)}
+              aria-hidden="true"
+            />
           )}
           <div
-            className={`fixed inset-y-0 left-0 z-30 transition-transform duration-200 md:static md:translate-x-0 ${
+            className={`fixed inset-y-0 left-0 z-30 shadow-lift transition-transform duration-200 ease-out md:static md:shadow-none md:translate-x-0 ${
               sidebarOpen ? "translate-x-0" : "-translate-x-full"
             }`}
           >
@@ -80,7 +100,10 @@ export function App() {
               />
             </div>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-slate-400">Select a chat, or start a new one.</div>
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+              <span className="text-3xl">🥚</span>
+              <p className="text-sm text-muted-foreground">Select a chat, or start a new one.</p>
+            </div>
           )}
         </>
       ) : (

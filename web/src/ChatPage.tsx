@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, getChatHistory, sendChatMessage } from "./api";
+import { Button } from "./components/ui/button";
+import { cn } from "./lib/utils";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
 type PendingApproval = { id: string; summary: string };
@@ -14,9 +16,14 @@ type PendingApproval = { id: string; summary: string };
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
   return (
     <div
-      className={`prose prose-sm max-w-none break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${
-        isUserBubble ? "prose-invert" : ""
-      }`}
+      className={cn(
+        "prose prose-sm max-w-none break-words leading-relaxed",
+        "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+        "prose-pre:rounded-md prose-pre:text-[0.8125rem] prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
+        isUserBubble
+          ? "prose-invert prose-a:text-primary-foreground prose-pre:bg-black/25 prose-code:text-primary-foreground"
+          : "prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-a:text-primary prose-pre:bg-muted prose-pre:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
+      )}
     >
       <Markdown
         remarkPlugins={[remarkGfm]}
@@ -156,54 +163,87 @@ export function ChatPage({
   }
 
   return (
-    <div className="flex h-full flex-col bg-slate-100">
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 overflow-y-auto p-6">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-              message.role === "user" ? "self-end bg-slate-900 text-white" : "self-start bg-white text-slate-900 shadow"
-            }`}
-          >
-            <MessageBody text={message.text} isUserBubble={message.role === "user"} />
-          </div>
-        ))}
-        {typing && <div className="self-start text-xs text-slate-400">Eggy is typing...</div>}
-        {approvals.map((approval) => (
-          <div key={approval.id} className="self-start rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm shadow">
-            <p className="mb-3 text-slate-800">{approval.summary}</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => handleApproval(approval.id, true)}
-                className="rounded bg-slate-900 px-3 py-1 text-white"
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                onClick={() => handleApproval(approval.id, false)}
-                className="rounded border border-slate-300 px-3 py-1 text-slate-700"
-              >
-                Reject
-              </button>
+    <div className="flex h-full flex-col bg-background">
+      <div className="scrollbar-slim flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8 sm:px-6">
+          {messages.length === 0 && !typing && (
+            <div className="flex flex-col items-center gap-2 py-16 text-center">
+              <span className="text-3xl">🥚</span>
+              <p className="text-sm text-muted-foreground">Ask Eggy anything to get started.</p>
             </div>
-          </div>
-        ))}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <div ref={bottomRef} />
+          )}
+          {messages.map((message) => {
+            const isUser = message.role === "user";
+            return (
+              <div key={message.id} className={cn("flex animate-fade-in-up", isUser ? "justify-end" : "justify-start")}>
+                <div
+                  className={cn(
+                    "max-w-[85%] px-4 py-2.5 text-sm sm:max-w-[80%]",
+                    isUser
+                      ? "rounded-2xl rounded-br-md bg-primary text-primary-foreground shadow-subtle"
+                      : "rounded-2xl rounded-bl-md border border-border bg-card text-card-foreground shadow-card",
+                  )}
+                >
+                  <MessageBody text={message.text} isUserBubble={isUser} />
+                </div>
+              </div>
+            );
+          })}
+          {typing && (
+            <div className="flex items-center gap-2 pl-1 text-xs text-muted-foreground">
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground" />
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground [animation-delay:0.15s]" />
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground [animation-delay:0.3s]" />
+              </span>
+              Eggy is typing
+            </div>
+          )}
+          {approvals.map((approval) => (
+            <div
+              key={approval.id}
+              className="animate-fade-in-up self-start rounded-2xl rounded-bl-md border border-amber-300/70 bg-amber-50 p-4 text-sm shadow-card"
+            >
+              <div className="mb-3 flex items-start gap-2">
+                <span className="mt-0.5 text-base leading-none">⚠️</span>
+                <p className="text-amber-950">{approval.summary}</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={() => handleApproval(approval.id, true)}>
+                  Approve
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => handleApproval(approval.id, false)}>
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
-      <form onSubmit={handleSend} className="border-t border-slate-200 bg-white p-4">
-        <div className="mx-auto flex max-w-2xl gap-2">
+      <form onSubmit={handleSend} className="border-t border-border bg-card/80 px-4 py-4 backdrop-blur sm:px-6">
+        <div
+          className={cn(
+            "mx-auto flex max-w-2xl items-center gap-2 rounded-xl border border-input bg-card p-1.5 shadow-subtle transition-shadow",
+            "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25",
+          )}
+        >
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Message Eggy..."
-            className="flex-1 rounded border border-slate-300 px-3 py-2"
+            className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
           />
-          <button type="submit" className="rounded bg-slate-900 px-4 py-2 text-white">
-            Send
-          </button>
+          <Button type="submit" size="icon" disabled={!draft.trim()} aria-label="Send message" className="shrink-0 rounded-lg">
+            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3.4 10h13.2M11 4.4 16.6 10 11 15.6" />
+            </svg>
+          </Button>
         </div>
       </form>
     </div>

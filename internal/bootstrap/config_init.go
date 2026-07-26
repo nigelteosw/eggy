@@ -119,6 +119,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			TelegramWebhookPath: "/webhooks/telegram",
 		},
 		DataDir:  "/data",
+		Owner:    OwnerConfig{ID: ownerValue},
 		Telegram: TelegramConfig{OwnerID: ownerID},
 		Agent:    AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers: map[string]ProviderConfig{

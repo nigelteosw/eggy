@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+import { Input } from "./components/ui/input";
+import { Switch } from "./components/ui/switch";
 
 function fieldValue(fields: { label: string; value: string }[] | undefined, label: string): string {
   return fields?.find((field) => field.label === label)?.value ?? "";
@@ -27,25 +31,28 @@ export function CalendarCard({ onSessionExpired }: { onSessionExpired: () => voi
   }
 
   return (
-    <section className="rounded-lg bg-white p-6 shadow">
-      <h2 className="mb-4 text-lg font-semibold text-slate-900">Calendar</h2>
-      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-        <label className="col-span-2 flex items-center gap-2 text-sm text-slate-700">
-          <input type="checkbox" checked={enabled === "true"} onChange={(e) => setEnabled(e.target.checked ? "true" : "false")} />
-          Enabled
-        </label>
-        <input
-          placeholder="default_calendar"
-          value={defaultCalendar}
-          onChange={(e) => setDefaultCalendar(e.target.value)}
-          className="rounded border border-slate-300 px-3 py-2"
-        />
-        <input placeholder="timezone (IANA)" value={timezone} onChange={(e) => setTimezone(e.target.value)} className="rounded border border-slate-300 px-3 py-2" />
-        <button type="submit" disabled={saving} className="col-span-2 rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50">
-          {saving ? "Saving..." : "Save calendar settings"}
-        </button>
-      </form>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle>Calendar</CardTitle>
+        <CardDescription>Let Eggy read and schedule against your calendar.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5 sm:col-span-2">
+            <Switch checked={enabled === "true"} onCheckedChange={(next) => setEnabled(next ? "true" : "false")} label="Enabled" />
+          </div>
+          <Input placeholder="default_calendar" value={defaultCalendar} onChange={(e) => setDefaultCalendar(e.target.value)} />
+          <Input placeholder="timezone (IANA)" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
+          <Button type="submit" disabled={saving} className="sm:col-span-2">
+            {saving ? "Saving..." : "Save calendar settings"}
+          </Button>
+        </form>
+        {error && (
+          <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

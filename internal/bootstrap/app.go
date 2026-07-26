@@ -503,10 +503,11 @@ func (e deterministicEmbedder) Embed(_ context.Context, input string) ([]float32
 	return embedding, nil
 }
 
+// noopChannel is the channel used when no surface is configured at all. It
+// implements only ports.Channel: with nowhere to deliver to there is no
+// message to edit in place and no one to show a typing indicator to, so it
+// claims neither optional extension rather than stubbing them.
 type noopChannel struct{}
 
 func (noopChannel) Deliver(context.Context, string) error                     { return nil }
 func (noopChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
-func (noopChannel) DeliverTrackable(context.Context, string) (string, error)  { return "", nil }
-func (noopChannel) EditText(context.Context, string, string) error            { return nil }
-func (noopChannel) SendTyping(context.Context) error                          { return nil }

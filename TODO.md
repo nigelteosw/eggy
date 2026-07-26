@@ -138,12 +138,15 @@ guard.
       query is a detail of *receiving* a Telegram update, so it now happens in
       `telegram.WebhookHandler` as the tap arrives, and
       `events.ApprovalDecision.CallbackQueryID` is gone with it.
-  - [ ] Still optional: split what remains into `Channel`
-        (`Deliver`/`DeliverApproval`) plus optional `TrackableChannel`
-        (`DeliverTrackable`/`EditText`) and `TypingChannel`, so a surface
-        without in-place edits or typing indicators can implement the port
-        honestly. Every channel today supports all five, so this buys nothing
-        until a surface that doesn't shows up.
+  - [x] Split what remains into `Channel` (`Deliver`/`DeliverApproval`) plus
+        optional `TrackableChannel` (`DeliverTrackable`/`EditText`) and
+        `TypingChannel` (`SendTyping`), so a surface without in-place edits or
+        typing indicators implements the port honestly. `channelutil` owns the
+        capability check: `DeliverTrackable` falls back to a plain `Deliver`,
+        `EditText` reports `ErrEditsUnsupported` so `DeliverOutcome` and
+        `ProgressTracker` take the fallback path they already had, and
+        `StartTyping` returns a no-op stop. Telegram and webchat assert all
+        three at compile time; `noopChannel` now implements only `Channel`.
 - [ ] Move `Destination` out of `internal/kernel/approvals` into its own kernel
       package; approvals, events, and the turn orchestrator are all consumers,
       and none of them is approvals-specific.

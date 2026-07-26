@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -46,6 +47,19 @@ func (f *fakeChannel) SendTyping(context.Context) error {
 	f.typingCalls++
 	return nil
 }
+
+// baseChannel implements only ports.Channel: no in-place edits, no typing
+// indicator. It stands in for a surface that cannot honour the optional
+// extensions.
+type baseChannel struct {
+	delivered []string
+}
+
+func (b *baseChannel) Deliver(_ context.Context, text string) error {
+	b.delivered = append(b.delivered, text)
+	return nil
+}
+func (b *baseChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
 
 func telegramCtx() context.Context {
 	return approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationTelegram})
@@ -115,7 +129,7 @@ func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 	web := &fakeChannel{trackableID: "abc"}
 	channel := newRoutedChannel(telegram, web)
 
-	id, err := channel.DeliverTrackable(webCtx("thread-1"), "working...")
+	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,12 +138,46 @@ func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 	}
 }
 
+func TestRoutedChannelDeliverTrackableFallsBackToPlainDeliveryForABaseChannel(t *testing.T) {
+	telegram := &fakeChannel{trackableID: "123"}
+	web := &baseChannel{}
+	channel := newRoutedChannel(telegram, web)
+
+	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "" {
+		t.Fatalf("id=%q, want no handle from a channel that cannot edit", id)
+	}
+	if len(web.delivered) != 1 || web.delivered[0] != "working..." {
+		t.Fatalf("web.delivered=%#v, want the text delivered anyway", web.delivered)
+	}
+}
+
+func TestRoutedChannelEditTextReportsUnsupportedForABaseChannel(t *testing.T) {
+	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{})
+
+	err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done")
+	if !errors.Is(err, channelutil.ErrEditsUnsupported) {
+		t.Fatalf("err=%v, want ErrEditsUnsupported so callers take the fallback path", err)
+	}
+}
+
+func TestRoutedChannelSendTypingIsANoopForABaseChannel(t *testing.T) {
+	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{})
+
+	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
+		t.Fatalf("err=%v, want a silent no-op for a channel with no typing indicator", err)
+	}
+}
+
 func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
 	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.EditText(webCtx("thread-1"), "abc", "done"); err != nil {
+	if err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done"); err != nil {
 		t.Fatal(err)
 	}
 	if len(web.editCalls) != 1 || web.editCalls[0] != "abc:done" {
@@ -145,7 +193,7 @@ func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 	web := &fakeChannel{}
 	channel := newRoutedChannel(telegram, web)
 
-	if err := channel.SendTyping(webCtx("thread-1")); err != nil {
+	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatal(err)
 	}
 	if web.typingCalls != 1 {

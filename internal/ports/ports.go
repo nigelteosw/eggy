@@ -92,11 +92,34 @@ type Tool interface {
 // The port covers delivery only. Acknowledging a Telegram callback query is
 // part of *receiving* an update and lives in that adapter's webhook handler,
 // not here, so no other surface has to implement a concept it doesn't have.
+//
+// Channel is the floor every surface must reach: send text, and ask for a
+// decision. In-place edits and typing indicators are surface-specific
+// affordances, so they live in the optional TrackableChannel and
+// TypingChannel extensions rather than forcing a surface without them to
+// stub methods it cannot honour. Consumers type-assert for the extension
+// they want and degrade when it is absent -- see internal/adapters/channels/
+// channelutil, which does exactly that once so callers don't repeat it.
 type Channel interface {
 	Deliver(ctx context.Context, text string) error
 	DeliverApproval(ctx context.Context, approval approvals.Approval) error
+}
+
+// TrackableChannel is a Channel whose messages can be revised after the
+// fact: DeliverTrackable returns a handle for the message it sent, and
+// EditText rewrites that message in place. Surfaces use it to keep one live
+// message for a long-running run instead of a message per step.
+type TrackableChannel interface {
+	Channel
 	DeliverTrackable(ctx context.Context, text string) (messageID string, err error)
 	EditText(ctx context.Context, messageID, text string) error
+}
+
+// TypingChannel is a Channel that can show the user that a turn is in
+// progress. The indicator is advisory: a surface without one is still a
+// perfectly good Channel.
+type TypingChannel interface {
+	Channel
 	SendTyping(ctx context.Context) error
 }
 

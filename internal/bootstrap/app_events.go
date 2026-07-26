@@ -243,10 +243,10 @@ func (a *App) toolCallProgress(ctx context.Context) (onToolCall func(string), fi
 	var messageID string
 	var calls []string
 	render := func(text string) {
-		if messageID != "" && a.channel.EditText(ctx, messageID, text) == nil {
+		if messageID != "" && channelutil.EditText(ctx, a.channel, messageID, text) == nil {
 			return
 		}
-		if id, err := a.channel.DeliverTrackable(ctx, text); err == nil {
+		if id, err := channelutil.DeliverTrackable(ctx, a.channel, text); err == nil {
 			messageID = id
 		}
 	}

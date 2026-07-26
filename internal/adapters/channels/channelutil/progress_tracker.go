@@ -13,7 +13,9 @@ import (
 // instead of sending a message per step. Tracking is in-memory only: if an
 // edit fails (e.g. the message is too old, or Eggy restarted and lost the
 // mapping) it falls back to sending a fresh message and tracks that one
-// going forward.
+// going forward. A channel without in-place edits (not a
+// ports.TrackableChannel) takes that same fallback every time, so progress
+// still arrives -- as one message per step rather than one live message.
 //
 // It depends on nothing but ports.Channel, which is why it lives here rather
 // than in a specific channel adapter: a run started from any surface reports
@@ -48,7 +50,7 @@ func (t *ProgressTracker) Deliver(ctx context.Context, progress ports.CodingProg
 		t.active[progress.RunID] = tracked
 	}
 	t.mu.Unlock()
-	if exists && t.channel.EditText(ctx, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
+	if exists && EditText(ctx, t.channel, tracked.messageID, renderTimeline(progress.RunID, tracked.entries)) == nil {
 		t.clearIfTerminal(progress)
 		return
 	}
@@ -56,7 +58,7 @@ func (t *ProgressTracker) Deliver(ctx context.Context, progress ports.CodingProg
 	if exists {
 		entries = tracked.entries
 	}
-	if id, err := t.channel.DeliverTrackable(ctx, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
+	if id, err := DeliverTrackable(ctx, t.channel, renderTimeline(progress.RunID, entries)); err == nil && id != "" {
 		t.mu.Lock()
 		t.active[progress.RunID] = trackedProgress{messageID: id, entries: entries}
 		t.mu.Unlock()

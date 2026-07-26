@@ -11,6 +11,14 @@ import (
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/ports"
+)
+
+// Telegram supports every optional channel affordance: bot API messages can
+// be edited in place and the chat action doubles as a typing indicator.
+var (
+	_ ports.TrackableChannel = (*Client)(nil)
+	_ ports.TypingChannel    = (*Client)(nil)
 )
 
 const maxMessageLength = 3500

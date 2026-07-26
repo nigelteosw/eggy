@@ -8,10 +8,10 @@ import (
 
 // DeliverOutcome edits the original message in place when a message ID was
 // captured for it, falling back to a new message when no ID is available
-// (e.g. after a restart) or the edit itself fails (e.g. the message is too
-// old for the channel to edit).
+// (e.g. after a restart), the channel does not support edits at all, or the
+// edit itself fails (e.g. the message is too old for the channel to edit).
 func DeliverOutcome(ctx context.Context, channel ports.Channel, messageID, text string) error {
-	if messageID != "" && channel.EditText(ctx, messageID, text) == nil {
+	if messageID != "" && EditText(ctx, channel, messageID, text) == nil {
 		return nil
 	}
 	return channel.Deliver(ctx, text)

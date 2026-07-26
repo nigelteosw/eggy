@@ -15,9 +15,16 @@ import (
 // every interval until the returned stop function is called, since a
 // typing indicator typically expires a few seconds after each call. The
 // stop function blocks until the background sender has fully exited.
+//
+// A channel with no typing indicator (not a ports.TypingChannel) gets no
+// background sender at all, and the returned stop function is a no-op.
 func StartTyping(ctx context.Context, channel ports.Channel, interval time.Duration) func() {
+	typing, ok := channel.(ports.TypingChannel)
+	if !ok {
+		return func() {}
+	}
 	typingCtx, cancel := context.WithCancel(ctx)
-	_ = channel.SendTyping(typingCtx)
+	_ = typing.SendTyping(typingCtx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -28,7 +35,7 @@ func StartTyping(ctx context.Context, channel ports.Channel, interval time.Durat
 			case <-typingCtx.Done():
 				return
 			case <-ticker.C:
-				_ = channel.SendTyping(typingCtx)
+				_ = typing.SendTyping(typingCtx)
 			}
 		}
 	}()

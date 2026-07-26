@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 
+	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -17,6 +18,14 @@ import (
 // It only chooses a channel. Each underlying channel resolves its own
 // target: the Telegram client is bound to the owner chat at construction,
 // and webchat reads the destination's thread ID off the same ctx.
+//
+// It implements the optional ports.TrackableChannel and ports.TypingChannel
+// extensions unconditionally, because a Go type either has a method or it
+// does not and the honest answer here ("trackable when this turn routes to
+// a trackable channel") is not expressible statically. The capability check
+// therefore moves inside each method, via the channelutil helpers, so a
+// turn routed at a channel lacking the affordance degrades exactly as a
+// direct caller on that channel would.
 type routedChannel struct {
 	telegram ports.Channel
 	web      ports.Channel
@@ -56,13 +65,17 @@ func (r *routedChannel) DeliverApproval(ctx context.Context, approval approvals.
 }
 
 func (r *routedChannel) DeliverTrackable(ctx context.Context, text string) (string, error) {
-	return r.route(ctx).DeliverTrackable(ctx, text)
+	return channelutil.DeliverTrackable(ctx, r.route(ctx), text)
 }
 
 func (r *routedChannel) EditText(ctx context.Context, messageID, text string) error {
-	return r.route(ctx).EditText(ctx, messageID, text)
+	return channelutil.EditText(ctx, r.route(ctx), messageID, text)
 }
 
 func (r *routedChannel) SendTyping(ctx context.Context) error {
-	return r.route(ctx).SendTyping(ctx)
+	typing, ok := r.route(ctx).(ports.TypingChannel)
+	if !ok {
+		return nil
+	}
+	return typing.SendTyping(ctx)
 }

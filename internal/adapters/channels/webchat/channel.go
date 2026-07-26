@@ -4,6 +4,14 @@ import (
 	"context"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/ports"
+)
+
+// The browser surface renders edits and a typing indicator as its own SSE
+// event kinds, so it honours both optional extensions.
+var (
+	_ ports.TrackableChannel = (*Channel)(nil)
+	_ ports.TypingChannel    = (*Channel)(nil)
 )
 
 // Channel implements ports.Channel over a Hub. It is a browser chat

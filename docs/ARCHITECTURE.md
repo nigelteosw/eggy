@@ -260,6 +260,18 @@ part of receiving an update, so `telegram.WebhookHandler` does it as the tap
 arrives; no other surface implements a concept it doesn't have, and the
 callback query ID never travels on an `events.Event`.
 
+`Channel` itself is only the floor — `Deliver` and `DeliverApproval` — the two
+things any surface must be able to do. In-place edits
+(`ports.TrackableChannel`: `DeliverTrackable`/`EditText`) and typing
+indicators (`ports.TypingChannel`: `SendTyping`) are optional extensions, so a
+surface without them implements the port honestly instead of stubbing methods
+it cannot honour. Consumers never assert for them by hand: the
+`channelutil.DeliverTrackable`/`EditText` helpers and `channelutil.StartTyping`
+do it once and degrade predictably — a fresh message per update instead of one
+live message, and no typing indicator at all. Telegram and webchat both
+implement all three interfaces today; `bootstrap.noopChannel`, used when no
+surface is configured, implements only `Channel`.
+
 ## Safety invariants
 
 These hold regardless of what else changes in the kernel or an adapter:

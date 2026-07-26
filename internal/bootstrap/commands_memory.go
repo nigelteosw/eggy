@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 )
 
 func handleMemory(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
@@ -25,7 +25,7 @@ func handleMemory(ctx context.Context, s *CommandService, req CommandRequest) (C
 }
 
 func handleClear(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	conversationID := approvals.DestinationFromContext(ctx).ConversationID()
+	conversationID := destination.FromContext(ctx).ConversationID()
 	if err := s.conversation.Reset(ctx, conversationID); err != nil {
 		return CommandResult{}, err
 	}

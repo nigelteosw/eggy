@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
@@ -104,9 +105,10 @@ func normalize(incoming update) (events.Event, int64, error) {
 	base := events.Event{
 		ID: "telegram:" + strconv.FormatInt(incoming.UpdateID, 10), Source: "telegram",
 		Timestamp: time.Now().UTC(), CorrelationID: "telegram:" + strconv.FormatInt(incoming.UpdateID, 10),
+		Destination: destination.Destination{Kind: destination.Telegram},
 	}
 	if incoming.Message != nil {
-		payload, _ := json.Marshal(events.Message{ChatID: strconv.FormatInt(incoming.Message.Chat.ID, 10), Text: incoming.Message.Text})
+		payload, _ := json.Marshal(events.Message{Text: incoming.Message.Text})
 		base.Type, base.Owner, base.Payload = events.TypeMessage, strconv.FormatInt(incoming.Message.From.ID, 10), payload
 		return base, incoming.Message.From.ID, nil
 	}

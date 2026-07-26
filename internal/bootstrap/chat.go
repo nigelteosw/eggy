@@ -13,6 +13,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
@@ -29,11 +30,11 @@ const chatHistoryDisplayLimit = 200
 // internal/adapters/channels/telegram/handler.go's normalize), and the
 // Owner every event must carry for Dispatcher.Handle to accept it. This is
 // shared by newThreadSendHandler and newChatApproveHandler.
-func buildWebEvent(owner string, eventType events.Type, payload json.RawMessage) events.Event {
+func buildWebEvent(owner string, eventType events.Type, dest destination.Destination, payload json.RawMessage) events.Event {
 	id := "web:" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 	return events.Event{
 		ID: id, Type: eventType, Source: "web", Owner: owner,
-		Timestamp: time.Now().UTC(), CorrelationID: id, Payload: payload,
+		Timestamp: time.Now().UTC(), CorrelationID: id, Destination: dest, Payload: payload,
 	}
 }
 
@@ -134,12 +135,12 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, own
 			writeWebError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-		payload, err := json.Marshal(events.Message{ChatID: id, Text: input.Text})
+		payload, err := json.Marshal(events.Message{Text: input.Text})
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, "failed to encode message")
 			return
 		}
-		event := buildWebEvent(owner, events.TypeMessage, payload)
+		event := buildWebEvent(owner, events.TypeMessage, destination.Destination{Kind: destination.Web, ThreadID: id}, payload)
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -170,7 +171,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 			writeWebError(w, http.StatusInternalServerError, "failed to encode decision")
 			return
 		}
-		event := buildWebEvent(owner, events.TypeApproval, payload)
+		event := buildWebEvent(owner, events.TypeApproval, destination.Destination{}, payload)
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -7,6 +7,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -62,11 +63,11 @@ func (b *baseChannel) Deliver(_ context.Context, text string) error {
 func (b *baseChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
 
 func telegramCtx() context.Context {
-	return approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationTelegram})
+	return destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
 }
 
 func webCtx(threadID string) context.Context {
-	return approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: threadID})
+	return destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: threadID})
 }
 
 func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {

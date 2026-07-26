@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 )
 
 var (
@@ -52,5 +54,5 @@ type Approval struct {
 	// delivered back to, stamped once at request time from the requesting
 	// turn's ctx. The zero value (Kind: "") behaves as Telegram, matching
 	// approvals persisted before this field existed.
-	Destination Destination `json:"destination,omitempty"`
+	Destination destination.Destination `json:"destination,omitempty"`
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -33,7 +34,7 @@ func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, 
 	approval := approvals.Approval{
 		ID: randomID(), Action: action, PayloadDigest: digest, Payload: canonical, Summary: summary,
 		Status: approvals.Pending, CreatedAt: now, ExpiresAt: now.Add(s.ttl),
-		Destination: approvals.DestinationFromContext(ctx),
+		Destination: destination.FromContext(ctx),
 	}
 	state, err := s.store.Load(ctx)
 	if err != nil {
@@ -61,7 +62,7 @@ func (s *ApprovalService) RequestAndApprove(ctx context.Context, action approval
 	approval := approvals.Approval{
 		ID: randomID(), Action: action, PayloadDigest: digest, Payload: canonical, Summary: summary,
 		Status: approvals.Approved, CreatedAt: now, ExpiresAt: now.Add(s.ttl), DecidedAt: now,
-		Destination: approvals.DestinationFromContext(ctx),
+		Destination: destination.FromContext(ctx),
 	}
 	state, err := s.store.Load(ctx)
 	if err != nil {

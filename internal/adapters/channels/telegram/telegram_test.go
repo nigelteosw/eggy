@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
@@ -42,8 +43,11 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	if got.ID != "telegram:7" || got.Owner != "42" || got.Type != events.TypeMessage {
 		t.Fatalf("event=%#v", got)
 	}
+	if got.Destination.Kind != destination.Telegram {
+		t.Fatalf("destination=%#v", got.Destination)
+	}
 	var message events.Message
-	if err := json.Unmarshal(got.Payload, &message); err != nil || message.ChatID != "99" || message.Text != "hello" {
+	if err := json.Unmarshal(got.Payload, &message); err != nil || message.Text != "hello" {
 		t.Fatalf("payload=%s err=%v", got.Payload, err)
 	}
 

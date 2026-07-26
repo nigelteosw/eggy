@@ -206,7 +206,7 @@ func TestScheduledMessageDeliversVerbatimWithoutModelCall(t *testing.T) {
 	dataDir := t.TempDir()
 	noon := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	harness := newHeartbeatTestHarness(t, dataDir, noon, "should never be requested")
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "Take the bins out"})
+	payload, _ := json.Marshal(events.Message{Text: "Take the bins out"})
 	if err := harness.app.HandleEvent(context.Background(), events.Event{
 		ID: "scheduled-message-test", Type: events.TypeScheduledMessage, Owner: "42", Payload: payload,
 	}); err != nil {
@@ -237,7 +237,7 @@ func TestScheduledAgentTurnExcludesRecentConversationHistory(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "Check my calendar for conflicts"})
+	payload, _ := json.Marshal(events.Message{Text: "Check my calendar for conflicts"})
 	if err := harness.app.HandleEvent(context.Background(), events.Event{
 		ID: "schedule-test", Type: events.TypeSchedule, Owner: "42", Payload: payload,
 	}); err != nil {

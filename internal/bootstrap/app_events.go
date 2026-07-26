@@ -15,6 +15,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -44,7 +45,7 @@ func (a *App) Enqueue(ctx context.Context, event events.Event) error {
 func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	switch event.Type {
 	case events.TypeMessage:
-		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		message, err := decodeMessage(event)
 		if err != nil {
 			return err
 		}
@@ -52,7 +53,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if source == "" {
 			source = "telegram"
 		}
-		ctx = approvals.WithDestination(ctx, destinationFromEvent(event, message))
+		ctx = destination.With(ctx, event.Destination)
 		return a.handleMessage(ctx, message, agent.RunOptions{}, messageHandlingPolicy{
 			includeRecentHistory: true,
 			recordConversation:   true,
@@ -63,7 +64,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		// recent-conversation history, so an owner's earlier chat cannot
 		// silently steer instructions the owner never reviewed at the time
 		// this schedule fires.
-		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		message, err := decodeMessage(event)
 		if err != nil {
 			return err
 		}
@@ -72,7 +73,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		// A deterministic, pre-rendered notification (a reminder or
 		// watchdog-style check-in): delivered verbatim with no model call at
 		// all, as distinct from TypeSchedule above.
-		message, err := decodeMessage(event, a.config.Telegram.OwnerID)
+		message, err := decodeMessage(event)
 		if err != nil {
 			return err
 		}
@@ -90,24 +91,10 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	}
 }
 
-// destinationFromEvent derives a turn's destination from the triggering
-// event: web populates events.Message.ChatID with the thread ID (see
-// newThreadSendHandler); every other source (Telegram, schedules,
-// heartbeats) maps to the fixed Telegram destination.
-func destinationFromEvent(event events.Event, message events.Message) approvals.Destination {
-	if event.Source == "web" {
-		return approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: message.ChatID}
-	}
-	return approvals.Destination{Kind: approvals.DestinationTelegram}
-}
-
-func decodeMessage(event events.Event, ownerID int64) (events.Message, error) {
+func decodeMessage(event events.Event) (events.Message, error) {
 	var message events.Message
 	if err := json.Unmarshal(event.Payload, &message); err != nil {
 		return events.Message{}, err
-	}
-	if message.ChatID == "" {
-		message.ChatID = strconv.FormatInt(ownerID, 10)
 	}
 	return message, nil
 }
@@ -173,11 +160,11 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	manifest := a.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
-	destination := approvals.DestinationFromContext(ctx)
+	dest := destination.FromContext(ctx)
 	if policy.includeRecentHistory {
-		recent, err := a.conversation.RecentMessages(ctx, destination.ConversationID())
+		recent, err := a.conversation.RecentMessages(ctx, dest.ConversationID())
 		if err != nil {
-			a.logger.Error("recent conversation window unavailable", "conversation_id", destination.ConversationID(), "error", err)
+			a.logger.Error("recent conversation window unavailable", "conversation_id", dest.ConversationID(), "error", err)
 		} else {
 			history = append(history, recent...)
 		}
@@ -204,16 +191,16 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 		return usageErr
 	}
 	if policy.recordConversation {
-		conversationID := destination.ConversationID()
+		conversationID := dest.ConversationID()
 		if err := a.conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: message.Text}, policy.source); err != nil {
 			return err
 		}
 		if err := a.conversation.Record(ctx, conversationID, result.Message, policy.source); err != nil {
 			return err
 		}
-		if destination.Kind == approvals.DestinationWeb {
-			if err := a.memory.SetThreadTitle(ctx, destination.ThreadID, truncateThreadTitle(message.Text)); err != nil {
-				a.logger.Error("thread auto-titling failed", "thread_id", destination.ThreadID, "error", err)
+		if dest.Kind == destination.Web {
+			if err := a.memory.SetThreadTitle(ctx, dest.ThreadID, truncateThreadTitle(message.Text)); err != nil {
+				a.logger.Error("thread auto-titling failed", "thread_id", dest.ThreadID, "error", err)
 			}
 		}
 	}
@@ -281,7 +268,7 @@ func (a *App) handleApproval(ctx context.Context, decision events.ApprovalDecisi
 	if err != nil {
 		return err
 	}
-	ctx = approvals.WithDestination(ctx, preState.Approvals[decision.ApprovalID].Destination)
+	ctx = destination.With(ctx, preState.Approvals[decision.ApprovalID].Destination)
 	if err := a.approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
 		return a.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
@@ -382,8 +369,8 @@ func (a *App) Run(ctx context.Context) error {
 				if schedule.Execution == ports.ScheduleExecutionMessage {
 					eventType = events.TypeScheduledMessage
 				}
-				payload, _ := json.Marshal(events.Message{ChatID: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Payload: payload}
+				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
+				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: strconv.FormatInt(a.config.Telegram.OwnerID, 10), Timestamp: now, Destination: destination.Destination{Kind: destination.Telegram}, Payload: payload}
 				a.workers.Add(1)
 				go func() {
 					defer a.workers.Done()

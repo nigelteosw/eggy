@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -30,11 +31,11 @@ func New(hub *Hub) *Channel {
 // thread returns this turn's destination thread, and false when ctx does
 // not carry one.
 func (c *Channel) thread(ctx context.Context) (string, bool) {
-	destination := approvals.DestinationFromContext(ctx)
-	if destination.Kind != approvals.DestinationWeb || destination.ThreadID == "" {
+	dest := destination.FromContext(ctx)
+	if dest.Kind != destination.Web || dest.ThreadID == "" {
 		return "", false
 	}
-	return destination.ThreadID, true
+	return dest.ThreadID, true
 }
 
 func (c *Channel) Deliver(ctx context.Context, text string) error {

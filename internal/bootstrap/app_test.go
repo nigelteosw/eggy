@@ -23,6 +23,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
@@ -146,7 +147,7 @@ func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "yes make the change"})
+	payload, _ := json.Marshal(events.Message{Text: "yes make the change"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "message", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -226,11 +227,11 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	if !strings.Contains(logOutput, "agent runtime ready") || !strings.Contains(logOutput, "deepseek-pro") || !strings.Contains(logOutput, "SOUL.md") || strings.Contains(logOutput, secrets.ProviderAPIKeys["deepseek"]) || strings.Contains(logOutput, secrets.TelegramBotToken) {
 		t.Fatalf("unsafe or incomplete startup log: %s", logOutput)
 	}
-	statusPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "/status"})
+	statusPayload, _ := json.Marshal(events.Message{Text: "/status"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: statusPayload}); err != nil {
 		t.Fatal(err)
 	}
-	messagePayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "Say hello"})
+	messagePayload, _ := json.Marshal(events.Message{Text: "Say hello"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "2", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +303,7 @@ func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "durable owner prompt"})
+	payload, _ := json.Marshal(events.Message{Text: "durable owner prompt"})
 	if err := app.HandleEvent(context.Background(), events.Event{
 		ID: "direct", Type: events.TypeMessage, Owner: "42", Payload: payload,
 	}); err != nil {
@@ -342,13 +343,13 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	commandPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "/status"})
+	commandPayload, _ := json.Marshal(events.Message{Text: "/status"})
 	if err := app.HandleEvent(context.Background(), events.Event{
 		ID: "command", Type: events.TypeMessage, Owner: "42", Payload: commandPayload,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	failedPayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "this model turn fails"})
+	failedPayload, _ := json.Marshal(events.Message{Text: "this model turn fails"})
 	if err := app.HandleEvent(context.Background(), events.Event{
 		ID: "failed", Type: events.TypeMessage, Owner: "42", Payload: failedPayload,
 	}); err == nil {
@@ -400,7 +401,7 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	if err := app.memory.Close(); err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "keep the live turn working"})
+	payload, _ := json.Marshal(events.Message{Text: "keep the live turn working"})
 	if err := app.HandleEvent(context.Background(), events.Event{
 		ID: "direct", Type: events.TypeMessage, Source: "telegram", Owner: "42", Payload: payload,
 	}); err != nil {
@@ -640,7 +641,7 @@ func TestHandleMessageDeliversReasoningContentBeforeAnswer(t *testing.T) {
 	if err := app.Ready(); err != nil {
 		t.Fatal(err)
 	}
-	messagePayload, _ := json.Marshal(events.Message{ChatID: "42", Text: "What is 6*7?"})
+	messagePayload, _ := json.Marshal(events.Message{Text: "What is 6*7?"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
 		t.Fatal(err)
 	}
@@ -726,7 +727,7 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "What repositories can you work on?"})
+	payload, _ := json.Marshal(events.Message{Text: "What repositories can you work on?"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "repo-question", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +800,7 @@ func TestRepositoryModifyShipsAutomaticallyThroughNativeImplementer(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "implement a note that the repo was reviewed"})
+	payload, _ := json.Marshal(events.Message{Text: "implement a note that the repo was reviewed"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "implement-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -957,7 +958,7 @@ func TestHandleMessageRepliesGracefullyWhenToolStepLimitReached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "keep checking status forever"})
+	payload, _ := json.Marshal(events.Message{Text: "keep checking status forever"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "loop-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatalf("expected the step-limit case to be handled gracefully, got error: %v", err)
 	}
@@ -1009,7 +1010,7 @@ func TestToolCallSurfacesALiveIndicatorBeforeTheFinalReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "what's the status?"})
+	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
 	if err := app.HandleEvent(context.Background(), events.Event{ID: "status-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
@@ -1059,8 +1060,8 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	_, telegramEvents, unregisterOther := app.chatHub.Register("some-other-thread")
 	defer unregisterOther()
 
-	payload, _ := json.Marshal(events.Message{ChatID: "thread-a", Text: "what's the status?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "web-status-1", Type: events.TypeMessage, Source: "web", Owner: "42", Payload: payload}); err != nil {
+	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "web-status-1", Type: events.TypeMessage, Source: "web", Owner: "42", Destination: destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1142,7 +1143,7 @@ func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(events.Message{ChatID: "42", Text: "slow turn"})
+	payload, _ := json.Marshal(events.Message{Text: "slow turn"})
 	done := make(chan struct{})
 	go func() {
 		_ = app.HandleEvent(context.Background(), events.Event{ID: "typing-1", Type: events.TypeMessage, Owner: "42", Payload: payload})

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -18,12 +19,12 @@ type recordingChannel struct {
 	editFails    bool
 	sent         []string
 	edited       []string
-	destinations []approvals.Destination
+	destinations []destination.Destination
 	nextID       int
 }
 
 func (c *recordingChannel) record(ctx context.Context) {
-	c.destinations = append(c.destinations, approvals.DestinationFromContext(ctx))
+	c.destinations = append(c.destinations, destination.FromContext(ctx))
 }
 
 func (c *recordingChannel) DeliverTrackable(ctx context.Context, text string) (string, error) {
@@ -51,15 +52,15 @@ func (c *recordingChannel) SendTyping(context.Context) error { return nil }
 func TestProgressTrackerDeliversOnTheTurnsDestination(t *testing.T) {
 	channel := &recordingChannel{}
 	tracker := NewProgressTracker(channel)
-	ctx := approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: "thread-1"})
+	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-1"})
 	tracker.Deliver(ctx, ports.CodingProgress{RunID: "run-1", Kind: "started", Message: "run started"})
 	tracker.Deliver(ctx, ports.CodingProgress{RunID: "run-1", Kind: "command", Message: "go test ./..."})
 	if len(channel.destinations) != 2 {
 		t.Fatalf("destinations=%v", channel.destinations)
 	}
-	for _, destination := range channel.destinations {
-		if destination.Kind != approvals.DestinationWeb || destination.ThreadID != "thread-1" {
-			t.Fatalf("progress escaped the turn's destination: %+v", destination)
+	for _, dest := range channel.destinations {
+		if dest.Kind != destination.Web || dest.ThreadID != "thread-1" {
+			t.Fatalf("progress escaped the turn's destination: %+v", dest)
 		}
 	}
 }

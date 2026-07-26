@@ -13,6 +13,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -160,6 +161,9 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 	if got.Type != events.TypeMessage || got.Source != "web" {
 		t.Fatalf("event=%#v", got)
 	}
+	if got.Destination.Kind != destination.Web || got.Destination.ThreadID != "thread-1" {
+		t.Fatalf("Destination=%#v, want the thread ID", got.Destination)
+	}
 	if got.Owner != "owner-42" {
 		t.Fatalf("Owner=%q, want the dispatcher's configured owner (Dispatcher.Handle rejects anything else)", got.Owner)
 	}
@@ -170,8 +174,8 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 	if err := json.Unmarshal(got.Payload, &message); err != nil {
 		t.Fatal(err)
 	}
-	if message.Text != "hello Eggy" || message.ChatID != "thread-1" {
-		t.Fatalf("message=%#v, want ChatID set to the thread ID", message)
+	if message.Text != "hello Eggy" {
+		t.Fatalf("message=%#v", message)
 	}
 }
 

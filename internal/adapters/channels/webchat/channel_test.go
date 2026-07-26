@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 )
 
 // webTurn returns a context stamped with the destination a turn running in
 // threadID carries, which is how Channel resolves its broadcast target.
 func webTurn(threadID string) context.Context {
-	return approvals.WithDestination(context.Background(), approvals.Destination{Kind: approvals.DestinationWeb, ThreadID: threadID})
+	return destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: threadID})
 }
 
 func recv(t *testing.T, events <-chan Event) Event {

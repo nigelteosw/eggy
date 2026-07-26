@@ -85,7 +85,7 @@ type Tool interface {
 
 // Channel delivers agent output to one surface. It deliberately carries no
 // chat or thread identifier: the target is the destination stamped on ctx
-// for the turn (see internal/kernel/approvals.Destination), so a tool or
+// for the turn (see internal/kernel/destination.Destination), so a tool or
 // helper constructed once at startup reports into whichever conversation is
 // actually running rather than into a fixed one baked in at construction.
 //

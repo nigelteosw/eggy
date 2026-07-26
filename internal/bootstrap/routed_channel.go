@@ -5,11 +5,12 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // routedChannel implements ports.Channel by reading the destination
-// stamped on ctx for this turn (see internal/kernel/approvals/destination.go)
+// stamped on ctx for this turn (see internal/kernel/destination)
 // and forwarding to exactly one underlying channel -- Telegram or web --
 // rather than fanning every call out to both, since Telegram and the web UI
 // are independent channels, never mirrors of one conversation. See
@@ -50,7 +51,7 @@ func newRoutedChannel(telegram, web ports.Channel) ports.Channel {
 // route resolves this turn's destination into the underlying channel to
 // call.
 func (r *routedChannel) route(ctx context.Context) ports.Channel {
-	if approvals.DestinationFromContext(ctx).Kind == approvals.DestinationWeb {
+	if destination.FromContext(ctx).Kind == destination.Web {
 		return r.web
 	}
 	return r.telegram

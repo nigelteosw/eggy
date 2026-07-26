@@ -44,6 +44,7 @@ type Config struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
+	WebSearch              WebSearchConfig             `yaml:"web_search,omitempty"`
 	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
@@ -135,6 +136,22 @@ type CalendarConfig struct {
 	Timezone        string `yaml:"timezone"`
 }
 
+type WebSearchConfig struct {
+	Adapter    string   `yaml:"adapter"`
+	BaseURLEnv string   `yaml:"base_url_env"`
+	APIKeyEnv  string   `yaml:"api_key_env,omitempty"`
+	Timeout    Duration `yaml:"timeout"`
+	MaxResults int      `yaml:"max_results"`
+	SafeSearch *int     `yaml:"safe_search,omitempty"`
+}
+
+func (c WebSearchConfig) SafeSearchValue() int {
+	if c.SafeSearch == nil {
+		return 1
+	}
+	return *c.SafeSearch
+}
+
 type MCPConfig struct {
 	Servers map[string]MCPServerConfig `yaml:"servers,omitempty"`
 }
@@ -167,6 +184,8 @@ type Secrets struct {
 	GoogleClientSecret    string
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
+	WebSearchBaseURL      string
+	WebSearchAPIKey       string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -181,6 +200,7 @@ type commonConfigDocument struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
+	WebSearch              WebSearchConfig             `yaml:"web_search,omitempty"`
 	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
@@ -216,11 +236,15 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
 		GitHubToken:    getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:      getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys: map[string]string{},
-		MCPBearerTokens: map[string]string{},
+		EncryptionKey:    getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:      getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:       getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys:  map[string]string{},
+		MCPBearerTokens:  map[string]string{},
+		WebSearchBaseURL: strings.TrimSpace(getenv(cfg.WebSearch.BaseURLEnv)),
+	}
+	if cfg.WebSearch.APIKeyEnv != "" {
+		secrets.WebSearchAPIKey = getenv(cfg.WebSearch.APIKeyEnv)
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
@@ -290,12 +314,12 @@ func normalizeConfig(document configDocument) Config {
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Embeddings: document.Embeddings,
-		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
+		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, WebSearch: common.WebSearch, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, WebSearch: c.WebSearch, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -356,6 +380,18 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.embeddingsConfigured() && c.Embeddings.CandidateLimit == 0 {
 		c.Embeddings.CandidateLimit = 5000
+	}
+	if c.WebSearch.Adapter == "" {
+		c.WebSearch.Adapter = "searxng"
+	}
+	if c.WebSearch.BaseURLEnv == "" {
+		c.WebSearch.BaseURLEnv = "WEB_SEARCH_API"
+	}
+	if c.WebSearch.Timeout == 0 {
+		c.WebSearch.Timeout = Duration(15 * time.Second)
+	}
+	if c.WebSearch.MaxResults == 0 {
+		c.WebSearch.MaxResults = 8
 	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
@@ -442,8 +478,33 @@ func (c Config) Validate() error {
 	if c.Calendar.Enabled && c.Calendar.DefaultCalendar == "" {
 		return errors.New("calendar.default_calendar is required")
 	}
+	if err := c.validateWebSearch(); err != nil {
+		return err
+	}
 	if err := c.validateMCP(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (c Config) validateWebSearch() error {
+	if c.WebSearch.Adapter != "searxng" {
+		return fmt.Errorf("unsupported web search adapter %q", c.WebSearch.Adapter)
+	}
+	if !environmentNamePattern.MatchString(c.WebSearch.BaseURLEnv) {
+		return errors.New("web_search.base_url_env is invalid")
+	}
+	if c.WebSearch.APIKeyEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.APIKeyEnv) {
+		return errors.New("web_search.api_key_env is invalid")
+	}
+	if c.WebSearch.Timeout.Value() <= 0 {
+		return errors.New("web_search.timeout must be positive")
+	}
+	if c.WebSearch.MaxResults < 1 || c.WebSearch.MaxResults > 20 {
+		return errors.New("web_search.max_results must be between 1 and 20")
+	}
+	if safeSearch := c.WebSearch.SafeSearchValue(); safeSearch < 0 || safeSearch > 2 {
+		return errors.New("web_search.safe_search must be between 0 and 2")
 	}
 	return nil
 }
@@ -625,6 +686,18 @@ func (c Config) validateSecrets(s Secrets) error {
 			struct{ name, value string }{"EGGY_UI_USER_EMAIL", s.UIUserEmail},
 			struct{ name, value string }{"EGGY_UI_PASSWORD", s.UIPassword},
 			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+	}
+	if s.WebSearchBaseURL != "" {
+		webSearchURL, err := url.Parse(s.WebSearchBaseURL)
+		if err != nil || (webSearchURL.Scheme != "http" && webSearchURL.Scheme != "https") || webSearchURL.Host == "" {
+			return fmt.Errorf("%s must be an HTTP(S) URL", c.WebSearch.BaseURLEnv)
+		}
+		if webSearchURL.User != nil {
+			return fmt.Errorf("%s must not contain credentials", c.WebSearch.BaseURLEnv)
+		}
+		if webSearchURL.RawQuery != "" || webSearchURL.Fragment != "" {
+			return fmt.Errorf("%s must not contain a query or fragment", c.WebSearch.BaseURLEnv)
+		}
 	}
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

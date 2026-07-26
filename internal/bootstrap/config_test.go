@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadConfigResolvesWebUICredentialsAndRequiresEncryptionKeyWhenSet(t *testing.T) {
@@ -52,6 +54,82 @@ func TestLoadConfigAcceptsExample(t *testing.T) {
 	}
 	if secrets.ProviderAPIKeys["deepseek"] != env["DEEPSEEK_API_KEY"] {
 		t.Fatal("provider secret was not loaded")
+	}
+}
+
+func TestWebSearchDefaultsAreOptional(t *testing.T) {
+	cfg, secrets, err := loadText(t, validConfig(), testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WebSearch.Adapter != "searxng" || cfg.WebSearch.BaseURLEnv != "WEB_SEARCH_API" {
+		t.Fatalf("web search defaults=%#v", cfg.WebSearch)
+	}
+	if cfg.WebSearch.Timeout.Value() != 15*time.Second || cfg.WebSearch.MaxResults != 8 || cfg.WebSearch.SafeSearchValue() != 1 {
+		t.Fatalf("web search bounds=%#v", cfg.WebSearch)
+	}
+	if secrets.WebSearchBaseURL != "" || secrets.WebSearchAPIKey != "" {
+		t.Fatalf("web search secrets=%#v", secrets)
+	}
+}
+
+func TestLoadConfigResolvesWebSearchEnvironment(t *testing.T) {
+	env := testSecrets()
+	env["WEB_SEARCH_API"] = "https://search.example.com"
+	cfg, secrets, err := loadText(t, validConfig(), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets.WebSearchBaseURL != "https://search.example.com" {
+		t.Fatalf("base URL=%q", secrets.WebSearchBaseURL)
+	}
+	body, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "base_url_env: WEB_SEARCH_API") || strings.Contains(string(body), "https://search.example.com") {
+		t.Fatalf("marshaled config leaked resolved URL:\n%s", body)
+	}
+}
+
+func TestWebSearchConfigValidation(t *testing.T) {
+	base := validConfig() + `
+web_search:
+  adapter: searxng
+  base_url_env: WEB_SEARCH_API
+  timeout: 15s
+  max_results: 8
+  safe_search: 1
+`
+	tests := []struct {
+		name        string
+		old         string
+		replacement string
+		env         string
+		want        string
+	}{
+		{name: "adapter", old: "adapter: searxng", replacement: "adapter: unknown", want: "unsupported web search adapter"},
+		{name: "base URL env", old: "base_url_env: WEB_SEARCH_API", replacement: "base_url_env: bad-name", want: "base_url_env is invalid"},
+		{name: "API key env", old: "timeout: 15s", replacement: "api_key_env: bad-name\n  timeout: 15s", want: "api_key_env is invalid"},
+		{name: "timeout", old: "timeout: 15s", replacement: "timeout: -1s", want: "timeout must be positive"},
+		{name: "zero results", old: "max_results: 8", replacement: "max_results: -1", want: "max_results must be between 1 and 20"},
+		{name: "large results", old: "max_results: 8", replacement: "max_results: 21", want: "max_results must be between 1 and 20"},
+		{name: "safe search", old: "safe_search: 1", replacement: "safe_search: 3", want: "safe_search must be between 0 and 2"},
+		{name: "malformed resolved URL", old: "safe_search: 1", replacement: "safe_search: 1", env: "not-a-url", want: "WEB_SEARCH_API must be an HTTP(S) URL"},
+		{name: "credentials in resolved URL", old: "safe_search: 1", replacement: "safe_search: 1", env: "https://token@search.example.com", want: "must not contain credentials"},
+		{name: "query in resolved URL", old: "safe_search: 1", replacement: "safe_search: 1", env: "https://search.example.com?x=1", want: "must not contain a query or fragment"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := testSecrets()
+			if test.env != "" {
+				env["WEB_SEARCH_API"] = test.env
+			}
+			_, _, err := loadText(t, strings.Replace(base, test.old, test.replacement, 1), env)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v, want containing %q", err, test.want)
+			}
+		})
 	}
 }
 

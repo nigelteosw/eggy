@@ -234,6 +234,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	for _, secret := range secrets.MCPBearerTokens {
 		activeSecrets = append(activeSecrets, secret)
 	}
+	activeSecrets = append(activeSecrets, secrets.WebSearchAPIKey)
 	sessions := services.NewImplementationSessions(sessionStore, services.SessionPolicy{
 		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
 		RecentMessages:     config.ImplementationSessions.RecentMessages,
@@ -357,6 +358,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// fails bootstrap rather than silently winning.
 	for _, tool := range primitives {
 		if err := registry.Register(tool); err != nil {
+			return nil, err
+		}
+	}
+	webSearcher, err := newWebSearcher(config, secrets, options)
+	if err != nil {
+		return nil, err
+	}
+	if webSearcher != nil {
+		if err := registry.Register(services.NewWebSearchTool(webSearcher, config.WebSearch.MaxResults)); err != nil {
 			return nil, err
 		}
 	}

@@ -67,6 +67,7 @@ flowchart TB
         repositoryAdapter[GitHub and Git adapter]
         runnerAdapter[Restricted local-process runner]
         calendarAdapter[Google Calendar adapter]
+        searchAdapter[SearXNG web-search adapter]
         mcpAdapter[Generic MCP client manager]
         stores[File-backed state, context, and session stores]
         schedulerAdapter[Local scheduler]
@@ -80,6 +81,7 @@ flowchart TB
         modelAPI[Configured model provider]
         github[GitHub]
         google[Google Calendar]
+        searxng[SearXNG]
         mcpServers[Remote MCP servers<br/>Railway first]
         process[Git and local processes]
         data[Railway volume - /data<br/>config, state, context, sessions, runs]
@@ -90,6 +92,7 @@ flowchart TB
     repositoryAdapter --> github
     runnerAdapter --> process
     calendarAdapter --> google
+    searchAdapter --> searxng
     mcpAdapter --> mcpServers
     stores --> data
     schedulerAdapter --> data
@@ -160,6 +163,27 @@ run as tool calls in this same loop instead of a delegated coding-agent CLI.
 Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
 
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server under `/data/mcp/<server>/oauth.json`, independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
+
+### Native web search
+
+The kernel-owned `web_search` tool depends only on the narrow
+`ports.WebSearcher` interface and returns normalized title, URL, snippet,
+publication, and source fields. Provider HTTP and response types remain in
+`internal/adapters/search/searxng`; future search providers add another package
+under the same adapter category plus a bootstrap selector branch without
+changing the kernel tool or port.
+
+Bootstrap resolves the configured `base_url_env`, which defaults to
+`WEB_SEARCH_API`. A blank value means no adapter is constructed and no
+`web_search` tool is registered. A configured endpoint is not probed at
+startup: temporary provider failure is an ordinary bounded tool error rather
+than an Eggy readiness failure. Direct owner turns receive the tool, while the
+explicit scheduled and heartbeat allowlists omit it.
+
+SearXNG's own `SEARXNG_BASE_URL` and `SEARXNG_SECRET` remain entirely outside
+Eggy. Eggy receives only the provider URL through `WEB_SEARCH_API`; request
+timeouts, response bytes, result counts, and individual result fields are
+bounded before external text enters model context.
 
 ### The primitive tool set
 

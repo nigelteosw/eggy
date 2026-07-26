@@ -68,6 +68,31 @@ func (r *Runner) Create(ctx context.Context, runID string) (string, error) {
 	return path, nil
 }
 
+// Exists reports whether workspace is still a directory under the runner
+// root, so a restart can drop a durable thread -> checkout binding whose
+// directory a volume wipe or manual cleanup removed. A path outside the
+// root is reported as absent rather than as an error: the caller's only
+// sane response either way is to drop the binding.
+func (r *Runner) Exists(ctx context.Context, workspace string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := r.withinRoot(workspace); err != nil {
+		return false, nil
+	}
+	if filepath.Clean(workspace) == r.root {
+		return false, nil
+	}
+	info, err := os.Stat(workspace)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info.IsDir(), nil
+}
+
 func (r *Runner) Destroy(ctx context.Context, workspace string) error {
 	if err := ctx.Err(); err != nil {
 		return err

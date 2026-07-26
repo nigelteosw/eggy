@@ -199,7 +199,12 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// same reason, so NewWebhookHandler's own nil check stays meaningful.
 	var telegramChannel ports.Channel
 	var telegramAcknowledger telegram.CallbackAcknowledger
-	if !options.FakeAdapters {
+	// Telegram is optional: a web-only deployment omits the config block and
+	// gets no client, no channel, and no webhook route. newRoutedChannel
+	// already collapses to the web channel alone when telegramChannel is a
+	// true nil, and NewHTTPHandlerAt already serves the webhook path as
+	// unavailable when its handler is nil.
+	if !options.FakeAdapters && config.Telegram.Configured() {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
 		telegramChannel = telegramClient
 		telegramAcknowledger = telegramClient
@@ -297,7 +302,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// registered in the conversational registry below and handed to the
 	// implementation loop, so a primitive name never resolves to two
 	// definitions depending on which loop is running.
-	app.workspaces = services.NewWorkspaceSessions(stateStore, runner, repositoryAdapter, newRunID)
+	app.workspaces = services.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
 	app.implementationLoop = agent.NewSelectedLoop(targets, append(append([]ports.Tool(nil), primitives...), services.NewFinishImplementationTool()), 48)
 	implementer := services.NewNativeImplementer(app.implementationLoop, func(ctx context.Context) (string, string, error) {
@@ -421,11 +426,14 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
 	})
-	webhook := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
+	var webhook http.Handler
+	if config.Telegram.Configured() {
+		webhook = telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
+	}
 	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, OwnerID: owner,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
 	})
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {

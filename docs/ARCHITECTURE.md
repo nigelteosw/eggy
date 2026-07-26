@@ -167,11 +167,29 @@ capability between turns.
 ### Repository and workspace tools
 
 - `workspace_open` — attaches a read-only checkout of a configured repository
-  to the calling thread. It persists across turns, so successive greps and
-  reads accumulate against one clone rather than paying a clone per call. No
-  branch, no diff, no approval.
-- `workspace_close` — detaches and destroys that checkout. Every attached
-  checkout is also reaped on shutdown.
+  to the calling thread. It persists across turns *and across restarts*, so
+  successive greps and reads accumulate against one clone rather than paying a
+  clone per call. No branch, no diff, no approval.
+- `workspace_close` — detaches and destroys that checkout.
+
+The binding lives on `ports.ThreadStore` (a `threads.workspace` /
+`threads.workspace_repository` column pair), not in memory. Three consequences
+follow, all in `services.WorkspaceSessions`:
+
+- **Boot reconciliation.** `Recover` runs before the first turn is served. It
+  asks the runner (`ports.WorkspaceProbe`) whether each recorded checkout still
+  exists and detaches the ones whose directory is gone, so a primitive never
+  resolves onto a path a volume wipe removed. A runner that cannot probe causes
+  every binding to be dropped: an unverifiable record is not a trustworthy one.
+- **Idle reaping.** `CleanupIdle` runs on the same minute ticker as
+  `CodingService.CleanupExpired`, against the same `runner.retention` cutoff,
+  and destroys the checkout of any thread whose last activity predates it.
+  Durable checkouts have no run completion to trigger the run-workspace reaper,
+  so without this an abandoned thread would hold a clone forever.
+- **Attach upserts.** Telegram's fixed thread never calls `CreateThread` — it
+  has no sidebar entry — so `AttachWorkspace` creates the row when absent.
+
+Shutdown deliberately destroys nothing: surviving a restart is the point.
 - `repository_list` — configured repository names and safe metadata.
 - `repository_github` — read-only GitHub issue/PR/check-run metadata; never
   clones.

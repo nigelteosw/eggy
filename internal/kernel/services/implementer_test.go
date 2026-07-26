@@ -141,7 +141,7 @@ func (m *blockingModel) Generate(ctx context.Context, _ ports.ModelRequest) (por
 // primitive set the conversational registry holds, plus the run-terminal
 // finish_implementation tool.
 func implementationLoopTools() []ports.Tool {
-	workspaces := NewWorkspaceSessions(newMemoryStore(), &fakeWorkspaceRunner{}, &fakeRepositoryReader{}, func() string { return "1" })
+	workspaces := NewWorkspaceSessions(newMemoryStore(), newFakeThreadStore(), &fakeWorkspaceRunner{}, &fakeRepositoryReader{}, func() string { return "1" }, nil, nil)
 	primitives := NewPrimitiveTools(workspaces, &fakeWorkspaceRunner{}, &fakeRepositoryReader{})
 	return append(primitives, NewFinishImplementationTool())
 }

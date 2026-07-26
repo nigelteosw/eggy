@@ -13,7 +13,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
 - One kernel-owned primitive tool set (`read_file`, `write_file`, `patch`, `terminal`) shared by conversation and implementation alike. Each resolves its workspace from session state rather than a `repository` argument, and the writes stay registered everywhere, failing with an explicit read-only error instead of vanishing from the tool list.
-- Thread-attached read-only checkouts (`workspace_open`/`workspace_close`) so repository exploration accumulates against one clone instead of paying a clone per call, and never creates a branch, diff, or approval.
+- Thread-attached read-only checkouts (`workspace_open`/`workspace_close`) so repository exploration accumulates against one clone instead of paying a clone per call, and never creates a branch, diff, or approval. The binding is durable: it survives a restart, is reconciled against the disk at boot, and is reaped once its thread goes idle past the runner retention window.
 - A native Go implementation loop that runs the same selected model and the same primitives against an isolated branch checkout, ending on `finish_implementation`, with its own step budget, normalized to the same progress milestones, rendered on whichever channel started the run.
 - Provider-neutral GitHub metadata reads (repository/issue/pull-request/check-run) that never clone.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
@@ -152,7 +152,7 @@ Additional remote servers use the same adapter. Add another named entry beneath 
 
 1. Create a Railway service from this repository.
 2. Generate a public Railway domain and add a persistent volume mounted at `/data`. Keep both `data_dir: /data` and `runner.root: /data/runs`: uncommitted coding workspaces and session transcripts live there and can be explicitly resumed after a restart.
-3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`.
+3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`. Telegram is optional: for a web-only deployment set `EGGY_OWNER_ID` to any stable identifier instead, and omit all three Telegram variables. The generated config then carries no `telegram` block and the webhook route stays unavailable.
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
 5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
 6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.

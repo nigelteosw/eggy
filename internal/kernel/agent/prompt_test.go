@@ -21,7 +21,7 @@ func TestBuildInstructionsUsesFixedTrustOrderAndCapabilities(t *testing.T) {
 			t.Fatalf("message[%d]=%#v", i, messages[i])
 		}
 	}
-	if temporal := messages[6].Content; !strings.Contains(temporal, "current_time: 2026-07-19T12:34:56+08:00") || !strings.Contains(temporal, "timezone: Asia/Singapore") {
+	if temporal := messages[6].Content; !strings.Contains(temporal, "The date and time now is: Sunday, 19 July 2026, 12:34 PM (Asia/Singapore)") || !strings.Contains(temporal, "current_time: 2026-07-19T12:34:56+08:00") || !strings.Contains(temporal, "timezone: Asia/Singapore") {
 		t.Fatalf("temporal context=%s", temporal)
 	}
 	manifest := messages[1].Content

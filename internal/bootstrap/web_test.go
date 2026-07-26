@@ -338,7 +338,8 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	config := testWebConfig(now)
 	config.ChatHub = webchat.NewHub()
-	config.Memory = newTestMemoryStore(t)
+	memory := newTestMemoryStore(t)
+	config.Memory, config.Threads = memory, memory
 	enqueued := false
 	config.Enqueue = func(context.Context, events.Event) error {
 		enqueued = true

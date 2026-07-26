@@ -81,7 +81,7 @@ func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 		mutate func(map[string]string)
 		want   string
 	}{
-		{"missing owner", func(values map[string]string) { delete(values, "EGGY_TELEGRAM_OWNER_ID") }, "EGGY_TELEGRAM_OWNER_ID is required"},
+		{"missing owner", func(values map[string]string) { delete(values, "EGGY_TELEGRAM_OWNER_ID") }, "EGGY_TELEGRAM_OWNER_ID is required, or EGGY_OWNER_ID for a web-only deployment"},
 		{"invalid owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "not-a-number" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"zero owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "0" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"missing public URL", func(values map[string]string) { delete(values, "EGGY_PUBLIC_BASE_URL") }, "EGGY_PUBLIC_BASE_URL is required when RAILWAY_PUBLIC_DOMAIN is unavailable"},
@@ -226,5 +226,35 @@ func assertFileBytes(t *testing.T, path string, want []byte) {
 	}
 	if string(got) != string(want) {
 		t.Fatalf("file changed:\n%s", got)
+	}
+}
+
+// A first boot with EGGY_OWNER_ID and no EGGY_TELEGRAM_OWNER_ID generates a
+// web-only config: no telegram block, and no Telegram credentials needed.
+func TestFirstBootGeneratesAWebOnlyConfigFromEGGYOwnerID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	env := firstBootEnv()
+	delete(env, "EGGY_TELEGRAM_OWNER_ID")
+	delete(env, "TELEGRAM_BOT_TOKEN")
+	delete(env, "TELEGRAM_WEBHOOK_SECRET")
+	env["EGGY_OWNER_ID"] = "owner-42"
+
+	config, _, err := LoadOrCreateConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatalf("a web-only first boot must succeed: %v", err)
+	}
+	if config.Owner.ID != "owner-42" || config.Telegram.Configured() {
+		t.Fatalf("owner=%#v telegram=%#v", config.Owner, config.Telegram)
+	}
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "telegram:") {
+		t.Fatalf("generated config must omit the telegram block:\n%s", body)
+	}
+	if _, _, err := LoadConfig(path, mapEnv(env)); err != nil {
+		t.Fatalf("the generated web-only config must strictly reload: %v", err)
 	}
 }

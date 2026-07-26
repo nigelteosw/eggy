@@ -315,20 +315,19 @@ func (a *App) Run(ctx context.Context) error {
 		defer a.memory.Close()
 	}
 	defer a.workers.Wait()
-	if a.workspaces != nil {
-		// Thread-attached inspection checkouts outlive a turn but never a
-		// process: reap them on shutdown so a restart never leaks one.
-		defer func() {
-			if err := a.workspaces.CloseAll(context.WithoutCancel(ctx)); err != nil {
-				slog.Error("workspace cleanup failed", "error", err)
-			}
-		}()
-	}
 	if a.mcp != nil {
 		defer a.mcp.Close()
 	}
 	if _, err := a.coding.RecoverInterrupted(ctx); err != nil {
 		return err
+	}
+	// Thread-attached checkouts are durable, so a restart inherits whatever
+	// the last process left on the volume. Reconcile before serving a turn:
+	// a binding whose directory is gone must not resolve.
+	if a.workspaces != nil {
+		if _, err := a.workspaces.Recover(ctx); err != nil {
+			return err
+		}
 	}
 	if err := a.scheduler.Recover(ctx); err != nil {
 		return err
@@ -364,8 +363,17 @@ func (a *App) Run(ctx context.Context) error {
 				}
 			}()
 		case now := <-scheduleTicker.C:
-			if err := a.coding.CleanupExpired(ctx, now.Add(-a.config.Runner.Retention.Value())); err != nil {
+			cutoff := now.Add(-a.config.Runner.Retention.Value())
+			if err := a.coding.CleanupExpired(ctx, cutoff); err != nil {
 				return err
+			}
+			// Durable thread checkouts need their own bound: no run ever
+			// finishes to trigger the run-workspace reaper above, so an
+			// idle thread would otherwise hold a clone forever.
+			if a.workspaces != nil {
+				if _, err := a.workspaces.CleanupIdle(ctx, cutoff); err != nil {
+					return err
+				}
 			}
 			due, err := a.scheduler.Due(ctx, now)
 			if err != nil {

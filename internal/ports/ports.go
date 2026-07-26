@@ -188,6 +188,58 @@ type MemoryStore interface {
 	SetEmbedding(context.Context, int64, []float32) error
 }
 
+// Thread is one conversation surface: a web sidebar conversation, or
+// Telegram's single fixed thread. Title is empty until auto-titled from the
+// thread's first exchange.
+//
+// A thread is also where an attached workspace lives. Workspace is the
+// checkout the thread's primitive tools act on, empty when none is
+// attached; WorkspaceRepository names the repository it was cloned from.
+// Keeping them here rather than on an implementation run is what makes
+// inspect -> edit -> discuss one continuous thread rather than a lane
+// transition.
+type Thread struct {
+	ID                  string
+	Title               string
+	Channel             string
+	Workspace           string
+	WorkspaceRepository string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// ThreadStore persists conversation threads. It is deliberately separate
+// from MemoryStore: MemoryStore models messages, and a thread is a distinct
+// concept that surfaces (web chat) and the kernel (workspace attachment)
+// both need without either depending on a concrete storage adapter.
+type ThreadStore interface {
+	CreateThread(ctx context.Context, id, channel string, at time.Time) (Thread, error)
+	ListThreads(ctx context.Context, channel string) ([]Thread, error)
+	// GetThread reports found=false with a nil error when no such thread
+	// exists.
+	GetThread(ctx context.Context, id string) (thread Thread, found bool, err error)
+	// SetThreadTitle auto-titles a thread; a no-op once it has a title.
+	SetThreadTitle(ctx context.Context, id, title string) error
+	// AttachWorkspace records a checkout on a thread, creating the thread
+	// row if this is a surface (Telegram) that never explicitly created
+	// one. Replaces any previously attached workspace.
+	AttachWorkspace(ctx context.Context, id, channel, repository, workspace string, at time.Time) error
+	// DetachWorkspace clears a thread's attached workspace. Detaching a
+	// thread with none is not an error.
+	DetachWorkspace(ctx context.Context, id string) error
+	// ThreadsWithWorkspace returns every thread that currently has a
+	// workspace attached, for boot reconciliation and idle reaping.
+	ThreadsWithWorkspace(ctx context.Context) ([]Thread, error)
+}
+
+// WorkspaceProbe reports whether a previously created workspace still
+// exists on disk. A Runner implements it so a restart can reconcile durable
+// thread -> checkout bindings against reality instead of trusting a record
+// whose directory a volume wipe removed.
+type WorkspaceProbe interface {
+	Exists(ctx context.Context, workspace string) (bool, error)
+}
+
 // Embedder produces an embedding for text. Storage adapters never depend on
 // an Embedder; a kernel service coordinates the two through these ports.
 type Embedder interface {

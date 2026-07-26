@@ -456,3 +456,63 @@ calendar:
   timezone: UTC
 `
 }
+
+// webOnlyConfig drops the telegram block entirely and sets owner.id
+// directly -- the deployment shape the canonical owner identity exists for.
+func webOnlyConfig() string {
+	return strings.Replace(validConfig(), "telegram:\n  owner_id: 42\n", "owner:\n  id: owner-42\n", 1)
+}
+
+// webOnlySecrets omits TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET.
+func webOnlySecrets() map[string]string {
+	env := testSecrets()
+	delete(env, "TELEGRAM_BOT_TOKEN")
+	delete(env, "TELEGRAM_WEBHOOK_SECRET")
+	return env
+}
+
+func TestWebOnlyDeploymentBootsWithoutAnyTelegramConfiguration(t *testing.T) {
+	config, _, err := loadText(t, webOnlyConfig(), webOnlySecrets())
+	if err != nil {
+		t.Fatalf("a web-only deployment must not need Telegram configured: %v", err)
+	}
+	if config.Owner.ID != "owner-42" {
+		t.Fatalf("owner.id=%q", config.Owner.ID)
+	}
+	if config.Telegram.Configured() {
+		t.Fatalf("telegram=%#v, want unconfigured", config.Telegram)
+	}
+}
+
+func TestTelegramCredentialsAreRequiredOnlyWhenTelegramIsConfigured(t *testing.T) {
+	if _, _, err := loadText(t, validConfig(), webOnlySecrets()); err == nil ||
+		!strings.Contains(err.Error(), "TELEGRAM_BOT_TOKEN") {
+		t.Fatalf("a Telegram deployment still requires its credentials, got %v", err)
+	}
+	if _, _, err := loadText(t, webOnlyConfig(), webOnlySecrets()); err != nil {
+		t.Fatalf("a web-only deployment must not require Telegram credentials: %v", err)
+	}
+}
+
+func TestOwnerIDStillDerivesFromAndMustMatchTelegramOwnerID(t *testing.T) {
+	// An existing config carrying only telegram.owner_id keeps working.
+	config, _, err := loadText(t, validConfig(), testSecrets())
+	if err != nil || config.Owner.ID != "42" {
+		t.Fatalf("owner.id=%q err=%v", config.Owner.ID, err)
+	}
+	// Setting both to conflicting values is a configuration mistake, not a
+	// web-only deployment.
+	conflicting := strings.Replace(validConfig(), "telegram:\n", "owner:\n  id: someone-else\ntelegram:\n", 1)
+	if _, _, err := loadText(t, conflicting, testSecrets()); err == nil ||
+		!strings.Contains(err.Error(), "owner.id must match telegram.owner_id") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestNegativeTelegramOwnerIDIsRejectedAsATypo(t *testing.T) {
+	negative := strings.Replace(validConfig(), "owner_id: 42", "owner_id: -42", 1)
+	if _, _, err := loadText(t, negative, testSecrets()); err == nil ||
+		!strings.Contains(err.Error(), "telegram.owner_id must be positive when set") {
+		t.Fatalf("error=%v", err)
+	}
+}

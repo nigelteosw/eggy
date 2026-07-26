@@ -36,11 +36,13 @@ CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
 END;
 
 CREATE TABLE IF NOT EXISTS threads (
-    id         TEXT PRIMARY KEY,
-    title      TEXT,
-    channel    TEXT    NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    id                   TEXT PRIMARY KEY,
+    title                TEXT,
+    channel              TEXT    NOT NULL,
+    created_at           INTEGER NOT NULL,
+    updated_at           INTEGER NOT NULL,
+    workspace            TEXT,
+    workspace_repository TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_threads_channel_updated_at ON threads(channel, updated_at DESC);
 
@@ -106,6 +108,10 @@ func OpenWithProfile(path string, candidateLimit int, profile string) (*Store, e
 		_ = db.Close()
 		return nil, err
 	}
+	if err := ensureThreadWorkspaceColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(similarityProfileIndex); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -141,20 +147,35 @@ func (s *Store) tightenPrivateFiles() error {
 }
 
 func ensureEmbeddingProfileColumn(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(messages)`)
+	return ensureColumn(db, "messages", "embedding_profile", "TEXT")
+}
+
+// ensureThreadWorkspaceColumns migrates a threads table created before
+// workspaces were attachable to a thread. Fresh databases get both columns
+// from the schema; existing ones get them added here, defaulting to NULL
+// (no workspace attached), so no /data/memory.db needs replacing.
+func ensureThreadWorkspaceColumns(db *sql.DB) error {
+	if err := ensureColumn(db, "threads", "workspace", "TEXT"); err != nil {
+		return err
+	}
+	return ensureColumn(db, "threads", "workspace_repository", "TEXT")
+}
+
+// ensureColumn adds column to table when it is absent, so an existing
+// database migrates in place rather than failing to open.
+func ensureColumn(db *sql.DB, table, column, columnType string) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return err
 	}
 	found := false
 	for rows.Next() {
-		var cid, notNull, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			_ = rows.Close()
 			return err
 		}
-		if name == "embedding_profile" {
+		if name == column {
 			found = true
 		}
 	}
@@ -168,7 +189,8 @@ func ensureEmbeddingProfileColumn(db *sql.DB) error {
 	if found {
 		return nil
 	}
-	_, err = db.Exec(`ALTER TABLE messages ADD COLUMN embedding_profile TEXT`)
+	// table and column are package-local literals, never user input.
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + columnType)
 	return err
 }
 
@@ -248,40 +270,45 @@ func (s *Store) ResetConversation(ctx context.Context, conversationID string, at
 	return err
 }
 
-// Thread is one web sidebar conversation, or Telegram's single fixed
-// thread. Title is empty until auto-titled from the thread's first
-// exchange.
-type Thread struct {
-	ID        string
-	Title     string
-	Channel   string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
+const threadColumns = `id, title, channel, created_at, updated_at, workspace, workspace_repository`
 
-// CreateThread persists a new, untitled thread.
-func (s *Store) CreateThread(ctx context.Context, id, channel string, at time.Time) (Thread, error) {
+// CreateThread persists a new, untitled thread with no workspace attached.
+func (s *Store) CreateThread(ctx context.Context, id, channel string, at time.Time) (ports.Thread, error) {
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO threads (id, title, channel, created_at, updated_at) VALUES (?, NULL, ?, ?, ?)
 	`, id, channel, at.UnixNano(), at.UnixNano()); err != nil {
-		return Thread{}, err
+		return ports.Thread{}, err
 	}
-	return Thread{ID: id, Channel: channel, CreatedAt: at, UpdatedAt: at}, nil
+	return ports.Thread{ID: id, Channel: channel, CreatedAt: at, UpdatedAt: at}, nil
 }
 
 // ListThreads returns channel's threads, most-recently-active first.
-func (s *Store) ListThreads(ctx context.Context, channel string) ([]Thread, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, channel, created_at, updated_at FROM threads
+func (s *Store) ListThreads(ctx context.Context, channel string) ([]ports.Thread, error) {
+	return s.queryThreads(ctx, `
+		SELECT `+threadColumns+` FROM threads
 		WHERE channel = ?
 		ORDER BY updated_at DESC
 	`, channel)
+}
+
+// ThreadsWithWorkspace returns every thread that currently has a checkout
+// attached, oldest activity first so a reaper walks the stalest first.
+func (s *Store) ThreadsWithWorkspace(ctx context.Context) ([]ports.Thread, error) {
+	return s.queryThreads(ctx, `
+		SELECT `+threadColumns+` FROM threads
+		WHERE workspace IS NOT NULL AND workspace <> ''
+		ORDER BY updated_at ASC
+	`)
+}
+
+func (s *Store) queryThreads(ctx context.Context, query string, args ...any) ([]ports.Thread, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var threads []Thread
+	var threads []ports.Thread
 	for rows.Next() {
 		thread, err := scanThread(rows)
 		if err != nil {
@@ -297,18 +324,40 @@ func (s *Store) ListThreads(ctx context.Context, channel string) ([]Thread, erro
 
 // GetThread looks up one thread by ID. found is false, with a nil error,
 // when no such thread exists.
-func (s *Store) GetThread(ctx context.Context, id string) (thread Thread, found bool, err error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT id, title, channel, created_at, updated_at FROM threads WHERE id = ?
-	`, id)
+func (s *Store) GetThread(ctx context.Context, id string) (thread ports.Thread, found bool, err error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+threadColumns+` FROM threads WHERE id = ?`, id)
 	thread, err = scanThread(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Thread{}, false, nil
+		return ports.Thread{}, false, nil
 	}
 	if err != nil {
-		return Thread{}, false, err
+		return ports.Thread{}, false, err
 	}
 	return thread, true, nil
+}
+
+// AttachWorkspace records a checkout on a thread. It upserts the thread row
+// because Telegram's fixed thread never goes through CreateThread: it has
+// no sidebar entry to create, but it can still open a workspace.
+func (s *Store) AttachWorkspace(ctx context.Context, id, channel, repository, workspace string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO threads (id, title, channel, created_at, updated_at, workspace, workspace_repository)
+		VALUES (?, NULL, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			workspace = excluded.workspace,
+			workspace_repository = excluded.workspace_repository,
+			updated_at = excluded.updated_at
+	`, id, channel, at.UnixNano(), at.UnixNano(), workspace, repository)
+	return err
+}
+
+// DetachWorkspace clears a thread's attached workspace. Detaching a thread
+// that has none, or that does not exist, is not an error.
+func (s *Store) DetachWorkspace(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE threads SET workspace = NULL, workspace_repository = NULL WHERE id = ?
+	`, id)
+	return err
 }
 
 // SetThreadTitle auto-titles a thread from its first exchange: a no-op
@@ -323,14 +372,16 @@ type rowScanner interface {
 	Scan(...any) error
 }
 
-func scanThread(row rowScanner) (Thread, error) {
-	var thread Thread
-	var title sql.NullString
+func scanThread(row rowScanner) (ports.Thread, error) {
+	var thread ports.Thread
+	var title, workspace, workspaceRepository sql.NullString
 	var createdAt, updatedAt int64
-	if err := row.Scan(&thread.ID, &title, &thread.Channel, &createdAt, &updatedAt); err != nil {
-		return Thread{}, err
+	if err := row.Scan(&thread.ID, &title, &thread.Channel, &createdAt, &updatedAt, &workspace, &workspaceRepository); err != nil {
+		return ports.Thread{}, err
 	}
 	thread.Title = title.String
+	thread.Workspace = workspace.String
+	thread.WorkspaceRepository = workspaceRepository.String
 	thread.CreatedAt = time.Unix(0, createdAt).UTC()
 	thread.UpdatedAt = time.Unix(0, updatedAt).UTC()
 	return thread, nil

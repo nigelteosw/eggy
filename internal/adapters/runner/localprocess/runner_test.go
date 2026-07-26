@@ -105,3 +105,40 @@ func TestRunnerStreamsCompleteOutputLines(t *testing.T) {
 		t.Fatalf("lines=%q result=%#v", lines, result)
 	}
 }
+
+func TestExistsReportsWhetherAWorkspaceSurvived(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "runs")
+	runner, err := New(root, []string{"PATH"}, 5*time.Second, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var _ ports.WorkspaceProbe = runner
+
+	workspace, err := runner.Create(context.Background(), "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exists, err := runner.Exists(context.Background(), workspace)
+	if err != nil || !exists {
+		t.Fatalf("exists=%v err=%v, want a freshly created workspace to exist", exists, err)
+	}
+
+	if err := runner.Destroy(context.Background(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	exists, err = runner.Exists(context.Background(), workspace)
+	if err != nil || exists {
+		t.Fatalf("exists=%v err=%v, want a destroyed workspace to be absent", exists, err)
+	}
+
+	// A recorded path outside the root is unusable either way; the caller's
+	// only sane response is to drop the binding, so report absent, not error.
+	exists, err = runner.Exists(context.Background(), filepath.Join(t.TempDir(), "elsewhere"))
+	if err != nil || exists {
+		t.Fatalf("exists=%v err=%v, want a path outside the root reported absent", exists, err)
+	}
+	exists, err = runner.Exists(context.Background(), root)
+	if err != nil || exists {
+		t.Fatalf("exists=%v err=%v, want the root itself reported absent", exists, err)
+	}
+}

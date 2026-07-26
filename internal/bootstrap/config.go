@@ -34,7 +34,7 @@ type Config struct {
 	Server                 ServerConfig                `yaml:"server"`
 	DataDir                string                      `yaml:"data_dir"`
 	Owner                  OwnerConfig                 `yaml:"owner"`
-	Telegram               TelegramConfig              `yaml:"telegram"`
+	Telegram               TelegramConfig              `yaml:"telegram,omitempty"`
 	Agent                  AgentConfig                 `yaml:"-"`
 	Providers              map[string]ProviderConfig   `yaml:"-"`
 	ModelAliases           map[string]ModelAliasConfig `yaml:"-"`
@@ -88,6 +88,12 @@ type OwnerConfig struct {
 type TelegramConfig struct {
 	OwnerID int64 `yaml:"owner_id"`
 }
+
+// Configured reports whether Telegram is a channel for this deployment.
+// Telegram is optional: a web-only deployment omits the block entirely and
+// sets owner.id directly, and then needs no bot token, no webhook secret,
+// and no numeric Telegram owner ID.
+func (c TelegramConfig) Configured() bool { return c.OwnerID != 0 }
 
 type RepositoryConfig struct {
 	Name              string   `yaml:"name"`
@@ -169,7 +175,7 @@ type commonConfigDocument struct {
 	Server                 ServerConfig                `yaml:"server"`
 	DataDir                string                      `yaml:"data_dir"`
 	Owner                  OwnerConfig                 `yaml:"owner"`
-	Telegram               TelegramConfig              `yaml:"telegram"`
+	Telegram               TelegramConfig              `yaml:"telegram,omitempty"`
 	Repositories           []RepositoryConfig          `yaml:"repositories"`
 	Runner                 RunnerConfig                `yaml:"runner"`
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
@@ -377,14 +383,14 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.Owner.ID) == "" {
 		return errors.New("owner.id must be set")
 	}
-	// Telegram construction is still unconditional in NewApp (see TODO.md's
-	// "Split bootstrap into a core and its surfaces"), so telegram.owner_id
-	// remains required here too even though owner.id is now the identity
-	// every other surface reads.
-	if c.Telegram.OwnerID <= 0 {
-		return errors.New("telegram.owner_id must be positive")
+	// owner.id is the system-wide identity; Telegram is one optional channel
+	// onto it. A negative owner_id is a typo rather than an omission, so it
+	// is still rejected -- but omitting the block entirely is a web-only
+	// deployment, not an error.
+	if c.Telegram.OwnerID < 0 {
+		return errors.New("telegram.owner_id must be positive when set")
 	}
-	if strconv.FormatInt(c.Telegram.OwnerID, 10) != c.Owner.ID {
+	if c.Telegram.Configured() && strconv.FormatInt(c.Telegram.OwnerID, 10) != c.Owner.ID {
 		return errors.New("owner.id must match telegram.owner_id when Telegram is configured")
 	}
 	u, err := url.Parse(c.Server.PublicBaseURL)
@@ -576,8 +582,13 @@ func (c Config) ActiveModel(alias string) (ProviderConfig, ModelAliasConfig, err
 }
 
 func (c Config) validateSecrets(s Secrets) error {
-	required := []struct{ name, value string }{
-		{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken}, {"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret},
+	var required []struct{ name, value string }
+	// Telegram credentials are required only when Telegram is a channel for
+	// this deployment; a web-only one must not have to invent them.
+	if c.Telegram.Configured() {
+		required = append(required,
+			struct{ name, value string }{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken},
+			struct{ name, value string }{"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret})
 	}
 	usedProviders := map[string]bool{}
 	for _, model := range c.ModelAliases {

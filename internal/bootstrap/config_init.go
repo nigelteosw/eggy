@@ -96,13 +96,23 @@ func initializeConfig(path string, getenv func(string) string) error {
 }
 
 func firstBootConfig(getenv func(string) string) (Config, error) {
+	// EGGY_TELEGRAM_OWNER_ID configures Telegram and derives the canonical
+	// owner identity from it. A web-only deployment sets EGGY_OWNER_ID
+	// instead and gets no Telegram block at all -- and so needs no bot
+	// token or webhook secret either.
+	var telegram TelegramConfig
 	ownerValue := strings.TrimSpace(getenv("EGGY_TELEGRAM_OWNER_ID"))
-	if ownerValue == "" {
-		return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID is required")
-	}
-	ownerID, err := strconv.ParseInt(ownerValue, 10, 64)
-	if err != nil || ownerID <= 0 {
-		return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID must be a positive integer")
+	if ownerValue != "" {
+		ownerID, err := strconv.ParseInt(ownerValue, 10, 64)
+		if err != nil || ownerID <= 0 {
+			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID must be a positive integer")
+		}
+		telegram = TelegramConfig{OwnerID: ownerID}
+	} else {
+		ownerValue = strings.TrimSpace(getenv("EGGY_OWNER_ID"))
+		if ownerValue == "" {
+			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID is required, or EGGY_OWNER_ID for a web-only deployment")
+		}
 	}
 	publicBaseURL := strings.TrimSpace(getenv("EGGY_PUBLIC_BASE_URL"))
 	if publicBaseURL == "" {
@@ -120,7 +130,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		},
 		DataDir:  "/data",
 		Owner:    OwnerConfig{ID: ownerValue},
-		Telegram: TelegramConfig{OwnerID: ownerID},
+		Telegram: telegram,
 		Agent:    AgentConfig{DefaultModel: "deepseek-pro"},
 		Providers: map[string]ProviderConfig{
 			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},

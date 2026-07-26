@@ -10,20 +10,18 @@ its implementation and focused tests have landed.
 ## P0: One loop, one tool surface
 
 ADR 0002 removed the Codex/Claude Code CLI subprocess but kept its *shape*.
-Eggy still runs two `agent.Loop` instances with two disjoint tool registries —
-the conversational loop (`internal/bootstrap/app.go:377`) and the
-implementation loop (`app.go:295`) — and `repository_modify`
-(`internal/kernel/services/repository_tools.go:82`) is a blocking outer-loop
-tool call that synchronously drives the inner loop to completion
-(`services/coding.go:89`). Three consequences follow:
+Eggy still runs two `agent.Loop` instances — the conversational loop
+(`internal/bootstrap/app.go:397`) and the implementation loop (`app.go:302`) —
+and `repository_modify` (`internal/kernel/services/repository_tools.go:82`) is
+a blocking outer-loop tool call that synchronously drives the inner loop to
+completion (`services/coding.go:41`). Three consequences followed; the first is
+now resolved:
 
-- `read_file` and `terminal` are defined **twice**, with different schemas and
-  different workspace resolution: `repository_read_tools.go:16` takes a
-  `repository` argument and clones an ephemeral checkout it destroys after
-  *every single call*; `implementation_tools.go:16` resolves the workspace from
-  ctx. Conversational repository exploration is therefore stateless and pays a
-  full clone per `grep`, which is why the conversational agent can only inspect
-  and suggest — it structurally cannot accumulate understanding of a repo.
+- ~~`read_file` and `terminal` are defined twice with different schemas and
+  different workspace resolution.~~ **Done.** The two registries are no longer
+  disjoint: one kernel-owned primitive set is built once and shared by both
+  loops, resolving its workspace from session state — and that state is now
+  durable, so conversational exploration accumulates across a restart.
 - The two loops have incompatible termination conditions: `RunSelected`
   (`agent/loop.go:70`) ends when the model emits no tool calls;
   `RunImplementationWithEvents` (`loop.go:154`) ends when `finish_implementation`
@@ -72,13 +70,17 @@ way to attach one, conversational repository reading would have regressed.
 
 ### Attach the workspace to the session, not the run
 
-- [x] Add `workspace_open(repository)` and `workspace_close`. Landed with the
-      previous section. Still in-memory only (`WorkspaceSessions.bound`): the
-      clone goes onto the durable volume under `runner.root`, but the binding
-      itself is not persisted, so a restart orphans nothing but forgets which
-      thread had what open.
-- [ ] Persist the thread → checkout binding so an open workspace survives a
-      restart instead of being reaped by `CloseAll`.
+- [x] Add `workspace_open(repository)` and `workspace_close`, cloning once onto
+      the durable volume under `runner.root`.
+- [x] Add `ports.ThreadStore` — neutral `Thread` type over create/list/get/
+      set-title plus workspace attach/detach. `chat.go` and `web.go` no longer
+      reference `*memorysqlite.Store`.
+- [x] Persist the thread → checkout binding on that store (`threads.workspace`,
+      `threads.workspace_repository`; existing databases migrate in place) so
+      an open workspace survives a restart. `WorkspaceSessions.Recover` runs
+      before the first turn and drops any binding whose directory is gone,
+      probing through the new `ports.WorkspaceProbe`. Shutdown no longer
+      destroys anything.
 - [ ] Move the workspace off `ports.ImplementationSession` as a run property
       and onto the conversation thread, so inspect → edit → discuss is one
       continuous transcript with no lane transition and no re-clone.
@@ -87,11 +89,16 @@ way to attach one, conversational repository reading would have regressed.
 - [ ] Retire the remaining `withWorkspace`/`workspaceFromContext` ctx
       smuggling, which `WorkspaceSessions.Resolve` still consults first so an
       implementation run's branched checkout outranks the thread's.
-- [ ] Keep workspace cleanup bounded: extend `CleanupExpired` to reap
-      thread-attached workspaces whose thread has gone idle past a cutoff.
+- [x] Keep workspace cleanup bounded: `WorkspaceSessions.CleanupIdle` reaps
+      thread-attached workspaces whose thread has gone idle past the
+      `runner.retention` cutoff, on the same ticker as `CleanupExpired`.
 
-This step is worth landing on its own even if the rest slips — it is mostly
-deletion, and it is what turns "inspects and suggests" into "knows the repo."
+What remains here is the *run* side: an implementation run still carries its
+own `ports.ImplementationSession.Workspace` and still smuggles it through ctx,
+so a run and a thread are two different lanes. Collapsing them is what makes
+inspect → edit → discuss one continuous transcript, and it is coupled to
+"Make shipping an action, not a run outcome" below — the ctx smuggling only
+disappears once a run stops being a separate loop invocation.
 
 ### Hoist compaction and streaming into the one loop
 
@@ -214,10 +221,20 @@ guard.
       construct its own, replacing `events.Message.ChatID`'s dual meaning.
       `destinationFromEvent`'s `event.Source == "web"` check and
       `decodeMessage`'s Telegram-owner default both disappear.
-- [ ] Introduce a canonical `config.Owner.ID` instead of using
-      `config.Telegram.OwnerID` (13 non-test call sites) as the system-wide
-      identity; the Telegram adapter maps its numeric ID onto it. A web-only
-      deployment must not need a Telegram owner ID configured.
+- [x] Introduce a canonical `config.Owner.ID` as the system-wide identity;
+      the Telegram adapter maps its numeric ID onto it (`config.go:327`).
+- [x] Make the Telegram block optional and validate `owner.id` on its own, so
+      a web-only deployment boots with no `telegram.owner_id`, no
+      `TELEGRAM_BOT_TOKEN`, and no `TELEGRAM_WEBHOOK_SECRET`. First boot
+      accepts `EGGY_OWNER_ID` as an alternative to `EGGY_TELEGRAM_OWNER_ID`
+      and omits the generated block entirely.
+
+One gap remains for web-only deployments, tracked under "Split bootstrap into
+a core and its surfaces" below: scheduled and heartbeat turns still stamp
+`destination.Telegram` (`app_events.go:394`, `handleHeartbeat`). Nothing
+breaks — `newRoutedChannel` collapses to the web channel when Telegram is
+absent — but "which channel receives unprompted output" is still a
+fallthrough rather than a decision.
 
 ### Split bootstrap into a core and its surfaces
 
@@ -232,12 +249,9 @@ guard.
 - [ ] Extract the command surface (`CommandService`, catalog, `CommandResult`)
       into its own package, and the HTTP surface (`web.go`, `chat.go`,
       `server.go`) into another. `internal/bootstrap` keeps wiring only.
-- [ ] Add a `ports.ThreadStore` (create/list/get/set-title over a neutral
-      `Thread` type). Today `web.go` and `chat.go` depend on the concrete
-      `*memorysqlite.Store` and its adapter-owned `sqlite.Thread` type for a
-      concept `ports.MemoryStore` doesn't model at all. The thread is also
-      where an attached workspace belongs, so this blocks "Attach the
-      workspace to the session, not the run."
+- [x] Add a `ports.ThreadStore` (create/list/get/set-title over a neutral
+      `Thread` type). Landed with "Attach the workspace to the session, not the
+      run", which it blocked.
 - [ ] Give each surface a narrow interface onto the core rather than the whole
       36-field `App` struct.
 - [ ] Make the proactive-output surface explicit configuration. `handleHeartbeat`

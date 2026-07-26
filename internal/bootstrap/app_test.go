@@ -1246,3 +1246,33 @@ func (f appRoundTrip) RoundTrip(request *http.Request) (*http.Response, error) {
 func appJSON(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
+
+// A web-only deployment configures no Telegram at all: no owner_id, no bot
+// token, no webhook secret. It must construct, serve, and route proactive
+// output to the web channel rather than panicking on a nil Telegram client.
+func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Owner = OwnerConfig{ID: "owner-42"}
+	cfg.Telegram = TelegramConfig{}
+	secrets := Secrets{ProviderAPIKeys: map[string]string{"deepseek": "deepseek"}}
+
+	app, err := NewApp(cfg, secrets, AppOptions{})
+	if err != nil {
+		t.Fatalf("a web-only deployment must boot without Telegram: %v", err)
+	}
+
+	// The webhook route is served as unavailable rather than registered.
+	request := httptest.NewRequest(http.MethodPost, cfg.Server.TelegramWebhookPath, nil)
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code == http.StatusOK {
+		t.Fatalf("the Telegram webhook must not be live without Telegram configured, status=%d", response.Code)
+	}
+
+	// Delivery on a Telegram-shaped destination (what heartbeats and
+	// schedules still use) must not panic on the absent client.
+	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
+	if err := app.channel.Deliver(ctx, "proactive output"); err != nil {
+		t.Fatalf("deliver=%v", err)
+	}
+}

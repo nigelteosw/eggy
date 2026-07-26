@@ -105,7 +105,7 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handler := newThreadHistoryHandler(memory)
+	handler := newThreadHistoryHandler(memory, memory)
 
 	request := withPathValue(httptest.NewRequest(http.MethodGet, "/api/chat/threads/thread-1/history", nil), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -128,7 +128,7 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 
 func TestThreadHistoryReturns404ForAnUnknownThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
-	handler := newThreadHistoryHandler(memory)
+	handler := newThreadHistoryHandler(memory, memory)
 
 	request := withPathValue(httptest.NewRequest(http.MethodGet, "/api/chat/threads/missing/history", nil), "id", "missing")
 	response := httptest.NewRecorder()

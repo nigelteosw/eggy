@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
-	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 const chatKeepaliveInterval = 15 * time.Second
@@ -48,9 +48,9 @@ func newThreadID() string {
 // doesn't exist, so a deleted-out-from-under-an-open-tab or malformed
 // thread ID never reaches the handler's real work. Returns ok=false when
 // the response has already been written.
-func requireExistingThread(w http.ResponseWriter, r *http.Request, memory *memorysqlite.Store) (id string, ok bool) {
+func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ports.ThreadStore) (id string, ok bool) {
 	id = r.PathValue("id")
-	if _, found, err := memory.GetThread(r.Context(), id); err != nil {
+	if _, found, err := threads.GetThread(r.Context(), id); err != nil {
 		writeWebError(w, http.StatusInternalServerError, err.Error())
 		return "", false
 	} else if !found {
@@ -60,9 +60,9 @@ func requireExistingThread(w http.ResponseWriter, r *http.Request, memory *memor
 	return id, true
 }
 
-func newThreadListHandler(memory *memorysqlite.Store) http.HandlerFunc {
+func newThreadListHandler(threads ports.ThreadStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		threads, err := memory.ListThreads(r.Context(), "web")
+		threads, err := threads.ListThreads(r.Context(), "web")
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -79,9 +79,9 @@ func newThreadListHandler(memory *memorysqlite.Store) http.HandlerFunc {
 	}
 }
 
-func newThreadCreateHandler(memory *memorysqlite.Store, now func() time.Time) http.HandlerFunc {
+func newThreadCreateHandler(threads ports.ThreadStore, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		thread, err := memory.CreateThread(r.Context(), newThreadID(), "web", now())
+		thread, err := threads.CreateThread(r.Context(), newThreadID(), "web", now())
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -95,9 +95,9 @@ func newThreadCreateHandler(memory *memorysqlite.Store, now func() time.Time) ht
 	}
 }
 
-func newThreadHistoryHandler(memory *memorysqlite.Store) http.HandlerFunc {
+func newThreadHistoryHandler(threads ports.ThreadStore, memory ports.MemoryStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, memory)
+		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}
@@ -118,9 +118,9 @@ func newThreadHistoryHandler(memory *memorysqlite.Store) http.HandlerFunc {
 	}
 }
 
-func newThreadSendHandler(enqueue func(context.Context, events.Event) error, owner string, memory *memorysqlite.Store) http.HandlerFunc {
+func newThreadSendHandler(enqueue func(context.Context, events.Event) error, owner string, threads ports.ThreadStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, memory)
+		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}
@@ -183,9 +183,9 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 	}
 }
 
-func newThreadStreamHandler(hub *webchat.Hub, memory *memorysqlite.Store) http.HandlerFunc {
+func newThreadStreamHandler(hub *webchat.Hub, threads ports.ThreadStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, memory)
+		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}

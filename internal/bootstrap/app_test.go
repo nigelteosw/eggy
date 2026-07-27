@@ -1105,11 +1105,16 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	started := make(chan struct{})
 	release := make(chan struct{})
+	delivered := make(chan struct{})
+	var deliveredOnce sync.Once
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host == "deepseek.test" {
 			close(started)
 			<-release
 			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"done"}}]}`), nil
+		}
+		if strings.Contains(request.URL.Path, "sendMessage") {
+			deliveredOnce.Do(func() { close(delivered) })
 		}
 		return appJSON(200, `{"ok":true,"result":{}}`), nil
 	})}
@@ -1118,8 +1123,17 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = app.Run(ctx) }()
+	runDone := make(chan struct{})
+	// The queued turn keeps writing its transcript and durable conversation
+	// into cfg's data dir after this test's assertion is satisfied, and that
+	// dir is a t.TempDir. Cancel and wait for Run to return -- it defers
+	// workers.Wait() -- so no goroutine is still writing when the TempDir
+	// cleanup runs RemoveAll and fails with "directory not empty".
+	defer func() {
+		cancel()
+		<-runDone
+	}()
+	go func() { _ = app.Run(ctx); close(runDone) }()
 	body := `{"update_id":99,"message":{"message_id":1,"from":{"id":42},"chat":{"id":42},"text":"slow turn"}}`
 	request := httptest.NewRequest(http.MethodPost, cfg.Server.TelegramWebhookPath, strings.NewReader(body))
 	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook")
@@ -1137,6 +1151,15 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	}
 	<-started
 	close(release)
+	// Let the released turn run to completion before the deferred cancel, so
+	// shutdown is not racing a half-written transcript. The assertion above
+	// is already satisfied; this only keeps teardown orderly, so a turn that
+	// never reaches delivery falls through to the same deferred cleanup
+	// rather than hanging the test.
+	select {
+	case <-delivered:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) {

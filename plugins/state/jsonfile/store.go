@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/atomicfile"
-	"github.com/nigelteosw/eggy/plugins/filelock"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/atomicfile"
+	"github.com/nigelteosw/eggy/plugins/filelock"
 )
 
 const CurrentSchemaVersion = 4

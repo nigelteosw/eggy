@@ -385,13 +385,6 @@ type Schedule struct {
 	Enabled     bool              `json:"enabled"`
 }
 
-type Scheduler interface {
-	Add(context.Context, Schedule) error
-	Remove(context.Context, string) error
-	Due(context.Context, time.Time) ([]Schedule, error)
-	Next(string, time.Time) (time.Time, error)
-}
-
 type CodingProgress struct {
 	Kind    string
 	Message string

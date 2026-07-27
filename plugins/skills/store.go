@@ -16,9 +16,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/atomicfile"
 	"github.com/nigelteosw/eggy/plugins/filelock"
-	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
 )
 

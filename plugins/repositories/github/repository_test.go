@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
 )
 
 func TestGitRepositoryCloneInspectDiffCommitAndPush(t *testing.T) {

@@ -31,11 +31,6 @@ func (r *ToolRegistry) Register(tool ports.Tool) error {
 	return nil
 }
 
-func (r *ToolRegistry) Get(name string) (ports.Tool, bool) {
-	tool, ok := r.tools[name]
-	return tool, ok
-}
-
 func (r *ToolRegistry) Tools() []ports.Tool {
 	names := make([]string, 0, len(r.tools))
 	for name := range r.tools {

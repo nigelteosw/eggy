@@ -3,7 +3,7 @@ GO ?= go
 .PHONY: fmt vet test race build build-web smoke clean
 
 fmt:
-	gofmt -w cmd internal
+	gofmt -w cmd internal plugins
 
 vet:
 	$(GO) vet ./...

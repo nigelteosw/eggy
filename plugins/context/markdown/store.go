@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/atomicfile"
 	"github.com/nigelteosw/eggy/plugins/filelock"
-	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 const (
@@ -22,7 +21,13 @@ const (
 	initialHeartbeat = "# Eggy Heartbeat\n\nChecklist only. Timing, timezone, quiet hours, limits, and prohibited actions are fixed policy, not edited here.\n\n## Check on each heartbeat\n\n- Anything time-sensitive the owner would want flagged now.\n"
 )
 
-var sectionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$`)
+// Default write budgets. They are deliberately small: a bounded document that
+// errors on overflow forces the agent to consolidate, where a large one just
+// accretes and is re-injected into every turn's prompt.
+const (
+	DefaultUserMaxBytes   = 2 << 10
+	DefaultMemoryMaxBytes = 4 << 10
+)
 
 // Paths locates each context document explicitly, because they no longer
 // share one directory: SOUL.md and HEARTBEAT.md sit at the top of the home
@@ -36,28 +41,32 @@ type Paths struct {
 }
 
 type Store struct {
-	paths    Paths
-	maxBytes int64
-	mu       sync.Mutex
+	paths          Paths
+	userMaxBytes   int64
+	memoryMaxBytes int64
+	mu             sync.Mutex
 }
 
-func Open(paths Paths, maxBytes int64) *Store {
-	if maxBytes <= 0 {
-		maxBytes = 64 << 10
+func Open(paths Paths, userMaxBytes, memoryMaxBytes int64) *Store {
+	if userMaxBytes <= 0 {
+		userMaxBytes = DefaultUserMaxBytes
 	}
-	return &Store{paths: paths, maxBytes: maxBytes}
+	if memoryMaxBytes <= 0 {
+		memoryMaxBytes = DefaultMemoryMaxBytes
+	}
+	return &Store{paths: paths, userMaxBytes: userMaxBytes, memoryMaxBytes: memoryMaxBytes}
 }
 
 // InDir returns a store using Eggy's former flat layout, where every context
 // document sat directly in one directory. Tests and any caller that only
 // needs a scratch home keep using it.
-func InDir(dir string, maxBytes int64) *Store {
+func InDir(dir string, userMaxBytes, memoryMaxBytes int64) *Store {
 	return Open(Paths{
 		Soul:      filepath.Join(dir, "SOUL.md"),
 		User:      filepath.Join(dir, "USER.md"),
 		Memory:    filepath.Join(dir, "MEMORY.md"),
 		Heartbeat: filepath.Join(dir, "HEARTBEAT.md"),
-	}, maxBytes)
+	}, userMaxBytes, memoryMaxBytes)
 }
 
 func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
@@ -82,28 +91,60 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	return ports.AgentContext{Soul: soul, User: user, Memory: memory, Heartbeat: heartbeat, MaxBytes: s.maxBytes}, nil
+	return ports.AgentContext{
+		Soul: soul, User: user, Memory: memory, Heartbeat: heartbeat,
+		UserMaxBytes: s.userMaxBytes, MemoryMaxBytes: s.memoryMaxBytes,
+	}, nil
 }
 
-func (s *Store) Append(ctx context.Context, document ports.ContextDocument, section, content string) error {
-	return s.edit(ctx, document, section, content, false)
-}
-
-func (s *Store) ReplaceSection(ctx context.Context, document ports.ContextDocument, section, content string) error {
-	return s.edit(ctx, document, section, content, true)
-}
-
-// RemoveSection deletes one section (its heading and body) entirely. It
-// errors if the section does not exist, so a caller cannot silently no-op a
-// removal it believes succeeded.
-func (s *Store) RemoveSection(ctx context.Context, document ports.ContextDocument, section string) error {
-	if !sectionPattern.MatchString(section) {
-		return errors.New("context section must be a plain heading")
+// AddEntry appends text to document as one entry.
+func (s *Store) AddEntry(ctx context.Context, document ports.ContextDocument, text string) error {
+	entry, err := normalizeEntry(text)
+	if err != nil {
+		return err
 	}
+	return s.rewrite(ctx, document, func(lines []string) ([]string, error) {
+		return append(lines, entry), nil
+	})
+}
+
+// ReplaceEntry rewrites the single entry containing oldText.
+func (s *Store) ReplaceEntry(ctx context.Context, document ports.ContextDocument, oldText, text string) error {
+	entry, err := normalizeEntry(text)
+	if err != nil {
+		return err
+	}
+	return s.rewrite(ctx, document, func(lines []string) ([]string, error) {
+		index, err := matchEntry(lines, oldText)
+		if err != nil {
+			return nil, err
+		}
+		lines[index] = entry
+		return lines, nil
+	})
+}
+
+// RemoveEntry deletes the single entry containing oldText.
+func (s *Store) RemoveEntry(ctx context.Context, document ports.ContextDocument, oldText string) error {
+	return s.rewrite(ctx, document, func(lines []string) ([]string, error) {
+		index, err := matchEntry(lines, oldText)
+		if err != nil {
+			return nil, err
+		}
+		return append(lines[:index], lines[index+1:]...), nil
+	})
+}
+
+// rewrite applies edit to document's entry lines under lock, then writes the
+// result back if it still fits the document's budget. The budget is enforced
+// on write only: a document that predates the budget still loads, and the
+// first edit that would grow it further is what fails. Shrinking edits are
+// always allowed, so an over-budget document can be brought back under.
+func (s *Store) rewrite(ctx context.Context, document ports.ContextDocument, edit func([]string) ([]string, error)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	path, initial, err := s.editableDocument(document)
+	path, initial, maxBytes, err := s.writableDocument(document)
 	if err != nil {
 		return err
 	}
@@ -114,62 +155,109 @@ func (s *Store) RemoveSection(ctx context.Context, document ports.ContextDocumen
 		if err != nil {
 			return err
 		}
-		heading := "## " + section
-		bounds := sectionBounds(current, heading)
-		if bounds == nil {
-			return fmt.Errorf("section %q does not exist", section)
-		}
-		current = strings.TrimRight(current[:bounds[0]]+current[bounds[1]:], "\n") + "\n"
-		return atomicfile.Write(path, []byte(current), 0o600)
-	})
-}
-
-func (s *Store) edit(ctx context.Context, document ports.ContextDocument, section, content string, replace bool) error {
-	if err := validateEdit(section, content); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	path, initial, err := s.editableDocument(document)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return filelock.With(path, func() error {
-		current, err := s.loadDocumentUnlocked(path, initial)
+		header, lines := splitEntries(current)
+		lines, err = edit(lines)
 		if err != nil {
 			return err
 		}
-		heading := "## " + section
-		trimmed := strings.TrimSpace(content)
-		bounds := sectionBounds(current, heading)
-		if bounds == nil {
-			current = strings.TrimRight(current, "\n") + "\n\n" + heading + "\n\n" + trimmed + "\n"
-		} else if replace {
-			current = current[:bounds[0]] + heading + "\n\n" + trimmed + "\n" + current[bounds[1]:]
-		} else {
-			current = strings.TrimRight(current[:bounds[1]], "\n") + "\n\n" + trimmed + "\n" + current[bounds[1]:]
+		updated := joinEntries(header, lines)
+		// An edit that shrinks the document always proceeds, even while it
+		// stays over budget. Enforcing the ceiling on removals too would wedge
+		// any document already above it -- including every one written before
+		// the budget shrank -- by rejecting the only edits that could recover.
+		if int64(len(updated)) > maxBytes && len(updated) >= len(current) {
+			return fmt.Errorf("%s is full (%d/%d bytes): consolidate or remove entries before adding more", filepath.Base(path), len(updated), maxBytes)
 		}
-		if int64(len(current)) > s.maxBytes {
-			return fmt.Errorf("%s exceeds context limit of %d bytes", filepath.Base(path), s.maxBytes)
-		}
-		return atomicfile.Write(path, []byte(current), 0o600)
+		return atomicfile.Write(path, []byte(updated), 0o600)
 	})
 }
 
-func (s *Store) editableDocument(document ports.ContextDocument) (string, string, error) {
+func (s *Store) writableDocument(document ports.ContextDocument) (path, initial string, maxBytes int64, err error) {
 	switch document {
-	case ports.ContextSoul:
-		return s.paths.Soul, initialSoul, nil
 	case ports.ContextUser:
-		return s.paths.User, initialUser, nil
+		return s.paths.User, initialUser, s.userMaxBytes, nil
 	case ports.ContextMemory:
-		return s.paths.Memory, initialMemory, nil
+		return s.paths.Memory, initialMemory, s.memoryMaxBytes, nil
 	default:
-		return "", "", errors.New("context document is read-only")
+		return "", "", 0, fmt.Errorf("context document %q is read-only", document)
 	}
+}
+
+// splitEntries divides a document into its leading markdown header (the "#
+// Title" line and anything before the first entry) and its entry lines.
+//
+// An entry is any non-blank line that is not a markdown heading. Only the
+// leading run of headings and blank lines is kept as the header; a document
+// written by the older section-based store is therefore flattened on its
+// first edit, dropping every "## Section" line below the first entry and
+// keeping the body lines as ordinary, matchable entries. That is deliberate:
+// entries are addressed by substring, so section structure carries no
+// meaning here and preserving it would only be decoration to maintain.
+func splitEntries(document string) (string, []string) {
+	var header strings.Builder
+	var lines []string
+	for _, line := range strings.Split(document, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if len(lines) == 0 && (trimmed == "" || strings.HasPrefix(trimmed, "#")) {
+			header.WriteString(line)
+			header.WriteString("\n")
+			continue
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		lines = append(lines, trimmed)
+	}
+	return strings.TrimRight(header.String(), "\n"), lines
+}
+
+func joinEntries(header string, lines []string) string {
+	if len(lines) == 0 {
+		return header + "\n"
+	}
+	return header + "\n\n" + strings.Join(lines, "\n") + "\n"
+}
+
+// matchEntry finds the one entry containing oldText. Ambiguity is an error
+// rather than a first-match guess, so the agent is told to be more specific
+// instead of silently editing the wrong entry.
+func matchEntry(lines []string, oldText string) (int, error) {
+	needle := strings.TrimSpace(oldText)
+	if needle == "" {
+		return 0, errors.New("old_text is required")
+	}
+	found := -1
+	count := 0
+	for index, line := range lines {
+		if strings.Contains(line, needle) {
+			if count == 0 {
+				found = index
+			}
+			count++
+		}
+	}
+	switch {
+	case count == 0:
+		return 0, fmt.Errorf("no entry contains %q", needle)
+	case count > 1:
+		return 0, fmt.Errorf("%d entries contain %q: use a longer old_text that matches only one", count, needle)
+	}
+	return found, nil
+}
+
+// normalizeEntry flattens text to the single line an entry occupies, so no
+// write can inject a heading or a blank line and reshape the document.
+func normalizeEntry(text string) (string, error) {
+	entry := strings.Join(strings.Fields(text), " ")
+	entry = strings.TrimLeft(entry, "#")
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return "", errors.New("text is required")
+	}
+	if !strings.HasPrefix(entry, "- ") {
+		entry = "- " + entry
+	}
+	return entry, nil
 }
 
 func (s *Store) loadDocument(path, initial string) (string, error) {
@@ -193,37 +281,5 @@ func (s *Store) loadDocumentUnlocked(path, initial string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
-	if int64(len(data)) > s.maxBytes {
-		return "", fmt.Errorf("%s exceeds context limit of %d bytes", filepath.Base(path), s.maxBytes)
-	}
 	return string(data), nil
-}
-
-func validateEdit(section, content string) error {
-	if !sectionPattern.MatchString(section) {
-		return errors.New("context section must be a plain heading")
-	}
-	if strings.TrimSpace(content) == "" {
-		return errors.New("context content is empty")
-	}
-	for _, line := range strings.Split(content, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			return errors.New("context content cannot create headings")
-		}
-	}
-	return nil
-}
-
-func sectionBounds(document, heading string) []int {
-	start := strings.Index(document, heading+"\n")
-	if start < 0 {
-		return nil
-	}
-	rest := document[start+len(heading)+1:]
-	next := strings.Index(rest, "\n## ")
-	end := len(document)
-	if next >= 0 {
-		end = start + len(heading) + 1 + next + 1
-	}
-	return []int{start, end}
 }

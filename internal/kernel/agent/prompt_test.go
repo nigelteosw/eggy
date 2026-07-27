@@ -66,17 +66,26 @@ func TestBuildInstructionsRendersSkillsIndexOrNoneInstalled(t *testing.T) {
 	}
 }
 
-func TestBuildInstructionsRendersCapacityIndicatorForSoulUserAndMemory(t *testing.T) {
-	context := ports.AgentContext{Soul: "0123456789012", User: "0123456789", Memory: "01234567890123456789", MaxBytes: 100}
+// Only the two agent-writable documents carry a capacity indicator: SOUL.md
+// is owner-editable, so showing the agent a budget it cannot spend would be
+// noise.
+func TestBuildInstructionsRendersCapacityIndicatorForUserAndMemoryOnly(t *testing.T) {
+	context := ports.AgentContext{
+		Soul: "0123456789012", User: "0123456789", Memory: "01234567890123456789",
+		UserMaxBytes: 100, MemoryMaxBytes: 200,
+	}
 	messages := BuildInstructions(context, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
 	soul, user, memory := messages[3].Content, messages[4].Content, messages[5].Content
-	if !strings.Contains(soul, "[13% - 13/100 bytes]") {
-		t.Fatalf("soul=%s", soul)
+	if strings.Contains(soul, "%") {
+		t.Fatalf("soul should carry no capacity indicator: %s", soul)
+	}
+	if !strings.Contains(soul, "read-only") {
+		t.Fatalf("soul should be labelled read-only: %s", soul)
 	}
 	if !strings.Contains(user, "[10% - 10/100 bytes]") {
 		t.Fatalf("user=%s", user)
 	}
-	if !strings.Contains(memory, "[20% - 20/100 bytes]") {
+	if !strings.Contains(memory, "[10% - 20/200 bytes]") {
 		t.Fatalf("memory=%s", memory)
 	}
 }

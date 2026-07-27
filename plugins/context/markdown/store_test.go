@@ -11,9 +11,14 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
+func testStore(t *testing.T) (*Store, string) {
+	t.Helper()
 	dir := t.TempDir()
-	store := InDir(dir, 64<<10)
+	return InDir(dir, DefaultUserMaxBytes, DefaultMemoryMaxBytes), dir
+}
+
+func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
+	store, dir := testStore(t)
 	ctx := context.Background()
 	loaded, err := store.Load(ctx)
 	if err != nil {
@@ -22,8 +27,8 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") || !strings.HasPrefix(loaded.Heartbeat, "# Eggy Heartbeat") {
 		t.Fatalf("context=%#v", loaded)
 	}
-	if loaded.MaxBytes != 64<<10 {
-		t.Fatalf("MaxBytes=%d", loaded.MaxBytes)
+	if loaded.UserMaxBytes != DefaultUserMaxBytes || loaded.MemoryMaxBytes != DefaultMemoryMaxBytes {
+		t.Fatalf("budgets user=%d memory=%d", loaded.UserMaxBytes, loaded.MemoryMaxBytes)
 	}
 	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"} {
 		info, err := os.Stat(filepath.Join(dir, name))
@@ -31,59 +36,57 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode().Perm(), err)
 		}
 	}
-	before := []byte("# Eggy Soul\n\nCustom.\n")
-	if err := os.WriteFile(filepath.Join(dir, "SOUL.md"), before, 0o600); err != nil {
+	if err := store.AddEntry(ctx, ports.ContextUser, "Prefers concise answers"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Append(ctx, ports.ContextUser, "Preferences", "Concise"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.ReplaceSection(ctx, ports.ContextMemory, "Repositories", "Eggy is trusted"); err != nil {
+	if err := store.AddEntry(ctx, ports.ContextMemory, "Eggy is trusted"); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err = store.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Soul != string(before) || !strings.Contains(loaded.User, "## Preferences\n\nConcise") || !strings.Contains(loaded.Memory, "## Repositories\n\nEggy is trusted") {
+	if !strings.Contains(loaded.User, "- Prefers concise answers") || !strings.Contains(loaded.Memory, "- Eggy is trusted") {
 		t.Fatalf("context=%#v", loaded)
+	}
+	// The document's own title survives editing, so the file stays readable.
+	if !strings.HasPrefix(loaded.Memory, "# Eggy Memory\n") {
+		t.Fatalf("header lost: %q", loaded.Memory)
 	}
 }
 
-func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.T) {
-	dir := t.TempDir()
-	store := InDir(dir, 64<<10)
+func TestContextStoreReplacesAndRemovesEntriesBySubstring(t *testing.T) {
+	store, _ := testStore(t)
 	ctx := context.Background()
-	if err := store.Append(ctx, ports.ContextMemory, "First", "one"); err != nil {
+	for _, text := range []string{"alpha fact", "beta fact", "gamma fact"} {
+		if err := store.AddEntry(ctx, ports.ContextMemory, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ReplaceEntry(ctx, ports.ContextMemory, "beta", "beta fact, corrected"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Append(ctx, ports.ContextMemory, "Second", "two"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Append(ctx, ports.ContextMemory, "Third", "three"); err != nil {
-		t.Fatal(err)
-	}
-	// Remove the middle section and confirm its neighbors survive untouched,
-	// with no leftover blank-line artifacts at the splice point.
-	if err := store.RemoveSection(ctx, ports.ContextMemory, "Second"); err != nil {
+	// Removing the middle entry must leave its neighbours untouched and no
+	// blank-line artifact at the splice point.
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "beta"); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(loaded.Memory, "Second") || strings.Contains(loaded.Memory, "two") {
-		t.Fatalf("removed section still present: %q", loaded.Memory)
+	if strings.Contains(loaded.Memory, "beta") {
+		t.Fatalf("removed entry still present: %q", loaded.Memory)
 	}
-	if !strings.Contains(loaded.Memory, "## First\n\none\n\n## Third\n\nthree\n") {
+	if !strings.Contains(loaded.Memory, "- alpha fact\n- gamma fact\n") {
 		t.Fatalf("unexpected splice: %q", loaded.Memory)
 	}
-	// Removing the last remaining section should leave a clean document, not
+	// Emptying the document returns it to its initial state, not to a file of
 	// dangling blank lines.
-	if err := store.RemoveSection(ctx, ports.ContextMemory, "First"); err != nil {
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "alpha"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RemoveSection(ctx, ports.ContextMemory, "Third"); err != nil {
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "gamma"); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err = store.Load(ctx)
@@ -93,71 +96,158 @@ func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.
 	if loaded.Memory != initialMemory {
 		t.Fatalf("expected document reset to initial state, got %q", loaded.Memory)
 	}
-	if err := store.RemoveSection(ctx, ports.ContextMemory, "Missing"); err == nil {
-		t.Fatal("expected error removing a section that does not exist")
-	}
 }
 
-func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
-	store := InDir(t.TempDir(), 64<<10)
-	if err := store.Append(context.Background(), ports.ContextSoul, "Identity", "changed"); err != nil {
-		t.Fatalf("expected SOUL edit to succeed, got %v", err)
-	}
-	loaded, err := store.Load(context.Background())
-	if err != nil || !strings.Contains(loaded.Soul, "## Identity\n\nchanged") {
-		t.Fatalf("context=%#v err=%v", loaded, err)
-	}
-
-	dir := t.TempDir()
-	small := InDir(dir, 16)
-	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(strings.Repeat("x", 17)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := small.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-// TestContextStoreHeartbeatIsHumanEditableOnly proves HEARTBEAT.md loads
-// like the other durable documents but has no agent-writable path: it is a
-// human-editable checklist file, not a fourth document the agent tools can
-// append, replace, or remove sections on.
-func TestContextStoreHeartbeatIsHumanEditableOnly(t *testing.T) {
-	store := InDir(t.TempDir(), 64<<10)
+// TestContextStoreRejectsMissingAndAmbiguousMatches proves old_text must
+// identify exactly one entry: a miss and an ambiguous match both fail loudly
+// rather than editing nothing or guessing at the first match.
+func TestContextStoreRejectsMissingAndAmbiguousMatches(t *testing.T) {
+	store, _ := testStore(t)
 	ctx := context.Background()
-	if err := store.Append(ctx, ports.ContextHeartbeat, "Extra", "check something"); err == nil {
-		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped write")
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "absent"); err == nil {
+		t.Fatal("expected error removing an entry that does not exist")
 	}
-	if err := store.ReplaceSection(ctx, ports.ContextHeartbeat, "Extra", "check something"); err == nil {
-		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped replace")
+	for _, text := range []string{"shared prefix one", "shared prefix two"} {
+		if err := store.AddEntry(ctx, ports.ContextMemory, text); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := store.RemoveSection(ctx, ports.ContextHeartbeat, "Extra"); err == nil {
-		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped remove")
+	err := store.RemoveEntry(ctx, ports.ContextMemory, "shared prefix")
+	if err == nil || !strings.Contains(err.Error(), "2 entries") {
+		t.Fatalf("expected ambiguity error, got %v", err)
 	}
+	if err := store.ReplaceEntry(ctx, ports.ContextMemory, "shared prefix", "merged"); err == nil {
+		t.Fatal("expected ambiguity error on replace")
+	}
+	// A longer old_text disambiguates.
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "shared prefix one"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestContextStoreReadsDocumentsWrittenByTheSectionedStore proves the
+// migration path: a MEMORY.md left behind by the older section-based store
+// keeps loading, its headings survive as decoration, and its body lines are
+// ordinary matchable entries.
+func TestContextStoreReadsDocumentsWrittenByTheSectionedStore(t *testing.T) {
+	store, dir := testStore(t)
+	ctx := context.Background()
+	legacy := "# Eggy Memory\n\n## Repositories\n\nEggy is trusted\n\n## Preferences\n\nShip small changes\n"
+	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil || loaded.Memory != legacy {
+		t.Fatalf("memory=%q err=%v", loaded.Memory, err)
+	}
+	if err := store.ReplaceEntry(ctx, ports.ContextMemory, "Eggy is trusted", "Eggy is trusted for eggy"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded.Memory, "- Eggy is trusted for eggy") {
+		t.Fatalf("legacy entry not editable: %q", loaded.Memory)
+	}
+	if !strings.Contains(loaded.Memory, "Ship small changes") {
+		t.Fatalf("legacy sibling lost: %q", loaded.Memory)
+	}
+}
+
+// TestContextStoreBudgetIsEnforcedOnWriteNotLoad proves an over-budget
+// document still loads -- so a file predating the budget is never
+// unreadable -- while the write that would grow it further is refused.
+func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 	dir := t.TempDir()
-	editable := InDir(dir, 64<<10)
-	if _, err := editable.Load(ctx); err != nil {
+	store := InDir(dir, DefaultUserMaxBytes, 64)
+	ctx := context.Background()
+	oversized := "# Eggy Memory\n\n- " + strings.Repeat("x", 200) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(oversized), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	custom := "# Eggy Heartbeat\n\n## Check\n\nSomething the owner cares about.\n"
-	if err := os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte(custom), 0o600); err != nil {
+	loaded, err := store.Load(ctx)
+	if err != nil || loaded.Memory != oversized {
+		t.Fatalf("memory=%q err=%v", loaded.Memory, err)
+	}
+	err = store.AddEntry(ctx, ports.ContextMemory, "one more fact")
+	if err == nil || !strings.Contains(err.Error(), "full") {
+		t.Fatalf("expected budget error, got %v", err)
+	}
+	// Removal must still work when full, or the agent could never recover.
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "xxxx"); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := editable.Load(ctx)
-	if err != nil || loaded.Heartbeat != custom {
-		t.Fatalf("heartbeat=%q err=%v", loaded.Heartbeat, err)
+	if err := store.AddEntry(ctx, ports.ContextMemory, "one more fact"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestContextStoreSoulAndHeartbeatAreOwnerEditableOnly proves the two
+// owner-owned documents load like the rest but have no agent-writable path.
+func TestContextStoreSoulAndHeartbeatAreOwnerEditableOnly(t *testing.T) {
+	store, dir := testStore(t)
+	ctx := context.Background()
+	for _, document := range []ports.ContextDocument{ports.ContextSoul, ports.ContextHeartbeat} {
+		if err := store.AddEntry(ctx, document, "check something"); err == nil {
+			t.Fatalf("expected %s to reject an add", document)
+		}
+		if err := store.ReplaceEntry(ctx, document, "old", "new"); err == nil {
+			t.Fatalf("expected %s to reject a replace", document)
+		}
+		if err := store.RemoveEntry(ctx, document, "old"); err == nil {
+			t.Fatalf("expected %s to reject a remove", document)
+		}
+	}
+	if _, err := store.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	soul := "# Eggy Soul\n\nCustom identity the owner wrote.\n"
+	heartbeat := "# Eggy Heartbeat\n\n## Check\n\nSomething the owner cares about.\n"
+	if err := os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte(soul), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte(heartbeat), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil || loaded.Soul != soul || loaded.Heartbeat != heartbeat {
+		t.Fatalf("soul=%q heartbeat=%q err=%v", loaded.Soul, loaded.Heartbeat, err)
+	}
+}
+
+// TestContextStoreFlattensEntriesToOneLine proves no write can reshape the
+// document: newlines collapse and a leading "#" cannot forge a heading.
+func TestContextStoreFlattensEntriesToOneLine(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := context.Background()
+	if err := store.AddEntry(ctx, ports.ContextMemory, "## Injected\n\nbody line"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(loaded.Memory, "\n## Injected") {
+		t.Fatalf("entry forged a heading: %q", loaded.Memory)
+	}
+	if !strings.Contains(loaded.Memory, "- Injected body line") {
+		t.Fatalf("entry not flattened: %q", loaded.Memory)
+	}
+	if err := store.AddEntry(ctx, ports.ContextMemory, "   \n  "); err == nil {
+		t.Fatal("expected empty entry to be rejected")
 	}
 }
 
 func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
-	store := InDir(t.TempDir(), 64<<10)
+	store, _ := testStore(t)
 	var workers sync.WaitGroup
 	errorsChannel := make(chan error, 8)
 	for i := range 8 {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			errorsChannel <- store.Append(context.Background(), ports.ContextMemory, "Facts", string(rune('a'+i)))
+			errorsChannel <- store.AddEntry(context.Background(), ports.ContextMemory, "fact "+string(rune('a'+i)))
 		}()
 	}
 	workers.Wait()
@@ -172,8 +262,75 @@ func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := range 8 {
-		if !strings.Contains(loaded.Memory, string(rune('a'+i))) {
+		if !strings.Contains(loaded.Memory, "fact "+string(rune('a'+i))) {
 			t.Fatalf("missing write %d in %q", i, loaded.Memory)
 		}
+	}
+}
+
+// A document written by the older section-based store is flattened on its
+// first edit: body lines survive as entries, "## Section" headings below the
+// first entry do not. See splitEntries.
+func TestContextStoreFlattensLegacySectionedDocument(t *testing.T) {
+	store, dir := testStore(t)
+	path := filepath.Join(dir, "MEMORY.md")
+	legacy := "# Eggy Memory\n\n## Deploy\n\n- ship via railway\n\n## Conventions\n\n- tabs not spaces\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddEntry(context.Background(), ports.ContextMemory, "new fact"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := string(data)
+	for _, entry := range []string{"- ship via railway", "- tabs not spaces", "- new fact"} {
+		if !strings.Contains(updated, entry) {
+			t.Fatalf("entry %q lost: %q", entry, updated)
+		}
+	}
+	if !strings.HasPrefix(updated, "# Eggy Memory") {
+		t.Fatalf("title lost: %q", updated)
+	}
+	if strings.Contains(updated, "## Conventions") {
+		t.Fatalf("heading below first entry should be flattened away: %q", updated)
+	}
+}
+
+// A document already over budget must still accept edits that shrink it,
+// otherwise the only edits that could recover it are the ones rejected.
+func TestContextStoreOverBudgetDocumentAcceptsShrinkingEdits(t *testing.T) {
+	store, dir := testStore(t)
+	path := filepath.Join(dir, "MEMORY.md")
+	oversized := "# Eggy Memory\n\n"
+	for i := 0; i < 200; i++ {
+		oversized += "- fact " + string(rune('a'+i%26)) + strings.Repeat("x", 40) + "\n"
+	}
+	oversized += "- uniquely removable fact\n"
+	if int64(len(oversized)) <= DefaultMemoryMaxBytes {
+		t.Fatalf("fixture is not over budget: %d bytes", len(oversized))
+	}
+	if err := os.WriteFile(path, []byte(oversized), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.RemoveEntry(ctx, ports.ContextMemory, "uniquely removable fact"); err != nil {
+		t.Fatalf("shrinking edit rejected: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "uniquely removable fact") {
+		t.Fatalf("entry not removed: %q", string(data))
+	}
+	if len(data) >= len(oversized) {
+		t.Fatalf("document did not shrink: %d -> %d", len(oversized), len(data))
+	}
+	// Growing it further is still refused while it stays over budget.
+	if err := store.AddEntry(ctx, ports.ContextMemory, "a brand new fact"); err == nil {
+		t.Fatal("growing an over-budget document should fail")
 	}
 }

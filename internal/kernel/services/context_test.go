@@ -25,79 +25,84 @@ func TestSecretGuardRejectsCredentials(t *testing.T) {
 	}
 }
 
-func TestContextToolsCurateSoulUserAndMemory(t *testing.T) {
-	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
-	tools := NewContextTools(store, NewSecretGuard([]string{"secret-value"}))
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
+func memoryToolFor(t *testing.T, secrets []string) (ports.Tool, ports.ContextStore) {
+	t.Helper()
+	store := contextmarkdown.InDir(t.TempDir(), contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
+	tools := NewContextTools(store, NewSecretGuard(secrets))
+	if len(tools) != 1 || tools[0].Definition().Name != "memory" {
+		t.Fatalf("expected a single memory tool, got %d", len(tools))
 	}
-	if len(byName) != 12 {
-		t.Fatalf("tools=%v", byName)
-	}
-	result, err := byName["soul_append"].Execute(context.Background(), json.RawMessage(`{"section":"Identity","content":"Small egg, big smile"}`))
-	if err != nil || string(result) != `{"updated":true}` {
-		t.Fatalf("result=%s err=%v", result, err)
-	}
-	result, err = byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`))
-	if err != nil || string(result) != `{"updated":true}` {
-		t.Fatalf("result=%s err=%v", result, err)
-	}
-	if _, err := byName["memory_append"].Execute(context.Background(), json.RawMessage(`{"section":"Credentials","content":"secret-value"}`)); err == nil {
-		t.Fatal("expected secret rejection")
-	}
-	loaded, err := store.Load(context.Background())
-	if err != nil || !strings.Contains(loaded.Soul, "Small egg, big smile") || !strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.Memory, "secret-value") {
-		t.Fatalf("context=%#v err=%v", loaded, err)
-	}
+	return tools[0], store
 }
 
-func TestContextToolsReadReflectsWritesMadeEarlierThisTurn(t *testing.T) {
-	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
-	tools := NewContextTools(store, nil)
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
+func TestMemoryToolCuratesUserAndMemory(t *testing.T) {
+	tool, store := memoryToolFor(t, []string{"secret-value"})
+	ctx := context.Background()
+
+	result, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"user","text":"Prefers concise answers"}`))
+	if err != nil || string(result) != `{"updated":true}` {
+		t.Fatalf("result=%s err=%v", result, err)
 	}
-	if _, err := byName["memory_append"].Execute(context.Background(), json.RawMessage(`{"section":"Repositories","content":"Eggy is trusted"}`)); err != nil {
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"Eggy is trusted"}`)); err != nil {
 		t.Fatal(err)
 	}
-	result, err := byName["memory_read"].Execute(context.Background(), json.RawMessage(`{}`))
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"replace","file":"memory","old_text":"trusted","text":"Eggy is trusted for eggy"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"remove","file":"user","old_text":"concise"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded struct {
-		Content  string `json:"content"`
-		Bytes    int    `json:"bytes"`
-		MaxBytes int64  `json:"max_bytes"`
+	if strings.Contains(loaded.User, "concise") {
+		t.Fatalf("user=%q", loaded.User)
 	}
-	if err := json.Unmarshal(result, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(decoded.Content, "Eggy is trusted") || decoded.Bytes != len(decoded.Content) || decoded.MaxBytes != 64<<10 {
-		t.Fatalf("decoded=%#v", decoded)
+	if !strings.Contains(loaded.Memory, "- Eggy is trusted for eggy") {
+		t.Fatalf("memory=%q", loaded.Memory)
 	}
 }
 
-func TestContextToolsRemoveSectionDeletesItAndErrorsWhenAlreadyGone(t *testing.T) {
-	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
-	tools := NewContextTools(store, nil)
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
+// TestMemoryToolRejectsSecretsAndUnwritableFiles proves the guard still runs
+// on the unified surface, and that SOUL.md has no route through it now that
+// it is owner-editable only.
+func TestMemoryToolRejectsSecretsAndUnwritableFiles(t *testing.T) {
+	tool, store := memoryToolFor(t, []string{"secret-value"})
+	ctx := context.Background()
+
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"token: secret-value"}`)); err == nil {
+		t.Fatal("expected secret rejection")
 	}
-	if _, err := byName["user_append"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences","content":"Concise"}`)); err != nil {
-		t.Fatal(err)
+	for _, file := range []string{"soul", "heartbeat", "nonsense"} {
+		raw := json.RawMessage(`{"action":"add","file":"` + file + `","text":"identity"}`)
+		if _, err := tool.Execute(ctx, raw); err == nil || !strings.Contains(err.Error(), "file must be") {
+			t.Fatalf("file=%q err=%v", file, err)
+		}
 	}
-	result, err := byName["user_remove_section"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences"}`))
-	if err != nil || string(result) != `{"removed":true}` {
-		t.Fatalf("result=%s err=%v", result, err)
-	}
-	loaded, err := store.Load(context.Background())
-	if err != nil || strings.Contains(loaded.User, "Concise") || strings.Contains(loaded.User, "## Preferences") {
+	loaded, err := store.Load(ctx)
+	if err != nil || strings.Contains(loaded.Memory, "secret-value") || strings.Contains(loaded.Soul, "identity") {
 		t.Fatalf("context=%#v err=%v", loaded, err)
 	}
-	if _, err := byName["user_remove_section"].Execute(context.Background(), json.RawMessage(`{"section":"Preferences"}`)); err == nil {
-		t.Fatal("expected error removing an already-removed section")
+}
+
+func TestMemoryToolValidatesArguments(t *testing.T) {
+	tool, _ := memoryToolFor(t, nil)
+	ctx := context.Background()
+	for name, raw := range map[string]string{
+		"missing text on add":         `{"action":"add","file":"memory"}`,
+		"missing old_text on remove":  `{"action":"remove","file":"memory"}`,
+		"missing old_text on replace": `{"action":"replace","file":"memory","text":"new"}`,
+		"unknown action":              `{"action":"merge","file":"memory","text":"new"}`,
+		"unknown field":               `{"action":"add","file":"memory","text":"new","section":"Notes"}`,
+	} {
+		if _, err := tool.Execute(ctx, json.RawMessage(raw)); err == nil {
+			t.Fatalf("%s: expected error", name)
+		}
+	}
+	// A miss is reported rather than silently succeeding.
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"remove","file":"memory","old_text":"never stored"}`)); err == nil {
+		t.Fatal("expected error removing an entry that does not exist")
 	}
 }

@@ -37,13 +37,8 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 			t.Fatalf("heartbeatRunOptions dropped read-only tool %q", tool)
 		}
 	}
-	for _, tool := range []string{
-		"user_append", "user_replace_section", "user_remove_section", "user_read",
-		"memory_append", "memory_replace_section", "memory_remove_section", "memory_read",
-	} {
-		if !heartbeat.AllowedTools[tool] {
-			t.Fatalf("heartbeatRunOptions missing memory-curation tool %q", tool)
-		}
+	if !heartbeat.AllowedTools["memory"] {
+		t.Fatal("heartbeatRunOptions missing the memory-curation tool")
 	}
 	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
 		if heartbeat.AllowedTools[tool] {

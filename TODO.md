@@ -96,8 +96,6 @@ function.
 
 ## P1: Harden durable context and recall
 
-- [ ] Give `USER.md` and `MEMORY.md` separate injected-size budgets instead of
-      sharing the store-wide cap with `SOUL.md`.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
       invisible-Unicode content before durable context writes.
 

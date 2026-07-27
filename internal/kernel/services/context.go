@@ -63,58 +63,68 @@ func (g *SecretGuard) Redact(content string) string {
 	return content
 }
 
-type contextEditTool struct {
-	name        string
-	description string
-	document    ports.ContextDocument
-	replace     bool
-	store       ports.ContextStore
-	guard       *SecretGuard
+const memoryToolDescription = `Curate durable memory across sessions. file "memory" holds reusable knowledge and conventions; file "user" holds stable owner preferences and profile facts.
+Actions: "add" appends a new entry (needs text); "replace" rewrites an existing entry (needs old_text and text); "remove" deletes one (needs old_text).
+old_text matches an entry by substring and must identify exactly one. Both files are already in your context, so there is no read action.
+Store only durable, verified facts. Never store credentials, transient chat, or unsupported assumptions.`
+
+var memoryToolSchema = json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["add","replace","remove"]},"file":{"type":"string","enum":["memory","user"]},"text":{"type":"string","minLength":1},"old_text":{"type":"string","minLength":1}},"required":["action","file"],"additionalProperties":false}`)
+
+type memoryTool struct {
+	store ports.ContextStore
+	guard *SecretGuard
 }
 
+// NewContextTools returns the agent's durable-memory tool surface: one tool
+// over the two writable documents. SOUL.md and HEARTBEAT.md are deliberately
+// absent — they are owner-editable identity and policy, injected into the
+// prompt but never rewritten by the agent.
 func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool {
 	if guard == nil {
 		guard = NewSecretGuard(nil)
 	}
-	return []ports.Tool{
-		contextEditTool{name: "soul_append", description: "Autonomously append a stable fact about Eggy's own identity, tone, or values; never store credentials or transient claims", document: ports.ContextSoul, store: store, guard: guard},
-		contextEditTool{name: "soul_replace_section", description: "Replace one SOUL.md section with current stable identity content; never store credentials", document: ports.ContextSoul, replace: true, store: store, guard: guard},
-		contextRemoveTool{name: "soul_remove_section", description: "Remove one SOUL.md section entirely because it is stale, superseded, or no longer useful", document: ports.ContextSoul, store: store},
-		contextReadTool{name: "soul_read", description: "Read the current SOUL.md, including any edits made earlier in this turn, before deciding to append, replace, or remove a section", document: ports.ContextSoul, store: store},
-		contextEditTool{name: "user_append", description: "Autonomously append a stable user preference or profile fact; never store credentials or transient claims", document: ports.ContextUser, store: store, guard: guard},
-		contextEditTool{name: "user_replace_section", description: "Replace one user profile section with current stable facts; never store credentials", document: ports.ContextUser, replace: true, store: store, guard: guard},
-		contextRemoveTool{name: "user_remove_section", description: "Remove one user profile section entirely because it is stale, superseded, or no longer useful", document: ports.ContextUser, store: store},
-		contextReadTool{name: "user_read", description: "Read the current USER.md, including any edits made earlier in this turn, before deciding to append, replace, or remove a section", document: ports.ContextUser, store: store},
-		contextEditTool{name: "memory_append", description: "Autonomously append durable reusable knowledge; never store credentials, unsupported assumptions, or transient chat", document: ports.ContextMemory, store: store, guard: guard},
-		contextEditTool{name: "memory_replace_section", description: "Replace one durable memory section with verified reusable knowledge; never store credentials", document: ports.ContextMemory, replace: true, store: store, guard: guard},
-		contextRemoveTool{name: "memory_remove_section", description: "Remove one durable memory section entirely because it is stale, superseded, or no longer useful", document: ports.ContextMemory, store: store},
-		contextReadTool{name: "memory_read", description: "Read the current MEMORY.md, including any edits made earlier in this turn, before deciding to append, replace, or remove a section", document: ports.ContextMemory, store: store},
-	}
+	return []ports.Tool{memoryTool{store: store, guard: guard}}
 }
 
-func (t contextEditTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: t.name, Description: t.description, Schema: json.RawMessage(`{"type":"object","properties":{"section":{"type":"string","minLength":1},"content":{"type":"string","minLength":1}},"required":["section","content"],"additionalProperties":false}`)}
+func (t memoryTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema}
 }
 
-func (t contextEditTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	var input struct {
-		Section string `json:"section"`
-		Content string `json:"content"`
+		Action  string `json:"action"`
+		File    string `json:"file"`
+		Text    string `json:"text"`
+		OldText string `json:"old_text"`
 	}
 	if err := decodeStrict(raw, &input); err != nil {
 		return nil, err
 	}
-	if input.Section == "" || input.Content == "" {
-		return nil, errors.New("section and content are required")
-	}
-	if err := t.guard.Validate(input.Section, input.Content); err != nil {
+	document, err := writableDocument(input.File)
+	if err != nil {
 		return nil, err
 	}
-	var err error
-	if t.replace {
-		err = t.store.ReplaceSection(ctx, t.document, input.Section, input.Content)
-	} else {
-		err = t.store.Append(ctx, t.document, input.Section, input.Content)
+	if input.Action != "remove" {
+		if strings.TrimSpace(input.Text) == "" {
+			return nil, errors.New("text is required")
+		}
+		if err := t.guard.Validate("", input.Text); err != nil {
+			return nil, err
+		}
+	}
+	if input.Action != "add" && strings.TrimSpace(input.OldText) == "" {
+		return nil, errors.New("old_text is required")
+	}
+
+	switch input.Action {
+	case "add":
+		err = t.store.AddEntry(ctx, document, input.Text)
+	case "replace":
+		err = t.store.ReplaceEntry(ctx, document, input.OldText, input.Text)
+	case "remove":
+		err = t.store.RemoveEntry(ctx, document, input.OldText)
+	default:
+		return nil, errors.New("action must be add, replace, or remove")
 	}
 	if err != nil {
 		return nil, err
@@ -122,66 +132,13 @@ func (t contextEditTool) Execute(ctx context.Context, raw json.RawMessage) (json
 	return json.RawMessage(`{"updated":true}`), nil
 }
 
-type contextRemoveTool struct {
-	name        string
-	description string
-	document    ports.ContextDocument
-	store       ports.ContextStore
-}
-
-func (t contextRemoveTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: t.name, Description: t.description, Schema: json.RawMessage(`{"type":"object","properties":{"section":{"type":"string","minLength":1}},"required":["section"],"additionalProperties":false}`)}
-}
-
-func (t contextRemoveTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	var input struct {
-		Section string `json:"section"`
-	}
-	if err := decodeStrict(raw, &input); err != nil {
-		return nil, err
-	}
-	if input.Section == "" {
-		return nil, errors.New("section is required")
-	}
-	if err := t.store.RemoveSection(ctx, t.document, input.Section); err != nil {
-		return nil, err
-	}
-	return json.RawMessage(`{"removed":true}`), nil
-}
-
-type contextReadTool struct {
-	name        string
-	description string
-	document    ports.ContextDocument
-	store       ports.ContextStore
-}
-
-func (t contextReadTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: t.name, Description: t.description, Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
-}
-
-func (t contextReadTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if err := decodeStrict(raw, &struct{}{}); err != nil {
-		return nil, err
-	}
-	loaded, err := t.store.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var content string
-	switch t.document {
-	case ports.ContextSoul:
-		content = loaded.Soul
-	case ports.ContextUser:
-		content = loaded.User
-	case ports.ContextMemory:
-		content = loaded.Memory
+func writableDocument(file string) (ports.ContextDocument, error) {
+	switch file {
+	case "memory":
+		return ports.ContextMemory, nil
+	case "user":
+		return ports.ContextUser, nil
 	default:
-		return nil, errors.New("context document is not readable")
+		return "", errors.New("file must be memory or user")
 	}
-	return json.Marshal(struct {
-		Content  string `json:"content"`
-		Bytes    int    `json:"bytes"`
-		MaxBytes int64  `json:"max_bytes,omitempty"`
-	}{Content: content, Bytes: len(content), MaxBytes: loaded.MaxBytes})
 }

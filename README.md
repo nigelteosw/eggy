@@ -85,7 +85,11 @@ Eggy creates four private context files and never overwrites existing content:
 - `memories/MEMORY.md` stores durable working knowledge selected by the agent.
 - `HEARTBEAT.md` is a plain checklist of what to look at on a heartbeat turn — edit it directly on disk. It has no agent tool and never carries timing, timezone, quiet-hours, limit, or prohibited-action policy; those stay fixed in config and code.
 
-The agent can append or replace named sections in `USER.md` and `MEMORY.md`. Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
+The agent curates `USER.md` and `MEMORY.md` through a single `memory` tool with three actions — `add`, `replace`, and `remove`. Entries are plain lines, addressed by a substring of their own text (`old_text`), which must match exactly one entry. There is no read action: both files are already injected into every turn's context.
+
+Each file has a small byte budget (2 KiB for `USER.md`, 4 KiB for `MEMORY.md`). A write that would exceed it is refused rather than silently truncated, so the agent has to consolidate instead of accumulating. The budget is checked on write only — a file that predates it still loads.
+
+Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
 
 Fill `.env`. Generate the 32-byte encryption key with:
 

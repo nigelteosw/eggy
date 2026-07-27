@@ -151,10 +151,12 @@ type AgentContext struct {
 	// policy (HeartbeatPolicy, HeartbeatActionAllowed) and are not part of
 	// this file's content.
 	Heartbeat string `json:"heartbeat"`
-	// MaxBytes is the per-document capacity ContextStore enforces on Soul,
-	// User, Memory, and Heartbeat, used to render an in-context usage
-	// indicator. Zero means unknown/unbounded and suppresses the indicator.
-	MaxBytes int64 `json:"max_bytes,omitempty"`
+	// UserMaxBytes and MemoryMaxBytes are the write budgets ContextStore
+	// enforces on the two agent-writable documents, used to render an
+	// in-context usage indicator. Zero suppresses the indicator. Soul and
+	// Heartbeat have no budget: they are owner-editable, never agent-written.
+	UserMaxBytes   int64 `json:"user_max_bytes,omitempty"`
+	MemoryMaxBytes int64 `json:"memory_max_bytes,omitempty"`
 }
 
 type ContextDocument string
@@ -166,11 +168,18 @@ const (
 	ContextHeartbeat ContextDocument = "heartbeat"
 )
 
+// ContextStore holds the agent's durable context documents. Only User and
+// Memory are writable; Soul and Heartbeat are owner-editable and load-only.
+//
+// Entries are plain lines, addressed by a substring of their text rather than
+// by any structural key, so the agent never has to model the file's layout.
+// AddEntry appends one. ReplaceEntry and RemoveEntry act on the single entry
+// containing oldText, and error when it matches no entry or more than one.
 type ContextStore interface {
 	Load(context.Context) (AgentContext, error)
-	Append(context.Context, ContextDocument, string, string) error
-	ReplaceSection(context.Context, ContextDocument, string, string) error
-	RemoveSection(context.Context, ContextDocument, string) error
+	AddEntry(ctx context.Context, document ContextDocument, text string) error
+	ReplaceEntry(ctx context.Context, document ContextDocument, oldText, text string) error
+	RemoveEntry(ctx context.Context, document ContextDocument, oldText string) error
 }
 
 // StoredMessage is one durable conversation message. It deliberately carries

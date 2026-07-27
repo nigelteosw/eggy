@@ -150,11 +150,7 @@ func readOnlyRunOptions() agent.RunOptions {
 // direct conversation turn can already make.
 func heartbeatRunOptions() agent.RunOptions {
 	options := readOnlyRunOptions()
-	for _, tool := range []string{
-		"user_append", "user_replace_section", "user_remove_section", "user_read",
-		"memory_append", "memory_replace_section", "memory_remove_section", "memory_read",
-		"skill_disable", "skill_enable",
-	} {
+	for _, tool := range []string{"memory", "skill_disable", "skill_enable"} {
 		options.AllowedTools[tool] = true
 	}
 	return options

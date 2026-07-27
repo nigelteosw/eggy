@@ -177,7 +177,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	}
 	contextStore := contextmarkdown.Open(contextmarkdown.Paths{
 		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
-	}, 64<<10)
+	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
 	memoryStore, err := memorysqlite.OpenWithProfile(
 		layout.Database(),
 		config.Embeddings.CandidateLimit,

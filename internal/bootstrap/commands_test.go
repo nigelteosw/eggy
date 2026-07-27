@@ -363,8 +363,8 @@ func TestCommandUsageAndLayeredMemory(t *testing.T) {
 	if err := runtime.RecordUsage(context.Background(), "deepseek-pro", ports.ModelUsage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14, CachedPromptTokens: 3}); err != nil {
 		t.Fatal(err)
 	}
-	contextStore := contextmarkdown.InDir(dir, 64<<10)
-	if err := contextStore.Append(context.Background(), ports.ContextMemory, "Repositories", "Eggy is trusted"); err != nil {
+	contextStore := contextmarkdown.InDir(dir, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
+	if err := contextStore.AddEntry(context.Background(), ports.ContextMemory, "Eggy is trusted"); err != nil {
 		t.Fatal(err)
 	}
 	commands := &CommandService{store: store, agentRuntime: runtime, defaultModel: "deepseek-pro", modelAliases: []string{"deepseek-pro"}, context: contextStore}

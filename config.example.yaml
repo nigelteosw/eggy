@@ -60,10 +60,18 @@ calendar:
   default_calendar: "primary"
   timezone: "Asia/Singapore"
 web_search:
+  # Each adapter reads its own variables, and when they are unset Eggy does not
+  # register web_search and otherwise starts normally.
+  #   searxng    - base_url_env (WEB_SEARCH_API)
+  #   tavily     - api_key_env  (TAVILY_API_KEY)
+  #   google_cse - api_key_env  (GOOGLE_CSE_KEY) and engine_id_env (GOOGLE_CSE_ID)
+  # For the API-key adapters, base_url_env is an unnecessary endpoint override.
   adapter: "searxng"
-  # WEB_SEARCH_API contains the reachable SearXNG base URL. When it is unset,
-  # Eggy does not register web_search and otherwise starts normally.
   base_url_env: "WEB_SEARCH_API"
+  # api_key_env: "TAVILY_API_KEY"
+  # engine_id_env: "GOOGLE_CSE_ID"
+  # Tavily only: "advanced" digs deeper for two credits per search instead of one.
+  # search_depth: "basic"
   timeout: "15s"
   max_results: 8
   safe_search: 1

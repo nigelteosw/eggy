@@ -11,32 +11,10 @@ of finished work.
 
 There is one `agent.Loop` (`internal/kernel/agent/loop.go`), one kernel-owned
 primitive tool set, and one termination condition: the model stops calling
-tools. Shipping is an action (`propose_change`) rather than a run outcome, and
-a workspace belongs to the thread rather than the run. Three gaps remain.
-
-### Give every turn a durable transcript
-
-- [ ] Move the checkpoint/compaction logic and the append-only event transcript
-      out of `ImplementationSessions` (`/data/sessions/<id>/`) into
-      `agent.Loop`, so every turn gets a durable transcript and a compaction
-      checkpoint rather than only an editing session. Today `App.turnEvents`
-      wires the loop's events into the session transcript only when the thread
-      has an open editing session; a thread with no workspace still has no
-      durable transcript.
-- [ ] Replace the fixed `maxToolStepsPerTurn` guard (`internal/bootstrap/app.go:67`)
-      with a context-budget checkpoint: the step limit stops meaning "how much
-      work fits in a turn" and starts meaning "when to compact." It is already
-      a single constant in one place.
-
-### Close the loop with pull-request checks
-
-- [ ] Add a checks-completed event that resumes the still-open thread workspace
-      for the pull request whose checks failed. Without this, self-improvement
-      is one-shot; with it, it is a loop.
-- [ ] Reuse `repository_github`'s `checks` read path for the evidence rather
-      than adding a second GitHub surface.
-- [ ] Depends on "Track the open pull request associated with each run" under
-      P2: Improve run recovery and rollback.
+tools. Shipping is an action (`propose_change`) rather than a run outcome, a
+workspace belongs to the thread rather than the run, every turn writes a
+durable transcript with a compaction checkpoint, and a failed pull-request
+check resumes the thread that proposed it. One gap remains.
 
 ### Let scheduled and heartbeat turns propose changes
 
@@ -149,10 +127,10 @@ mechanism, and neither may redefine a kernel-owned primitive tool.
 - [ ] When the owner continues an existing pull request, use its branch as the
       run base instead of branching from trunk and opening a duplicate pull
       request.
-- [ ] Track the open pull request associated with each run so a later
-      continuation can resolve it without relying only on repository and
-      instruction text. Also blocks "Close the loop with pull-request checks"
-      under P0.
+- [ ] Resolve the pull request a continuation belongs to from the thread alone.
+      The session already records its URL and number (which is what the checks
+      loop reads); what is missing is resolving it when the owner continues
+      without the originating thread.
 - [ ] Save a bounded patch and validation artifact before workspace cleanup so
       rejected or interrupted work remains inspectable without retaining the
       full checkout.

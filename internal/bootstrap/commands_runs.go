@@ -6,10 +6,10 @@ import (
 )
 
 func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
-	if s.coding == nil {
+	if s.sessions == nil {
 		return CommandResult{State: ResultInfo, Title: "Coding is not configured."}, nil
 	}
-	sessions, err := s.coding.List(ctx)
+	sessions, err := s.sessions.Runs(ctx)
 	if err != nil {
 		return CommandResult{}, err
 	}

@@ -809,7 +809,7 @@ func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
 			t.Fatalf("step %d saw a different tool surface: %s", i, body)
 		}
 	}
-	runs, err := app.coding.List(context.Background())
+	runs, err := app.sessions.Runs(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1320,5 +1320,51 @@ func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
 	}
 	if len(webChannel.delivered) != 0 {
 		t.Fatalf("web delivered=%v, want unprompted output kept off the web channel", webChannel.delivered)
+	}
+}
+
+// Every turn gets a durable transcript, not only a turn that happens to be
+// editing a repository: the loop writes it, so a thread with no workspace is
+// recorded exactly like one with a branch. It stays out of /runs, which lists
+// coding sessions.
+func TestEveryTurnGetsADurableTranscript(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"tool_call_id"`) {
+				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"status","arguments":"{}"}}]}}]}`), nil
+			}
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"all good"}}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":{"message_id":1}}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "chat-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := app.sessions.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions=%#v, want one transcript for the turn", sessions)
+	}
+	transcript := sessions[0]
+	if transcript.Instruction != "what's the status?" || transcript.Phase != ports.PhaseCompleted || transcript.FinishedAt.IsZero() {
+		t.Fatalf("transcript=%#v", transcript)
+	}
+	// The transcript records what actually happened, not just that a turn ran.
+	if !strings.Contains(transcript.Context.Summary, "status") {
+		t.Fatalf("transcript summary=%q, want the tool call it recorded", transcript.Context.Summary)
+	}
+	runs, err := app.sessions.Runs(context.Background())
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("runs=%#v err=%v, want a conversation transcript to stay out of /runs", runs, err)
 	}
 }

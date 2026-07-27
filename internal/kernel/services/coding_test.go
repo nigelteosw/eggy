@@ -8,17 +8,16 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// What is left of CodingService is bookkeeping: the checkout belongs to the
-// thread, so releasing a finished session must not destroy the directory the
-// owner is still discussing.
+// Session bookkeeping: the checkout belongs to the thread, so releasing a
+// finished session must not destroy the directory the owner is still
+// discussing.
 func TestCleanupReleasesTheSessionButKeepsTheThreadsCheckout(t *testing.T) {
 	sessionStore := newMemorySessionStore()
 	sessionStore.sessions["run"] = ports.ImplementationSession{ID: "run", Workspace: "/tmp/runs/run", Phase: ports.PhaseReady}
 	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
 	runner := &fakeWorkspaceRunner{workspace: "/tmp/runs/run"}
-	service := NewCodingService(sessions)
 
-	if err := service.Cleanup(context.Background(), "run"); err != nil {
+	if err := sessions.ReleaseWorkspace(context.Background(), "run"); err != nil {
 		t.Fatal(err)
 	}
 	if runner.destroyed {
@@ -34,9 +33,8 @@ func TestRecoverInterruptedMarksSessionsLeftRunningByARestart(t *testing.T) {
 	sessionStore := newMemorySessionStore()
 	sessionStore.sessions["run"] = ports.ImplementationSession{ID: "run", Workspace: "/tmp/runs/run", Phase: ports.PhaseRunning}
 	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
-	service := NewCodingService(sessions)
 
-	count, err := service.RecoverInterrupted(context.Background())
+	count, err := sessions.MarkInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
 	}
@@ -52,9 +50,8 @@ func TestCleanupExpiredReleasesOnlySessionsFinishedBeforeTheCutoff(t *testing.T)
 	sessionStore.sessions["old"] = ports.ImplementationSession{ID: "old", Workspace: "/tmp/runs/old", Phase: ports.PhaseCompleted, FinishedAt: base}
 	sessionStore.sessions["recent"] = ports.ImplementationSession{ID: "recent", Workspace: "/tmp/runs/recent", Phase: ports.PhaseCompleted, FinishedAt: base.Add(2 * time.Hour)}
 	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
-	service := NewCodingService(sessions)
 
-	if err := service.CleanupExpired(context.Background(), base.Add(time.Hour)); err != nil {
+	if err := sessions.ReleaseExpiredWorkspaces(context.Background(), base.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	old, err := sessions.Load(context.Background(), "old")

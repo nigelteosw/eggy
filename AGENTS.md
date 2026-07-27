@@ -40,13 +40,10 @@ runner, calendar backend, etc.) should only ever add a new package under
    `registry.Register` for a new `Tool`). This is the one place allowed to
    know every adapter exists.
 5. Prefer branching on an existing selector over hardcoding one adapter. Two
-   are already in the config for exactly this: `ProviderConfig.Adapter`
-   (`internal/bootstrap/config.go`) is meant to pick a model adapter per
-   provider instead of `app.go` always calling `openaicompat.New`, and
-   `CodingRuntimeState.SelectedAgent` is meant to pick an `Implementer`
-   instead of `CodingService` always getting `NativeImplementer`. Route new
-   provider kinds through these switches rather than adding another
-   special case.
+   `ProviderConfig.Adapter` (`internal/bootstrap/config.go`) is in the config
+   for exactly this: it is meant to pick a model adapter per provider instead
+   of `app.go` always calling `openaicompat.New`. Route new provider kinds
+   through that switch rather than adding another special case.
 6. Add adapter-level tests against a fake HTTP server or fake subprocess in
    the new package, plus a `FakeAdapters`-mode path in `app.go` if the
    adapter needs one for `make smoke`/integration tests.

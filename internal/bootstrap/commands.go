@@ -23,7 +23,7 @@ type CommandService struct {
 	store        ports.StateStore
 	context      ports.ContextStore
 	conversation *services.ConversationService
-	coding       *services.CodingService
+	sessions     *services.ImplementationSessions
 	turns        *services.ActiveTurns
 	shipping     *services.ShippingService
 	repositories *services.RepositoriesService

@@ -60,11 +60,11 @@ type AppOptions struct {
 	RequestRestart   func()
 }
 
-// maxToolStepsPerTurn bounds one turn's tool calls. With a single loop it
-// stopped meaning "how much work fits in a coding run" and became a runaway
-// guard: a turn that keeps making progress -- reading, editing, validating,
-// proposing -- runs to its natural end well inside it.
-const maxToolStepsPerTurn = 48
+// maxToolStepsPerTurn is no longer a work cap. A turn that outgrows its
+// context budget compacts at a checkpoint and keeps going, so this is only
+// the runaway guard against a model that calls tools forever without ever
+// answering.
+const maxToolStepsPerTurn = 500
 
 type App struct {
 	config                  Config
@@ -82,8 +82,8 @@ type App struct {
 	heartbeat               *services.HeartbeatPolicy
 	approvals               *services.ApprovalService
 	approvalExecutors       map[approvals.Action]ApprovalExecutor
-	coding                  *services.CodingService
 	sessions                *services.ImplementationSessions
+	checks                  *services.ChecksWatcher
 	progress                *channelutil.ProgressTracker
 	turns                   *services.ActiveTurns
 	workspaces              *services.WorkspaceSessions
@@ -314,8 +314,10 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	app.workspaces = services.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
 	registry := services.NewToolRegistry()
-	app.coding = services.NewCodingService(sessions)
 	app.sessions = sessions
+	// The checks loop reads through the same RepositoryReader that backs
+	// repository_github's "checks" kind, so there is one GitHub read path.
+	app.checks = services.NewChecksWatcher(stateStore, sessions, memoryStore, repositoryAdapter)
 	app.turns = services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
@@ -416,9 +418,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}
 	registeredTools := registry.Tools()
-	// One budget for one loop. It is a runaway guard, not a work cap: a turn
-	// that is still making progress edits, validates, and ships within it.
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, maxToolStepsPerTurn)
+	// One context budget for one loop, shared with the session transcript's
+	// own excerpt bounds: a turn compacts at a checkpoint rather than ending
+	// because it did a lot of work.
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, agent.ContextPolicy{
+		BudgetChars:        config.ImplementationSessions.ContextBudgetChars,
+		RecentSteps:        config.ImplementationSessions.RecentMessages,
+		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
+		MaxSteps:           maxToolStepsPerTurn,
+	})
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -437,13 +445,14 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, context: contextStore, conversation: app.conversation, coding: app.coding, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, context: contextStore, conversation: app.conversation, sessions: sessions, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	if app.mcp != nil {
 		app.commands.mcp = app.mcp
 	}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
+		events.TypeChecksCompleted: app.processEvent,
 	})
 	var webhook http.Handler
 	if config.Telegram.Configured() {

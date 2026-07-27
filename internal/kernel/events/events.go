@@ -22,6 +22,12 @@ const (
 	// notification), as distinct from TypeSchedule which starts a
 	// self-contained read-only agent turn.
 	TypeScheduledMessage Type = "scheduled_message"
+	// TypeChecksCompleted resumes the thread whose still-open workspace holds
+	// the branch of a pull request whose checks have finished failing. It
+	// carries no instruction text of its own: the handler renders one from
+	// the check evidence and runs an ordinary turn, which is what makes
+	// self-improvement a loop rather than one shot.
+	TypeChecksCompleted Type = "checks_completed"
 )
 
 type Event struct {
@@ -42,6 +48,17 @@ type Event struct {
 
 type Message struct {
 	Text string `json:"text"`
+}
+
+// ChecksCompleted is the payload of TypeChecksCompleted: which session's
+// pull request failed, and the instruction rendered from its check evidence.
+type ChecksCompleted struct {
+	Session           string `json:"session"`
+	Repository        string `json:"repository"`
+	PullRequestNumber int    `json:"pull_request_number"`
+	Ref               string `json:"ref"`
+	Conclusion        string `json:"conclusion"`
+	Instruction       string `json:"instruction"`
 }
 
 type ApprovalDecision struct {

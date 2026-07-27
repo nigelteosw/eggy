@@ -27,7 +27,7 @@ func TestAppRecoverInterruptedFlipsRunningSessionsAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, err := app.coding.RecoverInterrupted(context.Background())
+	count, err := app.sessions.MarkInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
 	}

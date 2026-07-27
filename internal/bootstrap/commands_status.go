@@ -31,8 +31,8 @@ func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (C
 		}
 	}
 	active := 0
-	if s.coding != nil {
-		sessions, err := s.coding.List(ctx)
+	if s.sessions != nil {
+		sessions, err := s.sessions.Runs(ctx)
 		if err != nil {
 			return CommandResult{}, err
 		}

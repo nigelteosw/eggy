@@ -120,10 +120,25 @@ durable context (`SOUL.md`, `USER.md`, `MEMORY.md`).
 A turn ends on exactly one condition: the model stops calling tools. No tool
 is terminal — shipping a change is an action the model takes mid-turn and
 whose result it reads, so it reports the pull-request URL conversationally
-and can keep working afterwards. `maxToolStepsPerTurn` is a runaway guard,
-not a work budget, and a failing tool is handed back as that tool's result
-rather than ending the turn, which is why a rejected `patch` is recoverable
-without starting anything new.
+and can keep working afterwards. A failing tool is handed back as that tool's
+result rather than ending the turn, which is why a rejected `patch` is
+recoverable without starting anything new.
+
+Length does not end a turn either. `agent.ContextPolicy` is a context budget,
+not a work budget: when the exchange the loop itself produced outgrows it, the
+oldest whole steps (an assistant message plus the tool results answering it,
+never a lone result) are folded into a checkpoint summary the model keeps
+reading, and the turn continues. The instructions, durable context, and the
+owner's actual request are never compacted away. `maxToolStepsPerTurn` is what
+is left of the old cap: a runaway guard against a model that calls tools
+forever without ever answering.
+
+Every turn writes a durable transcript through `agent.Transcript`, whether or
+not it is editing anything. A turn in a thread with a branched checkout
+appends to that editing session, so inspect → edit → ship stays one continuous
+record; any other turn opens a transcript of its own. Both live under
+`/data/sessions/<id>/`; `/runs` and `/status` list only the sessions that
+actually branched a repository (`ImplementationSessions.Runs`).
 
 Direct owner Telegram messages additionally see recent conversation history
 and get the full tool set, including `workspace_edit` and `propose_change`
@@ -230,7 +245,7 @@ follow, all in `services.WorkspaceSessions`:
   resolves onto a path a volume wipe removed. A runner that cannot probe causes
   every binding to be dropped: an unverifiable record is not a trustworthy one.
 - **Idle reaping.** `CleanupIdle` runs on the same minute ticker as
-  `CodingService.CleanupExpired`, against the same `runner.retention` cutoff,
+  `ImplementationSessions.ReleaseExpiredWorkspaces`, against the same `runner.retention` cutoff,
   and destroys the checkout of any thread whose last activity predates it.
   Durable checkouts have no run completion to trigger the run-workspace reaper,
   so without this an abandoned thread would hold a clone forever.
@@ -246,6 +261,25 @@ Shutdown deliberately destroys nothing: surviving a restart is the point.
   and HEAD it recorded, then runs the commit → push → pull-request chain and
   returns the pull-request URL as an ordinary tool result. It is not terminal,
   so a second round of edits in the same thread updates the same pull request.
+
+## Pull-request checks
+
+A proposed change is not the end of the loop. On the same minute ticker,
+`services.ChecksWatcher` polls the check runs for each session that opened a
+pull request and whose thread still has the branched checkout attached,
+reading through the same `ports.RepositoryReader.Checks` path that backs
+`repository_github`'s `checks` kind rather than adding a second GitHub
+surface. A suite that is still running is not a result and is ignored; a green
+one is recorded and stays silent.
+
+A failed suite is enqueued as `events.TypeChecksCompleted` against that
+thread's destination and handled as an ordinary turn whose instruction carries
+the failing checks as evidence. The workspace is still on the branch, so the
+agent fixes the failure with the same primitives and calls `propose_change`
+again, updating the same pull request. The commit whose checks were handled is
+recorded on the session, so one failure resumes the thread exactly once, and
+the event ID (`checks:<session>:<commit>`) makes the dispatcher's own dedupe
+cover a restart mid-poll.
 
 ## Editing sessions
 
@@ -266,8 +300,9 @@ core state schema needs no migration for it:
   context.json   # compaction checkpoint plus retained recent context
 ```
 
-The session store is the source of truth for agent history, checkpoints, and
-resumability; `CodingRun` in `state.json` remains the source of truth for the
+Every turn's transcript uses the same layout; only a session that branched a
+repository carries a task, branch, and workspace. The session store is the
+source of truth for agent history, checkpoints, and resumability; `CodingRun` in `state.json` remains the source of truth for the
 commit/push/PR lifecycle, using the session ID as its run ID.
 
 Continuing is ordinary conversation: the thread's workspace is still open and

@@ -400,9 +400,9 @@ type ProgressReporter func(context.Context, CodingProgress)
 // entirely: ShippingService.Ship runs commit, push, and pull-request
 // creation back to back with automatic approval, so those were
 // instantaneous internal milestones, never a real crash-recovery window.
-// PhaseReady is their one necessary survivor: the handoff between
-// CodingService finishing an implementation run and a separate Ship call
-// (e.g. from /continue) is a real gap another process restart can land in.
+// PhaseReady is their one necessary survivor: the handoff between a run
+// finishing its edits and a separate Ship call is a real gap another process
+// restart can land in.
 type SessionPhase string
 
 const (
@@ -453,23 +453,28 @@ type SessionContext struct {
 // separately (one append-only file per session) so transcripts never
 // inflate this metadata document or state.json.
 type ImplementationSession struct {
-	ID                string                       `json:"id"`
-	Repository        string                       `json:"repository,omitempty"`
-	Instruction       string                       `json:"instruction,omitempty"`
-	Workspace         string                       `json:"workspace,omitempty"`
-	Branch            string                       `json:"branch,omitempty"`
-	BaseRevision      string                       `json:"base_revision,omitempty"`
-	Phase             SessionPhase                 `json:"phase"`
-	Diff              string                       `json:"diff,omitempty"`
-	Validation        string                       `json:"validation,omitempty"`
-	Commit            string                       `json:"commit,omitempty"`
-	PullRequestURL    string                       `json:"pull_request_url,omitempty"`
-	PullRequestNumber int                          `json:"pull_request_number,omitempty"`
-	Context           SessionContext               `json:"context,omitempty"`
-	StartedAt         time.Time                    `json:"started_at"`
-	UpdatedAt         time.Time                    `json:"updated_at"`
-	FinishedAt        time.Time                    `json:"finished_at,omitempty"`
-	Events            []ImplementationSessionEvent `json:"-"`
+	ID                string       `json:"id"`
+	Repository        string       `json:"repository,omitempty"`
+	Instruction       string       `json:"instruction,omitempty"`
+	Workspace         string       `json:"workspace,omitempty"`
+	Branch            string       `json:"branch,omitempty"`
+	BaseRevision      string       `json:"base_revision,omitempty"`
+	Phase             SessionPhase `json:"phase"`
+	Diff              string       `json:"diff,omitempty"`
+	Validation        string       `json:"validation,omitempty"`
+	Commit            string       `json:"commit,omitempty"`
+	PullRequestURL    string       `json:"pull_request_url,omitempty"`
+	PullRequestNumber int          `json:"pull_request_number,omitempty"`
+	// ChecksRef and ChecksConclusion record the last commit whose
+	// pull-request checks Eggy has already reacted to, so a completed run is
+	// resumed once per failing result rather than on every poll.
+	ChecksRef        string                       `json:"checks_ref,omitempty"`
+	ChecksConclusion string                       `json:"checks_conclusion,omitempty"`
+	Context          SessionContext               `json:"context,omitempty"`
+	StartedAt        time.Time                    `json:"started_at"`
+	UpdatedAt        time.Time                    `json:"updated_at"`
+	FinishedAt       time.Time                    `json:"finished_at,omitempty"`
+	Events           []ImplementationSessionEvent `json:"-"`
 }
 
 type ImplementationSessionEvent struct {

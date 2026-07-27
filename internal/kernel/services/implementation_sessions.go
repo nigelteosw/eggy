@@ -3,14 +3,13 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
-
-const sessionSummaryLimit = 4096
 
 type SessionPolicy struct {
 	ContextBudgetChars int
@@ -78,6 +77,61 @@ func (s *ImplementationSessions) List(ctx context.Context) ([]ports.Implementati
 	return s.store.List(ctx)
 }
 
+// Runs returns the sessions that actually branched a repository, most
+// recently updated first, for status and /runs reporting. Every turn now
+// writes a durable transcript into the same store, so a conversation about
+// the weather is a transcript, not a run, and listing it as one would drown
+// the view that matters.
+func (s *ImplementationSessions) Runs(ctx context.Context) ([]ports.ImplementationSession, error) {
+	sessions, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]ports.ImplementationSession, 0, len(sessions))
+	for _, session := range sessions {
+		if IsCodingSession(session) {
+			runs = append(runs, session)
+		}
+	}
+	return runs, nil
+}
+
+// IsCodingSession distinguishes a session that branched a repository from a
+// plain turn transcript. A repository and a checkout are what workspace_edit
+// records; a transcript has neither, only the record of what was said and
+// called.
+func IsCodingSession(session ports.ImplementationSession) bool {
+	return session.Repository != "" || session.Workspace != ""
+}
+
+// ReleaseWorkspace releases a finished session's claim on its checkout. It
+// does not destroy the directory: the checkout belongs to the conversation
+// thread, which keeps reading it after the change ships. Reaping it is
+// WorkspaceSessions.CleanupIdle's job, once the thread itself goes quiet.
+func (s *ImplementationSessions) ReleaseWorkspace(ctx context.Context, id string) error {
+	if _, err := s.Load(ctx, id); err != nil {
+		return fmt.Errorf("coding session %q not found: %w", id, err)
+	}
+	return s.ClearWorkspace(ctx, id)
+}
+
+// ReleaseExpiredWorkspaces releases every session that stopped progressing
+// before cutoff.
+func (s *ImplementationSessions) ReleaseExpiredWorkspaces(ctx context.Context, cutoff time.Time) error {
+	sessions, err := s.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.Workspace != "" && !session.FinishedAt.IsZero() && session.FinishedAt.Before(cutoff) {
+			if err := s.ReleaseWorkspace(ctx, session.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (s *ImplementationSessions) Append(ctx context.Context, id string, event ports.ImplementationSessionEvent) (ports.ImplementationSession, error) {
 	if s.store == nil {
 		return ports.ImplementationSession{}, errors.New("implementation session store is unavailable")
@@ -125,8 +179,8 @@ func (s *ImplementationSessions) SetBranch(ctx context.Context, id, branch, base
 }
 
 // ClearWorkspace records that a run's temporary workspace has been
-// destroyed, so CodingService.Cleanup never has to reach past this service
-// into the underlying store.
+// released, so no caller has to reach past this service into the underlying
+// store.
 func (s *ImplementationSessions) ClearWorkspace(ctx context.Context, id string) error {
 	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) { session.Workspace = "" })
 	return err
@@ -151,6 +205,16 @@ func (s *ImplementationSessions) RecordCommit(ctx context.Context, id, commit st
 func (s *ImplementationSessions) RecordPullRequest(ctx context.Context, id, url string, number int) error {
 	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) {
 		session.PullRequestURL, session.PullRequestNumber = url, number
+	})
+	return err
+}
+
+// RecordChecks captures the commit whose pull-request checks Eggy has
+// already reacted to, and what they concluded. It is the dedupe key that
+// keeps the checks loop from resuming the same failure every poll.
+func (s *ImplementationSessions) RecordChecks(ctx context.Context, id, ref, conclusion string) error {
+	_, err := s.update(ctx, id, func(session *ports.ImplementationSession) {
+		session.ChecksRef, session.ChecksConclusion = ref, conclusion
 	})
 	return err
 }
@@ -186,6 +250,11 @@ func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, erro
 		if session.Phase != ports.PhaseRunning {
 			continue
 		}
+		// A turn transcript left running by a crash has nothing to resume:
+		// there is no branch and no workspace behind it, only a record.
+		if !IsCodingSession(session) {
+			continue
+		}
 		if err := s.SetPhase(ctx, session.ID, ports.PhaseInterrupted, "Interrupted by restart; continue explicitly to resume."); err != nil {
 			return count, err
 		}
@@ -199,15 +268,15 @@ func (s *ImplementationSessions) MarkInterrupted(ctx context.Context) (int, erro
 
 func (s *ImplementationSessions) nextContext(context ports.SessionContext, event ports.ImplementationSessionEvent) ports.SessionContext {
 	if event.Message != "" {
-		context.Summary = appendSummary(context.Summary, event.Message)
+		context.Summary = agent.AppendSummary(context.Summary, event.Message)
 	}
 	if event.ModelMessage.Role != "" {
-		context.RecentMessages = append(context.RecentMessages, truncateMessage(event.ModelMessage, s.policy.OutputExcerptChars))
+		context.RecentMessages = append(context.RecentMessages, agent.TruncateMessage(event.ModelMessage, s.policy.OutputExcerptChars))
 	}
-	for len(context.RecentMessages) > s.policy.RecentMessages || messageChars(context.RecentMessages) > s.policy.ContextBudgetChars {
+	for len(context.RecentMessages) > s.policy.RecentMessages || agent.MessageChars(context.RecentMessages) > s.policy.ContextBudgetChars {
 		removed := context.RecentMessages[0]
 		context.RecentMessages = context.RecentMessages[1:]
-		context.Summary = appendSummary(context.Summary, summarizeMessage(removed))
+		context.Summary = agent.AppendSummary(context.Summary, agent.SummarizeMessage(removed))
 	}
 	return context
 }
@@ -224,7 +293,7 @@ func (s *ImplementationSessions) sanitizeSession(session ports.ImplementationSes
 func (s *ImplementationSessions) sanitizeEvent(event ports.ImplementationSessionEvent) ports.ImplementationSessionEvent {
 	event.Message = s.redact(event.Message)
 	event.Content = truncateRunes(s.redact(event.Content), s.policy.OutputExcerptChars)
-	event.ModelMessage = truncateMessage(s.sanitizeMessage(event.ModelMessage), s.policy.OutputExcerptChars)
+	event.ModelMessage = agent.TruncateMessage(s.sanitizeMessage(event.ModelMessage), s.policy.OutputExcerptChars)
 	return event
 }
 
@@ -244,47 +313,7 @@ func (s *ImplementationSessions) redact(content string) string {
 // is exposed through a channel adapter.
 func (s *ImplementationSessions) RedactProgress(content string) string { return s.redact(content) }
 
-func appendSummary(summary, event string) string {
-	event = truncateRunes(strings.TrimSpace(event), 320)
-	if event == "" {
-		return summary
-	}
-	if summary == "" {
-		return event
-	}
-	return truncateRunes(summary+"\n"+event, sessionSummaryLimit)
-}
-
-func summarizeMessage(message ports.Message) string {
-	if message.Name != "" {
-		return "Used " + message.Name
-	}
-	if message.Content != "" {
-		return truncateRunes(message.Content, 160)
-	}
-	return "Recorded implementation activity"
-}
-
-func truncateMessage(message ports.Message, limit int) ports.Message {
-	message.Content = truncateRunes(message.Content, limit)
-	return message
-}
-
-func messageChars(messages []ports.Message) int {
-	total := 0
-	for _, message := range messages {
-		total += utf8.RuneCountInString(message.Content)
-		for _, call := range message.ToolCalls {
-			total += utf8.RuneCountInString(string(call.Arguments))
-		}
-	}
-	return total
-}
-
-func truncateRunes(value string, limit int) string {
-	if limit <= 0 || utf8.RuneCountInString(value) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	return string(runes[:limit])
-}
+// truncateRunes is the services-local alias for the kernel's bounded
+// truncation, kept so callers here (memory recall excerpts, session event
+// sanitisation) read the same as they always did.
+func truncateRunes(value string, limit int) string { return agent.TruncateRunes(value, limit) }

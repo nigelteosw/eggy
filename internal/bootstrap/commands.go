@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	mcpadapter "github.com/nigelteosw/eggy/internal/adapters/tools/mcp"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
 // CommandService dispatches "/command" (Telegram) and "command --flag"

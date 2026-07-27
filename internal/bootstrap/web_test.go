@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 )
 
 func testWebConfig(now time.Time) WebUIConfig {

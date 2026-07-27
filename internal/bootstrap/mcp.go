@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	mcpadapter "github.com/nigelteosw/eggy/internal/adapters/tools/mcp"
+	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
 func newMCPManager(ctx context.Context, config Config, secrets Secrets, options AppOptions) (*mcpadapter.Manager, error) {

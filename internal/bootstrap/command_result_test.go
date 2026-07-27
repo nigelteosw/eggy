@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/telegram"
+	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 )
 
 func TestRenderJSONProducesStableLowercaseFieldNames(t *testing.T) {

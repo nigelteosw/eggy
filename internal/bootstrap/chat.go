@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 )
 
 const chatKeepaliveInterval = 15 * time.Second
@@ -27,7 +27,7 @@ const chatHistoryDisplayLimit = 200
 
 // buildWebEvent stamps a new events.Event with the same ID/Source/Timestamp/
 // CorrelationID shape Telegram's webhook handler already uses (see
-// internal/adapters/channels/telegram/handler.go's normalize), and the
+// plugins/channels/telegram/handler.go's normalize), and the
 // Owner every event must carry for Dispatcher.Handle to accept it. This is
 // shared by newThreadSendHandler and newChatApproveHandler.
 func buildWebEvent(owner string, eventType events.Type, dest destination.Destination, payload json.RawMessage) events.Event {

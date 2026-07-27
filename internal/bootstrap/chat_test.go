@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
-	memorysqlite "github.com/nigelteosw/eggy/internal/adapters/memory/sqlite"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/channels/webchat"
+	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 )
 
 func newTestMemoryStore(t *testing.T) *memorysqlite.Store {

@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/webchat"
-	"github.com/nigelteosw/eggy/internal/adapters/webui"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/channels/webchat"
+	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
 // WebUIConfig holds what NewWebHandler needs beyond the config file path:

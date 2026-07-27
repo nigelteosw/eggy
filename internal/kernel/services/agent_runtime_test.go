@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
 func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {

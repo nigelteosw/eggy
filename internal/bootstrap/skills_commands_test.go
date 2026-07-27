@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	skillsadapter "github.com/nigelteosw/eggy/internal/adapters/skills"
-	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
+	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
+	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
 func TestCommandSkillsAddShowDisableEnableRemove(t *testing.T) {

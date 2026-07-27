@@ -12,9 +12,9 @@ import (
 )
 
 // skillNamePattern mirrors the adapter's own validation (see
-// internal/adapters/skills.ValidateName). Duplicated here, like
+// plugins/skills.ValidateName). Duplicated here, like
 // repositoryNamePattern in repositories.go, because the kernel stays
-// adapter-agnostic and cannot import internal/adapters/skills directly; the
+// adapter-agnostic and cannot import plugins/skills directly; the
 // adapter re-validates independently before touching disk.
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 

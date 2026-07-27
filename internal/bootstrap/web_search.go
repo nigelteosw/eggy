@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/nigelteosw/eggy/internal/adapters/search/searxng"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/search/searxng"
 )
 
 type fakeWebSearcher struct{}

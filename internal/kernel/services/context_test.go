@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
 	"github.com/nigelteosw/eggy/internal/ports"
+	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
 )
 
 func TestSecretGuardRejectsCredentials(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	contextmarkdown "github.com/nigelteosw/eggy/internal/adapters/context/markdown"
-	"github.com/nigelteosw/eggy/internal/adapters/state/jsonfile"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
+	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
 // TestTelegramAndCLIProduceTheSameSemanticResult drives one named-arg style

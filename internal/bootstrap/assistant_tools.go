@@ -9,9 +9,9 @@ import (
 	"io"
 	"time"
 
-	schedulerlocal "github.com/nigelteosw/eggy/internal/adapters/scheduler/local"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
 )
 
 type bootstrapTool struct {

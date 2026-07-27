@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/filelock"
+	"github.com/nigelteosw/eggy/plugins/filelock"
 	"gopkg.in/yaml.v3"
 )
 

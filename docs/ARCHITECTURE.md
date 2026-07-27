@@ -5,7 +5,6 @@ reachable through Telegram, with a companion `eggy` CLI reading the same
 files. It is a Go ports-and-adapters modular monolith with file-backed state,
 supporting exactly one owner and one `eggyd` replica.
 
-For durable decisions this document doesn't re-argue, see [`docs/adr/`](adr/).
 For operator-facing setup and commands, see [`README.md`](../README.md).
 
 ## Architectural style
@@ -17,7 +16,7 @@ Provider implementations sit behind small interfaces owned by the kernel;
 `internal/bootstrap` is the only package that constructs adapters, validates
 capabilities, and wires them into kernel services. Adding a provider (model
 backend, chat channel, repository host, calendar backend) means adding a
-package under `internal/adapters/<category>/<provider>/` plus wiring in
+package under `plugins/<category>/<provider>/` plus wiring in
 bootstrap — never a kernel or port change. See `AGENTS.md` for the concrete
 steps.
 
@@ -61,7 +60,7 @@ flowchart TB
     commands --> services
     registry --> outer
 
-    subgraph adapters[Adapters - internal/adapters]
+    subgraph adapters[Adapters - /plugins]
         channelAdapter[Telegram channel]
         modelAdapter[OpenAI-compatible model]
         repositoryAdapter[GitHub and Git adapter]
@@ -150,15 +149,18 @@ It follows that a web-only deployment produces no unprompted output at all.
 web channel unwrapped, so Telegram-addressed delivery is dropped instead of
 redirected into a thread the owner never asked to be pushed to. The turns
 themselves still run — a heartbeat's silent `USER.md`/`MEMORY.md` curation is
-unaffected — only the outbound check-in disappears. See [ADR
-0001](adr/0001-single-configured-model.md)
-for why there is exactly one selected model with no automatic escalation, and
-[ADR 0002](adr/0002-native-implementation-loop.md) for why repository edits
-run as tool calls in this same loop instead of a delegated coding-agent CLI.
+unaffected — only the outbound check-in disappears.
+
+There is exactly one selected model per turn with no automatic escalation: the
+owner picks the alias with `/model`, and no code path silently swaps in a more
+expensive one. Repository edits run as ordinary tool calls in this same loop
+rather than being delegated to a coding-agent CLI subprocess, so editing and
+conversation share one transcript, one tool surface, and one termination
+condition.
 
 ### MCP tools
 
-`internal/adapters/tools/mcp` is a generic remote MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
+`plugins/tools/mcp` is a generic remote MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
 
 Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
 
@@ -169,7 +171,7 @@ OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers,
 The kernel-owned `web_search` tool depends only on the narrow
 `ports.WebSearcher` interface and returns normalized title, URL, snippet,
 publication, and source fields. Provider HTTP and response types remain in
-`internal/adapters/search/searxng`; future search providers add another package
+`plugins/search/searxng`; future search providers add another package
 under the same adapter category plus a bootstrap selector branch without
 changing the kernel tool or port.
 
@@ -299,8 +301,9 @@ while it runs. `services.ActiveTurns` holds both halves of that:
 Commit, push, and pull-request creation each still require their own
 independent, expiring, payload-digest-bound approval — but `ShippingService`
 decides each one automatically in sequence instead of waiting for an owner
-Telegram tap. See [ADR 0003](adr/0003-automatic-shipping-authorization.md)
-for why, and for exactly what stayed the same.
+Telegram tap. The owner review that matters happens on the pull request, not on
+three consecutive taps that approve a payload they cannot see; automating the
+decision removes the taps without removing a single check.
 
 Unchanged regardless of automatic decision:
 
@@ -325,7 +328,7 @@ authorization, and usage parsing stay inside the model adapter — the kernel
 only depends on `ports.Model`. Version 1 configuration (a single DeepSeek
 Flash/Pro pair) still loads and is mapped to an implicit single alias; it
 does not gain access to the escalation behavior that alias name might imply,
-because that behavior no longer exists (ADR 0001).
+because that behavior no longer exists.
 
 ## Telegram and CLI surfaces
 
@@ -340,8 +343,9 @@ Both surfaces share one command set: `/status`, `/repositories`, `/runs`,
 `/memory`, `/clear`, `/model [alias|default]`, `/config get|set ...`,
 `/usage [reset]`, `/calendar_auth`, `/mcp [status|probe|login|logout|reload]`, and `/restart`. `/restart` triggers a
 self-exec-in-place process restart to pick up an edited `config.yaml`/`.env`
-without an external supervisor — see
-[ADR 0004](adr/0004-self-exec-in-place-restart.md).
+without an external supervisor, which keeps the single-replica deployment model
+intact: no orchestrator is required to bring the process back, and no second
+`eggyd` is ever briefly live alongside the old one.
 
 ### The channel port
 

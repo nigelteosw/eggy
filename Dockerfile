@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 FROM oven/bun:1 AS web-builder
-WORKDIR /src/web
-COPY web/package.json web/bun.lock* ./
+WORKDIR /src/website
+COPY website/package.json website/bun.lock* ./
 RUN bun install
-COPY web/ ./
+COPY website/ ./
 RUN bun run build
 
 FROM golang:1.26-bookworm AS builder
@@ -11,7 +11,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=web-builder /src/internal/adapters/webui/dist ./internal/adapters/webui/dist
+COPY --from=web-builder /src/plugins/webui/dist ./plugins/webui/dist
 RUN CGO_ENABLED=0 go test ./... \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggyd ./cmd/eggyd \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggy ./cmd/eggy

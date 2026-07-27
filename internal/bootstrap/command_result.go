@@ -30,7 +30,7 @@ type ResultField struct {
 // produces. Two renderers turn the same value into surface-appropriate
 // output: RenderPlainText for the CLI, and RenderMarkdown for Telegram, whose
 // transport already converts a small Markdown subset into safe HTML on
-// delivery (see internal/adapters/channels/telegram/format.go).
+// delivery (see plugins/channels/telegram/format.go).
 type CommandResult struct {
 	State ResultState `json:"state"`
 	// Title is the one-line headline: what happened, or what is being shown.

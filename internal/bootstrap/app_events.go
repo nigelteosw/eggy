@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
 
 // This file is App's runtime behavior once NewApp has wired it: the event

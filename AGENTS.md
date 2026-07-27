@@ -14,7 +14,7 @@ Eggy is a Go 1.26 ports-and-adapters modular monolith.
 
 A new provider (model backend, chat channel, repository host, coding-agent
 runner, calendar backend, etc.) should only ever add a new package under
-`internal/adapters/<category>/<provider>/` plus a wiring change in
+`plugins/<category>/<provider>/` plus a wiring change in
 `internal/bootstrap`. It should never require changing `internal/kernel`,
 `internal/ports`, or an existing adapter package.
 

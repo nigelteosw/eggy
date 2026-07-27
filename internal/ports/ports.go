@@ -115,7 +115,7 @@ type WebSearcher interface {
 // affordances, so they live in the optional TrackableChannel and
 // TypingChannel extensions rather than forcing a surface without them to
 // stub methods it cannot honour. Consumers type-assert for the extension
-// they want and degrade when it is absent -- see internal/adapters/channels/
+// they want and degrade when it is absent -- see plugins/channels/
 // channelutil, which does exactly that once so callers don't repeat it.
 type Channel interface {
 	Deliver(ctx context.Context, text string) error

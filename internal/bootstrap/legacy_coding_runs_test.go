@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	sessionjson "github.com/nigelteosw/eggy/internal/adapters/sessions/jsonfile"
 	"github.com/nigelteosw/eggy/internal/ports"
+	sessionjson "github.com/nigelteosw/eggy/plugins/sessions/jsonfile"
 )
 
 // TestAppRecoverInterruptedFlipsRunningSessionsAfterRestart is the

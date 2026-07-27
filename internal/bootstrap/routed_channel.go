@@ -3,10 +3,10 @@ package bootstrap
 import (
 	"context"
 
-	"github.com/nigelteosw/eggy/internal/adapters/channels/channelutil"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
 
 // routedChannel implements ports.Channel by reading the destination

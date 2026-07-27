@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	mcpadapter "github.com/nigelteosw/eggy/internal/adapters/tools/mcp"
+	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
 func TestMCPCommandsUseManager(t *testing.T) {

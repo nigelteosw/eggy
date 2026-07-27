@@ -220,8 +220,8 @@ type MemoryStore interface {
 // sitting on the base branch, and holds the branch name once the thread has
 // started editing. It is what makes the checkout writable: the same
 // directory keeps serving the thread's reads before, during, and after the
-// edits, with no second clone. WorkspaceSession is the ImplementationSession
-// recording those edits, which propose_change ships.
+// edits, with no second clone. ChangeID names the Change those edits belong
+// to, which propose_change ships.
 type Thread struct {
 	ID                  string
 	Title               string
@@ -229,7 +229,7 @@ type Thread struct {
 	Workspace           string
 	WorkspaceRepository string
 	WorkspaceBranch     string
-	WorkspaceSession    string
+	ChangeID            string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -251,10 +251,10 @@ type ThreadStore interface {
 	// one. Replaces any previously attached workspace.
 	AttachWorkspace(ctx context.Context, id, channel, repository, workspace string, at time.Time) error
 	// SetWorkspaceEdit records the branch created in the thread's
-	// already-attached checkout, and the session recording the edits,
+	// already-attached checkout, and the change those edits belong to,
 	// promoting the checkout from an inspection clone to a writable one. An
 	// empty branch demotes it back.
-	SetWorkspaceEdit(ctx context.Context, id, branch, session string) error
+	SetWorkspaceEdit(ctx context.Context, id, branch, changeID string) error
 	// DetachWorkspace clears a thread's attached workspace. Detaching a
 	// thread with none is not an error.
 	DetachWorkspace(ctx context.Context, id string) error
@@ -319,8 +319,10 @@ type State struct {
 	Repositories      map[string]Repository         `json:"repositories,omitempty"`
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
-	Calendar          CalendarAuth                  `json:"calendar,omitempty"`
-	Agent             AgentRuntimeState             `json:"agent,omitempty"`
+	// Calendar is retained only so a state.json written by an older Eggy
+	// can be migrated into auth.json at boot. Nothing reads it at runtime.
+	Calendar CalendarAuth      `json:"calendar,omitempty"`
+	Agent    AgentRuntimeState `json:"agent,omitempty"`
 	// DisabledSkills names skills currently excluded from the compact
 	// steering index built for the agent. Disabling never removes or edits
 	// the skill's file, so it carries no approval gate, unlike SkillsStore.Write/Delete.
@@ -393,42 +395,25 @@ type CodingProgress struct {
 // fixed default. A nil ProgressReporter means "nobody is watching".
 type ProgressReporter func(context.Context, CodingProgress)
 
-// SessionPhase is the single lifecycle phase for an implementation
-// session, replacing the formerly separate CodingRun.Status string and
-// ImplementationSessionStatus enum. The awaiting_push_approval and
-// awaiting_pr_approval phases from the old two-store design are gone
-// entirely: ShippingService.Ship runs commit, push, and pull-request
-// creation back to back with automatic approval, so those were
-// instantaneous internal milestones, never a real crash-recovery window.
-// PhaseReady is their one necessary survivor: the handoff between a run
-// finishing its edits and a separate Ship call is a real gap another process
-// restart can land in.
+// SessionPhase is a session's lifecycle in the only three states anything
+// actually branches on. The finer-grained phases this replaced (ready,
+// committed, pushed, interrupted, cancelled) were never read for a decision:
+// they were rendered in one column of /runs and duplicated milestones that
+// SetPhase already appends to the durable event stream, which is where the
+// detail belongs.
 type SessionPhase string
 
 const (
-	// PhaseRunning means the implementation loop is actively executing.
+	// PhaseRunning means the session is actively progressing.
 	PhaseRunning SessionPhase = "running"
-	// PhaseReady means implementation finished (Diff/Validation captured)
-	// and the run is waiting to be shipped; resumable.
-	PhaseReady SessionPhase = "ready"
-	// PhaseInterrupted means the process restarted mid-run; resumable.
-	PhaseInterrupted SessionPhase = "interrupted"
-	// PhaseBlocked means implementation failed or an integrity check
-	// failed (branch/HEAD moved, workspace missing); resumable so an
-	// owner can inspect and retry.
-	PhaseBlocked SessionPhase = "blocked"
-	// PhaseCommitted means a commit was made but push did not complete
-	// (unavailable or denied).
-	PhaseCommitted SessionPhase = "committed"
-	// PhasePushed means the branch was pushed but pull-request creation
-	// did not complete (unavailable).
-	PhasePushed SessionPhase = "pushed"
-	// PhaseCompleted means a pull request was created (or an existing
-	// open one for the branch was reused).
+	// PhaseCompleted means the change shipped: a pull request was created,
+	// or an already-open one for the branch was reused.
 	PhaseCompleted SessionPhase = "completed"
-	// PhaseCancelled is reserved for an owner-cancelled run at rest; no
-	// code path sets it yet.
-	PhaseCancelled SessionPhase = "cancelled"
+	// PhaseBlocked means the session stopped short and an owner may want to
+	// look: a restart landed mid-session, an integrity check failed, or the
+	// commit -> push -> pull-request chain stopped partway. The reason is the
+	// milestone recorded alongside the transition.
+	PhaseBlocked SessionPhase = "blocked"
 )
 
 const (
@@ -440,44 +425,23 @@ const (
 	SessionMilestone        = "milestone"
 )
 
-type SessionContext struct {
-	Summary        string    `json:"summary,omitempty"`
-	RecentMessages []Message `json:"recent_messages,omitempty"`
+// Transcript is the durable record of one turn: what was asked, what the
+// model did, in order. Every turn has one, editing or not, so it carries no
+// repository, branch, or lifecycle -- a conversation about the weather is a
+// transcript too, and had none of those to record.
+//
+// The event log is persisted separately (one append-only file per
+// transcript) so it never inflates this metadata document or state.json.
+type Transcript struct {
+	ID          string            `json:"id"`
+	Instruction string            `json:"instruction,omitempty"`
+	StartedAt   time.Time         `json:"started_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	FinishedAt  time.Time         `json:"finished_at,omitempty"`
+	Events      []TranscriptEvent `json:"-"`
 }
 
-// ImplementationSession is the single canonical record of a coding run's
-// metadata and lifecycle: repository, workspace, branch, base revision,
-// current phase, validation evidence, commit, and pull request. The
-// resumable context (SessionContext) and the bounded event history
-// (Events) round out the aggregate; the event log itself is persisted
-// separately (one append-only file per session) so transcripts never
-// inflate this metadata document or state.json.
-type ImplementationSession struct {
-	ID                string       `json:"id"`
-	Repository        string       `json:"repository,omitempty"`
-	Instruction       string       `json:"instruction,omitempty"`
-	Workspace         string       `json:"workspace,omitempty"`
-	Branch            string       `json:"branch,omitempty"`
-	BaseRevision      string       `json:"base_revision,omitempty"`
-	Phase             SessionPhase `json:"phase"`
-	Diff              string       `json:"diff,omitempty"`
-	Validation        string       `json:"validation,omitempty"`
-	Commit            string       `json:"commit,omitempty"`
-	PullRequestURL    string       `json:"pull_request_url,omitempty"`
-	PullRequestNumber int          `json:"pull_request_number,omitempty"`
-	// ChecksRef and ChecksConclusion record the last commit whose
-	// pull-request checks Eggy has already reacted to, so a completed run is
-	// resumed once per failing result rather than on every poll.
-	ChecksRef        string                       `json:"checks_ref,omitempty"`
-	ChecksConclusion string                       `json:"checks_conclusion,omitempty"`
-	Context          SessionContext               `json:"context,omitempty"`
-	StartedAt        time.Time                    `json:"started_at"`
-	UpdatedAt        time.Time                    `json:"updated_at"`
-	FinishedAt       time.Time                    `json:"finished_at,omitempty"`
-	Events           []ImplementationSessionEvent `json:"-"`
-}
-
-type ImplementationSessionEvent struct {
+type TranscriptEvent struct {
 	Sequence     uint64    `json:"sequence,omitempty"`
 	At           time.Time `json:"at"`
 	Kind         string    `json:"kind"`
@@ -487,12 +451,46 @@ type ImplementationSessionEvent struct {
 	ModelMessage Message   `json:"model_message,omitempty"`
 }
 
-type ImplementationSessionStore interface {
-	Create(context.Context, ImplementationSession) (ImplementationSession, error)
-	Load(context.Context, string) (ImplementationSession, error)
-	List(context.Context) ([]ImplementationSession, error)
-	AppendEvent(context.Context, string, ImplementationSessionEvent) (ImplementationSession, error)
-	Update(context.Context, string, func(*ImplementationSession) error) (ImplementationSession, error)
+type TranscriptStore interface {
+	Create(context.Context, Transcript) (Transcript, error)
+	Load(context.Context, string) (Transcript, error)
+	List(context.Context) ([]Transcript, error)
+	AppendEvent(context.Context, string, TranscriptEvent) (Transcript, error)
+	Update(context.Context, string, func(*Transcript) error) (Transcript, error)
+}
+
+// Change is one branched, shippable unit of work: what a thread's checkout
+// was branched to do, and how far it got. It deliberately records no
+// workspace path -- the live checkout belongs to the thread (see Thread and
+// services.WorkspaceSessions), and a change outlives it. Repository and
+// Branch are not that same duplication: they are what this change *was*,
+// which stays meaningful long after the checkout is reaped.
+type Change struct {
+	ID                string       `json:"id"`
+	Repository        string       `json:"repository"`
+	Branch            string       `json:"branch"`
+	BaseRevision      string       `json:"base_revision,omitempty"`
+	Phase             SessionPhase `json:"phase"`
+	Diff              string       `json:"diff,omitempty"`
+	Validation        string       `json:"validation,omitempty"`
+	Commit            string       `json:"commit,omitempty"`
+	PullRequestURL    string       `json:"pull_request_url,omitempty"`
+	PullRequestNumber int          `json:"pull_request_number,omitempty"`
+	// ChecksRef and ChecksConclusion record the last commit whose
+	// pull-request checks Eggy has already reacted to, so a shipped change is
+	// resumed once per failing result rather than on every poll.
+	ChecksRef        string    `json:"checks_ref,omitempty"`
+	ChecksConclusion string    `json:"checks_conclusion,omitempty"`
+	StartedAt        time.Time `json:"started_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	FinishedAt       time.Time `json:"finished_at,omitempty"`
+}
+
+type ChangeStore interface {
+	Create(context.Context, Change) (Change, error)
+	Load(context.Context, string) (Change, error)
+	List(context.Context) ([]Change, error)
+	Update(context.Context, string, func(*Change) error) (Change, error)
 }
 
 type Command struct {
@@ -635,6 +633,15 @@ type RepositoryReader interface {
 	Issue(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
 	PullRequestSummary(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
 	Checks(ctx context.Context, repository Repository, ref string) ([]CheckRun, error)
+}
+
+// CalendarAuthStore persists the owner's Google Calendar OAuth credential.
+// It is deliberately separate from StateStore: the credential lives in
+// auth.json alongside every other provider credential, not in the runtime
+// state file (see plugins/auth/authfile).
+type CalendarAuthStore interface {
+	Load(context.Context) (CalendarAuth, error)
+	Update(context.Context, func(*CalendarAuth) error) error
 }
 
 type CalendarAuth struct {

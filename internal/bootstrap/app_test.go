@@ -809,7 +809,7 @@ func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
 			t.Fatalf("step %d saw a different tool surface: %s", i, body)
 		}
 	}
-	runs, err := app.sessions.Runs(context.Background())
+	runs, err := app.changes.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,10 +818,29 @@ func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
 	}
 	run := runs[0]
 	// Pull-request creation fails on the owner/repository slug against this
-	// local, non-GitHub-shaped remote, so shipping stops at PhasePushed
-	// (commit + push already succeeded) rather than reaching PhaseCompleted.
-	if run.Phase != ports.PhasePushed || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
+	// local, non-GitHub-shaped remote, so the run never reaches
+	// PhaseCompleted. How far it did get is evidence on the transcript rather
+	// than a phase of its own: commit and push both recorded a milestone.
+	if run.Phase == ports.PhaseCompleted || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
 		t.Fatalf("run=%#v", run)
+	}
+	// The milestones live on the turn's transcript, not on the change: a
+	// change records what it is and how far it got, a transcript records what
+	// happened in order.
+	transcripts, err := app.transcripts.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	milestones := map[string]bool{}
+	for _, transcript := range transcripts {
+		for _, event := range transcript.Events {
+			if event.Kind == ports.SessionMilestone {
+				milestones[event.Message] = true
+			}
+		}
+	}
+	if !milestones["Commit created"] || !milestones["Branch pushed"] {
+		t.Fatalf("milestones=%v, want commit and push recorded on the transcript", milestones)
 	}
 	state, err := app.store.Load(context.Background())
 	if err != nil {
@@ -924,9 +943,9 @@ func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
 	if err != nil || !handled || !strings.Contains(output, "/auth/google?enrollment=") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
-	state, _ := app.store.Load(context.Background())
-	if state.Calendar.EnrollmentDigest == "" || !state.Calendar.EnrollmentExpires.Equal(now.Add(10*time.Minute)) {
-		t.Fatalf("calendar auth=%#v", state.Calendar)
+	auth, _ := app.calendarAuth.Load(context.Background())
+	if auth.EnrollmentDigest == "" || !auth.EnrollmentExpires.Equal(now.Add(10*time.Minute)) {
+		t.Fatalf("calendar auth=%#v", auth)
 	}
 }
 
@@ -1348,7 +1367,7 @@ func TestEveryTurnGetsADurableTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sessions, err := app.sessions.List(context.Background())
+	sessions, err := app.transcripts.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1356,15 +1375,24 @@ func TestEveryTurnGetsADurableTranscript(t *testing.T) {
 		t.Fatalf("sessions=%#v, want one transcript for the turn", sessions)
 	}
 	transcript := sessions[0]
-	if transcript.Instruction != "what's the status?" || transcript.Phase != ports.PhaseCompleted || transcript.FinishedAt.IsZero() {
+	// A transcript has no phase to settle: it is finished, or it is not.
+	if transcript.Instruction != "what's the status?" || transcript.FinishedAt.IsZero() {
 		t.Fatalf("transcript=%#v", transcript)
 	}
 	// The transcript records what actually happened, not just that a turn ran.
-	if !strings.Contains(transcript.Context.Summary, "status") {
-		t.Fatalf("transcript summary=%q, want the tool call it recorded", transcript.Context.Summary)
+	recorded := false
+	for _, event := range transcript.Events {
+		if event.ToolName == "status" {
+			recorded = true
+		}
 	}
-	runs, err := app.sessions.Runs(context.Background())
+	if !recorded {
+		t.Fatalf("events=%#v, want the status tool call recorded", transcript.Events)
+	}
+	// A conversation turn creates no change at all now -- there is no
+	// "is this really a coding run?" question left to ask.
+	runs, err := app.changes.List(context.Background())
 	if err != nil || len(runs) != 0 {
-		t.Fatalf("runs=%#v err=%v, want a conversation transcript to stay out of /runs", runs, err)
+		t.Fatalf("runs=%#v err=%v, want a conversation turn to create no change", runs, err)
 	}
 }

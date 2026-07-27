@@ -71,6 +71,45 @@ export function removeMCPServer(name: string): Promise<CommandResult> {
   return request(`/api/config/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
+// --- Home directory files -------------------------------------------------
+//
+// "edit" files are served as raw text and written back as-is; "read" files
+// (logs) are served but never written; "secret" files (.env, auth.json) are
+// listed so you can see they exist, but their contents never leave the host.
+export type FileAccess = "edit" | "read" | "secret";
+
+export type HomeFile = {
+  path: string;
+  access: FileAccess;
+  size: number;
+  modified?: string;
+  language?: string;
+  missing?: boolean;
+  note?: string;
+};
+
+export type HomeFileListing = { root: string; files: HomeFile[] };
+
+export type HomeFileContent = { path: string; access: FileAccess; content: string };
+
+export function listFiles(): Promise<HomeFileListing> {
+  return request<HomeFileListing>("/api/files");
+}
+
+export function readFile(path: string): Promise<HomeFileContent> {
+  return request<HomeFileContent>(`/api/files/${encodePath(path)}`);
+}
+
+export function writeFile(path: string, content: string): Promise<CommandResult> {
+  return request(`/api/files/${encodePath(path)}`, { method: "PUT", body: JSON.stringify({ content }) });
+}
+
+// Each segment is escaped separately so the slashes stay real path
+// separators for the {path...} route rather than becoming %2F.
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export type ChatEvent = {
   kind: "message" | "typing" | "edit" | "approval";
   id?: string;

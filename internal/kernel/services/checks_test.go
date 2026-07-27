@@ -10,19 +10,19 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// checksFixture wires a shipped session whose thread still has the branched
+// checksFixture wires a shipped change whose thread still has the branched
 // workspace attached: the only shape a failed check can resume in place.
-func checksFixture(t *testing.T, checks []ports.CheckRun) (*ChecksWatcher, *ImplementationSessions) {
+func checksFixture(t *testing.T, checks []ports.CheckRun) (*ChecksWatcher, *Changes) {
 	t.Helper()
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main"}}
-	sessionStore := newMemorySessionStore()
-	sessionStore.sessions["run"] = ports.ImplementationSession{
-		ID: "run", Repository: "eggy", Workspace: "/tmp/runs/run", Branch: "eggy/run",
+	changeStore := newMemoryChangeStore()
+	changeStore.changes["run"] = ports.Change{
+		ID: "run", Repository: "eggy", Branch: "eggy/run",
 		Commit: "abc123", PullRequestURL: "https://example.test/pr/7", PullRequestNumber: 7,
 		Phase: ports.PhaseCompleted,
 	}
-	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
+	changes := NewChanges(changeStore, time.Now)
 	threads := newFakeThreadStore()
 	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-1"})
 	if err := threads.AttachWorkspace(ctx, "thread-1", destination.Web, "eggy", "/tmp/runs/run", time.Now()); err != nil {
@@ -31,11 +31,11 @@ func checksFixture(t *testing.T, checks []ports.CheckRun) (*ChecksWatcher, *Impl
 	if err := threads.SetWorkspaceEdit(ctx, "thread-1", "eggy/run", "run"); err != nil {
 		t.Fatal(err)
 	}
-	return NewChecksWatcher(store, sessions, threads, &fakeRepositoryReader{checks: checks}), sessions
+	return NewChecksWatcher(store, changes, threads, &fakeRepositoryReader{checks: checks}), changes
 }
 
 func TestChecksWatcherResumesTheThreadWhosePullRequestChecksFailed(t *testing.T) {
-	watcher, sessions := checksFixture(t, []ports.CheckRun{
+	watcher, changes := checksFixture(t, []ports.CheckRun{
 		{Name: "build", Status: "completed", Conclusion: "success"},
 		{Name: "test", Status: "completed", Conclusion: "failure", URL: "https://example.test/checks/2"},
 	})
@@ -45,7 +45,7 @@ func TestChecksWatcherResumesTheThreadWhosePullRequestChecksFailed(t *testing.T)
 		t.Fatalf("completions=%#v err=%v", completions, err)
 	}
 	completion := completions[0]
-	if completion.Session != "run" || completion.Conclusion != "failure" || completion.Ref != "abc123" {
+	if completion.Change != "run" || completion.Conclusion != "failure" || completion.Ref != "abc123" {
 		t.Fatalf("completion=%#v", completion)
 	}
 	// The turn must land in the thread that proposed the change, because
@@ -69,7 +69,7 @@ func TestChecksWatcherResumesTheThreadWhosePullRequestChecksFailed(t *testing.T)
 	if err != nil || len(again) != 0 {
 		t.Fatalf("second poll=%#v err=%v", again, err)
 	}
-	persisted, err := sessions.Load(context.Background(), "run")
+	persisted, err := changes.Load(context.Background(), "run")
 	if err != nil || persisted.ChecksRef != "abc123" || persisted.ChecksConclusion != "failure" {
 		t.Fatalf("persisted=%#v err=%v", persisted, err)
 	}
@@ -84,7 +84,7 @@ func TestChecksWatcherStaysQuietForGreenAndUnfinishedChecks(t *testing.T) {
 
 	// A suite that is still running is not a result: reacting to a partial
 	// failure would chase something the remaining runs may resolve.
-	running, sessions := checksFixture(t, []ports.CheckRun{
+	running, changes := checksFixture(t, []ports.CheckRun{
 		{Name: "build", Status: "completed", Conclusion: "failure"},
 		{Name: "test", Status: "in_progress"},
 	})
@@ -92,7 +92,7 @@ func TestChecksWatcherStaysQuietForGreenAndUnfinishedChecks(t *testing.T) {
 	if err != nil || len(completions) != 0 {
 		t.Fatalf("completions=%#v err=%v", completions, err)
 	}
-	persisted, err := sessions.Load(context.Background(), "run")
+	persisted, err := changes.Load(context.Background(), "run")
 	if err != nil || persisted.ChecksRef != "" {
 		t.Fatalf("an unfinished suite must not be recorded as handled: %#v err=%v", persisted, err)
 	}
@@ -101,13 +101,13 @@ func TestChecksWatcherStaysQuietForGreenAndUnfinishedChecks(t *testing.T) {
 func TestChecksWatcherIgnoresSessionsWhoseWorkspaceIsGone(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
-	sessionStore := newMemorySessionStore()
-	sessionStore.sessions["run"] = ports.ImplementationSession{
+	changeStore := newMemoryChangeStore()
+	changeStore.changes["run"] = ports.Change{
 		ID: "run", Repository: "eggy", Branch: "eggy/run", Commit: "abc123",
 		PullRequestNumber: 7, Phase: ports.PhaseCompleted,
 	}
-	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
-	watcher := NewChecksWatcher(store, sessions, newFakeThreadStore(), &fakeRepositoryReader{
+	changes := NewChanges(changeStore, time.Now)
+	watcher := NewChecksWatcher(store, changes, newFakeThreadStore(), &fakeRepositoryReader{
 		checks: []ports.CheckRun{{Name: "test", Status: "completed", Conclusion: "failure"}},
 	})
 

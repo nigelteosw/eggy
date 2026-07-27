@@ -29,9 +29,9 @@ type WorkspaceBinding struct {
 	Path       string
 	// Writable is true once workspace_edit has branched the checkout.
 	Writable bool
-	// Session is the ImplementationSession recording this checkout's edits,
-	// empty until it is branched. propose_change ships it.
-	Session string
+	// Change is the Change these edits belong to, empty until the checkout
+	// is branched. propose_change ships it.
+	Change string
 }
 
 // WorkspaceSessions owns the mapping from a conversation thread to the
@@ -84,7 +84,7 @@ func (s *WorkspaceSessions) Resolve(ctx context.Context) (WorkspaceBinding, erro
 }
 
 func bindingOf(thread ports.Thread) WorkspaceBinding {
-	return WorkspaceBinding{Repository: thread.WorkspaceRepository, Path: thread.Workspace, Writable: thread.WorkspaceBranch != "", Session: thread.WorkspaceSession}
+	return WorkspaceBinding{Repository: thread.WorkspaceRepository, Path: thread.Workspace, Writable: thread.WorkspaceBranch != "", Change: thread.ChangeID}
 }
 
 // Adopt returns the checkout editing should happen in. When the thread
@@ -109,14 +109,14 @@ func (s *WorkspaceSessions) Adopt(ctx context.Context, repositoryName string) (W
 }
 
 // MarkEditing records the branch created in the thread's checkout and the
-// session recording its edits, which is what the write primitives resolve
-// as writable. Passing an empty branch demotes the checkout back to an
+// change its edits belong to, which is what the write primitives resolve as
+// writable. Passing an empty branch demotes the checkout back to an
 // inspection clone.
-func (s *WorkspaceSessions) MarkEditing(ctx context.Context, branch, session string) error {
+func (s *WorkspaceSessions) MarkEditing(ctx context.Context, branch, changeID string) error {
 	if s.threads == nil {
 		return ErrNoWorkspace
 	}
-	return s.threads.SetWorkspaceEdit(ctx, destination.FromContext(ctx).ConversationID(), branch, session)
+	return s.threads.SetWorkspaceEdit(ctx, destination.FromContext(ctx).ConversationID(), branch, changeID)
 }
 
 // Open clones repositoryName into a checkout attached to the calling

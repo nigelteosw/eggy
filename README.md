@@ -14,7 +14,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
 - One kernel-owned primitive tool set (`read_file`, `write_file`, `patch`, `terminal`) on one loop. Each resolves its workspace from the calling thread rather than a `repository` argument, and the writes stay registered everywhere, failing with an explicit read-only error instead of vanishing from the tool list.
 - Thread-attached read-only checkouts (`workspace_open`/`workspace_close`) so repository exploration accumulates against one clone instead of paying a clone per call, and never creates a branch, diff, or approval. The binding is durable: it survives a restart, is reconciled against the disk at boot, and is reaped once its thread goes idle past the runner retention window.
-- A durable transcript for every turn, editing or not, with a context-budget checkpoint: a long turn compacts its oldest steps into a summary and keeps going instead of hitting a step cap.
+- A durable transcript for every turn, editing or not — separate from the record of branched work, so a conversation carries no branch, phase, or lifecycle it never had. With a context-budget checkpoint: a long turn compacts its oldest steps into a summary and keeps going instead of hitting a step cap.
 - A closed pull-request loop: when a proposed change's checks fail, Eggy resumes the same conversation and workspace with the failing checks as evidence, fixes them, and updates the same pull request.
 - One loop for every turn, ending only when the model stops calling tools. `workspace_edit` branches the thread's own checkout in place — no second clone, no lane transition — and `propose_change` ships it and returns the pull-request URL as an ordinary tool result, so the model reports it conversationally and can keep editing. Progress renders as the same semantic milestones on whichever channel started the turn.
 - Provider-neutral GitHub metadata reads (repository/issue/pull-request/check-run) that never clone.
@@ -52,11 +52,37 @@ models:
     model: your-provider-model-id
 ```
 
-Eggy creates four private context files in `data_dir` and never overwrites existing content:
+### The home directory
+
+Everything Eggy keeps lives under one home directory — `data_dir` in `config.yaml`, `/data` on Railway, and settable with `EGGY_HOME` or `--home`:
+
+```
+<home>/
+├── config.yaml     # Settings (server, providers, models, scheduler, MCP, ...)
+├── .env            # API keys and secrets
+├── auth.json       # OAuth provider credentials (MCP servers, Google Calendar)
+├── SOUL.md         # Agent identity, first in the system prompt
+├── HEARTBEAT.md    # Checklist consulted on a heartbeat turn
+├── memories/       # MEMORY.md, USER.md
+├── skills/         # Agent-created skills
+├── cron/           # Scheduled jobs, one editable YAML file each
+├── sessions/       # Gateway sessions
+├── changes/        # Transcripts of the agent's editing runs
+├── logs/           # gateway.log, errors.log (secrets redacted)
+├── state.json      # Internal runtime state
+├── eggy.db         # Conversation memory
+└── runs/           # Repository workspaces
+```
+
+Everything above `state.json` is owner-facing: inspect and edit it on the host, or in the web UI's **Files** tab, which serves the same raw text. `.env` and `auth.json` are listed there but their contents are never sent to a browser. `state.json`, `eggy.db`, `runs/`, `changes/`, and `sessions/` are Eggy's own bookkeeping and are not exposed for editing at all.
+
+A home written by an older Eggy is migrated in place on the next start: `MEMORY.md` and `USER.md` move into `memories/`, per-server MCP OAuth records fold into `auth.json`, and schedules move out of `state.json` into `cron/`. Nothing is overwritten, and a file already in its current place wins.
+
+Eggy creates four private context files and never overwrites existing content:
 
 - `SOUL.md` defines the agent's durable identity and is read-only to model tools.
-- `USER.md` stores stable owner preferences and facts.
-- `MEMORY.md` stores durable working knowledge selected by the agent.
+- `memories/USER.md` stores stable owner preferences and facts.
+- `memories/MEMORY.md` stores durable working knowledge selected by the agent.
 - `HEARTBEAT.md` is a plain checklist of what to look at on a heartbeat turn — edit it directly on disk. It has no agent tool and never carries timing, timezone, quiet-hours, limit, or prohibited-action policy; those stay fixed in config and code.
 
 The agent can append or replace named sections in `USER.md` and `MEMORY.md`. Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
@@ -93,7 +119,7 @@ curl --fail --request POST \
 
 Operational shortcuts are `/status`, `/repositories`, `/runs`, `/stop`, `/schedules`, `/memory`, `/skills`, `/skills show <name>`, `/skills add <name>`, `/skills edit <name>`, `/skills remove <name>` (add/edit/remove require owner approval), `/skills disable <name>`, `/skills enable <name>`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/thinking`, `/thinking show`, `/thinking hide`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/mcp`, `/mcp status <server>`, `/mcp probe <server>`, `/mcp login <server>`, `/mcp logout <server>`, `/mcp reload <server>`, `/usage`, `/usage reset`, and `/restart` (applies a config change picked up on the next restart). Natural language remains the main interface.
 
-Procedural skills are Markdown files under `skills/` in `data_dir`, each with a `name`/`description` frontmatter pair and a body of instructions. Only the compact `name: description` index stays in context every turn; the agent loads one skill's full body with `skill_read` when its description matches the current task. Creating, editing, or deleting a skill always requires owner approval, the same digest-bound flow as Calendar mutations and adding a repository — a skill's body is instructions that steer later tool calls, not a stored fact. Disabling or re-enabling a skill takes effect immediately with no approval, since it only changes what is surfaced, never a skill's content.
+Procedural skills are Markdown files under `skills/` in the home directory, each with a `name`/`description` frontmatter pair and a body of instructions. Only the compact `name: description` index stays in context every turn; the agent loads one skill's full body with `skill_read` when its description matches the current task. Creating, editing, or deleting a skill always requires owner approval, the same digest-bound flow as Calendar mutations and adding a repository — a skill's body is instructions that steer later tool calls, not a stored fact. Disabling or re-enabling a skill takes effect immediately with no approval, since it only changes what is surfaced, never a skill's content.
 
 Continuing an unfinished change is ordinary conversation: the thread's workspace stays open and branched, so the owner just says what to do next. Eggy preserves a compacted tool transcript and shows concise milestones in Telegram, and every `propose_change` is committed, pushed, and opened (or updated) as a pull request automatically. `/stop` cancels the turn running in that conversation and leaves the checkout inspectable.
 
@@ -178,7 +204,7 @@ Set `EGGY_ENCRYPTION_KEY`, deploy or restart Eggy, then authorize Railway from t
 /mcp status railway
 ```
 
-Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted under `/data/mcp/railway/oauth.json`, requests a controlled restart, and discovers the filtered tool catalog. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record, while `/mcp reload railway` restarts Eggy to rediscover a changed catalog.
+Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted in `/data/auth.json`, requests a controlled restart, and discovers the filtered tool catalog. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record, while `/mcp reload railway` restarts Eggy to rediscover a changed catalog.
 
 MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server. Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
 
@@ -192,13 +218,13 @@ Additional remote servers use the same adapter. Add another named entry beneath 
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
 5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
 6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
-7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `USER.md`, `MEMORY.md`, and `HEARTBEAT.md` with mode `0600`. Later starts use those files without overwriting them.
+7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `HEARTBEAT.md`, `memories/USER.md`, and `memories/MEMORY.md` with mode `0600`, alongside the rest of the home directory. Later starts use those files without overwriting them.
 
 Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
 
 For Railway MCP, keep the `mcp.servers.railway` block from `config.example.yaml`, set `EGGY_ENCRYPTION_KEY`, restart, and run `/mcp login railway`. Existing persisted configs are not rewritten automatically; add the block deliberately. No Railway API token is needed in OAuth mode.
 
-`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. `WEB_SEARCH_API` is resolved on every start, so setting or removing it and restarting Eggy enables or removes the tool without rewriting `/data/config.yaml`. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — still require editing the persisted YAML directly. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
+`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. `WEB_SEARCH_API` is resolved on every start, so setting or removing it and restarting Eggy enables or removes the tool without rewriting `/data/config.yaml`. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — are edited as raw YAML, either on the host or in the web UI's Files tab, which validates the whole document before it lands. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
 
 `EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 

@@ -115,7 +115,7 @@ is no separate "coding model" or CLI subprocess. Deterministic slash commands
 bypass the model entirely, the latter delivering its instruction text
 verbatim. Everything else enters the loop with the selected model alias, the
 tools available for that message's source, current runtime capabilities, and
-durable context (`SOUL.md`, `USER.md`, `MEMORY.md`).
+durable context (`SOUL.md`, `memories/USER.md`, `memories/MEMORY.md`).
 
 A turn ends on exactly one condition: the model stops calling tools. No tool
 is terminal — shipping a change is an action the model takes mid-turn and
@@ -134,11 +134,18 @@ is left of the old cap: a runaway guard against a model that calls tools
 forever without ever answering.
 
 Every turn writes a durable transcript through `agent.Transcript`, whether or
-not it is editing anything. A turn in a thread with a branched checkout
-appends to that editing session, so inspect → edit → ship stays one continuous
-record; any other turn opens a transcript of its own. Both live under
-`/data/sessions/<id>/`; `/runs` and `/status` list only the sessions that
-actually branched a repository (`ImplementationSessions.Runs`).
+not it is editing anything, under `/data/sessions/<id>/`. A transcript records
+what was asked and what happened, in order. It has no repository, branch, or
+phase, because a conversation about the weather has none of those.
+
+Branched work is a separate record: a `Change` (`/data/changes/<id>.json`),
+holding base revision, diff, validation evidence, commit, pull request, and
+check state, with the three-phase lifecycle. `Thread.ChangeID` binds the
+thread's writable checkout to the change its edits belong to. A change stores
+no workspace path — the live checkout belongs to the thread and is reaped with
+it, while the change outlives it. `Repository` and `Branch` are not that same
+duplication: they are what the change *was*, which stays meaningful long after
+the checkout is gone, and is what makes `/runs` history readable.
 
 Direct owner Telegram messages additionally see recent conversation history
 and get the full tool set, including `workspace_edit` and `propose_change`
@@ -179,7 +186,7 @@ condition.
 
 Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
 
-OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server under `/data/mcp/<server>/oauth.json`, independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
+OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server inside the shared `/data/auth.json` document (section `mcp`), independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
 
 ### Native web search
 
@@ -244,11 +251,10 @@ follow, all in `services.WorkspaceSessions`:
   exists and detaches the ones whose directory is gone, so a primitive never
   resolves onto a path a volume wipe removed. A runner that cannot probe causes
   every binding to be dropped: an unverifiable record is not a trustworthy one.
-- **Idle reaping.** `CleanupIdle` runs on the same minute ticker as
-  `ImplementationSessions.ReleaseExpiredWorkspaces`, against the same `runner.retention` cutoff,
-  and destroys the checkout of any thread whose last activity predates it.
-  Durable checkouts have no run completion to trigger the run-workspace reaper,
-  so without this an abandoned thread would hold a clone forever.
+- **Idle reaping.** `CleanupIdle` runs on the minute ticker against the
+  `runner.retention` cutoff and destroys the checkout of any thread whose last
+  activity predates it. It is the *only* checkout reaper: a change never owned
+  the workspace, so it has nothing to release.
 - **Attach upserts.** Telegram's fixed thread never calls `CreateThread` — it
   has no sidebar entry — so `AttachWorkspace` creates the row when absent.
 
@@ -265,7 +271,7 @@ Shutdown deliberately destroys nothing: surviving a restart is the point.
 ## Pull-request checks
 
 A proposed change is not the end of the loop. On the same minute ticker,
-`services.ChecksWatcher` polls the check runs for each session that opened a
+`services.ChecksWatcher` polls the check runs for each change that opened a
 pull request and whose thread still has the branched checkout attached,
 reading through the same `ports.RepositoryReader.Checks` path that backs
 `repository_github`'s `checks` kind rather than adding a second GitHub
@@ -277,32 +283,32 @@ thread's destination and handled as an ordinary turn whose instruction carries
 the failing checks as evidence. The workspace is still on the branch, so the
 agent fixes the failure with the same primitives and calls `propose_change`
 again, updating the same pull request. The commit whose checks were handled is
-recorded on the session, so one failure resumes the thread exactly once, and
-the event ID (`checks:<session>:<commit>`) makes the dispatcher's own dedupe
+recorded on the change, so one failure resumes the thread exactly once, and
+the event ID (`checks:<change>:<commit>`) makes the dispatcher's own dedupe
 cover a restart mid-poll.
 
-## Editing sessions
+## Changes
 
-`workspace_edit` branches the thread's checkout and opens a session;
+`workspace_edit` branches the thread's checkout and opens a change;
 `propose_change` ships it. Neither drives a nested loop — the editing in
 between is ordinary turns. The workspace lives under the configured
 `runner.root`, which must be on the durable Railway volume (e.g. `/data/runs`)
 for a session to survive a restart.
 
-Each is backed by a durable session under
-`/data/sessions/<session-id>/` — separate from `/data/state.json` so the
-core state schema needs no migration for it:
+Both records live outside `/data/state.json` so the core state schema needs no
+migration for them:
 
 ```text
-/data/sessions/<session-id>/
-  session.json   # task, repository, branch, workspace, status, timestamps
-  events.jsonl   # append-only transcript and concise semantic events
-  context.json   # compaction checkpoint plus retained recent context
+/data/sessions/<transcript-id>/
+  session.json   # instruction and timestamps
+  events.jsonl   # append-only event log and concise semantic milestones
+/data/changes/<change-id>.json   # repository, branch, base revision, diff,
+                                 # validation, commit, pull request, checks
 ```
 
-Every turn's transcript uses the same layout; only a session that branched a
-repository carries a task, branch, and workspace. The session store is the
-source of truth for agent history, checkpoints, and resumability; `CodingRun` in `state.json` remains the source of truth for the
+The transcript document is still named `session.json`: a transcript loads from
+exactly the file the previous shape wrote, and the fields that went away are
+ignored, so no data migration was needed. The stores are the `CodingRun` in `state.json` remains the source of truth for the
 commit/push/PR lifecycle, using the session ID as its run ID.
 
 Continuing is ordinary conversation: the thread's workspace is still open and

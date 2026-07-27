@@ -12,21 +12,21 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/atomicfile"
 	"github.com/nigelteosw/eggy/plugins/filelock"
-	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
-// ErrSessionNotFound is returned by Load when no session with the given id
-// exists, so callers (e.g. a legacy-run import) can distinguish "doesn't
-// exist yet" from a real read failure without string-matching an error.
-var ErrSessionNotFound = errors.New("implementation session not found")
+// ErrSessionNotFound is returned by Load when no record with the given id
+// exists, so callers can distinguish "doesn't exist yet" from a real read
+// failure without string-matching an error.
+var ErrSessionNotFound = errors.New("transcript not found")
 
-// ErrSessionExists is returned by Create when a session with the given id
+// ErrSessionExists is returned by Create when a record with the given id
 // already exists.
-var ErrSessionExists = errors.New("implementation session already exists")
+var ErrSessionExists = errors.New("transcript already exists")
 
 type Store struct {
 	root string
@@ -35,217 +35,352 @@ type Store struct {
 
 func Open(root string) *Store { return &Store{root: root} }
 
-func (s *Store) Create(ctx context.Context, session ports.ImplementationSession) (ports.ImplementationSession, error) {
+func (s *Store) Create(ctx context.Context, transcript ports.Transcript) (ports.Transcript, error) {
 	if err := ctx.Err(); err != nil {
-		return ports.ImplementationSession{}, err
+		return ports.Transcript{}, err
 	}
-	if !sessionIDPattern.MatchString(session.ID) {
-		return ports.ImplementationSession{}, errors.New("invalid implementation session id")
+	if !idPattern.MatchString(transcript.ID) {
+		return ports.Transcript{}, errors.New("invalid transcript id")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var created ports.ImplementationSession
-	err := filelock.With(s.sessionPath(session.ID), func() error {
-		if _, err := os.Stat(s.sessionPath(session.ID)); err == nil {
+	var created ports.Transcript
+	err := filelock.With(s.sessionPath(transcript.ID), func() error {
+		if _, err := os.Stat(s.sessionPath(transcript.ID)); err == nil {
 			return ErrSessionExists
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err := s.writeLocked(session); err != nil {
+		if err := s.writeLocked(transcript); err != nil {
 			return err
 		}
-		created = session
+		created = transcript
 		return nil
 	})
 	return created, err
 }
 
-func (s *Store) Load(ctx context.Context, id string) (ports.ImplementationSession, error) {
+func (s *Store) Load(ctx context.Context, id string) (ports.Transcript, error) {
 	if err := ctx.Err(); err != nil {
-		return ports.ImplementationSession{}, err
+		return ports.Transcript{}, err
 	}
-	if !sessionIDPattern.MatchString(id) {
-		return ports.ImplementationSession{}, errors.New("invalid implementation session id")
+	if !idPattern.MatchString(id) {
+		return ports.Transcript{}, errors.New("invalid transcript id")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var session ports.ImplementationSession
+	var transcript ports.Transcript
 	err := filelock.With(s.sessionPath(id), func() error {
 		var err error
-		session, err = s.loadLocked(id)
+		transcript, err = s.loadLocked(id)
 		return err
 	})
-	return session, err
+	return transcript, err
 }
 
-func (s *Store) List(ctx context.Context) ([]ports.ImplementationSession, error) {
+func (s *Store) List(ctx context.Context) ([]ports.Transcript, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(s.root)
 	if errors.Is(err, os.ErrNotExist) {
-		return []ports.ImplementationSession{}, nil
+		return []ports.Transcript{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read session directory: %w", err)
+		return nil, fmt.Errorf("read transcript directory: %w", err)
 	}
-	sessions := make([]ports.ImplementationSession, 0, len(entries))
+	sessions := make([]ports.Transcript, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() || !sessionIDPattern.MatchString(entry.Name()) {
+		if !entry.IsDir() || !idPattern.MatchString(entry.Name()) {
 			continue
 		}
-		session, err := s.Load(ctx, entry.Name())
+		transcript, err := s.Load(ctx, entry.Name())
 		if err != nil {
 			return nil, err
 		}
-		sessions = append(sessions, session)
+		sessions = append(sessions, transcript)
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt) })
 	return sessions, nil
 }
 
-func (s *Store) AppendEvent(ctx context.Context, id string, event ports.ImplementationSessionEvent) (ports.ImplementationSession, error) {
+func (s *Store) AppendEvent(ctx context.Context, id string, event ports.TranscriptEvent) (ports.Transcript, error) {
 	if err := ctx.Err(); err != nil {
-		return ports.ImplementationSession{}, err
+		return ports.Transcript{}, err
 	}
-	if !sessionIDPattern.MatchString(id) {
-		return ports.ImplementationSession{}, errors.New("invalid implementation session id")
+	if !idPattern.MatchString(id) {
+		return ports.Transcript{}, errors.New("invalid transcript id")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var session ports.ImplementationSession
+	var transcript ports.Transcript
 	err := filelock.With(s.sessionPath(id), func() error {
 		var err error
-		session, err = s.loadLocked(id)
+		transcript, err = s.loadLocked(id)
 		if err != nil {
 			return err
 		}
-		event.Sequence = uint64(len(session.Events) + 1)
+		event.Sequence = uint64(len(transcript.Events) + 1)
 		data, err := json.Marshal(event)
 		if err != nil {
-			return fmt.Errorf("encode session event: %w", err)
+			return fmt.Errorf("encode transcript event: %w", err)
 		}
 		file, err := os.OpenFile(s.eventsPath(id), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
-			return fmt.Errorf("open session events: %w", err)
+			return fmt.Errorf("open transcript events: %w", err)
 		}
 		if _, err := file.Write(append(data, '\n')); err != nil {
 			_ = file.Close()
-			return fmt.Errorf("append session event: %w", err)
+			return fmt.Errorf("append transcript event: %w", err)
 		}
 		if err := file.Sync(); err != nil {
 			_ = file.Close()
-			return fmt.Errorf("sync session events: %w", err)
+			return fmt.Errorf("sync transcript events: %w", err)
 		}
 		if err := file.Close(); err != nil {
 			return err
 		}
-		session.Events = append(session.Events, event)
+		transcript.Events = append(transcript.Events, event)
 		return nil
 	})
-	return session, err
+	return transcript, err
 }
 
-func (s *Store) Update(ctx context.Context, id string, mutate func(*ports.ImplementationSession) error) (ports.ImplementationSession, error) {
+func (s *Store) Update(ctx context.Context, id string, mutate func(*ports.Transcript) error) (ports.Transcript, error) {
 	if err := ctx.Err(); err != nil {
-		return ports.ImplementationSession{}, err
+		return ports.Transcript{}, err
 	}
-	if !sessionIDPattern.MatchString(id) {
-		return ports.ImplementationSession{}, errors.New("invalid implementation session id")
+	if !idPattern.MatchString(id) {
+		return ports.Transcript{}, errors.New("invalid transcript id")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var session ports.ImplementationSession
+	var transcript ports.Transcript
 	err := filelock.With(s.sessionPath(id), func() error {
 		var err error
-		session, err = s.loadLocked(id)
+		transcript, err = s.loadLocked(id)
 		if err != nil {
 			return err
 		}
-		if err := mutate(&session); err != nil {
+		if err := mutate(&transcript); err != nil {
 			return err
 		}
-		return s.writeLocked(session)
+		return s.writeLocked(transcript)
 	})
-	return session, err
+	return transcript, err
 }
 
-func (s *Store) loadLocked(id string) (ports.ImplementationSession, error) {
+func (s *Store) loadLocked(id string) (ports.Transcript, error) {
 	data, err := os.ReadFile(s.sessionPath(id))
 	if errors.Is(err, os.ErrNotExist) {
-		return ports.ImplementationSession{}, ErrSessionNotFound
+		return ports.Transcript{}, ErrSessionNotFound
 	}
 	if err != nil {
-		return ports.ImplementationSession{}, fmt.Errorf("read session: %w", err)
+		return ports.Transcript{}, fmt.Errorf("read transcript: %w", err)
 	}
-	var session ports.ImplementationSession
-	if err := json.Unmarshal(data, &session); err != nil {
-		return ports.ImplementationSession{}, fmt.Errorf("decode session: %w", err)
-	}
-	contextData, err := os.ReadFile(s.contextPath(id))
-	if err != nil {
-		return ports.ImplementationSession{}, fmt.Errorf("read session context: %w", err)
-	}
-	if err := json.Unmarshal(contextData, &session.Context); err != nil {
-		return ports.ImplementationSession{}, fmt.Errorf("decode session context: %w", err)
+	var transcript ports.Transcript
+	if err := json.Unmarshal(data, &transcript); err != nil {
+		return ports.Transcript{}, fmt.Errorf("decode transcript: %w", err)
 	}
 	events, err := readEvents(s.eventsPath(id))
 	if err != nil {
-		return ports.ImplementationSession{}, err
+		return ports.Transcript{}, err
 	}
-	session.Events = events
-	return session, nil
+	transcript.Events = events
+	return transcript, nil
 }
 
-func (s *Store) writeLocked(session ports.ImplementationSession) error {
-	if err := os.MkdirAll(s.sessionDir(session.ID), 0o700); err != nil {
-		return fmt.Errorf("create session directory: %w", err)
+func (s *Store) writeLocked(transcript ports.Transcript) error {
+	if err := os.MkdirAll(s.sessionDir(transcript.ID), 0o700); err != nil {
+		return fmt.Errorf("create transcript directory: %w", err)
 	}
-	metadata := session
-	metadata.Context = ports.SessionContext{}
+	metadata := transcript
 	metadata.Events = nil
 	data, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode session: %w", err)
+		return fmt.Errorf("encode transcript: %w", err)
 	}
-	if err := atomicfile.Write(s.sessionPath(session.ID), append(data, '\n'), 0o600); err != nil {
-		return fmt.Errorf("write session: %w", err)
-	}
-	contextData, err := json.MarshalIndent(session.Context, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode session context: %w", err)
-	}
-	if err := atomicfile.Write(s.contextPath(session.ID), append(contextData, '\n'), 0o600); err != nil {
-		return fmt.Errorf("write session context: %w", err)
+	if err := atomicfile.Write(s.sessionPath(transcript.ID), append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write transcript: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) sessionDir(id string) string  { return filepath.Join(s.root, id) }
-func (s *Store) sessionPath(id string) string { return filepath.Join(s.sessionDir(id), "session.json") }
-func (s *Store) contextPath(id string) string { return filepath.Join(s.sessionDir(id), "context.json") }
-func (s *Store) eventsPath(id string) string  { return filepath.Join(s.sessionDir(id), "events.jsonl") }
+func (s *Store) sessionDir(id string) string { return filepath.Join(s.root, id) }
+func (s *Store) sessionPath(id string) string {
+	// The document is still session.json on disk: a transcript loads from
+	// exactly the file the previous shape wrote, and the fields that went
+	// away are simply ignored. Renaming it would orphan every existing
+	// record for no gain.
+	return filepath.Join(s.sessionDir(id), "session.json")
+}
+func (s *Store) eventsPath(id string) string { return filepath.Join(s.sessionDir(id), "events.jsonl") }
 
-func readEvents(path string) ([]ports.ImplementationSessionEvent, error) {
+func readEvents(path string) ([]ports.TranscriptEvent, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return []ports.ImplementationSessionEvent{}, nil
+		return []ports.TranscriptEvent{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open session events: %w", err)
+		return nil, fmt.Errorf("open transcript events: %w", err)
 	}
 	defer file.Close()
-	var events []ports.ImplementationSessionEvent
+	var events []ports.TranscriptEvent
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var event ports.ImplementationSessionEvent
+		var event ports.TranscriptEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return nil, fmt.Errorf("decode session event: %w", err)
+			return nil, fmt.Errorf("decode transcript event: %w", err)
 		}
 		events = append(events, event)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read session events: %w", err)
+		return nil, fmt.Errorf("read transcript events: %w", err)
 	}
 	return events, nil
+}
+
+// ChangeStore persists Change records as one document each. It shares this
+// package's atomic-write and file-lock primitives with the transcript store
+// but nothing else: a change has no event log, and a transcript has no
+// lifecycle, so collapsing them into one document is exactly the conflation
+// this split removed.
+type ChangeStore struct {
+	root string
+	mu   sync.Mutex
+}
+
+func OpenChanges(root string) *ChangeStore { return &ChangeStore{root: root} }
+
+func (s *ChangeStore) path(id string) string { return filepath.Join(s.root, id+".json") }
+
+func (s *ChangeStore) Create(ctx context.Context, change ports.Change) (ports.Change, error) {
+	if err := ctx.Err(); err != nil {
+		return ports.Change{}, err
+	}
+	if !idPattern.MatchString(change.ID) {
+		return ports.Change{}, errors.New("invalid change id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return ports.Change{}, fmt.Errorf("create changes directory: %w", err)
+	}
+	var created ports.Change
+	err := filelock.With(s.path(change.ID), func() error {
+		if _, err := os.Stat(s.path(change.ID)); err == nil {
+			return ErrSessionExists
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if err := s.writeLocked(change); err != nil {
+			return err
+		}
+		created = change
+		return nil
+	})
+	return created, err
+}
+
+func (s *ChangeStore) Load(ctx context.Context, id string) (ports.Change, error) {
+	if err := ctx.Err(); err != nil {
+		return ports.Change{}, err
+	}
+	if !idPattern.MatchString(id) {
+		return ports.Change{}, errors.New("invalid change id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var change ports.Change
+	err := filelock.With(s.path(id), func() error {
+		var err error
+		change, err = s.loadLocked(id)
+		return err
+	})
+	return change, err
+}
+
+func (s *ChangeStore) List(ctx context.Context) ([]ports.Change, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read changes directory: %w", err)
+	}
+	changes := make([]ports.Change, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || filepath.Ext(name) != ".json" {
+			continue
+		}
+		change, err := s.loadLocked(name[:len(name)-len(".json")])
+		if errors.Is(err, ErrSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, change)
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].UpdatedAt.After(changes[j].UpdatedAt) })
+	return changes, nil
+}
+
+func (s *ChangeStore) Update(ctx context.Context, id string, mutate func(*ports.Change) error) (ports.Change, error) {
+	if err := ctx.Err(); err != nil {
+		return ports.Change{}, err
+	}
+	if !idPattern.MatchString(id) {
+		return ports.Change{}, errors.New("invalid change id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var updated ports.Change
+	err := filelock.With(s.path(id), func() error {
+		change, err := s.loadLocked(id)
+		if err != nil {
+			return err
+		}
+		if err := mutate(&change); err != nil {
+			return err
+		}
+		if err := s.writeLocked(change); err != nil {
+			return err
+		}
+		updated = change
+		return nil
+	})
+	return updated, err
+}
+
+func (s *ChangeStore) loadLocked(id string) (ports.Change, error) {
+	data, err := os.ReadFile(s.path(id))
+	if errors.Is(err, os.ErrNotExist) {
+		return ports.Change{}, ErrSessionNotFound
+	}
+	if err != nil {
+		return ports.Change{}, fmt.Errorf("read change: %w", err)
+	}
+	var change ports.Change
+	if err := json.Unmarshal(data, &change); err != nil {
+		return ports.Change{}, fmt.Errorf("decode change: %w", err)
+	}
+	return change, nil
+}
+
+func (s *ChangeStore) writeLocked(change ports.Change) error {
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
+		return fmt.Errorf("create changes directory: %w", err)
+	}
+	data, err := json.MarshalIndent(change, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode change: %w", err)
+	}
+	return atomicfile.Write(s.path(change.ID), append(data, '\n'), 0o600)
 }

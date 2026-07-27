@@ -14,7 +14,21 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/home"
 )
+
+// envFilePath prefers <home>/.env, the layout's own slot for secrets, and
+// falls back to EGGY_ENV_FILE or a ./.env in the working directory so a
+// local checkout keeps working unchanged.
+func envFilePath(layout home.Layout) string {
+	if override := os.Getenv("EGGY_ENV_FILE"); override != "" {
+		return override
+	}
+	if _, err := os.Stat(layout.Env()); err == nil {
+		return layout.Env()
+	}
+	return ".env"
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -24,23 +38,35 @@ func main() {
 }
 
 func run() error {
-	defaultConfig := os.Getenv("EGGY_CONFIG")
-	if defaultConfig == "" {
-		defaultConfig = "/data/config.yaml"
-	}
-	configPath := flag.String("config", defaultConfig, "path to config.yaml")
+	homeDir := flag.String("home", "", "path to Eggy's home directory (default $EGGY_HOME, else /data)")
+	configPath := flag.String("config", "", "path to config.yaml (default <home>/config.yaml)")
 	flag.Parse()
-	envPath := os.Getenv("EGGY_ENV_FILE")
-	if envPath == "" {
-		envPath = ".env"
+	// The home directory is resolved before anything else, because
+	// config.yaml and .env are themselves artifacts inside it.
+	layout := home.Resolve(*homeDir, os.Getenv)
+	if err := layout.Ensure(); err != nil {
+		return err
 	}
-	getenv, err := bootstrap.DotEnv(envPath, os.Getenv)
+	if *configPath == "" {
+		*configPath = layout.Config()
+	}
+	getenv, err := bootstrap.DotEnv(envFilePath(layout), os.Getenv)
 	if err != nil {
 		return fmt.Errorf("load .env: %w", err)
 	}
 	config, secrets, err := bootstrap.LoadOrCreateConfig(*configPath, getenv)
 	if err != nil {
 		return err
+	}
+	logger, logFiles, err := bootstrap.NewLogger(layout, secrets)
+	if err != nil {
+		return fmt.Errorf("open logs: %w", err)
+	}
+	defer logFiles.Close()
+	slog.SetDefault(logger)
+	if resolved := home.At(config.DataDir); resolved.Root != layout.Root {
+		logger.Warn("config data_dir points outside this home directory; artifacts will be split",
+			"home", layout.Root, "data_dir", resolved.Root)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -52,7 +78,7 @@ func run() error {
 			stop()
 		}()
 	}
-	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: *configPath, RequestRestart: requestRestart})
+	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: *configPath, RequestRestart: requestRestart, Logger: logger})
 	if err != nil {
 		return err
 	}

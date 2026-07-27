@@ -31,8 +31,8 @@ func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (C
 		}
 	}
 	active := 0
-	if s.sessions != nil {
-		sessions, err := s.sessions.Runs(ctx)
+	if s.changes != nil {
+		sessions, err := s.changes.List(ctx)
 		if err != nil {
 			return CommandResult{}, err
 		}
@@ -64,7 +64,7 @@ func handleStatus(ctx context.Context, s *CommandService, req CommandRequest) (C
 			{Label: "Repositories", Value: repositories},
 			{Label: "Active runs", Value: fmt.Sprintf("%d", active)},
 			{Label: "Pending approvals", Value: fmt.Sprintf("%d", pending)},
-			{Label: "Schedules", Value: fmt.Sprintf("%d", len(state.Schedules))},
+			{Label: "Schedules", Value: fmt.Sprintf("%d", scheduleCount(ctx, s))},
 			{Label: "Active model", Value: model},
 		},
 		Next: next,
@@ -95,4 +95,19 @@ func handleRestart(ctx context.Context, s *CommandService, req CommandRequest) (
 		Title:  "Restarting Eggy to pick up config changes. Back in a few seconds.",
 		Detail: "Any active editing session is interrupted safely; ask Eggy to continue once it is back, in the thread whose workspace is still open.",
 	}, nil
+}
+
+// scheduleCount reports how many jobs sit in <home>/cron. A read failure
+// counts as zero rather than failing the whole status card: one unreadable
+// job file should not hide the model, repositories, and approvals an owner
+// asked for.
+func scheduleCount(ctx context.Context, s *CommandService) int {
+	if s.schedules == nil {
+		return 0
+	}
+	schedules, err := s.schedules.List(ctx)
+	if err != nil {
+		return 0
+	}
+	return len(schedules)
 }

@@ -11,12 +11,13 @@ import (
 )
 
 type changeToolFixture struct {
-	tools      map[string]ports.Tool
-	workspaces *WorkspaceSessions
-	sessions   *ImplementationSessions
-	repository *fakeRepository
-	shipper    *fakeShipper
-	threads    *fakeThreadStore
+	tools       map[string]ports.Tool
+	workspaces  *WorkspaceSessions
+	changes     *Changes
+	transcripts *Transcripts
+	repository  *fakeRepository
+	shipper     *fakeShipper
+	threads     *fakeThreadStore
 }
 
 func newChangeToolFixture(t *testing.T, shipper *fakeShipper) changeToolFixture {
@@ -26,15 +27,16 @@ func newChangeToolFixture(t *testing.T, shipper *fakeShipper) changeToolFixture 
 	threads := newFakeThreadStore()
 	repository := &fakeRepository{}
 	workspaces := NewWorkspaceSessions(store, threads, &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}, repository, func() string { return "1" }, nil, nil)
-	sessions := NewImplementationSessions(newMemorySessionStore(), SessionPolicy{}, time.Now)
+	changes := NewChanges(newMemoryChangeStore(), time.Now)
+	transcripts := NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
 	byName := map[string]ports.Tool{}
-	for _, tool := range NewChangeTools(store, workspaces, sessions, repository, shipper, func() string { return "run-1" }, nil) {
+	for _, tool := range NewChangeTools(store, workspaces, changes, transcripts, repository, shipper, func() string { return "run-1" }, nil) {
 		byName[tool.Definition().Name] = tool
 	}
 	for _, tool := range workspaces.Tools() {
 		byName[tool.Definition().Name] = tool
 	}
-	return changeToolFixture{tools: byName, workspaces: workspaces, sessions: sessions, repository: repository, shipper: shipper, threads: threads}
+	return changeToolFixture{tools: byName, workspaces: workspaces, changes: changes, transcripts: transcripts, repository: repository, shipper: shipper, threads: threads}
 }
 
 // The whole point of collapsing the run into the thread: the checkout the
@@ -53,19 +55,21 @@ func TestWorkspaceEditBranchesTheThreadsExistingCheckoutInPlace(t *testing.T) {
 	if err := json.Unmarshal(result, &edit); err != nil {
 		t.Fatal(err)
 	}
-	if edit["status"] != "editing" || edit["branch"] != "eggy/run-1" || edit["session"] != "run-1" {
+	if edit["status"] != "editing" || edit["branch"] != "eggy/run-1" || edit["change"] != "run-1" {
 		t.Fatalf("edit=%v", edit)
 	}
 	if fixture.repository.clones != 1 {
 		t.Fatalf("clones=%d, want the open checkout branched rather than re-cloned", fixture.repository.clones)
 	}
 	binding, err := fixture.workspaces.Resolve(ctx)
-	if err != nil || binding.Path != "/tmp/runs/workspace-1" || !binding.Writable || binding.Session != "run-1" {
+	if err != nil || binding.Path != "/tmp/runs/workspace-1" || !binding.Writable || binding.Change != "run-1" {
 		t.Fatalf("binding=%#v err=%v", binding, err)
 	}
-	session, err := fixture.sessions.Load(ctx, "run-1")
-	if err != nil || session.Branch != "eggy/run-1" || session.BaseRevision != "abc123" || session.Workspace != "/tmp/runs/workspace-1" {
-		t.Fatalf("session=%#v err=%v", session, err)
+	// The change records what it is, not where it lives: the checkout is the
+	// thread's, and the binding above is what says where.
+	change, err := fixture.changes.Load(ctx, "run-1")
+	if err != nil || change.Branch != "eggy/run-1" || change.BaseRevision != "abc123" || change.Repository != "eggy" {
+		t.Fatalf("change=%#v err=%v", change, err)
 	}
 }
 
@@ -108,12 +112,12 @@ func TestProposeChangeShipsTheThreadsBranchAndReturnsThePullRequestURL(t *testin
 	if shipped["status"] != "shipped" || shipped["pull_request_url"] != "https://example.test/pr/7" {
 		t.Fatalf("shipped=%v", shipped)
 	}
-	if shipper.runID != "run-1" || shipper.branch != "eggy/run-1" || shipper.commitMessage != "fix: the bug" {
+	if shipper.target.ChangeID != "run-1" || shipper.branch != "eggy/run-1" || shipper.commitMessage != "fix: the bug" {
 		t.Fatalf("shipper=%#v", shipper)
 	}
 	// Eggy captured the diff and validation itself, independently of what
 	// the model said about them.
-	session, err := fixture.sessions.Load(ctx, "run-1")
+	session, err := fixture.changes.Load(ctx, "run-1")
 	if err != nil || session.Diff != "diff --git a/main.go b/main.go" || session.Validation != "go test ./... passed" {
 		t.Fatalf("session=%#v err=%v", session, err)
 	}

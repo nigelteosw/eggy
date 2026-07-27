@@ -9,9 +9,19 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+// ShipTarget is what shipping needs that a Change deliberately does not
+// store: the live checkout the change is being shipped from, which belongs
+// to the thread, and the transcript its milestones are recorded on.
+type ShipTarget struct {
+	ChangeID   string
+	Workspace  string
+	Transcript string
+}
+
 type ShippingService struct {
 	store        ports.StateStore
-	sessions     *ImplementationSessions
+	changes      *Changes
+	transcripts  *Transcripts
 	authorizer   ShippingAuthorizer
 	workspace    ports.WorkspaceInspector
 	committer    ports.RepositoryCommitter
@@ -44,8 +54,8 @@ var (
 // instead of opening a new one every round), or a non-empty note describing
 // where the chain stopped (an unavailable capability or a protected branch)
 // with a nil error, since those are expected outcomes rather than failures.
-func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error) {
-	commitApproval, err := s.RequestCommit(ctx, runID, commitMessage)
+func (s *ShippingService) Ship(ctx context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error) {
+	commitApproval, err := s.RequestCommit(ctx, target, commitMessage)
 	if err != nil {
 		return ports.PullRequest{}, "", err
 	}
@@ -53,7 +63,7 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 		return ports.PullRequest{}, "", err
 	}
 
-	pushApproval, err := s.RequestPush(ctx, runID, branch)
+	pushApproval, err := s.RequestPush(ctx, target, branch)
 	if err != nil {
 		if errors.Is(err, ErrRepositoryPushUnavailable) {
 			return ports.PullRequest{}, "Committed. Push is unavailable for the configured repository provider.", nil
@@ -67,7 +77,7 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 		return ports.PullRequest{}, "", err
 	}
 
-	prApproval, err := s.RequestPullRequest(ctx, runID, branch, "Eggy: "+branch, "Automated by Eggy after a validated implementation run.")
+	prApproval, err := s.RequestPullRequest(ctx, target, branch, "Eggy: "+branch, "Automated by Eggy after a validated implementation run.")
 	if err != nil {
 		if errors.Is(err, ErrPullRequestUnavailable) {
 			return ports.PullRequest{}, "Pushed. Pull-request creation is unavailable for the configured repository provider.", nil
@@ -85,43 +95,43 @@ func (s *ShippingService) Ship(ctx context.Context, runID, branch, commitMessage
 	return pr, "", nil
 }
 
-func NewShippingService(store ports.StateStore, sessions *ImplementationSessions, authorizer ShippingAuthorizer, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
-	return &ShippingService{store: store, sessions: sessions, authorizer: authorizer, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
+func NewShippingService(store ports.StateStore, changes *Changes, transcripts *Transcripts, authorizer ShippingAuthorizer, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
+	return &ShippingService{store: store, changes: changes, transcripts: transcripts, authorizer: authorizer, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
 }
 
-func (s *ShippingService) RequestCommit(ctx context.Context, runID, message string) (approvals.Approval, error) {
+func (s *ShippingService) RequestCommit(ctx context.Context, target ShipTarget, message string) (approvals.Approval, error) {
 	if !s.capabilities.Commit || s.workspace == nil || s.committer == nil {
 		return approvals.Approval{}, ErrRepositoryCommitUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	payload := commitPayload{RunID: runID, Branch: session.Branch, BaseRevision: session.BaseRevision, Diff: session.Diff, Message: message}
-	return s.authorizer.RequestAndApprove(ctx, approvals.Commit, payload, "Commit changes for "+runID)
+	payload := commitPayload{Target: target, Branch: change.Branch, BaseRevision: change.BaseRevision, Diff: change.Diff, Message: message}
+	return s.authorizer.RequestAndApprove(ctx, approvals.Commit, payload, "Commit changes for "+target.ChangeID)
 }
 
-func (s *ShippingService) RequestPush(ctx context.Context, runID, branch string) (approvals.Approval, error) {
+func (s *ShippingService) RequestPush(ctx context.Context, target ShipTarget, branch string) (approvals.Approval, error) {
 	if !s.capabilities.Push || s.pusher == nil {
 		return approvals.Approval{}, ErrRepositoryPushUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	payload := pushPayload{RunID: runID, Branch: branch, Commit: session.Commit}
+	payload := pushPayload{Target: target, Branch: branch, Commit: change.Commit}
 	return s.authorizer.RequestAndApprove(ctx, approvals.Push, payload, "Push "+branch)
 }
 
-func (s *ShippingService) RequestPullRequest(ctx context.Context, runID, branch, title, body string) (approvals.Approval, error) {
+func (s *ShippingService) RequestPullRequest(ctx context.Context, target ShipTarget, branch, title, body string) (approvals.Approval, error) {
 	if !s.capabilities.PullRequest || s.pullRequests == nil {
 		return approvals.Approval{}, ErrPullRequestUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return approvals.Approval{}, err
 	}
-	payload := pullRequestPayload{RunID: runID, Branch: branch, Commit: session.Commit, Title: title, Body: body}
+	payload := pullRequestPayload{Target: target, Branch: branch, Commit: change.Commit, Title: title, Body: body}
 	return s.authorizer.RequestAndApprove(ctx, approvals.CreatePR, payload, "Create pull request for "+branch)
 }
 
@@ -132,110 +142,119 @@ func (s *ShippingService) ExecuteApproved(ctx context.Context, approval approval
 		if err := json.Unmarshal(approval.Payload, &payload); err != nil {
 			return nil, err
 		}
-		return s.Commit(ctx, payload.RunID, payload.Message, approval.ID)
+		return s.Commit(ctx, payload.Target, payload.Message, approval.ID)
 	case approvals.Push:
 		var payload pushPayload
 		if err := json.Unmarshal(approval.Payload, &payload); err != nil {
 			return nil, err
 		}
-		return nil, s.Push(ctx, payload.RunID, payload.Branch, approval.ID)
+		return nil, s.Push(ctx, payload.Target, payload.Branch, approval.ID)
 	case approvals.CreatePR:
 		var payload pullRequestPayload
 		if err := json.Unmarshal(approval.Payload, &payload); err != nil {
 			return nil, err
 		}
-		return s.CreatePullRequest(ctx, payload.RunID, payload.Branch, payload.Title, payload.Body, approval.ID)
+		return s.CreatePullRequest(ctx, payload.Target, payload.Branch, payload.Title, payload.Body, approval.ID)
 	default:
 		return nil, errors.New("approval is not a shipping action")
 	}
 }
 
-type commitPayload struct{ RunID, Branch, BaseRevision, Diff, Message string }
-type pushPayload struct{ RunID, Branch, Commit string }
-type pullRequestPayload struct{ RunID, Branch, Commit, Title, Body string }
+type commitPayload struct {
+	Target                              ShipTarget
+	Branch, BaseRevision, Diff, Message string
+}
+type pushPayload struct {
+	Target         ShipTarget
+	Branch, Commit string
+}
+type pullRequestPayload struct {
+	Target                      ShipTarget
+	Branch, Commit, Title, Body string
+}
 
-func (s *ShippingService) Commit(ctx context.Context, runID, message, approvalID string) (string, error) {
+func (s *ShippingService) Commit(ctx context.Context, target ShipTarget, message, approvalID string) (string, error) {
 	if !s.capabilities.Commit || s.workspace == nil || s.committer == nil {
 		return "", ErrRepositoryCommitUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return "", err
 	}
-	currentRevision, err := s.workspace.WorkspaceRevision(ctx, session.Workspace)
+	currentRevision, err := s.workspace.WorkspaceRevision(ctx, target.Workspace)
 	if err != nil {
 		return "", err
 	}
-	if session.Branch == "" || session.BaseRevision == "" || currentRevision.Branch != session.Branch || currentRevision.Head != session.BaseRevision {
+	if change.Branch == "" || change.BaseRevision == "" || currentRevision.Branch != change.Branch || currentRevision.Head != change.BaseRevision {
 		return "", approvals.ErrPayloadChanged
 	}
-	currentDiff, err := s.committer.Diff(ctx, session.Workspace)
+	currentDiff, err := s.committer.Diff(ctx, target.Workspace)
 	if err != nil {
 		return "", err
 	}
-	if currentDiff != session.Diff {
+	if currentDiff != change.Diff {
 		return "", approvals.ErrPayloadChanged
 	}
-	payload := commitPayload{RunID: runID, Branch: session.Branch, BaseRevision: session.BaseRevision, Diff: session.Diff, Message: message}
+	payload := commitPayload{Target: target, Branch: change.Branch, BaseRevision: change.BaseRevision, Diff: change.Diff, Message: message}
 	if err := s.authorizer.Authorize(ctx, approvals.Commit, payload, approvalID); err != nil {
 		return "", err
 	}
-	commit, err := s.committer.Commit(ctx, session.Workspace, message)
+	commit, err := s.committer.Commit(ctx, target.Workspace, message)
 	if err != nil {
 		return "", err
 	}
-	if err := s.sessions.RecordCommit(ctx, runID, commit); err != nil {
+	if err := s.changes.RecordCommit(ctx, target.ChangeID, commit); err != nil {
 		return commit, err
 	}
-	if err := s.sessions.SetPhase(ctx, runID, ports.PhaseCommitted, "Commit created"); err != nil {
+	if err := s.transcripts.Milestone(ctx, target.Transcript, "Commit created"); err != nil {
 		return commit, err
 	}
 	return commit, nil
 }
 
-func (s *ShippingService) Push(ctx context.Context, runID, branch, approvalID string) error {
+func (s *ShippingService) Push(ctx context.Context, target ShipTarget, branch, approvalID string) error {
 	if !s.capabilities.Push || s.pusher == nil {
 		return ErrRepositoryPushUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return err
 	}
-	payload := pushPayload{RunID: runID, Branch: branch, Commit: session.Commit}
-	head, err := s.pusher.Head(ctx, session.Workspace)
+	payload := pushPayload{Target: target, Branch: branch, Commit: change.Commit}
+	head, err := s.pusher.Head(ctx, target.Workspace)
 	if err != nil {
 		return err
 	}
-	if session.Commit == "" || head != session.Commit {
+	if change.Commit == "" || head != change.Commit {
 		return approvals.ErrPayloadChanged
 	}
 	if err := s.authorizer.Authorize(ctx, approvals.Push, payload, approvalID); err != nil {
 		return err
 	}
-	if err := s.pusher.Push(ctx, session.Workspace, branch); err != nil {
+	if err := s.pusher.Push(ctx, target.Workspace, branch); err != nil {
 		return err
 	}
-	return s.sessions.SetPhase(ctx, runID, ports.PhasePushed, "Branch pushed")
+	return s.transcripts.Milestone(ctx, target.Transcript, "Branch pushed")
 }
 
-func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, title, body, approvalID string) (ports.PullRequest, error) {
+func (s *ShippingService) CreatePullRequest(ctx context.Context, target ShipTarget, branch, title, body, approvalID string) (ports.PullRequest, error) {
 	if !s.capabilities.PullRequest || s.pullRequests == nil {
 		return ports.PullRequest{}, ErrPullRequestUnavailable
 	}
-	session, err := s.session(ctx, runID)
+	change, err := s.change(ctx, target.ChangeID)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	repository, err := s.repositoryFor(ctx, session)
+	repository, err := s.repositoryFor(ctx, change)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	payload := pullRequestPayload{RunID: runID, Branch: branch, Commit: session.Commit, Title: title, Body: body}
-	remoteHead, err := s.pullRequests.RemoteHead(ctx, session.Workspace, branch)
+	payload := pullRequestPayload{Target: target, Branch: branch, Commit: change.Commit, Title: title, Body: body}
+	remoteHead, err := s.pullRequests.RemoteHead(ctx, target.Workspace, branch)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	if session.Commit == "" || remoteHead != session.Commit {
+	if change.Commit == "" || remoteHead != change.Commit {
 		return ports.PullRequest{}, approvals.ErrPayloadChanged
 	}
 	if err := s.authorizer.Authorize(ctx, approvals.CreatePR, payload, approvalID); err != nil {
@@ -249,7 +268,7 @@ func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, 
 		// automatically, so this is Eggy continuing to improve the same
 		// pull request rather than starting a new one.
 		_ = s.pullRequests.UpdatePullRequestBody(ctx, repository, existing.Number, "Updated by Eggy after a new implementation round.")
-		if err := s.recordPullRequest(ctx, runID, existing); err != nil {
+		if err := s.recordPullRequest(ctx, target, existing); err != nil {
 			return existing, err
 		}
 		return existing, nil
@@ -258,32 +277,35 @@ func (s *ShippingService) CreatePullRequest(ctx context.Context, runID, branch, 
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	if err := s.recordPullRequest(ctx, runID, result); err != nil {
+	if err := s.recordPullRequest(ctx, target, result); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (s *ShippingService) recordPullRequest(ctx context.Context, runID string, pr ports.PullRequest) error {
-	if err := s.sessions.RecordPullRequest(ctx, runID, pr.URL, pr.Number); err != nil {
+func (s *ShippingService) recordPullRequest(ctx context.Context, target ShipTarget, pr ports.PullRequest) error {
+	if err := s.changes.RecordPullRequest(ctx, target.ChangeID, pr.URL, pr.Number); err != nil {
 		return err
 	}
-	return s.sessions.SetPhase(ctx, runID, ports.PhaseCompleted, "Pull request created")
-}
-
-func (s *ShippingService) session(ctx context.Context, id string) (ports.ImplementationSession, error) {
-	if s.sessions == nil {
-		return ports.ImplementationSession{}, errors.New("implementation sessions are unavailable")
+	if err := s.transcripts.Milestone(ctx, target.Transcript, "Pull request created"); err != nil {
+		return err
 	}
-	return s.sessions.Load(ctx, id)
+	return s.changes.SetPhase(ctx, target.ChangeID, ports.PhaseCompleted)
 }
 
-func (s *ShippingService) repositoryFor(ctx context.Context, session ports.ImplementationSession) (ports.Repository, error) {
+func (s *ShippingService) change(ctx context.Context, id string) (ports.Change, error) {
+	if s.changes == nil {
+		return ports.Change{}, errors.New("changes are unavailable")
+	}
+	return s.changes.Load(ctx, id)
+}
+
+func (s *ShippingService) repositoryFor(ctx context.Context, change ports.Change) (ports.Repository, error) {
 	state, err := s.store.Load(ctx)
 	if err != nil {
 		return ports.Repository{}, err
 	}
-	repository, ok := state.Repositories[session.Repository]
+	repository, ok := state.Repositories[change.Repository]
 	if !ok {
 		return ports.Repository{}, errors.New("repository is not registered")
 	}

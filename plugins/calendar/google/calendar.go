@@ -20,7 +20,7 @@ type AdapterConfig struct {
 	ClientID, ClientSecret, RedirectURL string
 	AuthURL, TokenURL, APIBase          string
 	Cipher                              *TokenCipher
-	Store                               ports.StateStore
+	Auth                                ports.CalendarAuthStore
 	HTTPClient                          *http.Client
 }
 
@@ -86,14 +86,14 @@ func (a *Adapter) exchange(ctx context.Context, values url.Values) (tokenRespons
 }
 
 func (a *Adapter) accessToken(ctx context.Context) (string, error) {
-	state, err := a.config.Store.Load(ctx)
+	auth, err := a.config.Auth.Load(ctx)
 	if err != nil {
 		return "", err
 	}
-	if state.Calendar.EncryptedRefreshToken == "" {
+	if auth.EncryptedRefreshToken == "" {
 		return "", errors.New("Google Calendar is not authorized")
 	}
-	refresh, err := a.config.Cipher.DecryptToken(state.Calendar.EncryptedRefreshToken)
+	refresh, err := a.config.Cipher.DecryptToken(auth.EncryptedRefreshToken)
 	if err != nil {
 		return "", err
 	}

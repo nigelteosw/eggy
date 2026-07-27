@@ -33,7 +33,7 @@ func TestRepositoryListReportsNotConfigured(t *testing.T) {
 type fakeShipper struct {
 	pr            ports.PullRequest
 	note          string
-	runID         string
+	target        ShipTarget
 	branch        string
 	commitMessage string
 	calls         int
@@ -42,9 +42,9 @@ type fakeShipper struct {
 	onShip func()
 }
 
-func (s *fakeShipper) Ship(_ context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error) {
+func (s *fakeShipper) Ship(_ context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error) {
 	s.calls++
-	s.runID, s.branch, s.commitMessage = runID, branch, commitMessage
+	s.target, s.branch, s.commitMessage = target, branch, commitMessage
 	if s.onShip != nil {
 		s.onShip()
 	}

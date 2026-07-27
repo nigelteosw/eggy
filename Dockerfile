@@ -25,7 +25,7 @@ COPY --from=builder /usr/local/go /usr/local/go
 COPY --from=builder /out/eggyd /usr/local/bin/eggyd
 COPY --from=builder /out/eggy /usr/local/bin/eggy
 RUN mkdir -p /tmp/runs
-ENV EGGY_CONFIG=/data/config.yaml \
+ENV EGGY_HOME=/data \
     PATH="/usr/local/go/bin:${PATH}"
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--"]

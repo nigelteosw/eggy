@@ -3,15 +3,14 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
-	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
 // TestScheduleToolsDistinguishReminderFromAgentExecution proves the agent
@@ -19,8 +18,9 @@ import (
 // well as the default self-contained agent-turn schedule, and that an
 // unrecognized kind is rejected rather than silently defaulting.
 func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
-	store := jsonfile.Open(filepath.Join(t.TempDir(), "state.json"))
-	scheduler := schedulerlocal.New(store)
+	// Schedules live as files in <home>/cron, so the scheduler is backed by
+	// a real cron directory rather than the state store.
+	scheduler := schedulerlocal.New(cronfile.Open(t.TempDir()))
 	now := func() time.Time { return time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC) }
 	exact := scheduleTools(scheduler, now)[0]
 

@@ -21,7 +21,7 @@ import (
 func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
 	encrypted, _ := cipher.EncryptToken("stored-refresh")
-	store := &calendarStateStore{state: ports.State{SchemaVersion: 1, Calendar: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}}
+	store := &calendarAuthStore{auth: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}
 	var methods, paths, auth []string
 	var createIDs []string
 	listAttempts := 0
@@ -74,7 +74,7 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 			return calendarJSON(http.StatusBadRequest, `{}`), nil
 		}
 	})}
-	adapter := NewAdapter(AdapterConfig{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://eggy.test/auth/google/callback", AuthURL: "https://accounts.test/auth", TokenURL: "https://oauth.test/token", APIBase: "https://calendar.test/calendar/v3", Cipher: cipher, Store: store, HTTPClient: client})
+	adapter := NewAdapter(AdapterConfig{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://eggy.test/auth/google/callback", AuthURL: "https://accounts.test/auth", TokenURL: "https://oauth.test/token", APIBase: "https://calendar.test/calendar/v3", Cipher: cipher, Auth: store, HTTPClient: client})
 	authURL := adapter.AuthorizationURL("signed-state")
 	parsed, _ := url.Parse(authURL)
 	if parsed.Query().Get("state") != "signed-state" || parsed.Query().Get("access_type") != "offline" {
@@ -123,7 +123,7 @@ func TestAdapterOAuthExchangeRefreshAndCalendarOperations(t *testing.T) {
 func TestAdapterListsVisibleCalendarsAndAllEventPages(t *testing.T) {
 	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
 	encrypted, _ := cipher.EncryptToken("stored-refresh")
-	store := &calendarStateStore{state: ports.State{SchemaVersion: 1, Calendar: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}}
+	store := &calendarAuthStore{auth: ports.CalendarAuth{EncryptedRefreshToken: encrypted}}
 	var calendarQueries, eventQueries []url.Values
 	client := &http.Client{Transport: calendarRoundTrip(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Path {
@@ -145,7 +145,7 @@ func TestAdapterListsVisibleCalendarsAndAllEventPages(t *testing.T) {
 			return calendarJSON(http.StatusNotFound, `{}`), nil
 		}
 	})}
-	adapter := NewAdapter(AdapterConfig{TokenURL: "https://calendar.test/token", APIBase: "https://calendar.test/calendar/v3", Cipher: cipher, Store: store, HTTPClient: client})
+	adapter := NewAdapter(AdapterConfig{TokenURL: "https://calendar.test/token", APIBase: "https://calendar.test/calendar/v3", Cipher: cipher, Auth: store, HTTPClient: client})
 
 	calendars, err := adapter.ListCalendars(context.Background())
 	if err != nil {
@@ -174,11 +174,11 @@ func TestOAuthHandlersSignStateAndPersistEncryptedToken(t *testing.T) {
 	cipher, _ := NewTokenCipher(base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
 	enrollmentToken := "owner-enrollment-token"
 	digest := sha256.Sum256([]byte(enrollmentToken))
-	store := &calendarStateStore{state: ports.State{SchemaVersion: 1, Calendar: ports.CalendarAuth{EnrollmentDigest: hex.EncodeToString(digest[:]), EnrollmentExpires: time.Date(2026, 7, 19, 12, 5, 0, 0, time.UTC)}}}
+	store := &calendarAuthStore{auth: ports.CalendarAuth{EnrollmentDigest: hex.EncodeToString(digest[:]), EnrollmentExpires: time.Date(2026, 7, 19, 12, 5, 0, 0, time.UTC)}}
 	client := &http.Client{Transport: calendarRoundTrip(func(request *http.Request) (*http.Response, error) {
 		return calendarJSON(http.StatusOK, `{"refresh_token":"refresh","access_token":"access","expires_in":3600}`), nil
 	})}
-	adapter := NewAdapter(AdapterConfig{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://eggy.test/auth/google/callback", AuthURL: "https://accounts.test/auth", TokenURL: "https://oauth.test/token", APIBase: "https://calendar.test", Cipher: cipher, Store: store, HTTPClient: client})
+	adapter := NewAdapter(AdapterConfig{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://eggy.test/auth/google/callback", AuthURL: "https://accounts.test/auth", TokenURL: "https://oauth.test/token", APIBase: "https://calendar.test", Cipher: cipher, Auth: store, HTTPClient: client})
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	start, callback := NewOAuthHandlers(adapter, store, []byte("state-signing-key"), func() time.Time { return now })
 	response := httptest.NewRecorder()
@@ -208,30 +208,34 @@ func TestOAuthHandlersSignStateAndPersistEncryptedToken(t *testing.T) {
 		t.Fatalf("callback status=%d body=%s", valid.Code, valid.Body.String())
 	}
 	stored, _ := store.Load(context.Background())
-	plain, _ := cipher.DecryptToken(stored.Calendar.EncryptedRefreshToken)
+	plain, _ := cipher.DecryptToken(stored.EncryptedRefreshToken)
 	if plain != "refresh" {
 		t.Fatalf("stored refresh=%q", plain)
 	}
 }
 
-type calendarStateStore struct {
-	mu    sync.Mutex
-	state ports.State
+// calendarAuthStore is an in-memory ports.CalendarAuthStore standing in for
+// the auth.json-backed one.
+type calendarAuthStore struct {
+	mu   sync.Mutex
+	auth ports.CalendarAuth
 }
 
-func (s *calendarStateStore) Load(context.Context) (ports.State, error) {
+func (s *calendarAuthStore) Load(context.Context) (ports.CalendarAuth, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.state, nil
+	return s.auth, nil
 }
-func (s *calendarStateStore) Update(_ context.Context, expected uint64, fn func(*ports.State) error) (ports.State, error) {
+
+func (s *calendarAuthStore) Update(_ context.Context, mutate func(*ports.CalendarAuth) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := fn(&s.state); err != nil {
-		return ports.State{}, err
+	updated := s.auth
+	if err := mutate(&updated); err != nil {
+		return err
 	}
-	s.state.Version++
-	return s.state, nil
+	s.auth = updated
+	return nil
 }
 
 type calendarRoundTrip func(*http.Request) (*http.Response, error)

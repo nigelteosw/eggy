@@ -21,9 +21,11 @@ import (
 type CommandService struct {
 	config       Config
 	store        ports.StateStore
+	calendarAuth ports.CalendarAuthStore
+	schedules    ScheduleLister
 	context      ports.ContextStore
 	conversation *services.ConversationService
-	sessions     *services.ImplementationSessions
+	changes      *services.Changes
 	turns        *services.ActiveTurns
 	shipping     *services.ShippingService
 	repositories *services.RepositoriesService
@@ -37,6 +39,13 @@ type CommandService struct {
 	now          func() time.Time
 	restart      func()
 	mcp          MCPCommands
+}
+
+// ScheduleLister reads the cron directory for the /schedules and /status
+// commands. It is an interface so those commands stay testable without a
+// scheduler.
+type ScheduleLister interface {
+	List(context.Context) ([]ports.Schedule, error)
 }
 
 type MCPCommands interface {

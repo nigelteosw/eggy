@@ -2,6 +2,9 @@ server:
   listen: ":8080"
   public_base_url: "https://eggy.example.com"
   telegram_webhook_path: "/webhooks/telegram"
+# Eggy's home directory. config.yaml, .env, auth.json, SOUL.md, memories/,
+# skills/, cron/, sessions/, changes/, logs/, state.json, eggy.db, and runs/
+# all live under it. EGGY_HOME or --home selects it before this file is read.
 data_dir: "/data"
 telegram:
   owner_id: 123456789

@@ -9,13 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/atomicfile"
-	"github.com/nigelteosw/eggy/plugins/filelock"
+	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 )
 
 var (
@@ -44,17 +41,25 @@ type OAuthRecord struct {
 	TokenEndpointAuthMethod string    `json:"token_endpoint_auth_method,omitempty"`
 }
 
+// OAuthStore keeps every server's OAuth record in the shared auth.json
+// document (section "mcp", one key per server) rather than in a file tree of
+// its own. Each record is sealed with AES-256-GCM under EGGY_ENCRYPTION_KEY
+// and bound to its server name and URL, so a record cannot be replayed
+// against a different server even by an owner editing auth.json by hand.
 type OAuthStore struct {
-	root string
+	file *authfile.Store
 	aead cipher.AEAD
 }
+
+const oauthSection = "mcp"
 
 type encryptedOAuthRecord struct {
 	Version    int    `json:"version"`
 	Ciphertext string `json:"ciphertext"`
 }
 
-func OpenOAuthStore(dataDir, encodedKey string) (*OAuthStore, error) {
+// OpenOAuthStore opens the store over an auth.json path.
+func OpenOAuthStore(authPath, encodedKey string) (*OAuthStore, error) {
 	key, err := base64.StdEncoding.DecodeString(encodedKey)
 	if err != nil {
 		return nil, fmt.Errorf("decode MCP encryption key: %w", err)
@@ -70,51 +75,51 @@ func OpenOAuthStore(dataDir, encodedKey string) (*OAuthStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &OAuthStore{root: filepath.Join(dataDir, "mcp"), aead: aead}, nil
-}
-
-func (s *OAuthStore) path(server string) string {
-	return filepath.Join(s.root, server, "oauth.json")
+	return &OAuthStore{file: authfile.Open(authPath), aead: aead}, nil
 }
 
 func (s *OAuthStore) Save(server, serverURL string, record OAuthRecord) error {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return err
 	}
-	path := s.path(server)
-	return filelock.With(path, func() error { return s.saveUnlocked(path, server, serverURL, record) })
+	sealed, err := s.seal(server, serverURL, record)
+	if err != nil {
+		return err
+	}
+	return s.file.Write(oauthSection, server, sealed)
 }
 
 func (s *OAuthStore) Load(server, serverURL string) (OAuthRecord, error) {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return OAuthRecord{}, err
 	}
-	var record OAuthRecord
-	path := s.path(server)
-	err := filelock.With(path, func() error {
-		var err error
-		record, err = s.loadUnlocked(path, server, serverURL)
-		return err
-	})
-	return record, err
+	stored, err := s.file.Read(oauthSection, server)
+	if errors.Is(err, authfile.ErrNotFound) {
+		return OAuthRecord{}, ErrOAuthRecordNotFound
+	}
+	if err != nil {
+		return OAuthRecord{}, err
+	}
+	return s.open(stored, server, serverURL)
 }
 
 func (s *OAuthStore) Update(server, serverURL string, update func(*OAuthRecord) error) error {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return err
 	}
-	path := s.path(server)
-	return filelock.With(path, func() error {
-		record, err := s.loadUnlocked(path, server, serverURL)
-		if errors.Is(err, ErrOAuthRecordNotFound) {
-			record = OAuthRecord{Version: 1, ServerURL: serverURL}
-		} else if err != nil {
-			return err
+	return s.file.Update(oauthSection, server, func(stored json.RawMessage) (json.RawMessage, error) {
+		record := OAuthRecord{Version: 1, ServerURL: serverURL}
+		if stored != nil {
+			opened, err := s.open(stored, server, serverURL)
+			if err != nil {
+				return nil, err
+			}
+			record = opened
 		}
 		if err := update(&record); err != nil {
-			return err
+			return nil, err
 		}
-		return s.saveUnlocked(path, server, serverURL, record)
+		return s.seal(server, serverURL, record)
 	})
 }
 
@@ -122,43 +127,25 @@ func (s *OAuthStore) Delete(server, serverURL string) error {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return err
 	}
-	path := s.path(server)
-	return filelock.With(path, func() error {
-		err := os.Remove(path)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	})
+	return s.file.Delete(oauthSection, server)
 }
 
-func (s *OAuthStore) saveUnlocked(path, server, serverURL string, record OAuthRecord) error {
+func (s *OAuthStore) seal(server, serverURL string, record OAuthRecord) (json.RawMessage, error) {
 	record.Version = 1
 	record.ServerURL = serverURL
 	plain, err := json.Marshal(record)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	nonce := make([]byte, s.aead.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return err
+		return nil, err
 	}
 	sealed := s.aead.Seal(nonce, nonce, plain, oauthAssociatedData(server, serverURL))
-	body, err := json.Marshal(encryptedOAuthRecord{Version: 1, Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)})
-	if err != nil {
-		return err
-	}
-	return atomicfile.Write(path, body, 0o600)
+	return json.Marshal(encryptedOAuthRecord{Version: 1, Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)})
 }
 
-func (s *OAuthStore) loadUnlocked(path, server, serverURL string) (OAuthRecord, error) {
-	body, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return OAuthRecord{}, ErrOAuthRecordNotFound
-	}
-	if err != nil {
-		return OAuthRecord{}, err
-	}
+func (s *OAuthStore) open(body json.RawMessage, server, serverURL string) (OAuthRecord, error) {
 	var encrypted encryptedOAuthRecord
 	if err := json.Unmarshal(body, &encrypted); err != nil || encrypted.Version != 1 {
 		return OAuthRecord{}, errors.New("invalid MCP OAuth record")

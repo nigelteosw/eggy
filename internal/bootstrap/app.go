@@ -11,18 +11,19 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 	"github.com/nigelteosw/eggy/plugins/calendar/google"
 	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 	"github.com/nigelteosw/eggy/plugins/channels/telegram"
@@ -32,6 +33,7 @@ import (
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
 	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
+	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
 	sessionjson "github.com/nigelteosw/eggy/plugins/sessions/jsonfile"
 	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
@@ -68,7 +70,9 @@ const maxToolStepsPerTurn = 500
 
 type App struct {
 	config                  Config
+	home                    home.Layout
 	store                   ports.StateStore
+	calendarAuth            ports.CalendarAuthStore
 	context                 ports.ContextStore
 	channel                 ports.Channel
 	chatHub                 *webchat.Hub
@@ -82,7 +86,8 @@ type App struct {
 	heartbeat               *services.HeartbeatPolicy
 	approvals               *services.ApprovalService
 	approvalExecutors       map[approvals.Action]ApprovalExecutor
-	sessions                *services.ImplementationSessions
+	transcripts             *services.Transcripts
+	changes                 *services.Changes
 	checks                  *services.ChecksWatcher
 	progress                *channelutil.ProgressTracker
 	turns                   *services.ActiveTurns
@@ -143,22 +148,38 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load owner timezone: %w", err)
 	}
-	if err := os.MkdirAll(config.DataDir, 0o700); err != nil {
+	// config.DataDir is the home root: every durable artifact resolves off
+	// this one layout instead of a path literal spread across the wiring.
+	// Migrate first, so a home written by an older Eggy is current before
+	// any store opens a file in it.
+	layout := home.At(config.DataDir)
+	if err := layout.Migrate(); err != nil {
 		return nil, err
 	}
-	statePath := filepath.Join(config.DataDir, "state.json")
+	statePath := layout.State()
 	_, statErr := os.Stat(statePath)
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return nil, fmt.Errorf("stat state: %w", statErr)
 	}
-	sessionStore := sessionjson.Open(filepath.Join(config.DataDir, "sessions"))
-	if _, err := importLegacyCodingRuns(context.Background(), statePath, sessionStore, options.Now); err != nil {
+	sessionStore := sessionjson.Open(layout.Sessions())
+	changeStore := sessionjson.OpenChanges(layout.Changes())
+	if _, err := importLegacyCodingRuns(context.Background(), statePath, changeStore, options.Now); err != nil {
 		return nil, fmt.Errorf("import legacy coding runs: %w", err)
 	}
 	stateStore := jsonfile.Open(statePath)
-	contextStore := contextmarkdown.Open(config.DataDir, 64<<10)
+	authStore := authfile.Open(layout.Auth())
+	if err := migrateCalendarAuth(context.Background(), stateStore, authStore.Calendar()); err != nil {
+		return nil, fmt.Errorf("migrate calendar credential: %w", err)
+	}
+	cronStore := cronfile.Open(layout.Cron())
+	if err := migrateSchedules(context.Background(), stateStore, cronStore); err != nil {
+		return nil, fmt.Errorf("migrate schedules: %w", err)
+	}
+	contextStore := contextmarkdown.Open(contextmarkdown.Paths{
+		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
+	}, 64<<10)
 	memoryStore, err := memorysqlite.OpenWithProfile(
-		filepath.Join(config.DataDir, "eggy.db"),
+		layout.Database(),
 		config.Embeddings.CandidateLimit,
 		embeddingProfile(config, options),
 	)
@@ -172,7 +193,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		}
 	}()
 	app := &App{
-		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(stateStore),
+		config: config, home: layout, store: stateStore, calendarAuth: authStore.Calendar(), context: contextStore, scheduler: schedulerlocal.New(cronStore),
 		memory: memoryStore, memoryEmbeddingInterval: time.Minute,
 		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
 	}
@@ -235,14 +256,13 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		activeSecrets = append(activeSecrets, secret)
 	}
 	activeSecrets = append(activeSecrets, secrets.WebSearchAPIKey)
-	sessions := services.NewImplementationSessions(sessionStore, services.SessionPolicy{
-		ContextBudgetChars: config.ImplementationSessions.ContextBudgetChars,
-		RecentMessages:     config.ImplementationSessions.RecentMessages,
-		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
-	}, options.Now, activeSecrets...)
-	app.shipping = services.NewShippingService(stateStore, sessions, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
-	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, sessions)
-	skillsStore := skillsadapter.Open(filepath.Join(config.DataDir, "skills"), 32<<10)
+	// The transcript bounds one event's excerpt; how much a turn can still
+	// see is agent.ContextPolicy's business alone (see NewSelectedLoop below).
+	transcripts := services.NewTranscripts(sessionStore, config.ImplementationSessions.OutputExcerptChars, options.Now, activeSecrets...)
+	changes := services.NewChanges(changeStore, options.Now, activeSecrets...)
+	app.shipping = services.NewShippingService(stateStore, changes, transcripts, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
+	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, changes)
+	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
 	app.skillsService = services.NewSkillsService(skillsStore, stateStore, app.approvals, app.approvals, services.NewSecretGuard(activeSecrets))
 	// Commit, push, and pull-request creation are no longer decided by an
 	// owner Telegram tap: ShippingService.Ship issues, decides, and
@@ -314,14 +334,14 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	app.workspaces = services.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
 	registry := services.NewToolRegistry()
-	app.sessions = sessions
+	app.transcripts, app.changes = transcripts, changes
 	// The checks loop reads through the same RepositoryReader that backs
 	// repository_github's "checks" kind, so there is one GitHub read path.
-	app.checks = services.NewChecksWatcher(stateStore, sessions, memoryStore, repositoryAdapter)
+	app.checks = services.NewChecksWatcher(stateStore, changes, memoryStore, repositoryAdapter)
 	app.turns = services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
-		services.NewStatusTool(stateStore, sessions),
+		services.NewStatusTool(stateStore, changes, app.scheduler),
 		currentTimeTool(options.Now, location, timezone),
 		services.NewRecallConversationTool(memoryStore, app.embedder, services.NewSecretGuard(activeSecrets)),
 	}
@@ -340,7 +360,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 			return nil, err
 		}
 	}
-	for _, tool := range services.NewChangeTools(stateStore, app.workspaces, sessions, repositoryAdapter, app.shipping, newRunID, progress.Deliver) {
+	for _, tool := range services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver) {
 		if err := registry.Register(tool); err != nil {
 			return nil, err
 		}
@@ -396,7 +416,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		if err != nil {
 			return nil, err
 		}
-		googleAdapter := google.NewAdapter(google.AdapterConfig{ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret, RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback", AuthURL: options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase, Cipher: cipher, Store: stateStore, HTTPClient: options.HTTPClient})
+		googleAdapter := google.NewAdapter(google.AdapterConfig{ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret, RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback", AuthURL: options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase, Cipher: cipher, Auth: authStore.Calendar(), HTTPClient: options.HTTPClient})
 		app.calendar = services.NewCalendarService(googleAdapter, app.approvals, app.approvals)
 		app.approvalExecutors[approvals.CalendarCreate] = app.calendar
 		app.approvalExecutors[approvals.CalendarUpdate] = app.calendar
@@ -405,7 +425,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		if err != nil {
 			return nil, err
 		}
-		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, stateStore, key, options.Now)
+		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, authStore.Calendar(), key, options.Now)
 		for _, tool := range calendarTools(app.calendar, app.channel, config.Calendar.DefaultCalendar, options.Now, location, timezone) {
 			if err := registry.Register(tool); err != nil {
 				return nil, err
@@ -445,7 +465,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, context: contextStore, conversation: app.conversation, sessions: sessions, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, calendarAuth: authStore.Calendar(), schedules: app.scheduler, context: contextStore, conversation: app.conversation, changes: changes, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
 	if app.mcp != nil {
 		app.commands.mcp = app.mcp
 	}
@@ -462,6 +482,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
+		Files: NewHomeFiles(layout),
 	})
 	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {

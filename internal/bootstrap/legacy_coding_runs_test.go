@@ -18,8 +18,8 @@ import (
 // session was left running in before an unclean restart.
 func TestAppRecoverInterruptedFlipsRunningSessionsAfterRestart(t *testing.T) {
 	dataDir := t.TempDir()
-	sessionStore := sessionjson.Open(filepath.Join(dataDir, "sessions"))
-	if _, err := sessionStore.Create(context.Background(), ports.ImplementationSession{ID: "run-1", Repository: "eggy", Workspace: filepath.Join(dataDir, "runs", "run-1"), Phase: ports.PhaseRunning}); err != nil {
+	changeStore := sessionjson.OpenChanges(filepath.Join(dataDir, "changes"))
+	if _, err := changeStore.Create(context.Background(), ports.Change{ID: "run-1", Repository: "eggy", Phase: ports.PhaseRunning}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := appTestConfig(dataDir)
@@ -27,23 +27,23 @@ func TestAppRecoverInterruptedFlipsRunningSessionsAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, err := app.sessions.MarkInterrupted(context.Background())
+	count, err := app.changes.MarkInterrupted(context.Background())
 	if err != nil || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
 	}
-	session, err := sessionStore.Load(context.Background(), "run-1")
+	change, err := changeStore.Load(context.Background(), "run-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Phase != ports.PhaseInterrupted {
-		t.Fatalf("session=%#v, want PhaseInterrupted", session)
+	if change.Phase != ports.PhaseBlocked {
+		t.Fatalf("change=%#v, want PhaseBlocked", change)
 	}
 }
 
 func TestImportLegacyCodingRunsIsANoOpWithoutAStateFile(t *testing.T) {
 	dir := t.TempDir()
-	sessionStore := sessionjson.Open(filepath.Join(dir, "sessions"))
-	imported, err := importLegacyCodingRuns(context.Background(), filepath.Join(dir, "state.json"), sessionStore, time.Now)
+	changeStore := sessionjson.OpenChanges(filepath.Join(dir, "sessions"))
+	imported, err := importLegacyCodingRuns(context.Background(), filepath.Join(dir, "state.json"), changeStore, time.Now)
 	if err != nil || imported != 0 {
 		t.Fatalf("imported=%d err=%v", imported, err)
 	}
@@ -79,36 +79,36 @@ func TestImportLegacyCodingRunsImportsOrphanedRunsFromARepresentativeStateFile(t
 		t.Fatal(err)
 	}
 	sessionRoot := filepath.Join(dir, "sessions")
-	sessionStore := sessionjson.Open(sessionRoot)
+	changeStore := sessionjson.OpenChanges(sessionRoot)
 	now := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
-	if _, err := sessionStore.Create(context.Background(), ports.ImplementationSession{ID: "run-canonical", Repository: "eggy", Workspace: "/data/runs/run-canonical", Branch: "eggy/run-canonical", Phase: ports.PhaseReady, Diff: "already progressed further"}); err != nil {
+	if _, err := changeStore.Create(context.Background(), ports.Change{ID: "run-canonical", Repository: "eggy", Branch: "eggy/run-canonical", Phase: ports.PhaseCompleted, Diff: "already progressed further"}); err != nil {
 		t.Fatal(err)
 	}
 
-	imported, err := importLegacyCodingRuns(context.Background(), statePath, sessionStore, func() time.Time { return now })
+	imported, err := importLegacyCodingRuns(context.Background(), statePath, changeStore, func() time.Time { return now })
 	if err != nil || imported != 1 {
 		t.Fatalf("imported=%d err=%v", imported, err)
 	}
 
-	orphan, err := sessionStore.Load(context.Background(), "run-orphan")
+	orphan, err := changeStore.Load(context.Background(), "run-orphan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if orphan.Repository != "eggy" || orphan.Branch != "eggy/run-orphan" || orphan.BaseRevision != "abc123" || orphan.Diff != "diff" || orphan.Validation != "tests pass" || orphan.Phase != ports.PhaseReady {
+	if orphan.Repository != "eggy" || orphan.Branch != "eggy/run-orphan" || orphan.BaseRevision != "abc123" || orphan.Diff != "diff" || orphan.Validation != "tests pass" || orphan.Phase != ports.PhaseCompleted {
 		t.Fatalf("orphan=%#v", orphan)
 	}
 
-	canonical, err := sessionStore.Load(context.Background(), "run-canonical")
+	canonical, err := changeStore.Load(context.Background(), "run-canonical")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if canonical.Diff != "already progressed further" || canonical.Phase != ports.PhaseReady {
+	if canonical.Diff != "already progressed further" || canonical.Phase != ports.PhaseCompleted {
 		t.Fatalf("canonical session was overwritten by the legacy import: %#v", canonical)
 	}
 
 	// Rerunning must be idempotent: both sessions already exist now, so a
 	// second pass must not error, duplicate, or overwrite anything.
-	imported, err = importLegacyCodingRuns(context.Background(), statePath, sessionStore, func() time.Time { return now })
+	imported, err = importLegacyCodingRuns(context.Background(), statePath, changeStore, func() time.Time { return now })
 	if err != nil || imported != 0 {
 		t.Fatalf("rerun imported=%d err=%v", imported, err)
 	}
@@ -134,16 +134,16 @@ func TestImportLegacyCodingRunsBlocksRunsWhoseWorkspaceIsGone(t *testing.T) {
 	if err := os.WriteFile(statePath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sessionStore := sessionjson.Open(filepath.Join(dir, "sessions"))
-	imported, err := importLegacyCodingRuns(context.Background(), statePath, sessionStore, time.Now)
+	changeStore := sessionjson.OpenChanges(filepath.Join(dir, "sessions"))
+	imported, err := importLegacyCodingRuns(context.Background(), statePath, changeStore, time.Now)
 	if err != nil || imported != 1 {
 		t.Fatalf("imported=%d err=%v", imported, err)
 	}
-	session, err := sessionStore.Load(context.Background(), "run-gone")
+	change, err := changeStore.Load(context.Background(), "run-gone")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.Phase != ports.PhaseBlocked {
-		t.Fatalf("session=%#v, want PhaseBlocked since its workspace no longer exists", session)
+	if change.Phase != ports.PhaseBlocked {
+		t.Fatalf("change=%#v, want PhaseBlocked since its workspace no longer exists", change)
 	}
 }

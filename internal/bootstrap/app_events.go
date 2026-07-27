@@ -226,6 +226,10 @@ func (a *App) handleMessage(ctx context.Context, message events.Message, options
 	defer closeTranscript()
 	if transcript != nil {
 		options.Transcript = transcript
+		// The transcript travels on ctx the same way the destination does, so
+		// a tool deep in the turn (propose_change -> Ship) records its
+		// milestones against this turn without every signature carrying it.
+		ctx = services.WithTranscript(ctx, transcript.session)
 	}
 	// Only a direct owner turn is steerable: a scheduled or heartbeat turn is
 	// deliberately self-contained, and folding an owner message into one would
@@ -308,11 +312,8 @@ func (a *App) turnEvents(onToolCall func(string)) func(agent.Event) {
 // only editing turns were recorded at all.
 type turnTranscript struct {
 	app *App
-	// session is the ImplementationSession this turn appends to.
+	// session is the transcript this turn appends to.
 	session string
-	// owned is true when this turn created the session and must therefore
-	// close it; an adopted editing session outlives the turn.
-	owned bool
 	// milestones is true only for an editing session: an ordinary chat turn
 	// already reports itself through the "Calling ..." indicator, and
 	// duplicating it as milestones would just be noise.
@@ -322,20 +323,17 @@ type turnTranscript struct {
 // turnTranscript builds this turn's transcript and the function that closes
 // it. The returned Transcript is never nil, so the loop always records.
 func (a *App) turnTranscript(ctx context.Context, instruction string) (*turnTranscript, func()) {
-	if a.sessions == nil {
+	if a.transcripts == nil {
 		return nil, func() {}
 	}
-	if session := a.editingSession(ctx); session != "" {
-		return &turnTranscript{app: a, session: session, milestones: true}, func() {}
-	}
+	// One transcript per turn, always: a turn that is editing simply also
+	// has a change, which is a separate record with its own lifetime.
 	id := "turn-" + newRunID()
-	if _, err := a.sessions.Create(ctx, ports.ImplementationSession{
-		ID: id, Instruction: instruction, Phase: ports.PhaseRunning,
-	}); err != nil {
-		a.logger.Error("turn transcript could not be opened", "session_id", id, "error", err)
+	if _, err := a.transcripts.Open(ctx, id, instruction); err != nil {
+		a.logger.Error("turn transcript could not be opened", "transcript_id", id, "error", err)
 		return nil, func() {}
 	}
-	transcript := &turnTranscript{app: a, session: id, owned: true}
+	transcript := &turnTranscript{app: a, session: id, milestones: a.editingSession(ctx) != ""}
 	return transcript, func() { transcript.close(ctx) }
 }
 
@@ -347,14 +345,14 @@ func (t *turnTranscript) Append(ctx context.Context, event agent.Event) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	if _, err := t.app.sessions.Append(ctx, t.session, services.TurnSessionEvent(event)); err != nil {
+	if err := t.app.transcripts.Append(ctx, t.session, services.TurnTranscriptEvent(event)); err != nil {
 		t.app.logger.Error("turn transcript append failed", "session_id", t.session, "error", err)
 	}
 	if !t.milestones || t.app.progress == nil {
 		return
 	}
 	if message := services.TurnProgressMessage(event); message != "" {
-		t.app.progress.Deliver(ctx, ports.CodingProgress{Kind: "milestone", Message: t.app.sessions.RedactProgress(message), RunID: t.session})
+		t.app.progress.Deliver(ctx, ports.CodingProgress{Kind: "milestone", Message: t.app.transcripts.RedactProgress(message), RunID: t.session})
 	}
 }
 
@@ -367,26 +365,21 @@ func (t *turnTranscript) Checkpoint(ctx context.Context, summary string) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	if _, err := t.app.sessions.Append(ctx, t.session, ports.ImplementationSessionEvent{
+	if err := t.app.transcripts.Append(ctx, t.session, ports.TranscriptEvent{
 		Kind: ports.SessionMilestone, Message: "Context checkpoint: compacted earlier steps of this turn", Content: summary,
 	}); err != nil {
 		t.app.logger.Error("turn transcript checkpoint failed", "session_id", t.session, "error", err)
 	}
 }
 
-// close finishes a session this turn opened. An adopted editing session is
-// left alone: it belongs to the thread's workspace and outlives the turn.
+// close marks this turn's transcript finished. A transcript has no phase to
+// settle: the turn either produced events or it did not.
 func (t *turnTranscript) close(ctx context.Context) {
-	if t == nil || !t.owned {
+	if t == nil {
 		return
 	}
-	ctx = context.WithoutCancel(ctx)
-	if err := t.app.sessions.SetPhase(ctx, t.session, ports.PhaseCompleted, ""); err != nil {
-		t.app.logger.Error("turn transcript could not be closed", "session_id", t.session, "error", err)
-		return
-	}
-	if err := t.app.sessions.MarkFinished(ctx, t.session, t.app.now()); err != nil {
-		t.app.logger.Error("turn transcript could not be closed", "session_id", t.session, "error", err)
+	if err := t.app.transcripts.Close(context.WithoutCancel(ctx), t.session); err != nil {
+		t.app.logger.Error("turn transcript could not be closed", "transcript_id", t.session, "error", err)
 	}
 }
 
@@ -401,7 +394,7 @@ func (a *App) editingSession(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return binding.Session
+	return binding.Change
 }
 
 // toolCallProgress returns a tool-call callback and a
@@ -500,7 +493,7 @@ func (a *App) Run(ctx context.Context) error {
 	if a.mcp != nil {
 		defer a.mcp.Close()
 	}
-	if _, err := a.sessions.MarkInterrupted(ctx); err != nil {
+	if _, err := a.changes.MarkInterrupted(ctx); err != nil {
 		return err
 	}
 	// Thread-attached checkouts are durable, so a restart inherits whatever
@@ -546,12 +539,9 @@ func (a *App) Run(ctx context.Context) error {
 			}()
 		case now := <-scheduleTicker.C:
 			cutoff := now.Add(-a.config.Runner.Retention.Value())
-			if err := a.sessions.ReleaseExpiredWorkspaces(ctx, cutoff); err != nil {
-				return err
-			}
-			// Durable thread checkouts need their own bound: no run ever
-			// finishes to trigger the run-workspace reaper above, so an
-			// idle thread would otherwise hold a clone forever.
+			// A checkout belongs to its thread, so there is exactly one
+			// reaper for it: the change that branched it never owned it and
+			// has nothing to release.
 			if a.workspaces != nil {
 				if _, err := a.workspaces.CleanupIdle(ctx, cutoff); err != nil {
 					return err
@@ -617,12 +607,12 @@ func (a *App) enqueueFailedChecks(ctx context.Context, now time.Time) {
 	}
 	for _, completion := range completions {
 		payload, err := json.Marshal(events.ChecksCompleted{
-			Session: completion.Session, Repository: completion.Repository,
+			Change: completion.Change, Repository: completion.Repository,
 			PullRequestNumber: completion.PullRequestNumber, Ref: completion.Ref,
 			Conclusion: completion.Conclusion, Instruction: completion.ChecksInstruction(),
 		})
 		if err != nil {
-			a.logger.Error("checks event could not be encoded", "session_id", completion.Session, "error", err)
+			a.logger.Error("checks event could not be encoded", "session_id", completion.Change, "error", err)
 			continue
 		}
 		event := events.Event{
@@ -630,7 +620,7 @@ func (a *App) enqueueFailedChecks(ctx context.Context, now time.Time) {
 			Timestamp: now, Destination: completion.Destination, Payload: payload,
 		}
 		if err := a.Enqueue(ctx, event); err != nil {
-			a.logger.Error("checks event could not be enqueued", "session_id", completion.Session, "error", err)
+			a.logger.Error("checks event could not be enqueued", "session_id", completion.Change, "error", err)
 		}
 	}
 }
@@ -717,6 +707,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	defer closeTranscript()
 	if transcript != nil {
 		options.Transcript = transcript
+		ctx = services.WithTranscript(ctx, transcript.session)
 	}
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})

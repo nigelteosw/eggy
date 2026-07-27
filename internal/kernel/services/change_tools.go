@@ -29,7 +29,8 @@ var ErrWorkspaceNotEditable = errors.New("this conversation's workspace has no b
 func NewChangeTools(
 	store ports.StateStore,
 	workspaces *WorkspaceSessions,
-	sessions *ImplementationSessions,
+	changes *Changes,
+	transcripts *Transcripts,
 	repository ports.CodingRepository,
 	shipper Shipper,
 	newRunID func() string,
@@ -47,7 +48,7 @@ func NewChangeTools(
 		if err := decodeStrict(raw, &input); err != nil {
 			return nil, err
 		}
-		if workspaces == nil || sessions == nil || repository == nil || newRunID == nil {
+		if workspaces == nil || changes == nil || repository == nil || newRunID == nil {
 			return nil, errors.New("repository editing is unavailable")
 		}
 		binding, err := workspaces.Resolve(ctx)
@@ -58,7 +59,7 @@ func NewChangeTools(
 		// error: the model asking twice in a thread should keep working in
 		// the branch it already has, not start a second one.
 		if binding.Writable {
-			return json.Marshal(map[string]any{"status": "already_editing", "repository": binding.Repository, "branch": branchOfSession(ctx, sessions, binding.Session), "session": binding.Session})
+			return json.Marshal(map[string]any{"status": "already_editing", "repository": binding.Repository, "branch": branchOfChange(ctx, changes, binding.Change), "change": binding.Change})
 		}
 		repositoryName := strings.TrimSpace(input.Repository)
 		if repositoryName == "" {
@@ -88,10 +89,7 @@ func NewChangeTools(
 		if revision.Branch != branch {
 			return nil, fmt.Errorf("repository created unexpected branch %q", revision.Branch)
 		}
-		if _, err := sessions.Create(ctx, ports.ImplementationSession{
-			ID: runID, Repository: configured.Name, Workspace: adopted.Path,
-			Branch: branch, BaseRevision: revision.Head, Phase: ports.PhaseRunning,
-		}); err != nil {
+		if _, err := changes.Open(ctx, runID, configured.Name, branch, revision.Head); err != nil {
 			return nil, err
 		}
 		if err := workspaces.MarkEditing(ctx, branch, runID); err != nil {
@@ -101,7 +99,7 @@ func NewChangeTools(
 		if err != nil {
 			return nil, err
 		}
-		result := map[string]any{"status": "editing", "repository": configured.Name, "branch": branch, "session": runID}
+		result := map[string]any{"status": "editing", "repository": configured.Name, "branch": branch, "change": runID}
 		if guidance != "" {
 			result["repository_guidance"] = guidance
 		}
@@ -130,17 +128,17 @@ func NewChangeTools(
 		if strings.TrimSpace(input.Validation) == "" {
 			return nil, errors.New("validation must not be empty: describe the build/test/lint command you ran and its result")
 		}
-		if workspaces == nil || sessions == nil || repository == nil || shipper == nil {
+		if workspaces == nil || changes == nil || transcripts == nil || repository == nil || shipper == nil {
 			return nil, errors.New("proposing a change is unavailable")
 		}
 		binding, err := workspaces.Resolve(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if !binding.Writable || binding.Session == "" {
+		if !binding.Writable || binding.Change == "" {
 			return nil, ErrWorkspaceNotEditable
 		}
-		session, err := sessions.Load(ctx, binding.Session)
+		change, err := changes.Load(ctx, binding.Change)
 		if err != nil {
 			return nil, err
 		}
@@ -148,49 +146,59 @@ func NewChangeTools(
 		// the model's account of it: the checkout must still be on the branch
 		// and HEAD recorded when editing started, or something committed or
 		// switched branches behind the approval chain.
-		revision, err := repository.WorkspaceRevision(ctx, session.Workspace)
+		revision, err := repository.WorkspaceRevision(ctx, binding.Path)
 		if err != nil {
 			return nil, err
 		}
-		if revision.Branch != session.Branch {
-			return nil, fmt.Errorf("the checkout moved from branch %q to %q; nothing was shipped", session.Branch, revision.Branch)
+		if revision.Branch != change.Branch {
+			return nil, fmt.Errorf("the checkout moved from branch %q to %q; nothing was shipped", change.Branch, revision.Branch)
 		}
-		if revision.Head != session.BaseRevision {
+		if revision.Head != change.BaseRevision {
 			return nil, errors.New("the checkout's HEAD moved before the change was approved; nothing was shipped")
 		}
-		report(ctx, progress, session.ID, "Capturing diff and validation evidence")
-		diff, err := repository.Diff(ctx, session.Workspace)
+		report(ctx, progress, change.ID, "Capturing diff and validation evidence")
+		diff, err := repository.Diff(ctx, binding.Path)
 		if err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(diff) == "" {
 			return nil, errors.New("there are no changes in this workspace to propose")
 		}
-		if err := sessions.RecordImplementation(ctx, session.ID, diff, input.Validation); err != nil {
+		if err := changes.RecordImplementation(ctx, change.ID, diff, input.Validation); err != nil {
 			return nil, err
 		}
-		if err := sessions.SetPhase(ctx, session.ID, ports.PhaseReady, "Ready to ship"); err != nil {
+		target := ShipTarget{ChangeID: change.ID, Workspace: binding.Path, Transcript: TranscriptOf(ctx)}
+		if err := transcripts.Milestone(ctx, target.Transcript, "Ready to ship"); err != nil {
 			return nil, err
 		}
-		pr, note, err := shipper.Ship(ctx, session.ID, session.Branch, input.CommitMessage)
+		pr, note, err := shipper.Ship(ctx, target, change.Branch, input.CommitMessage)
 		if err != nil {
 			return nil, err
 		}
 		if note != "" {
-			return json.Marshal(map[string]any{"status": "partial", "session": session.ID, "branch": session.Branch, "summary": input.Summary, "note": note})
+			// The chain stopped partway (an unavailable capability or a
+			// protected branch). That is blocked, and the note is the reason
+			// an owner reads on the transcript.
+			if err := transcripts.Milestone(ctx, target.Transcript, note); err != nil {
+				return nil, err
+			}
+			if err := changes.SetPhase(ctx, change.ID, ports.PhaseBlocked); err != nil {
+				return nil, err
+			}
+			return json.Marshal(map[string]any{"status": "partial", "change": change.ID, "branch": change.Branch, "summary": input.Summary, "note": note})
 		}
 		// Rebase the session's recorded baseline onto the commit just made,
 		// so a second round of edits in this same thread verifies against
 		// where the branch actually is now rather than where it started.
-		after, err := repository.WorkspaceRevision(ctx, session.Workspace)
+		after, err := repository.WorkspaceRevision(ctx, binding.Path)
 		if err != nil {
 			return nil, err
 		}
-		if err := sessions.SetBranch(ctx, session.ID, session.Branch, after.Head); err != nil {
+		if err := changes.Rebase(ctx, change.ID, after.Head); err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{
-			"status": "shipped", "session": session.ID, "branch": session.Branch,
+			"status": "shipped", "change": change.ID, "branch": change.Branch,
 			"summary": input.Summary, "validation": input.Validation,
 			"pull_request_url": pr.URL, "pull_request_number": pr.Number,
 		})
@@ -199,17 +207,17 @@ func NewChangeTools(
 	return []ports.Tool{edit, propose}
 }
 
-// branchOfSession reports the branch an already-editing thread is on, best
+// branchOfChange reports the branch an already-editing thread is on, best
 // effort: the tool result is more useful with it, but not wrong without it.
-func branchOfSession(ctx context.Context, sessions *ImplementationSessions, id string) string {
+func branchOfChange(ctx context.Context, changes *Changes, id string) string {
 	if id == "" {
 		return ""
 	}
-	session, err := sessions.Load(ctx, id)
+	change, err := changes.Load(ctx, id)
 	if err != nil {
 		return ""
 	}
-	return session.Branch
+	return change.Branch
 }
 
 func report(ctx context.Context, progress ports.ProgressReporter, runID, message string) {

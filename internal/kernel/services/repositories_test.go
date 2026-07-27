@@ -93,10 +93,10 @@ func TestRepositoriesExecuteApprovedRequiresAuthorization(t *testing.T) {
 func TestRepositoriesRemoveAppliesImmediatelyUnlessRunActive(t *testing.T) {
 	store := newMemoryStore()
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}, "busy": {Name: "busy"}}
-	sessionStore := newMemorySessionStore()
-	sessionStore.sessions["run-1"] = ports.ImplementationSession{ID: "run-1", Repository: "busy", Phase: ports.PhaseRunning}
-	sessions := NewImplementationSessions(sessionStore, SessionPolicy{}, time.Now)
-	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, fullRepositoryCapabilities, func() string { return "id" }, sessions)
+	changeStore := newMemoryChangeStore()
+	changeStore.changes["run-1"] = ports.Change{ID: "run-1", Repository: "busy", Phase: ports.PhaseRunning}
+	changes := NewChanges(changeStore, time.Now)
+	service := NewRepositoriesService(store, &fakeWorkspaceRunner{}, &fakeRemoteChecker{}, &fakeShippingGateway{}, &fakeShippingGateway{}, fullRepositoryCapabilities, func() string { return "id" }, changes)
 
 	if err := service.Remove(context.Background(), "eggy"); err != nil {
 		t.Fatal(err)

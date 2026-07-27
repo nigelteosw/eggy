@@ -26,7 +26,7 @@ func TestSecretGuardRejectsCredentials(t *testing.T) {
 }
 
 func TestContextToolsCurateSoulUserAndMemory(t *testing.T) {
-	store := contextmarkdown.Open(t.TempDir(), 64<<10)
+	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
 	tools := NewContextTools(store, NewSecretGuard([]string{"secret-value"}))
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
@@ -53,7 +53,7 @@ func TestContextToolsCurateSoulUserAndMemory(t *testing.T) {
 }
 
 func TestContextToolsReadReflectsWritesMadeEarlierThisTurn(t *testing.T) {
-	store := contextmarkdown.Open(t.TempDir(), 64<<10)
+	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
 	tools := NewContextTools(store, nil)
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {
@@ -80,7 +80,7 @@ func TestContextToolsReadReflectsWritesMadeEarlierThisTurn(t *testing.T) {
 }
 
 func TestContextToolsRemoveSectionDeletesItAndErrorsWhenAlreadyGone(t *testing.T) {
-	store := contextmarkdown.Open(t.TempDir(), 64<<10)
+	store := contextmarkdown.InDir(t.TempDir(), 64<<10)
 	tools := NewContextTools(store, nil)
 	byName := map[string]ports.Tool{}
 	for _, tool := range tools {

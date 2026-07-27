@@ -49,13 +49,21 @@ func (r *ToolRegistry) Tools() []ports.Tool {
 	return result
 }
 
-type statusTool struct {
-	store    ports.StateStore
-	sessions *ImplementationSessions
+// ScheduleCounter reports how many scheduled jobs exist. Schedules live as
+// files in <home>/cron rather than in state.json, so the status tool asks
+// the scheduler instead of counting a map.
+type ScheduleCounter interface {
+	List(context.Context) ([]ports.Schedule, error)
 }
 
-func NewStatusTool(store ports.StateStore, sessions *ImplementationSessions) ports.Tool {
-	return statusTool{store: store, sessions: sessions}
+type statusTool struct {
+	store     ports.StateStore
+	changes   *Changes
+	schedules ScheduleCounter
+}
+
+func NewStatusTool(store ports.StateStore, changes *Changes, schedules ScheduleCounter) ports.Tool {
+	return statusTool{store: store, changes: changes, schedules: schedules}
 }
 func (t statusTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{Name: "status", Description: "Read bounded Eggy operational status", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
@@ -79,7 +87,7 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		repositories = append(repositories, name)
 	}
 	sort.Strings(repositories)
-	active, err := activeRuns(ctx, t.sessions)
+	active, err := activeRuns(ctx, t.changes)
 	if err != nil {
 		return nil, err
 	}
@@ -88,20 +96,34 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		ActiveRuns       int      `json:"active_runs"`
 		PendingApprovals int      `json:"pending_approvals"`
 		Schedules        int      `json:"schedules"`
-	}{Repositories: repositories, ActiveRuns: active, PendingApprovals: pending, Schedules: len(state.Schedules)})
+	}{Repositories: repositories, ActiveRuns: active, PendingApprovals: pending, Schedules: scheduleCount(ctx, t.schedules)})
 }
 
-func activeRuns(ctx context.Context, sessions *ImplementationSessions) (int, error) {
-	if sessions == nil {
+// scheduleCount treats an unreadable cron directory as zero rather than
+// failing the whole status read: one broken job file should not deny the
+// agent every other fact about its own state.
+func scheduleCount(ctx context.Context, schedules ScheduleCounter) int {
+	if schedules == nil {
+		return 0
+	}
+	all, err := schedules.List(ctx)
+	if err != nil {
+		return 0
+	}
+	return len(all)
+}
+
+func activeRuns(ctx context.Context, changes *Changes) (int, error) {
+	if changes == nil {
 		return 0, nil
 	}
-	all, err := sessions.List(ctx)
+	all, err := changes.List(ctx)
 	if err != nil {
 		return 0, err
 	}
 	count := 0
-	for _, session := range all {
-		if session.Phase == ports.PhaseRunning {
+	for _, change := range all {
+		if change.Phase == ports.PhaseRunning {
 			count++
 		}
 	}

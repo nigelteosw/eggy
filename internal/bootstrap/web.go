@@ -33,6 +33,10 @@ type WebUIConfig struct {
 	Memory     ports.MemoryStore
 	Threads    ports.ThreadStore
 	OwnerID    string
+	// Files exposes the owner-facing part of the home directory. Nil in
+	// tests that only exercise login/config routes; the /api/files routes
+	// then report the home as unavailable rather than panicking.
+	Files *HomeFiles
 }
 
 const (
@@ -81,6 +85,13 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
+
+	// The home directory as raw text: config.yaml, SOUL.md, memories,
+	// skills, cron jobs, and logs. See home_files.go for what each path is
+	// allowed to do.
+	mux.Handle("GET /api/files", requireWebSession(webConfig, now, webFilesListRoute(webConfig.Files)))
+	mux.Handle("GET /api/files/{path...}", requireWebSession(webConfig, now, webFileReadRoute(webConfig.Files)))
+	mux.Handle("PUT /api/files/{path...}", requireWebSession(webConfig, now, webFileWriteRoute(webConfig.Files)))
 
 	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Threads, now)))

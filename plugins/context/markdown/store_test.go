@@ -13,7 +13,7 @@ import (
 
 func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	dir := t.TempDir()
-	store := Open(dir, 64<<10)
+	store := InDir(dir, 64<<10)
 	ctx := context.Background()
 	loaded, err := store.Load(ctx)
 	if err != nil {
@@ -52,7 +52,7 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 
 func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.T) {
 	dir := t.TempDir()
-	store := Open(dir, 64<<10)
+	store := InDir(dir, 64<<10)
 	ctx := context.Background()
 	if err := store.Append(ctx, ports.ContextMemory, "First", "one"); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestContextStoreRemoveSectionSplicesCleanlyAndErrorsWhenMissing(t *testing.
 }
 
 func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
-	store := Open(t.TempDir(), 64<<10)
+	store := InDir(t.TempDir(), 64<<10)
 	if err := store.Append(context.Background(), ports.ContextSoul, "Identity", "changed"); err != nil {
 		t.Fatalf("expected SOUL edit to succeed, got %v", err)
 	}
@@ -109,7 +109,7 @@ func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	small := Open(dir, 16)
+	small := InDir(dir, 16)
 	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(strings.Repeat("x", 17)), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestContextStoreEditsSoulAndRejectsOversizedFiles(t *testing.T) {
 // human-editable checklist file, not a fourth document the agent tools can
 // append, replace, or remove sections on.
 func TestContextStoreHeartbeatIsHumanEditableOnly(t *testing.T) {
-	store := Open(t.TempDir(), 64<<10)
+	store := InDir(t.TempDir(), 64<<10)
 	ctx := context.Background()
 	if err := store.Append(ctx, ports.ContextHeartbeat, "Extra", "check something"); err == nil {
 		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped write")
@@ -135,7 +135,7 @@ func TestContextStoreHeartbeatIsHumanEditableOnly(t *testing.T) {
 		t.Fatal("expected HEARTBEAT.md to reject an agent-tool-shaped remove")
 	}
 	dir := t.TempDir()
-	editable := Open(dir, 64<<10)
+	editable := InDir(dir, 64<<10)
 	if _, err := editable.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestContextStoreHeartbeatIsHumanEditableOnly(t *testing.T) {
 }
 
 func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
-	store := Open(t.TempDir(), 64<<10)
+	store := InDir(t.TempDir(), 64<<10)
 	var workers sync.WaitGroup
 	errorsChannel := make(chan error, 8)
 	for i := range 8 {

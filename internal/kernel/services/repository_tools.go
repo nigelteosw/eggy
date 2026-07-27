@@ -12,7 +12,7 @@ import (
 // returns the resulting pull request, or a non-empty note when the chain
 // stopped short (an unavailable capability or a protected branch).
 type Shipper interface {
-	Ship(ctx context.Context, runID, branch, commitMessage string) (ports.PullRequest, string, error)
+	Ship(ctx context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error)
 }
 
 type repositoryTool struct {

@@ -372,14 +372,18 @@ func (s *Store) DetachWorkspace(ctx context.Context, id string) error {
 }
 
 // SetWorkspaceEdit records the branch created in the thread's checkout and
-// the session recording its edits, which together make the checkout
+// the change its edits belong to, which together make the checkout
 // writable. An empty branch demotes it back to an inspection clone.
-func (s *Store) SetWorkspaceEdit(ctx context.Context, id, branch, session string) error {
-	var branchValue, sessionValue any
+//
+// The column is still named workspace_session: renaming it would need a data
+// migration that buys nothing, so the storage name stays and the domain name
+// moved on.
+func (s *Store) SetWorkspaceEdit(ctx context.Context, id, branch, changeID string) error {
+	var branchValue, changeValue any
 	if branch != "" {
-		branchValue, sessionValue = branch, session
+		branchValue, changeValue = branch, changeID
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE threads SET workspace_branch = ?, workspace_session = ? WHERE id = ?`, branchValue, sessionValue, id)
+	_, err := s.db.ExecContext(ctx, `UPDATE threads SET workspace_branch = ?, workspace_session = ? WHERE id = ?`, branchValue, changeValue, id)
 	return err
 }
 
@@ -406,7 +410,7 @@ func scanThread(row rowScanner) (ports.Thread, error) {
 	thread.Workspace = workspace.String
 	thread.WorkspaceRepository = workspaceRepository.String
 	thread.WorkspaceBranch = workspaceBranch.String
-	thread.WorkspaceSession = workspaceSession.String
+	thread.ChangeID = workspaceSession.String
 	thread.CreatedAt = time.Unix(0, createdAt).UTC()
 	thread.UpdatedAt = time.Unix(0, updatedAt).UTC()
 	return thread, nil

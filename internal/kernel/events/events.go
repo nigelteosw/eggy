@@ -50,10 +50,10 @@ type Message struct {
 	Text string `json:"text"`
 }
 
-// ChecksCompleted is the payload of TypeChecksCompleted: which session's
+// ChecksCompleted is the payload of TypeChecksCompleted: which change's
 // pull request failed, and the instruction rendered from its check evidence.
 type ChecksCompleted struct {
-	Session           string `json:"session"`
+	Change            string `json:"change"`
 	Repository        string `json:"repository"`
 	PullRequestNumber int    `json:"pull_request_number"`
 	Ref               string `json:"ref"`

@@ -70,7 +70,7 @@ func (s *fakeThreadStore) AttachWorkspace(_ context.Context, id, channel, reposi
 		thread = ports.Thread{ID: id, Channel: channel, CreatedAt: at}
 	}
 	thread.Workspace, thread.WorkspaceRepository, thread.UpdatedAt = workspace, repository, at
-	thread.WorkspaceBranch, thread.WorkspaceSession = "", ""
+	thread.WorkspaceBranch, thread.ChangeID = "", ""
 	s.threads[id] = thread
 	return nil
 }
@@ -82,7 +82,7 @@ func (s *fakeThreadStore) DetachWorkspace(_ context.Context, id string) error {
 	if !found {
 		return nil
 	}
-	thread.Workspace, thread.WorkspaceRepository, thread.WorkspaceBranch, thread.WorkspaceSession = "", "", "", ""
+	thread.Workspace, thread.WorkspaceRepository, thread.WorkspaceBranch, thread.ChangeID = "", "", "", ""
 	s.threads[id] = thread
 	return nil
 }
@@ -94,7 +94,7 @@ func (s *fakeThreadStore) SetWorkspaceEdit(_ context.Context, id, branch, sessio
 	if !found {
 		return nil
 	}
-	thread.WorkspaceBranch, thread.WorkspaceSession = branch, session
+	thread.WorkspaceBranch, thread.ChangeID = branch, session
 	s.threads[id] = thread
 	return nil
 }

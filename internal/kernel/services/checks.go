@@ -16,7 +16,7 @@ import (
 // proposed change is one-shot, and the failure only ever reaches the owner's
 // GitHub notifications.
 type ChecksCompletion struct {
-	Session           string
+	Change            string
 	Repository        string
 	Branch            string
 	Ref               string
@@ -37,14 +37,14 @@ type ChecksCompletion struct {
 // path repository_github's "checks" kind uses -- rather than adding a second
 // GitHub surface, and it never mutates anything on GitHub.
 type ChecksWatcher struct {
-	store    ports.StateStore
-	sessions *ImplementationSessions
-	threads  ports.ThreadStore
-	reader   ports.RepositoryReader
+	store   ports.StateStore
+	changes *Changes
+	threads ports.ThreadStore
+	reader  ports.RepositoryReader
 }
 
-func NewChecksWatcher(store ports.StateStore, sessions *ImplementationSessions, threads ports.ThreadStore, reader ports.RepositoryReader) *ChecksWatcher {
-	return &ChecksWatcher{store: store, sessions: sessions, threads: threads, reader: reader}
+func NewChecksWatcher(store ports.StateStore, changes *Changes, threads ports.ThreadStore, reader ports.RepositoryReader) *ChecksWatcher {
+	return &ChecksWatcher{store: store, changes: changes, threads: threads, reader: reader}
 }
 
 // Poll returns every newly failed check result worth resuming a thread for,
@@ -53,10 +53,10 @@ func NewChecksWatcher(store ports.StateStore, sessions *ImplementationSessions, 
 // is nothing for the agent to do about a green pull request, and saying so
 // unprompted would just be noise.
 func (w *ChecksWatcher) Poll(ctx context.Context) ([]ChecksCompletion, error) {
-	if w == nil || w.sessions == nil || w.threads == nil || w.reader == nil {
+	if w == nil || w.changes == nil || w.threads == nil || w.reader == nil {
 		return nil, nil
 	}
-	sessions, err := w.sessions.List(ctx)
+	changes, err := w.changes.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,31 +68,31 @@ func (w *ChecksWatcher) Poll(ctx context.Context) ([]ChecksCompletion, error) {
 	if err != nil {
 		return nil, err
 	}
-	bySession := make(map[string]ports.Thread, len(attached))
+	byChange := make(map[string]ports.Thread, len(attached))
 	for _, thread := range attached {
-		if thread.WorkspaceSession != "" {
-			bySession[thread.WorkspaceSession] = thread
+		if thread.ChangeID != "" {
+			byChange[thread.ChangeID] = thread
 		}
 	}
 	completions := make([]ChecksCompletion, 0)
-	for _, session := range sessions {
-		if session.PullRequestNumber <= 0 || session.Commit == "" || session.Repository == "" {
+	for _, change := range changes {
+		if change.PullRequestNumber <= 0 || change.Commit == "" || change.Repository == "" {
 			continue
 		}
-		thread, ok := bySession[session.ID]
+		thread, ok := byChange[change.ID]
 		if !ok {
 			continue
 		}
-		if session.ChecksRef == session.Commit && session.ChecksConclusion != "" {
+		if change.ChecksRef == change.Commit && change.ChecksConclusion != "" {
 			continue
 		}
-		repository, err := lookupRepository(ctx, w.store, session.Repository)
+		repository, err := lookupRepository(ctx, w.store, change.Repository)
 		if err != nil {
 			// A repository that has since been deregistered is not a reason
 			// to abandon the other sessions' checks.
 			continue
 		}
-		checks, err := w.reader.Checks(ctx, repository, session.Commit)
+		checks, err := w.reader.Checks(ctx, repository, change.Commit)
 		if err != nil {
 			return completions, err
 		}
@@ -100,19 +100,19 @@ func (w *ChecksWatcher) Poll(ctx context.Context) ([]ChecksCompletion, error) {
 		if !settled {
 			continue
 		}
-		if err := w.sessions.RecordChecks(ctx, session.ID, session.Commit, conclusion); err != nil {
+		if err := w.changes.RecordChecks(ctx, change.ID, change.Commit, conclusion); err != nil {
 			return completions, err
 		}
 		if conclusion == "success" {
 			continue
 		}
 		completions = append(completions, ChecksCompletion{
-			Session: session.ID, Repository: session.Repository, Branch: session.Branch,
-			Ref: session.Commit, PullRequestURL: session.PullRequestURL, PullRequestNumber: session.PullRequestNumber,
+			Change: change.ID, Repository: change.Repository, Branch: change.Branch,
+			Ref: change.Commit, PullRequestURL: change.PullRequestURL, PullRequestNumber: change.PullRequestNumber,
 			Conclusion: conclusion, Destination: destinationOfThread(thread), Evidence: failed,
 		})
 	}
-	sort.Slice(completions, func(i, j int) bool { return completions[i].Session < completions[j].Session })
+	sort.Slice(completions, func(i, j int) bool { return completions[i].Change < completions[j].Change })
 	return completions, nil
 }
 
@@ -175,5 +175,5 @@ func (c ChecksCompletion) ChecksInstruction() string {
 // ChecksEventID is the stable, idempotent identifier for one resumption: the
 // session and the exact commit its checks ran against.
 func (c ChecksCompletion) ChecksEventID() string {
-	return "checks:" + c.Session + ":" + c.Ref
+	return "checks:" + c.Change + ":" + c.Ref
 }

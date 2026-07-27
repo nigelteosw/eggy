@@ -24,17 +24,40 @@ const (
 
 var sectionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _-]{0,79}$`)
 
+// Paths locates each context document explicitly, because they no longer
+// share one directory: SOUL.md and HEARTBEAT.md sit at the top of the home
+// where an owner edits them, while MEMORY.md and USER.md live under
+// memories/ (see internal/home).
+type Paths struct {
+	Soul      string
+	User      string
+	Memory    string
+	Heartbeat string
+}
+
 type Store struct {
-	dir      string
+	paths    Paths
 	maxBytes int64
 	mu       sync.Mutex
 }
 
-func Open(dir string, maxBytes int64) *Store {
+func Open(paths Paths, maxBytes int64) *Store {
 	if maxBytes <= 0 {
 		maxBytes = 64 << 10
 	}
-	return &Store{dir: dir, maxBytes: maxBytes}
+	return &Store{paths: paths, maxBytes: maxBytes}
+}
+
+// InDir returns a store using Eggy's former flat layout, where every context
+// document sat directly in one directory. Tests and any caller that only
+// needs a scratch home keep using it.
+func InDir(dir string, maxBytes int64) *Store {
+	return Open(Paths{
+		Soul:      filepath.Join(dir, "SOUL.md"),
+		User:      filepath.Join(dir, "USER.md"),
+		Memory:    filepath.Join(dir, "MEMORY.md"),
+		Heartbeat: filepath.Join(dir, "HEARTBEAT.md"),
+	}, maxBytes)
 }
 
 func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
@@ -43,19 +66,19 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	soul, err := s.loadDocument("SOUL.md", initialSoul)
+	soul, err := s.loadDocument(s.paths.Soul, initialSoul)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	user, err := s.loadDocument("USER.md", initialUser)
+	user, err := s.loadDocument(s.paths.User, initialUser)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	memory, err := s.loadDocument("MEMORY.md", initialMemory)
+	memory, err := s.loadDocument(s.paths.Memory, initialMemory)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	heartbeat, err := s.loadDocument("HEARTBEAT.md", initialHeartbeat)
+	heartbeat, err := s.loadDocument(s.paths.Heartbeat, initialHeartbeat)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
@@ -80,13 +103,12 @@ func (s *Store) RemoveSection(ctx context.Context, document ports.ContextDocumen
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	name, initial, err := editableDocument(document)
+	path, initial, err := s.editableDocument(document)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := filepath.Join(s.dir, name)
 	return filelock.With(path, func() error {
 		current, err := s.loadDocumentUnlocked(path, initial)
 		if err != nil {
@@ -109,13 +131,12 @@ func (s *Store) edit(ctx context.Context, document ports.ContextDocument, sectio
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	name, initial, err := editableDocument(document)
+	path, initial, err := s.editableDocument(document)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	path := filepath.Join(s.dir, name)
 	return filelock.With(path, func() error {
 		current, err := s.loadDocumentUnlocked(path, initial)
 		if err != nil {
@@ -132,27 +153,26 @@ func (s *Store) edit(ctx context.Context, document ports.ContextDocument, sectio
 			current = strings.TrimRight(current[:bounds[1]], "\n") + "\n\n" + trimmed + "\n" + current[bounds[1]:]
 		}
 		if int64(len(current)) > s.maxBytes {
-			return fmt.Errorf("%s exceeds context limit of %d bytes", name, s.maxBytes)
+			return fmt.Errorf("%s exceeds context limit of %d bytes", filepath.Base(path), s.maxBytes)
 		}
 		return atomicfile.Write(path, []byte(current), 0o600)
 	})
 }
 
-func editableDocument(document ports.ContextDocument) (string, string, error) {
+func (s *Store) editableDocument(document ports.ContextDocument) (string, string, error) {
 	switch document {
 	case ports.ContextSoul:
-		return "SOUL.md", initialSoul, nil
+		return s.paths.Soul, initialSoul, nil
 	case ports.ContextUser:
-		return "USER.md", initialUser, nil
+		return s.paths.User, initialUser, nil
 	case ports.ContextMemory:
-		return "MEMORY.md", initialMemory, nil
+		return s.paths.Memory, initialMemory, nil
 	default:
 		return "", "", errors.New("context document is read-only")
 	}
 }
 
-func (s *Store) loadDocument(name, initial string) (string, error) {
-	path := filepath.Join(s.dir, name)
+func (s *Store) loadDocument(path, initial string) (string, error) {
 	var content string
 	err := filelock.With(path, func() error {
 		var err error

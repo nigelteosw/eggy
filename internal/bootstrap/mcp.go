@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/home"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
@@ -40,7 +42,11 @@ func newMCPManager(ctx context.Context, config Config, secrets Secrets, options 
 	var oauthStore *mcpadapter.OAuthStore
 	if needsOAuthStore {
 		var err error
-		oauthStore, err = mcpadapter.OpenOAuthStore(config.DataDir, secrets.EncryptionKey)
+		layout := home.At(config.DataDir)
+		if err := mcpadapter.MigrateLegacyOAuthRecords(filepath.Join(layout.Root, "mcp"), layout.Auth()); err != nil {
+			return nil, fmt.Errorf("migrate MCP OAuth records: %w", err)
+		}
+		oauthStore, err = mcpadapter.OpenOAuthStore(layout.Auth(), secrets.EncryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("open MCP OAuth store: %w", err)
 		}

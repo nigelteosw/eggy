@@ -8,7 +8,20 @@ import (
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/home"
 )
+
+// envFilePath mirrors eggyd: <home>/.env when it exists, an explicit
+// EGGY_ENV_FILE override first, and ./.env for a local checkout.
+func envFilePath(layout home.Layout) string {
+	if override := os.Getenv("EGGY_ENV_FILE"); override != "" {
+		return override
+	}
+	if _, err := os.Stat(layout.Env()); err == nil {
+		return layout.Env()
+	}
+	return ".env"
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -19,13 +32,16 @@ func main() {
 
 func run(arguments []string) error {
 	flags := flag.NewFlagSet("eggy", flag.ContinueOnError)
-	defaultConfig := os.Getenv("EGGY_CONFIG")
-	if defaultConfig == "" {
-		defaultConfig = "/data/config.yaml"
-	}
-	configPath := flags.String("config", defaultConfig, "path to config.yaml")
+	homeDir := flags.String("home", "", "path to Eggy's home directory (default $EGGY_HOME, else /data)")
+	configPath := flags.String("config", "", "path to config.yaml (default <home>/config.yaml)")
 	if err := flags.Parse(arguments); err != nil {
 		return err
+	}
+	// The CLI reads the same home as eggyd, so `eggy config get` and the
+	// running daemon can never disagree about which config.yaml is live.
+	layout := home.Resolve(*homeDir, os.Getenv)
+	if *configPath == "" {
+		*configPath = layout.Config()
 	}
 	args := flags.Args()
 	if len(args) == 0 {
@@ -47,11 +63,7 @@ func run(arguments []string) error {
 		fmt.Println(result.RenderPlainText())
 		return nil
 	}
-	envPath := os.Getenv("EGGY_ENV_FILE")
-	if envPath == "" {
-		envPath = ".env"
-	}
-	getenv, err := bootstrap.DotEnv(envPath, os.Getenv)
+	getenv, err := bootstrap.DotEnv(envFilePath(layout), os.Getenv)
 	if err != nil {
 		return err
 	}

@@ -7,13 +7,18 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 )
 
-type Scheduler struct{ store ports.StateStore }
+// Scheduler owns the timing rules -- cron parsing, what is due, what happens
+// after a run succeeds or fails -- over jobs kept as files in <home>/cron by
+// cronfile.Store. It holds no schedule state of its own, so a job an owner
+// edits on disk takes effect on the next tick.
+type Scheduler struct{ store *cronfile.Store }
 
-func New(store ports.StateStore) *Scheduler { return &Scheduler{store: store} }
+func New(store *cronfile.Store) *Scheduler { return &Scheduler{store: store} }
 
-func (s *Scheduler) Add(ctx context.Context, schedule ports.Schedule) error {
+func (s *Scheduler) Add(_ context.Context, schedule ports.Schedule) error {
 	if schedule.ID == "" || schedule.Instruction == "" {
 		return errors.New("schedule id and instruction are required")
 	}
@@ -32,60 +37,53 @@ func (s *Scheduler) Add(ctx context.Context, schedule ports.Schedule) error {
 	default:
 		return fmt.Errorf("unknown schedule execution %q", schedule.Execution)
 	}
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		if state.Schedules == nil {
-			state.Schedules = map[string]ports.Schedule{}
-		}
-		if _, exists := state.Schedules[schedule.ID]; exists {
-			return fmt.Errorf("schedule %q already exists", schedule.ID)
-		}
-		state.Schedules[schedule.ID] = schedule
-		return nil
-	})
-	return err
+	return s.store.Create(schedule)
 }
 
-func (s *Scheduler) Remove(ctx context.Context, id string) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error { delete(state.Schedules, id); return nil })
-	return err
-}
+func (s *Scheduler) Remove(_ context.Context, id string) error { return s.store.Delete(id) }
 
-func (s *Scheduler) Due(ctx context.Context, now time.Time) ([]ports.Schedule, error) {
-	state, err := s.store.Load(ctx)
+// List returns every schedule, for the /schedules command and the web UI.
+func (s *Scheduler) List(context.Context) ([]ports.Schedule, error) { return s.store.List() }
+
+// Due claims every schedule whose next run has arrived by stamping it with a
+// pending run, so a second tick -- or a second reader -- never picks up a job
+// already in flight.
+func (s *Scheduler) Due(_ context.Context, now time.Time) ([]ports.Schedule, error) {
+	schedules, err := s.store.List()
 	if err != nil {
 		return nil, err
 	}
 	due := make([]ports.Schedule, 0)
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		for id, schedule := range state.Schedules {
-			if !schedule.Enabled || !schedule.PendingRun.IsZero() || schedule.NextRun.After(now) {
-				continue
-			}
-			schedule.PendingRun = schedule.NextRun
-			state.Schedules[id] = schedule
-			due = append(due, schedule)
+	for _, schedule := range schedules {
+		if !schedule.Enabled || !schedule.PendingRun.IsZero() || schedule.NextRun.After(now) {
+			continue
 		}
-		return nil
-	})
-	return due, err
+		claimed := schedule
+		err := s.store.Update(schedule.ID, func(current *ports.Schedule) error {
+			// Re-check under the file lock: the listing above is a snapshot.
+			if !current.Enabled || !current.PendingRun.IsZero() || current.NextRun.After(now) {
+				return errNotDue
+			}
+			current.PendingRun = current.NextRun
+			claimed = *current
+			return nil
+		})
+		if errors.Is(err, errNotDue) || errors.Is(err, cronfile.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		due = append(due, claimed)
+	}
+	return due, nil
 }
 
-func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, completedAt time.Time) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		schedule, ok := state.Schedules[id]
-		if !ok || !schedule.PendingRun.Equal(scheduledFor) {
+var errNotDue = errors.New("schedule is no longer due")
+
+func (s *Scheduler) Complete(_ context.Context, id string, scheduledFor, completedAt time.Time) error {
+	return s.store.Update(id, func(schedule *ports.Schedule) error {
+		if !schedule.PendingRun.Equal(scheduledFor) {
 			return errors.New("schedule completion does not match pending run")
 		}
 		schedule.LastRun, schedule.PendingRun = scheduledFor, time.Time{}
@@ -105,45 +103,40 @@ func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, compl
 		default:
 			schedule.Enabled = false
 		}
-		state.Schedules[id] = schedule
 		return nil
 	})
-	return err
 }
 
-func (s *Scheduler) Fail(ctx context.Context, id string, scheduledFor time.Time) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		schedule, ok := state.Schedules[id]
-		if !ok || !schedule.PendingRun.Equal(scheduledFor) {
+func (s *Scheduler) Fail(_ context.Context, id string, scheduledFor time.Time) error {
+	return s.store.Update(id, func(schedule *ports.Schedule) error {
+		if !schedule.PendingRun.Equal(scheduledFor) {
 			return errors.New("schedule failure does not match pending run")
 		}
 		schedule.PendingRun = time.Time{}
-		state.Schedules[id] = schedule
 		return nil
 	})
-	return err
 }
 
-func (s *Scheduler) Recover(ctx context.Context) error {
-	state, err := s.store.Load(ctx)
+// Recover clears pending runs left behind by a process that died mid-run, so
+// those schedules become due again instead of stalling forever.
+func (s *Scheduler) Recover(_ context.Context) error {
+	schedules, err := s.store.List()
 	if err != nil {
 		return err
 	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		for id, schedule := range state.Schedules {
-			if schedule.PendingRun.IsZero() {
-				continue
-			}
-			schedule.PendingRun = time.Time{}
-			state.Schedules[id] = schedule
+	for _, schedule := range schedules {
+		if schedule.PendingRun.IsZero() {
+			continue
 		}
-		return nil
-	})
-	return err
+		err := s.store.Update(schedule.ID, func(current *ports.Schedule) error {
+			current.PendingRun = time.Time{}
+			return nil
+		})
+		if err != nil && !errors.Is(err, cronfile.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Scheduler) Next(expression string, after time.Time) (time.Time, error) {

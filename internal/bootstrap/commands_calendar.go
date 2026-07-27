@@ -22,20 +22,18 @@ func handleCalendarAuth(ctx context.Context, s *CommandService, req CommandReque
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	digest := sha256.Sum256([]byte(token))
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return CommandResult{}, err
-	}
 	now := time.Now
 	if s.now != nil {
 		now = s.now
 	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		state.Calendar.EnrollmentDigest = hex.EncodeToString(digest[:])
-		state.Calendar.EnrollmentExpires = now().Add(10 * time.Minute)
+	if s.calendarAuth == nil {
+		return CommandResult{State: ResultInfo, Title: "Calendar is not configured."}, nil
+	}
+	if err := s.calendarAuth.Update(ctx, func(auth *ports.CalendarAuth) error {
+		auth.EnrollmentDigest = hex.EncodeToString(digest[:])
+		auth.EnrollmentExpires = now().Add(10 * time.Minute)
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return CommandResult{}, err
 	}
 	link := s.config.Server.PublicBaseURL + "/auth/google?enrollment=" + url.QueryEscape(token)

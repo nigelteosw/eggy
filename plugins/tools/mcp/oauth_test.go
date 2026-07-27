@@ -12,7 +12,7 @@ import (
 )
 
 func TestOAuthProviderDiscoversRegistersExchangesAndRestores(t *testing.T) {
-	store, err := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func (r *oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 }
 
 func TestOAuthHandlerAuthorizeReturnsLoginRequired(t *testing.T) {
-	store, _ := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example"}, store, http.DefaultClient)
 	response := &http.Response{Body: io.NopCloser(strings.NewReader("unauthorized"))}
 	if err := provider.Authorize(context.Background(), nil, response); err != ErrLoginRequired {
@@ -92,7 +92,7 @@ func TestOAuthHandlerAuthorizeReturnsLoginRequired(t *testing.T) {
 }
 
 func TestOAuthProviderRejectsMismatchedState(t *testing.T) {
-	store, _ := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}, store, &http.Client{Transport: &oauthRoundTripper{}})
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestOAuthProviderRejectsMismatchedState(t *testing.T) {
 }
 
 func TestOAuthProviderPersistsRotatedRefreshToken(t *testing.T) {
-	store, _ := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
 	client := &http.Client{Transport: &oauthRoundTripper{}}
 	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
 	record := OAuthRecord{

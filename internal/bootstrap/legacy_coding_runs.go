@@ -47,7 +47,7 @@ type legacyCodingRun struct {
 // rather than replayed. A run whose workspace no longer exists on disk is
 // imported as PhaseBlocked regardless of its recorded status, so nothing
 // ever auto-resumes implementation work against a workspace that is gone.
-func importLegacyCodingRuns(ctx context.Context, statePath string, sessionStore *sessionjson.Store, now func() time.Time) (int, error) {
+func importLegacyCodingRuns(ctx context.Context, statePath string, changeStore *sessionjson.ChangeStore, now func() time.Time) (int, error) {
 	data, err := os.ReadFile(statePath)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
@@ -67,8 +67,8 @@ func importLegacyCodingRuns(ctx context.Context, statePath string, sessionStore 
 	}
 	imported := 0
 	for id, run := range probe.CodingRuns {
-		if _, err := sessionStore.Load(ctx, id); err == nil || !errors.Is(err, sessionjson.ErrSessionNotFound) {
-			// Either a session already exists (canonical, leave it alone)
+		if _, err := changeStore.Load(ctx, id); err == nil || !errors.Is(err, sessionjson.ErrSessionNotFound) {
+			// Either a change already exists (canonical, leave it alone)
 			// or the lookup failed for a reason other than "not found";
 			// either way this legacy run is not ours to import.
 			continue
@@ -79,10 +79,12 @@ func importLegacyCodingRuns(ctx context.Context, statePath string, sessionStore 
 				phase = ports.PhaseBlocked
 			}
 		}
-		session := ports.ImplementationSession{
+		// An old CodingRun is a Change: branched work with a lifecycle. It
+		// carries no workspace, because that checkout belonged to a process
+		// that exited long ago.
+		change := ports.Change{
 			ID:           id,
 			Repository:   run.Repository,
-			Workspace:    run.Workspace,
 			Branch:       run.Branch,
 			BaseRevision: run.BaseRevision,
 			Commit:       run.Commit,
@@ -92,10 +94,10 @@ func importLegacyCodingRuns(ctx context.Context, statePath string, sessionStore 
 			StartedAt:    run.StartedAt,
 			FinishedAt:   run.FinishedAt,
 		}
-		if session.StartedAt.IsZero() {
-			session.StartedAt = now()
+		if change.StartedAt.IsZero() {
+			change.StartedAt = now()
 		}
-		if _, err := sessionStore.Create(ctx, session); err != nil {
+		if _, err := changeStore.Create(ctx, change); err != nil {
 			return imported, fmt.Errorf("import legacy coding run %q: %w", id, err)
 		}
 		imported++
@@ -104,18 +106,13 @@ func importLegacyCodingRuns(ctx context.Context, statePath string, sessionStore 
 }
 
 // legacyPhase maps the old free-form CodingRun.Status strings onto the
-// unified phase model. Anything not recognized is imported as Blocked
-// rather than silently treated as healthy.
+// three-phase model. Anything that was not cleanly finished is imported as
+// Blocked rather than silently treated as healthy: a run the migration
+// interrupted is exactly the kind an owner should look at before resuming.
 func legacyPhase(status string) ports.SessionPhase {
 	switch status {
-	case "running":
-		return ports.PhaseInterrupted
 	case "completed":
-		return ports.PhaseReady
-	case "interrupted":
-		return ports.PhaseInterrupted
-	case "failed":
-		return ports.PhaseBlocked
+		return ports.PhaseCompleted
 	default:
 		return ports.PhaseBlocked
 	}

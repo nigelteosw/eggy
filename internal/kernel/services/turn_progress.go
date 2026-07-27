@@ -9,13 +9,13 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// TurnSessionEvent converts one loop event into the durable session event
+// TurnTranscriptEvent converts one loop event into the durable transcript event
 // shape. It is unchanged from the implementation run's rendering: the
 // milestones an owner reads (`Inspected:`, `Edited:`, `Validation:`) are the
 // streaming surface, and collapsing two loops into one did not change what
 // is worth saying about a step.
-func TurnSessionEvent(event agent.Event) ports.ImplementationSessionEvent {
-	result := ports.ImplementationSessionEvent{ToolName: event.Call.Name, Content: event.Output, ModelMessage: event.Message}
+func TurnTranscriptEvent(event agent.Event) ports.TranscriptEvent {
+	result := ports.TranscriptEvent{ToolName: event.Call.Name, Content: event.Output, ModelMessage: event.Message}
 	switch event.Kind {
 	case agent.EventAssistantMessage:
 		result.Kind = ports.SessionAssistantMessage

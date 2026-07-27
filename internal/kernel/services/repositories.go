@@ -24,11 +24,11 @@ type RepositoriesService struct {
 	policy       ports.ApprovalPolicy
 	capabilities ports.RepositoryCapabilities
 	newRunID     func() string
-	sessions     *ImplementationSessions
+	changes      *Changes
 }
 
-func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester ApprovalRequester, policy ports.ApprovalPolicy, capabilities ports.RepositoryCapabilities, newRunID func() string, sessions *ImplementationSessions) *RepositoriesService {
-	return &RepositoriesService{store: store, runner: runner, checker: checker, requester: requester, policy: policy, capabilities: capabilities, newRunID: newRunID, sessions: sessions}
+func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester ApprovalRequester, policy ports.ApprovalPolicy, capabilities ports.RepositoryCapabilities, newRunID func() string, changes *Changes) *RepositoriesService {
+	return &RepositoriesService{store: store, runner: runner, checker: checker, requester: requester, policy: policy, capabilities: capabilities, newRunID: newRunID, changes: changes}
 }
 
 type addRepositoryPayload struct {
@@ -136,14 +136,14 @@ func (s *RepositoriesService) Remove(ctx context.Context, name string) error {
 	if _, ok := state.Repositories[name]; !ok {
 		return fmt.Errorf("repository %q is not configured", name)
 	}
-	if s.sessions != nil {
-		sessions, err := s.sessions.List(ctx)
+	if s.changes != nil {
+		changes, err := s.changes.List(ctx)
 		if err != nil {
 			return err
 		}
-		for _, session := range sessions {
-			if session.Repository == name && session.Phase == ports.PhaseRunning {
-				return fmt.Errorf("repository %q has an active coding run %q", name, session.ID)
+		for _, change := range changes {
+			if change.Repository == name && change.Phase == ports.PhaseRunning {
+				return fmt.Errorf("repository %q has an active change %q", name, change.ID)
 			}
 		}
 	}

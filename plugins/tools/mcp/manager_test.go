@@ -170,7 +170,7 @@ func TestNewFakeManagerProjectsConfiguredIncludes(t *testing.T) {
 }
 
 func TestManagerMarksOAuthServerLoginRequiredAndCanBeginLogin(t *testing.T) {
-	store, _ := OpenOAuthStore(t.TempDir(), testEncryptionKey())
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
 	client := &http.Client{Transport: &oauthRoundTripper{}}
 	connect := func(ctx context.Context, _ ServerConfig, _ *http.Client, handler auth.OAuthHandler, _ *sdk.ClientOptions) (clientSession, error) {
 		tokenSource, err := handler.TokenSource(ctx)

@@ -17,7 +17,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-func NewOAuthHandlers(adapter *Adapter, store ports.StateStore, signingKey []byte, now func() time.Time) (http.Handler, http.Handler) {
+func NewOAuthHandlers(adapter *Adapter, store ports.CalendarAuthStore, signingKey []byte, now func() time.Time) (http.Handler, http.Handler) {
 	start := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := consumeEnrollment(r.Context(), store, r.URL.Query().Get("enrollment"), now()); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -45,13 +45,13 @@ func NewOAuthHandlers(adapter *Adapter, store ports.StateStore, signingKey []byt
 			http.Error(w, "OAuth exchange failed", http.StatusBadGateway)
 			return
 		}
-		state, err := store.Load(r.Context())
-		if err != nil {
-			http.Error(w, "state unavailable", http.StatusInternalServerError)
-			return
-		}
-		if _, err := store.Update(r.Context(), state.Version, func(state *ports.State) error { state.Calendar = auth; return nil }); err != nil {
-			http.Error(w, "state update failed", http.StatusInternalServerError)
+		// Only the tokens are replaced: the enrollment fields are consumed
+		// by the start handler above and must not be resurrected here.
+		if err := store.Update(r.Context(), func(current *ports.CalendarAuth) error {
+			current.EncryptedRefreshToken, current.TokenExpiry = auth.EncryptedRefreshToken, auth.TokenExpiry
+			return nil
+		}); err != nil {
+			http.Error(w, "auth update failed", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -59,26 +59,22 @@ func NewOAuthHandlers(adapter *Adapter, store ports.StateStore, signingKey []byt
 	return start, callback
 }
 
-func consumeEnrollment(ctx context.Context, store ports.StateStore, token string, now time.Time) error {
+func consumeEnrollment(ctx context.Context, store ports.CalendarAuthStore, token string, now time.Time) error {
 	if token == "" {
 		return errors.New("missing enrollment token")
 	}
-	state, err := store.Load(ctx)
-	if err != nil {
-		return err
-	}
 	sum := sha256.Sum256([]byte(token))
 	actual := hex.EncodeToString(sum[:])
-	expected := state.Calendar.EnrollmentDigest
-	if len(actual) != len(expected) || subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) != 1 || !now.Before(state.Calendar.EnrollmentExpires) {
-		return errors.New("invalid enrollment token")
-	}
-	_, err = store.Update(ctx, state.Version, func(state *ports.State) error {
-		state.Calendar.EnrollmentDigest = ""
-		state.Calendar.EnrollmentExpires = time.Time{}
+	// The comparison and the clearing happen inside one Update so a replayed
+	// enrollment link cannot slip between a read and a write.
+	return store.Update(ctx, func(auth *ports.CalendarAuth) error {
+		expected := auth.EnrollmentDigest
+		if len(actual) != len(expected) || subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) != 1 || !now.Before(auth.EnrollmentExpires) {
+			return errors.New("invalid enrollment token")
+		}
+		auth.EnrollmentDigest, auth.EnrollmentExpires = "", time.Time{}
 		return nil
 	})
-	return err
 }
 
 func signOAuthState(key []byte, now time.Time) (string, error) {

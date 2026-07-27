@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # gofmt exits 0 with a file list rather than failing, so check the list.
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l cmd internal plugins)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: make vet
+
+      - name: Test
+        run: make test
+
+      - name: Test with race detector
+        run: make race
+
+      # The full `make build` target depends on build-web; the website is
+      # covered by its own job, so build the Go binaries directly here.
+      - name: Build binaries
+        run: |
+          go build -trimpath -o bin/eggyd ./cmd/eggyd
+          go build -trimpath -o bin/eggy ./cmd/eggy
+
+  website:
+    name: Website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: website
+        run: bun install --frozen-lockfile
+
+      # `bun run build` is `tsc && vite build`, so this type-checks too.
+      - name: Build
+        working-directory: website
+        run: bun run build
+
+  smoke:
+    name: Docker smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run container smoke test
+        run: make smoke

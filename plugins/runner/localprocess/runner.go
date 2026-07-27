@@ -142,7 +142,7 @@ func (r *Runner) execute(ctx context.Context, command ports.Command, onLine func
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	var emitter *lineEmitter
 	if onLine != nil {
-		emitter = &lineEmitter{callback: onLine}
+		emitter = &lineEmitter{limit: limit, callback: onLine}
 		cmd.Stdout = io.MultiWriter(stdout, emitter)
 	}
 	if err := cmd.Start(); err != nil {
@@ -239,9 +239,14 @@ func (b *cappedBuffer) Write(data []byte) (int, error) {
 }
 func (b *cappedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return b.data.String() }
 
+// lineEmitter splits streamed output into whole lines. It buffers only the
+// current unterminated line, and caps that line at limit the way cappedBuffer
+// caps captured output, so a command that writes without ever emitting a
+// newline cannot grow it without bound.
 type lineEmitter struct {
 	mu       sync.Mutex
-	pending  bytes.Buffer
+	pending  []byte
+	limit    int64
 	callback func(string)
 }
 
@@ -249,26 +254,45 @@ func (e *lineEmitter) Write(data []byte) (int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	original := len(data)
-	_, _ = e.pending.Write(data)
-	for {
-		value := e.pending.String()
-		index := strings.IndexByte(value, '\n')
+	for len(data) > 0 {
+		index := bytes.IndexByte(data, '\n')
 		if index < 0 {
+			e.appendLine(data)
 			break
 		}
-		e.callback(strings.TrimSuffix(value[:index], "\r"))
-		e.pending.Reset()
-		_, _ = e.pending.WriteString(value[index+1:])
+		e.appendLine(data[:index])
+		e.emit()
+		data = data[index+1:]
 	}
 	return original, nil
+}
+
+// appendLine buffers a fragment of the line being assembled, dropping
+// whatever would push it past the limit.
+func (e *lineEmitter) appendLine(data []byte) {
+	remaining := e.limit - int64(len(e.pending))
+	if remaining <= 0 {
+		return
+	}
+	if int64(len(data)) > remaining {
+		data = data[:remaining]
+	}
+	e.pending = append(e.pending, data...)
+}
+
+// emit hands the buffered line to the callback and resets for the next one,
+// keeping the allocated capacity so a long stream does not reallocate per
+// line.
+func (e *lineEmitter) emit() {
+	e.callback(strings.TrimSuffix(string(e.pending), "\r"))
+	e.pending = e.pending[:0]
 }
 
 func (e *lineEmitter) Flush() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.pending.Len() == 0 {
+	if len(e.pending) == 0 {
 		return
 	}
-	e.callback(strings.TrimSuffix(e.pending.String(), "\r"))
-	e.pending.Reset()
+	e.emit()
 }

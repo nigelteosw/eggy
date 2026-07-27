@@ -106,6 +106,38 @@ func TestRunnerStreamsCompleteOutputLines(t *testing.T) {
 	}
 }
 
+func TestLineEmitterBoundsAnUnterminatedLine(t *testing.T) {
+	var lines []string
+	emitter := &lineEmitter{limit: 8, callback: func(line string) { lines = append(lines, line) }}
+	chunk := []byte(strings.Repeat("x", 4096))
+	for range 64 {
+		n, err := emitter.Write(chunk)
+		if err != nil || n != len(chunk) {
+			// io.MultiWriter turns a short write into ErrShortWrite, so the
+			// emitter must always report the full length it was handed.
+			t.Fatalf("Write=%d,%v want %d,nil", n, err, len(chunk))
+		}
+	}
+	if len(emitter.pending) > 8 {
+		t.Fatalf("pending=%d bytes, want a line with no newline capped at the limit", len(emitter.pending))
+	}
+	emitter.Flush()
+	if len(lines) != 1 || lines[0] != "xxxxxxxx" {
+		t.Fatalf("lines=%q, want one line truncated to the limit", lines)
+	}
+}
+
+func TestLineEmitterResumesAfterATruncatedLine(t *testing.T) {
+	var lines []string
+	emitter := &lineEmitter{limit: 6, callback: func(line string) { lines = append(lines, line) }}
+	if _, err := emitter.Write([]byte("toolongforthelimit\r\nshort\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 || lines[0] != "toolon" || lines[1] != "short" || lines[2] != "" {
+		t.Fatalf("lines=%q, want the overlong line truncated and later lines intact", lines)
+	}
+}
+
 func TestExistsReportsWhetherAWorkspaceSurvived(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "runs")
 	runner, err := New(root, []string{"PATH"}, 5*time.Second, 1024)

@@ -7,10 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
+	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
+	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
 // TestScheduleToolsDistinguishReminderFromAgentExecution proves the agent
@@ -206,3 +209,50 @@ func (p *recordingCalendarProvider) Update(_ context.Context, event ports.Calend
 	return event, nil
 }
 func (p *recordingCalendarProvider) Delete(context.Context, string, string, string) error { return nil }
+
+// skillTestApprovalGateway stands in for the approval service, handing back a
+// fixed approval and recording the action it was asked to authorize.
+type skillTestApprovalGateway struct {
+	approval   approvals.Approval
+	authorized approvals.Action
+}
+
+func (g *skillTestApprovalGateway) Request(_ context.Context, action approvals.Action, payload any, _ string) (approvals.Approval, error) {
+	data, _ := json.Marshal(payload)
+	g.approval.Action = action
+	g.approval.Payload = data
+	return g.approval, nil
+}
+
+func (g *skillTestApprovalGateway) Authorize(_ context.Context, action approvals.Action, _ any, _ string) error {
+	g.authorized = action
+	return nil
+}
+
+func TestSkillProposeToolStagesApprovalWithoutWriting(t *testing.T) {
+	store := jsonfile.Open(t.TempDir() + "/state.json")
+	skillsStore := skillsadapter.Open(t.TempDir(), 32<<10)
+	gateway := &skillTestApprovalGateway{approval: approvals.Approval{ID: "approval-1"}}
+	skills := services.NewSkillsService(skillsStore, store, gateway, gateway, nil)
+	channel := &fakeChannel{}
+	tool := skillProposeTool(skills, channel)
+
+	ctx := context.Background()
+	result, err := tool.Execute(ctx, []byte(`{"name":"fix-flaky-tests","description":"Use when a test intermittently fails","content":"1. Rerun with -count=10"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result), `"status":"awaiting_owner"`) {
+		t.Fatalf("result=%s", result)
+	}
+	if len(channel.approvalDelivered) != 1 {
+		t.Fatalf("approvals delivered=%d, want 1", len(channel.approvalDelivered))
+	}
+	delivered := channel.approvalDelivered[0]
+	if delivered.ID != "approval-1" || delivered.Action != approvals.SkillWrite {
+		t.Fatalf("delivered=%#v", delivered)
+	}
+	if _, err := skillsStore.Read(ctx, "fix-flaky-tests"); err == nil {
+		t.Fatal("skill must not be written before owner approval")
+	}
+}

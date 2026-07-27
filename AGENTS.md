@@ -6,7 +6,7 @@ Eggy is a Go 1.26 ports-and-adapters modular monolith.
 
 - Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, Google, YAML, JSON-file persistence, Docker, or Railway packages.
 - Provider request/response types and credentials stay inside their adapter packages.
-- Register adapters and tools only through `internal/bootstrap`.
+- Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the command catalog in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `commands` <- `web` <- `bootstrap` — so none of those three may import `internal/bootstrap`.
 - Treat configured repositories as trusted, but keep path, environment, timeout, output, and process-group restrictions intact.
 - Never weaken independent approval checks for commit, push, pull-request creation, or Calendar mutations. Protected branches remain unpushable even with approval.
 
@@ -34,13 +34,13 @@ runner, calendar backend, etc.) should only ever add a new package under
 3. Implement the interface in the new adapter package. Keep that provider's
    wire types, HTTP/CLI calls, and credentials entirely inside the package —
    `internal/kernel` and `internal/ports` must never import it.
-4. Wire construction only in `internal/bootstrap` (`config.go` for any new
-   config/secret fields, `app.go`'s `NewApp` for constructing the adapter and
-   handing it to the relevant kernel service constructor, or
-   `registry.Register` for a new `Tool`). This is the one place allowed to
-   know every adapter exists.
+4. Wire construction only in `internal/bootstrap` (`app.go`'s `NewApp` for
+   constructing the adapter and handing it to the relevant kernel service
+   constructor, or `registry.Register` for a new `Tool`). This is the one
+   place allowed to know every adapter exists. New config or secret fields go
+   in `internal/config` (`config.go`), not in bootstrap.
 5. Prefer branching on an existing selector over hardcoding one adapter. Two
-   `ProviderConfig.Adapter` (`internal/bootstrap/config.go`) is in the config
+   `ProviderConfig.Adapter` (`internal/config/config.go`) is in the config
    for exactly this: it is meant to pick a model adapter per provider instead
    of `app.go` always calling `openaicompat.New`. Route new provider kinds
    through that switch rather than adding another special case.

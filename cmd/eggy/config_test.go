@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/commands"
 )
 
 func writeTestConfig(t *testing.T, dir string) string {
@@ -56,9 +56,9 @@ calendar:
 	return path
 }
 
-func executeConfigCLI(t *testing.T, path string, args ...string) bootstrap.CommandResult {
+func executeConfigCLI(t *testing.T, path string, args ...string) commands.CommandResult {
 	t.Helper()
-	result, handled, err := bootstrap.ExecuteConfigCLI(context.Background(), path, append([]string{"config"}, args...))
+	result, handled, err := commands.ExecuteConfigCLI(context.Background(), path, append([]string{"config"}, args...))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,6 +20,14 @@ package under `plugins/<category>/<provider>/` plus wiring in
 bootstrap — never a kernel or port change. See `AGENTS.md` for the concrete
 steps.
 
+Bootstrap is the composition root and nothing more. Three sibling packages own
+what it would otherwise accumulate: `internal/config` parses, defaults, and
+mutates `config.yaml`; `internal/commands` holds the command catalog shared by
+Telegram, the CLI, and the web API; `internal/web` serves the embedded UI and
+its JSON routes. They depend one way only — `config` <- `commands` <- `web` <-
+`bootstrap` — which Go's acyclic import rule enforces on its own, since
+bootstrap imports all three.
+
 ```mermaid
 flowchart TB
     subgraph entry[Entry points]
@@ -34,8 +42,13 @@ flowchart TB
 
     subgraph composition[Composition root - internal/bootstrap]
         daemon[eggyd App and event dispatcher]
-        commands[Deterministic command service]
         registry[Native and discovered tool wiring<br/>and capability manifest]
+    end
+
+    subgraph surfaces[Config, commands, and HTTP]
+        settings[internal/config<br/>parsing, defaults, mutation]
+        commands[internal/commands<br/>deterministic command catalog]
+        httpapi[internal/web<br/>web UI, JSON API, chat routes]
     end
 
     telegram --> daemon

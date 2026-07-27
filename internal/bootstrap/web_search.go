@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/search/googlecse"
 	"github.com/nigelteosw/eggy/plugins/search/searxng"
@@ -21,7 +22,7 @@ func (fakeWebSearcher) Search(_ context.Context, request ports.WebSearchRequest)
 	}}, nil
 }
 
-func newWebSearcher(config Config, secrets Secrets, options AppOptions) (ports.WebSearcher, error) {
+func newWebSearcher(config config.Config, secrets config.Secrets, options AppOptions) (ports.WebSearcher, error) {
 	if !webSearchConfigured(config, secrets) {
 		return nil, nil
 	}
@@ -60,7 +61,7 @@ func newWebSearcher(config Config, secrets Secrets, options AppOptions) (ports.W
 
 // webSearchConfigured reports whether the selected adapter has the secrets it
 // needs. Web search stays absent rather than failing startup when it does not.
-func webSearchConfigured(config Config, secrets Secrets) bool {
+func webSearchConfigured(config config.Config, secrets config.Secrets) bool {
 	switch config.WebSearch.Adapter {
 	case "google_cse":
 		return strings.TrimSpace(secrets.WebSearchAPIKey) != "" && strings.TrimSpace(secrets.WebSearchEngineID) != ""

@@ -17,12 +17,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 	"github.com/nigelteosw/eggy/plugins/calendar/google"
 	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
@@ -69,7 +72,7 @@ type AppOptions struct {
 const maxToolStepsPerTurn = 500
 
 type App struct {
-	config                  Config
+	config                  config.Config
 	home                    home.Layout
 	store                   ports.StateStore
 	calendarAuth            ports.CalendarAuthStore
@@ -81,7 +84,7 @@ type App struct {
 	loop                    *agent.Loop
 	agentRuntime            *services.AgentRuntime
 	manifest                agent.CapabilityManifest
-	commands                *CommandService
+	commands                *commands.CommandService
 	scheduler               *schedulerlocal.Scheduler
 	heartbeat               *services.HeartbeatPolicy
 	approvals               *services.ApprovalService
@@ -115,7 +118,7 @@ type ApprovalExecutor interface {
 	ExecuteApproved(context.Context, approvals.Approval) (any, error)
 }
 
-func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
+func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*App, error) {
 	if options.HTTPClient == nil {
 		options.HTTPClient = http.DefaultClient
 	}
@@ -231,7 +234,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	// Telegram is optional: a web-only deployment omits the config block and
 	// gets no client, no channel, and no webhook route. newRoutedChannel
 	// already collapses to the web channel alone when telegramChannel is a
-	// true nil, and NewHTTPHandlerAt already serves the webhook path as
+	// true nil, and web.NewHTTPHandlerAt already serves the webhook path as
 	// unavailable when its handler is nil.
 	if !options.FakeAdapters && config.Telegram.Configured() {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
@@ -465,9 +468,29 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app.commands = &CommandService{turns: app.turns, config: config, store: stateStore, calendarAuth: authStore.Calendar(), schedules: app.scheduler, context: contextStore, conversation: app.conversation, changes: changes, shipping: app.shipping, repositories: app.repositoriesService, skills: app.skillsService, agentRuntime: app.agentRuntime, channel: app.channel, defaultModel: config.Agent.DefaultModel, configPath: options.ConfigPath, modelAliases: aliases, timezone: timezone, now: options.Now, restart: options.RequestRestart}
+	app.commands = commands.New(commands.Options{
+		Turns:        app.turns,
+		Config:       config,
+		Store:        stateStore,
+		CalendarAuth: authStore.Calendar(),
+		Schedules:    app.scheduler,
+		Context:      contextStore,
+		Conversation: app.conversation,
+		Changes:      changes,
+		Shipping:     app.shipping,
+		Repositories: app.repositoriesService,
+		Skills:       app.skillsService,
+		AgentRuntime: app.agentRuntime,
+		Channel:      app.channel,
+		DefaultModel: config.Agent.DefaultModel,
+		ConfigPath:   options.ConfigPath,
+		ModelAliases: aliases,
+		Timezone:     timezone,
+		Now:          options.Now,
+		Restart:      options.RequestRestart,
+	})
 	if app.mcp != nil {
-		app.commands.mcp = app.mcp
+		app.commands.SetMCP(app.mcp)
 	}
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
@@ -478,15 +501,15 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	if config.Telegram.Configured() {
 		webhook = telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
 	}
-	webHandler := NewWebHandler(options.ConfigPath, WebUIConfig{
+	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
-		Files: NewHomeFiles(layout),
+		Files: web.NewHomeFiles(layout),
 	})
-	app.httpHandler = NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
+	app.httpHandler = web.NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
 	if telegramClient != nil {
-		autocomplete := TelegramAutocomplete()
+		autocomplete := commands.TelegramAutocomplete()
 		commands := make([]telegram.BotCommand, 0, len(autocomplete))
 		for _, command := range autocomplete {
 			commands = append(commands, telegram.BotCommand{Name: command.Name, Description: command.Description})
@@ -500,7 +523,7 @@ func NewApp(config Config, secrets Secrets, options AppOptions) (*App, error) {
 	return app, nil
 }
 
-func embeddingProfile(config Config, options AppOptions) string {
+func embeddingProfile(config config.Config, options AppOptions) string {
 	if config.Embeddings.Provider == "" {
 		return ""
 	}
@@ -532,8 +555,8 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 }
 
 // ExecuteCLI parses and dispatches conventional CLI arguments (see
-// CommandService.ExecuteCLI) through this App's full runtime.
-func (a *App) ExecuteCLI(ctx context.Context, args []string) (CommandResult, bool, error) {
+// commands.CommandService.ExecuteCLI) through this App's full runtime.
+func (a *App) ExecuteCLI(ctx context.Context, args []string) (commands.CommandResult, bool, error) {
 	return a.commands.ExecuteCLI(ctx, args)
 }
 func (a *App) Ready() error {

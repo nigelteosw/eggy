@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
@@ -49,8 +51,8 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 
 func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.MCP.Servers = map[string]MCPServerConfig{
-		"railway": {Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth", ToolFilter: MCPToolFilterConfig{Include: []string{"list-projects"}}},
+	cfg.MCP.Servers = map[string]config.MCPServerConfig{
+		"railway": {Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth", ToolFilter: config.MCPToolFilterConfig{Include: []string{"list-projects"}}},
 	}
 	secrets := appTestSecrets("deepseek")
 	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
@@ -114,7 +116,8 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 	if err != nil || !handled || !strings.Contains(output, "Set provider openrouter.") || !strings.Contains(output, "Restart Eggy for this to take effect.") {
 		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
 	}
-	reloaded, _, err := LoadConfig(configPath, mapEnv(map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}))
+	env := map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}
+	reloaded, _, err := config.LoadConfig(configPath, func(key string) string { return env[key] })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +128,7 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 
 func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	var modelBodies [][]byte
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host == "deepseek.test" {
@@ -412,7 +415,7 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 
 func TestConfiguredEmbeddingsUseProviderOverrideAndMakePendingMemorySearchable(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
+	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
 	var embeddingCalls atomic.Int32
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host == "embedding-override.test" && request.URL.Path == "/embeddings" {
@@ -464,7 +467,7 @@ func TestConfiguredEmbeddingsUseProviderOverrideAndMakePendingMemorySearchable(t
 
 func TestEmbeddingProfileChangesWithEffectiveConfiguration(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
+	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
 	base := embeddingProfile(cfg, AppOptions{})
 	if base == "" {
 		t.Fatal("configured embedding profile is empty")
@@ -472,17 +475,17 @@ func TestEmbeddingProfileChangesWithEffectiveConfiguration(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func(*Config, *AppOptions)
+		mutate func(*config.Config, *AppOptions)
 	}{
-		{name: "provider identity", mutate: func(cfg *Config, _ *AppOptions) {
+		{name: "provider identity", mutate: func(cfg *config.Config, _ *AppOptions) {
 			cfg.Providers["other"] = cfg.Providers["deepseek"]
 			cfg.Embeddings.Provider = "other"
 		}},
-		{name: "effective base URL", mutate: func(_ *Config, options *AppOptions) {
+		{name: "effective base URL", mutate: func(_ *config.Config, options *AppOptions) {
 			options.ProviderBaseURLs = map[string]string{"deepseek": "https://override.test/v1"}
 		}},
-		{name: "model", mutate: func(cfg *Config, _ *AppOptions) { cfg.Embeddings.Model = "embed-v2" }},
-		{name: "dimensions", mutate: func(cfg *Config, _ *AppOptions) { cfg.Embeddings.Dimensions = 4 }},
+		{name: "model", mutate: func(cfg *config.Config, _ *AppOptions) { cfg.Embeddings.Model = "embed-v2" }},
+		{name: "dimensions", mutate: func(cfg *config.Config, _ *AppOptions) { cfg.Embeddings.Dimensions = 4 }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -538,7 +541,7 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 
 func TestFakeAdaptersUseDeterministicConfiguredDimensionEmbedder(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 4, CandidateLimit: 50}
+	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 4, CandidateLimit: 50}
 	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
@@ -558,7 +561,7 @@ func TestFakeAdaptersUseDeterministicConfiguredDimensionEmbedder(t *testing.T) {
 
 func TestAppRunLogsEmbeddingFailureAndRetriesOnNextInterval(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 2, CandidateLimit: 50}
+	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 2, CandidateLimit: 50}
 	var attempts atomic.Int32
 	var logs bytes.Buffer
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
@@ -692,7 +695,7 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 
 func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	secrets := appTestSecrets("provider-secret")
 	secrets.GitHubToken = "github-secret"
 	var modelBodies [][]byte
@@ -751,7 +754,7 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	remote := createLocalGitRemote(t)
-	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	secrets := appTestSecrets("provider-secret")
 	secrets.GitHubToken = "github-secret"
 	var modelBodies [][]byte
@@ -872,7 +875,7 @@ func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
 
 // TestCommandServiceHandlesEveryRegisteredTelegramCommand is the catalog
 // coverage test: every top-level command Telegram's autocomplete advertises
-// must also have a working CommandService handler, so the two surfaces can
+// must also have a working commands.CommandService handler, so the two surfaces can
 // never drift apart.
 func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
@@ -880,16 +883,16 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range TelegramAutocomplete() {
+	for _, command := range commands.TelegramAutocomplete() {
 		if command.Description == "" {
 			t.Fatalf("command %q has no description", command.Name)
 		}
-		if HelpText(command.Name) == fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command.Name) {
+		if commands.HelpText(command.Name) == fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command.Name) {
 			t.Fatalf("command %q has no eggy help text", command.Name)
 		}
 		_, handled, err := app.commands.Execute(context.Background(), "/"+command.Name)
 		if err != nil || !handled {
-			t.Fatalf("registered command %q was not handled by CommandService: handled=%v err=%v", command.Name, handled, err)
+			t.Fatalf("registered command %q was not handled by commands.CommandService: handled=%v err=%v", command.Name, handled, err)
 		}
 	}
 	if _, handled, _ := app.commands.Execute(context.Background(), "/unknown"); handled {
@@ -911,7 +914,7 @@ func TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, entry := range catalog {
+	for _, entry := range commands.Catalog() {
 		if len(entry.Examples) == 0 {
 			t.Fatalf("catalog entry %q has no example", entry.Path)
 		}
@@ -926,7 +929,7 @@ func TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler(t *testing.T) {
 
 func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Calendar = CalendarConfig{Enabled: true, DefaultCalendar: "primary", Timezone: "UTC"}
+	cfg.Calendar = config.CalendarConfig{Enabled: true, DefaultCalendar: "primary", Timezone: "UTC"}
 	secrets := appTestSecrets("deepseek")
 	secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey = "client", "secret", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
@@ -1235,22 +1238,22 @@ func runGit(t *testing.T, directory string, arguments ...string) {
 	}
 }
 
-func appTestConfig(dataDir string) Config {
-	return Config{
+func appTestConfig(dataDir string) config.Config {
+	return config.Config{
 		DataDir:      dataDir,
-		Server:       ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
-		Owner:        OwnerConfig{ID: "42"},
-		Telegram:     TelegramConfig{OwnerID: 42},
-		Agent:        AgentConfig{DefaultModel: "deepseek-pro"},
-		Providers:    map[string]ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
-		ModelAliases: map[string]ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"}},
-		Runner:       RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: Duration(time.Minute), Retention: Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
-		Scheduler:    SchedulerConfig{HeartbeatCadence: Duration(30 * time.Minute), QuietHours: QuietHoursConfig{Start: "22:00", End: "07:00", Timezone: "UTC"}, MinimumProactiveInterval: Duration(time.Hour), WeeklyProactiveLimit: 3},
+		Server:       config.ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
+		Owner:        config.OwnerConfig{ID: "42"},
+		Telegram:     config.TelegramConfig{OwnerID: 42},
+		Agent:        config.AgentConfig{DefaultModel: "deepseek-pro"},
+		Providers:    map[string]config.ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
+		ModelAliases: map[string]config.ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"}},
+		Runner:       config.RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: config.Duration(time.Minute), Retention: config.Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
+		Scheduler:    config.SchedulerConfig{HeartbeatCadence: config.Duration(30 * time.Minute), QuietHours: config.QuietHoursConfig{Start: "22:00", End: "07:00", Timezone: "UTC"}, MinimumProactiveInterval: config.Duration(time.Hour), WeeklyProactiveLimit: 3},
 	}
 }
 
-func appTestSecrets(providerKey string) Secrets {
-	return Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", ProviderAPIKeys: map[string]string{"deepseek": providerKey}}
+func appTestSecrets(providerKey string) config.Secrets {
+	return config.Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", ProviderAPIKeys: map[string]string{"deepseek": providerKey}}
 }
 
 type appRoundTrip func(*http.Request) (*http.Response, error)
@@ -1265,9 +1268,9 @@ func appJSON(status int, body string) *http.Response {
 // output to the web channel rather than panicking on a nil Telegram client.
 func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Owner = OwnerConfig{ID: "owner-42"}
-	cfg.Telegram = TelegramConfig{}
-	secrets := Secrets{ProviderAPIKeys: map[string]string{"deepseek": "deepseek"}}
+	cfg.Owner = config.OwnerConfig{ID: "owner-42"}
+	cfg.Telegram = config.TelegramConfig{}
+	secrets := config.Secrets{ProviderAPIKeys: map[string]string{"deepseek": "deepseek"}}
 
 	app, err := NewApp(cfg, secrets, AppOptions{})
 	if err != nil {

@@ -10,13 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
-)
-
-// Log file names inside <home>/logs.
-const (
-	GatewayLogName = "gateway.log"
-	ErrorsLogName  = "errors.log"
 )
 
 // maxLogBytes caps each log file. On reaching it the file is rolled to
@@ -24,45 +19,22 @@ const (
 // with logs and lose the state it is actually there to keep.
 const maxLogBytes = 8 << 20
 
-// Values returns every secret Eggy currently holds, for redaction. Empty
-// values are skipped: redacting "" would replace every byte of every line.
-func (s Secrets) Values() []string {
-	values := []string{
-		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
-		s.GoogleClientID, s.GoogleClientSecret, s.EncryptionKey,
-		s.WebSearchAPIKey, s.UIPassword,
-	}
-	for _, key := range s.ProviderAPIKeys {
-		values = append(values, key)
-	}
-	for _, token := range s.MCPBearerTokens {
-		values = append(values, token)
-	}
-	kept := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			kept = append(kept, value)
-		}
-	}
-	return kept
-}
-
 // NewLogger builds the process logger: human-readable lines on stderr, the
 // same lines in <home>/logs/gateway.log, and errors alone in
 // <home>/logs/errors.log so a problem is one file away rather than buried.
 //
 // Every writer is wrapped in a redactor, so a secret that reaches a log line
 // through an error string or a URL never lands on disk in the clear.
-func NewLogger(layout home.Layout, secrets Secrets) (*slog.Logger, io.Closer, error) {
+func NewLogger(layout home.Layout, secrets config.Secrets) (*slog.Logger, io.Closer, error) {
 	if err := layout.Ensure(); err != nil {
 		return nil, nil, err
 	}
 	values := secrets.Values()
-	gateway, err := openLogFile(filepath.Join(layout.Logs(), GatewayLogName))
+	gateway, err := openLogFile(filepath.Join(layout.Logs(), home.GatewayLogName))
 	if err != nil {
 		return nil, nil, err
 	}
-	errorsFile, err := openLogFile(filepath.Join(layout.Logs(), ErrorsLogName))
+	errorsFile, err := openLogFile(filepath.Join(layout.Logs(), home.ErrorsLogName))
 	if err != nil {
 		gateway.Close()
 		return nil, nil, err

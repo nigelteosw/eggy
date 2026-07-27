@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 )
 
@@ -50,11 +51,11 @@ func run() error {
 	if *configPath == "" {
 		*configPath = layout.Config()
 	}
-	getenv, err := bootstrap.DotEnv(envFilePath(layout), os.Getenv)
+	getenv, err := config.DotEnv(envFilePath(layout), os.Getenv)
 	if err != nil {
 		return fmt.Errorf("load .env: %w", err)
 	}
-	config, secrets, err := bootstrap.LoadOrCreateConfig(*configPath, getenv)
+	config, secrets, err := config.LoadOrCreateConfig(*configPath, getenv)
 	if err != nil {
 		return err
 	}

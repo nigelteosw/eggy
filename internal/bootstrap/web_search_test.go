@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 )
 
@@ -22,9 +23,9 @@ func TestWebSearchToolIsAbsentWithoutEnvironment(t *testing.T) {
 
 func TestWebSearchToolIsRegisteredWhenConfigured(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.WebSearch = WebSearchConfig{
+	cfg.WebSearch = config.WebSearchConfig{
 		Adapter: "searxng", BaseURLEnv: "WEB_SEARCH_API",
-		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+		Timeout: config.Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
 	}
 	secrets := appTestSecrets("deepseek")
 	secrets.WebSearchBaseURL = "https://search.example.com"
@@ -45,9 +46,9 @@ func TestWebSearchToolIsRegisteredWhenConfigured(t *testing.T) {
 
 func TestFakeWebSearchRegistrationMakesNoNetworkCall(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.WebSearch = WebSearchConfig{
+	cfg.WebSearch = config.WebSearchConfig{
 		Adapter: "searxng", BaseURLEnv: "WEB_SEARCH_API",
-		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+		Timeout: config.Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
 	}
 	secrets := appTestSecrets("deepseek")
 	secrets.WebSearchBaseURL = "https://search.example.com"
@@ -63,11 +64,11 @@ func TestFakeWebSearchRegistrationMakesNoNetworkCall(t *testing.T) {
 	}
 }
 
-func googleCSEConfig(dataDir string) Config {
+func googleCSEConfig(dataDir string) config.Config {
 	cfg := appTestConfig(dataDir)
-	cfg.WebSearch = WebSearchConfig{
+	cfg.WebSearch = config.WebSearchConfig{
 		Adapter: "google_cse", APIKeyEnv: "GOOGLE_CSE_KEY", EngineIDEnv: "GOOGLE_CSE_ID",
-		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+		Timeout: config.Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
 	}
 	return cfg
 }
@@ -130,9 +131,9 @@ func intPointer(value int) *int { return &value }
 
 func TestTavilyToolIsRegisteredWithKeyAlone(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.WebSearch = WebSearchConfig{
+	cfg.WebSearch = config.WebSearchConfig{
 		Adapter: "tavily", APIKeyEnv: "TAVILY_API_KEY", SearchDepth: "basic",
-		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+		Timeout: config.Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
 	}
 	secrets := appTestSecrets("deepseek")
 	secrets.WebSearchAPIKey = "test-key"
@@ -147,9 +148,9 @@ func TestTavilyToolIsRegisteredWithKeyAlone(t *testing.T) {
 
 func TestTavilyToolIsAbsentWithoutKey(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.WebSearch = WebSearchConfig{
+	cfg.WebSearch = config.WebSearchConfig{
 		Adapter: "tavily", APIKeyEnv: "TAVILY_API_KEY", SearchDepth: "basic",
-		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+		Timeout: config.Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
 	}
 	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {

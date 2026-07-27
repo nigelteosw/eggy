@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/config"
 )
 
 func TestMCPCLILoadsOnlyMCPSecretsAndRuntime(t *testing.T) {
@@ -27,7 +28,7 @@ mcp:
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config, secrets, err := bootstrap.LoadMCPConfig(path, func(string) string { return "" })
+	config, secrets, err := config.LoadMCPConfig(path, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
 
@@ -87,7 +88,7 @@ func TestAMessageDeliveredMidTurnChangesTheTurnsSubsequentToolCalls(t *testing.T
 // was working in stays attached so they can look at it or continue.
 func TestStopMidTurnLeavesTheWorkspaceInspectable(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []RepositoryConfig{{Name: "eggy", CloneURL: createLocalGitRemote(t), BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: createLocalGitRemote(t), BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	var modelBodies [][]byte
 	var delivered []string
 	var app *App

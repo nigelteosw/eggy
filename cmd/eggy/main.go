@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
+	"github.com/nigelteosw/eggy/internal/commands"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 )
 
@@ -45,15 +47,15 @@ func run(arguments []string) error {
 	}
 	args := flags.Args()
 	if len(args) == 0 {
-		fmt.Println(bootstrap.HelpText(""))
+		fmt.Println(commands.HelpText(""))
 		return nil
 	}
 	if args[0] == "help" {
-		fmt.Println(bootstrap.HelpText(strings.Join(args[1:], " ")))
+		fmt.Println(commands.HelpText(strings.Join(args[1:], " ")))
 		return nil
 	}
 	if args[0] == "config" {
-		result, handled, err := bootstrap.ExecuteConfigCLI(context.Background(), *configPath, args)
+		result, handled, err := commands.ExecuteConfigCLI(context.Background(), *configPath, args)
 		if err != nil {
 			return err
 		}
@@ -63,12 +65,12 @@ func run(arguments []string) error {
 		fmt.Println(result.RenderPlainText())
 		return nil
 	}
-	getenv, err := bootstrap.DotEnv(envFilePath(layout), os.Getenv)
+	getenv, err := config.DotEnv(envFilePath(layout), os.Getenv)
 	if err != nil {
 		return err
 	}
 	if args[0] == "mcp" {
-		config, secrets, err := bootstrap.LoadMCPConfig(*configPath, getenv)
+		config, secrets, err := config.LoadMCPConfig(*configPath, getenv)
 		if err != nil {
 			return err
 		}
@@ -82,7 +84,7 @@ func run(arguments []string) error {
 		fmt.Println(result.RenderPlainText())
 		return nil
 	}
-	config, secrets, err := bootstrap.LoadOrCreateConfig(*configPath, getenv)
+	config, secrets, err := config.LoadOrCreateConfig(*configPath, getenv)
 	if err != nil {
 		return err
 	}

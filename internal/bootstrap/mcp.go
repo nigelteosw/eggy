@@ -8,11 +8,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/commands"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
-func newMCPManager(ctx context.Context, config Config, secrets Secrets, options AppOptions) (*mcpadapter.Manager, error) {
+func newMCPManager(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions) (*mcpadapter.Manager, error) {
 	if len(config.MCP.Servers) == 0 {
 		return nil, nil
 	}
@@ -54,20 +56,20 @@ func newMCPManager(ctx context.Context, config Config, secrets Secrets, options 
 	return mcpadapter.NewManager(ctx, servers, mcpadapter.Options{HTTPClient: options.HTTPClient, OAuthStore: oauthStore, Now: options.Now})
 }
 
-func ExecuteMCPCLI(ctx context.Context, config Config, secrets Secrets, options AppOptions, args []string) (CommandResult, bool, error) {
+func ExecuteMCPCLI(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions, args []string) (commands.CommandResult, bool, error) {
 	manager, err := newMCPManager(ctx, config, secrets, options)
 	if err != nil {
-		return CommandResult{}, false, err
+		return commands.CommandResult{}, false, err
 	}
-	service := &CommandService{config: config}
+	service := commands.New(commands.Options{Config: config})
 	if manager != nil {
-		// Assigning manager to service.mcp unconditionally, even when nil,
-		// would store a non-nil MCPCommands interface wrapping a nil
-		// *mcpadapter.Manager: service.mcp == nil then reads false, and every
-		// handler's "is MCP configured" guard calls a method on a nil
-		// receiver instead of reporting "not configured".
+		// Guarded rather than passed straight into Options: calling SetMCP
+		// with a nil *mcpadapter.Manager would store a non-nil MCPCommands
+		// wrapping a nil pointer, and every handler's "is MCP configured"
+		// guard would then call a method on a nil receiver instead of
+		// reporting "not configured".
 		defer manager.Close()
-		service.mcp = manager
+		service.SetMCP(manager)
 	}
 	return service.ExecuteCLI(ctx, args)
 }

@@ -1,0 +1,206 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/nigelteosw/eggy/plugins/filelock"
+	"gopkg.in/yaml.v3"
+)
+
+func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secrets, error) {
+	if _, err := os.Stat(path); err == nil {
+		if err := migrateLegacyRunnerRoot(path); err != nil {
+			return Config{}, Secrets{}, err
+		}
+		return LoadConfig(path, getenv)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Config{}, Secrets{}, fmt.Errorf("stat config: %w", err)
+	}
+	if err := initializeConfig(path, getenv); err != nil {
+		return Config{}, Secrets{}, err
+	}
+	return LoadConfig(path, getenv)
+}
+
+// migrateLegacyRunnerRoot upgrades Eggy's former temporary default without
+// accepting arbitrary workspace paths outside the persistent data directory.
+func migrateLegacyRunnerRoot(path string) error {
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		if filepath.Clean(cfg.Runner.Root) != "/tmp/runs" {
+			return nil
+		}
+		cfg.Runner.Root = filepath.Join(cfg.DataDir, "runs")
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+func initializeConfig(path string, getenv func(string) string) error {
+	return filelock.With(path, func() error {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat config: %w", err)
+		}
+		cfg, err := firstBootConfig(getenv)
+		if err != nil {
+			return fmt.Errorf("generate config: %w", err)
+		}
+		body, err := yaml.Marshal(cfg)
+		if err != nil {
+			return fmt.Errorf("marshal generated config: %w", err)
+		}
+		temporary, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
+		if err != nil {
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		temporaryPath := temporary.Name()
+		defer os.Remove(temporaryPath)
+		if err := temporary.Chmod(0o600); err != nil {
+			temporary.Close()
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		if _, err := temporary.Write(body); err != nil {
+			temporary.Close()
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		if err := temporary.Sync(); err != nil {
+			temporary.Close()
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		if err := temporary.Close(); err != nil {
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		if err := os.Rename(temporaryPath, path); err != nil {
+			return fmt.Errorf("persist generated config: %w", err)
+		}
+		return nil
+	})
+}
+
+func firstBootConfig(getenv func(string) string) (Config, error) {
+	// EGGY_TELEGRAM_OWNER_ID configures Telegram and derives the canonical
+	// owner identity from it. A web-only deployment sets EGGY_OWNER_ID
+	// instead and gets no Telegram block at all -- and so needs no bot
+	// token or webhook secret either.
+	var telegram TelegramConfig
+	ownerValue := strings.TrimSpace(getenv("EGGY_TELEGRAM_OWNER_ID"))
+	if ownerValue != "" {
+		ownerID, err := strconv.ParseInt(ownerValue, 10, 64)
+		if err != nil || ownerID <= 0 {
+			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID must be a positive integer")
+		}
+		telegram = TelegramConfig{OwnerID: ownerID}
+	} else {
+		ownerValue = strings.TrimSpace(getenv("EGGY_OWNER_ID"))
+		if ownerValue == "" {
+			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID is required, or EGGY_OWNER_ID for a web-only deployment")
+		}
+	}
+	publicBaseURL := strings.TrimSpace(getenv("EGGY_PUBLIC_BASE_URL"))
+	if publicBaseURL == "" {
+		domain := strings.TrimSpace(getenv("RAILWAY_PUBLIC_DOMAIN"))
+		if domain == "" {
+			return Config{}, errors.New("EGGY_PUBLIC_BASE_URL is required when RAILWAY_PUBLIC_DOMAIN is unavailable")
+		}
+		publicBaseURL = "https://" + domain
+	}
+	cfg := Config{
+		Server: ServerConfig{
+			Listen:              ":8080",
+			PublicBaseURL:       publicBaseURL,
+			TelegramWebhookPath: "/webhooks/telegram",
+		},
+		DataDir:  "/data",
+		Owner:    OwnerConfig{ID: ownerValue},
+		Telegram: telegram,
+		Agent:    AgentConfig{DefaultModel: "deepseek-pro"},
+		Providers: map[string]ProviderConfig{
+			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},
+		},
+		ModelAliases: map[string]ModelAliasConfig{
+			"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"},
+		},
+		Embeddings:   EmbeddingsConfig{},
+		Repositories: []RepositoryConfig{},
+		Runner: RunnerConfig{
+			Root:           "/data/runs",
+			Timeout:        Duration(45 * time.Minute),
+			Retention:      Duration(30 * time.Minute),
+			MaxOutputBytes: 1 << 20,
+			AllowedEnv:     []string{"PATH", "LANG", "LC_ALL", "TERM"},
+		},
+		ImplementationSessions: ImplementationSessionConfig{
+			ContextBudgetChars: 96000,
+			RecentMessages:     16,
+			OutputExcerptChars: 8192,
+		},
+		Scheduler: SchedulerConfig{
+			HeartbeatCadence: Duration(30 * time.Minute),
+			QuietHours: QuietHoursConfig{
+				Start:    "22:00",
+				End:      "07:00",
+				Timezone: "Asia/Singapore",
+			},
+			MinimumProactiveInterval: Duration(2 * time.Hour),
+			WeeklyProactiveLimit:     5,
+		},
+		Calendar: CalendarConfig{Enabled: false, DefaultCalendar: "primary", Timezone: "Asia/Singapore"},
+		WebSearch: WebSearchConfig{
+			Adapter: "searxng", BaseURLEnv: "WEB_SEARCH_API",
+			Timeout: Duration(15 * time.Second), MaxResults: 8,
+		},
+	}
+	if repositoryURL := strings.TrimSpace(getenv("EGGY_REPOSITORY_URL")); repositoryURL != "" {
+		name := strings.TrimSpace(getenv("EGGY_REPOSITORY_NAME"))
+		if name == "" {
+			name = "eggy"
+		}
+		baseBranch := strings.TrimSpace(getenv("EGGY_REPOSITORY_BASE_BRANCH"))
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+		protectedBranches, err := firstBootProtectedBranches(getenv("EGGY_REPOSITORY_PROTECTED_BRANCHES"), baseBranch)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Repositories = []RepositoryConfig{{Name: name, CloneURL: repositoryURL, BaseBranch: baseBranch, ProtectedBranches: protectedBranches}}
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func firstBootProtectedBranches(raw, baseBranch string) ([]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return []string{baseBranch}, nil
+	}
+	branches := make([]string, 0)
+	for _, branch := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(branch); trimmed != "" {
+			branches = append(branches, trimmed)
+		}
+	}
+	if len(branches) == 0 {
+		return nil, errors.New("EGGY_REPOSITORY_PROTECTED_BRANCHES must contain at least one branch")
+	}
+	return branches, nil
+}

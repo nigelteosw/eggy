@@ -52,6 +52,14 @@ func At(dir string) Layout {
 	return Layout{Root: filepath.Clean(dir)}
 }
 
+// Log file names inside <home>/logs. They live here with the rest of the
+// layout's names because two packages need them: the logger that writes the
+// files, and the files API that lists them.
+const (
+	GatewayLogName = "gateway.log"
+	ErrorsLogName  = "errors.log"
+)
+
 func (l Layout) Config() string    { return filepath.Join(l.Root, "config.yaml") }
 func (l Layout) Env() string       { return filepath.Join(l.Root, ".env") }
 func (l Layout) Auth() string      { return filepath.Join(l.Root, "auth.json") }

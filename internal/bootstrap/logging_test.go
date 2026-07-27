@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 )
 
@@ -14,7 +15,7 @@ import (
 // readable in gateway.log afterwards.
 func TestLoggerRedactsSecretsOnDisk(t *testing.T) {
 	layout := home.At(t.TempDir())
-	secrets := Secrets{
+	secrets := config.Secrets{
 		TelegramBotToken: "telegram-token-value",
 		GitHubToken:      "github-token-value",
 		ProviderAPIKeys:  map[string]string{"deepseek": "deepseek-key-value"},
@@ -29,8 +30,8 @@ func TestLoggerRedactsSecretsOnDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gateway := readLog(t, layout, GatewayLogName)
-	errorsLog := readLog(t, layout, ErrorsLogName)
+	gateway := readLog(t, layout, home.GatewayLogName)
+	errorsLog := readLog(t, layout, home.ErrorsLogName)
 	for _, secret := range []string{"deepseek-key-value", "github-token-value", "telegram-token-value"} {
 		if strings.Contains(gateway, secret) {
 			t.Fatalf("gateway.log leaked %q:\n%s", secret, gateway)
@@ -48,7 +49,7 @@ func TestLoggerRedactsSecretsOnDisk(t *testing.T) {
 // operator can actually scan, not a second copy of everything.
 func TestErrorsLogHoldsOnlyErrors(t *testing.T) {
 	layout := home.At(t.TempDir())
-	logger, closer, err := NewLogger(layout, Secrets{})
+	logger, closer, err := NewLogger(layout, config.Secrets{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,11 +58,11 @@ func TestErrorsLogHoldsOnlyErrors(t *testing.T) {
 	if err := closer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	gateway := readLog(t, layout, GatewayLogName)
+	gateway := readLog(t, layout, home.GatewayLogName)
 	if !strings.Contains(gateway, "routine startup") || !strings.Contains(gateway, "something broke") {
 		t.Fatalf("gateway.log is missing records:\n%s", gateway)
 	}
-	errorsLog := readLog(t, layout, ErrorsLogName)
+	errorsLog := readLog(t, layout, home.ErrorsLogName)
 	if strings.Contains(errorsLog, "routine startup") {
 		t.Fatalf("errors.log captured a non-error:\n%s", errorsLog)
 	}
@@ -72,12 +73,12 @@ func TestErrorsLogHoldsOnlyErrors(t *testing.T) {
 
 func TestLogFilesAreOwnerOnly(t *testing.T) {
 	layout := home.At(t.TempDir())
-	_, closer, err := NewLogger(layout, Secrets{})
+	_, closer, err := NewLogger(layout, config.Secrets{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closer.Close()
-	for _, name := range []string{GatewayLogName, ErrorsLogName} {
+	for _, name := range []string{home.GatewayLogName, home.ErrorsLogName} {
 		info, err := os.Stat(filepath.Join(layout.Logs(), name))
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode().Perm(), err)
@@ -88,7 +89,7 @@ func TestLogFilesAreOwnerOnly(t *testing.T) {
 // TestSecretValuesSkipsEmptyStrings guards the redactor's worst failure
 // mode: an empty secret would match between every byte of every line.
 func TestSecretValuesSkipsEmptyStrings(t *testing.T) {
-	values := Secrets{GitHubToken: "real", GoogleClientID: "", ProviderAPIKeys: map[string]string{"a": " "}}.Values()
+	values := config.Secrets{GitHubToken: "real", GoogleClientID: "", ProviderAPIKeys: map[string]string{"a": " "}}.Values()
 	if len(values) != 1 || values[0] != "real" {
 		t.Fatalf("values=%#v", values)
 	}

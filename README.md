@@ -165,18 +165,32 @@ Creates use a deterministic event ID derived from the approved idempotency key. 
 
 ## Web search
 
-Web search is optional. Set `WEB_SEARCH_API` on Eggy's service to the reachable
-base URL of a SearXNG instance:
+Web search is optional, and three adapters are available. Select one with
+`web_search.adapter` in `config.yaml`; each reads its own environment
+variables:
+
+| Adapter | Variables | Notes |
+| --- | --- | --- |
+| `searxng` | `WEB_SEARCH_API` | Self-hosted or public instance. No API key. |
+| `tavily` | `TAVILY_API_KEY` | Built for agents; returns extracted page content rather than a SERP snippet. |
+| `google_cse` | `GOOGLE_CSE_KEY`, `GOOGLE_CSE_ID` | Google Programmable Search Engine. Both values required. |
 
 ```dotenv
 WEB_SEARCH_API=https://your-searxng-domain.up.railway.app/
 ```
 
-When the variable is unset or blank, Eggy does not construct the adapter,
-register the `web_search` tool, or change ordinary startup. When configured,
-the read-only tool is available to direct owner turns; scheduled and heartbeat
-turns do not receive it. A temporary search outage fails only that tool call
-and does not prevent Eggy from starting.
+When the selected adapter's variables are unset or blank, Eggy does not
+construct the adapter, register the `web_search` tool, or change ordinary
+startup. When configured, the read-only tool is available to direct owner
+turns; scheduled and heartbeat turns do not receive it. A temporary search
+outage fails only that tool call and does not prevent Eggy from starting.
+
+The API-key adapters authenticate every request, so unlike a scraping backend
+they are unaffected by the datacenter IP blocking that can degrade a hosted
+SearXNG instance. For them `WEB_SEARCH_API` is not required; it serves only as
+an endpoint override.
+
+The rest of this section covers the `searxng` adapter specifically.
 
 SearXNG keeps its own `SEARXNG_BASE_URL` and `SEARXNG_SECRET` on the SearXNG
 service. Eggy needs neither value as a credential and must never receive

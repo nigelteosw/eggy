@@ -63,4 +63,99 @@ func TestFakeWebSearchRegistrationMakesNoNetworkCall(t *testing.T) {
 	}
 }
 
+func googleCSEConfig(dataDir string) Config {
+	cfg := appTestConfig(dataDir)
+	cfg.WebSearch = WebSearchConfig{
+		Adapter: "google_cse", APIKeyEnv: "GOOGLE_CSE_KEY", EngineIDEnv: "GOOGLE_CSE_ID",
+		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+	}
+	return cfg
+}
+
+func TestGoogleCSEToolIsRegisteredWhenBothSecretsAreSet(t *testing.T) {
+	secrets := appTestSecrets("deepseek")
+	secrets.WebSearchAPIKey = "test-key"
+	secrets.WebSearchEngineID = "test-cx"
+	app, err := NewApp(googleCSEConfig(t.TempDir()), secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := app.loop.ToolNames(agent.RunOptions{}); !slices.Contains(names, "web_search") {
+		t.Fatalf("direct tools=%v", names)
+	}
+}
+
+// Google CSE needs both the key and the engine ID, so a half-configured
+// deployment must start without web search rather than fail at startup.
+func TestGoogleCSEToolIsAbsentWhenPartiallyConfigured(t *testing.T) {
+	tests := []struct {
+		name     string
+		apiKey   string
+		engineID string
+	}{
+		{name: "neither"},
+		{name: "key only", apiKey: "test-key"},
+		{name: "engine only", engineID: "test-cx"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			secrets := appTestSecrets("deepseek")
+			secrets.WebSearchAPIKey = test.apiKey
+			secrets.WebSearchEngineID = test.engineID
+			app, err := NewApp(googleCSEConfig(t.TempDir()), secrets, AppOptions{FakeAdapters: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if names := app.loop.ToolNames(agent.RunOptions{}); slices.Contains(names, "web_search") {
+				t.Fatalf("tools=%v", names)
+			}
+		})
+	}
+}
+
+// A SearXNG base URL must not enable the Google CSE adapter.
+func TestGoogleCSEIgnoresSearXNGBaseURL(t *testing.T) {
+	secrets := appTestSecrets("deepseek")
+	secrets.WebSearchBaseURL = "https://search.example.com"
+	app, err := NewApp(googleCSEConfig(t.TempDir()), secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := app.loop.ToolNames(agent.RunOptions{}); slices.Contains(names, "web_search") {
+		t.Fatalf("tools=%v", names)
+	}
+}
+
 func intPointer(value int) *int { return &value }
+
+func TestTavilyToolIsRegisteredWithKeyAlone(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.WebSearch = WebSearchConfig{
+		Adapter: "tavily", APIKeyEnv: "TAVILY_API_KEY", SearchDepth: "basic",
+		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+	}
+	secrets := appTestSecrets("deepseek")
+	secrets.WebSearchAPIKey = "test-key"
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := app.loop.ToolNames(agent.RunOptions{}); !slices.Contains(names, "web_search") {
+		t.Fatalf("direct tools=%v", names)
+	}
+}
+
+func TestTavilyToolIsAbsentWithoutKey(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.WebSearch = WebSearchConfig{
+		Adapter: "tavily", APIKeyEnv: "TAVILY_API_KEY", SearchDepth: "basic",
+		Timeout: Duration(15 * time.Second), MaxResults: 8, SafeSearch: intPointer(1),
+	}
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := app.loop.ToolNames(agent.RunOptions{}); slices.Contains(names, "web_search") {
+		t.Fatalf("tools=%v", names)
+	}
+}

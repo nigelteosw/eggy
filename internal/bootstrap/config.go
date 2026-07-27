@@ -137,12 +137,14 @@ type CalendarConfig struct {
 }
 
 type WebSearchConfig struct {
-	Adapter    string   `yaml:"adapter"`
-	BaseURLEnv string   `yaml:"base_url_env"`
-	APIKeyEnv  string   `yaml:"api_key_env,omitempty"`
-	Timeout    Duration `yaml:"timeout"`
-	MaxResults int      `yaml:"max_results"`
-	SafeSearch *int     `yaml:"safe_search,omitempty"`
+	Adapter     string   `yaml:"adapter"`
+	BaseURLEnv  string   `yaml:"base_url_env,omitempty"`
+	APIKeyEnv   string   `yaml:"api_key_env,omitempty"`
+	EngineIDEnv string   `yaml:"engine_id_env,omitempty"`
+	SearchDepth string   `yaml:"search_depth,omitempty"`
+	Timeout     Duration `yaml:"timeout"`
+	MaxResults  int      `yaml:"max_results"`
+	SafeSearch  *int     `yaml:"safe_search,omitempty"`
 }
 
 func (c WebSearchConfig) SafeSearchValue() int {
@@ -186,6 +188,7 @@ type Secrets struct {
 	MCPBearerTokens       map[string]string
 	WebSearchBaseURL      string
 	WebSearchAPIKey       string
+	WebSearchEngineID     string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -236,15 +239,20 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
 		GitHubToken:    getenv("GITHUB_TOKEN"),
 		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:    getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:      getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:       getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys:  map[string]string{},
-		MCPBearerTokens:  map[string]string{},
-		WebSearchBaseURL: strings.TrimSpace(getenv(cfg.WebSearch.BaseURLEnv)),
+		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:      getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys: map[string]string{},
+		MCPBearerTokens: map[string]string{},
+	}
+	if cfg.WebSearch.BaseURLEnv != "" {
+		secrets.WebSearchBaseURL = strings.TrimSpace(getenv(cfg.WebSearch.BaseURLEnv))
 	}
 	if cfg.WebSearch.APIKeyEnv != "" {
-		secrets.WebSearchAPIKey = getenv(cfg.WebSearch.APIKeyEnv)
+		secrets.WebSearchAPIKey = strings.TrimSpace(getenv(cfg.WebSearch.APIKeyEnv))
+	}
+	if cfg.WebSearch.EngineIDEnv != "" {
+		secrets.WebSearchEngineID = strings.TrimSpace(getenv(cfg.WebSearch.EngineIDEnv))
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
@@ -384,8 +392,27 @@ func (c *Config) applyDefaults() error {
 	if c.WebSearch.Adapter == "" {
 		c.WebSearch.Adapter = "searxng"
 	}
-	if c.WebSearch.BaseURLEnv == "" {
-		c.WebSearch.BaseURLEnv = "WEB_SEARCH_API"
+	// Each adapter is enabled by its own secrets, so each defaults only the
+	// environment names it actually reads.
+	switch c.WebSearch.Adapter {
+	case "searxng":
+		if c.WebSearch.BaseURLEnv == "" {
+			c.WebSearch.BaseURLEnv = "WEB_SEARCH_API"
+		}
+	case "google_cse":
+		if c.WebSearch.APIKeyEnv == "" {
+			c.WebSearch.APIKeyEnv = "GOOGLE_CSE_KEY"
+		}
+		if c.WebSearch.EngineIDEnv == "" {
+			c.WebSearch.EngineIDEnv = "GOOGLE_CSE_ID"
+		}
+	case "tavily":
+		if c.WebSearch.APIKeyEnv == "" {
+			c.WebSearch.APIKeyEnv = "TAVILY_API_KEY"
+		}
+		if c.WebSearch.SearchDepth == "" {
+			c.WebSearch.SearchDepth = "basic"
+		}
 	}
 	if c.WebSearch.Timeout == 0 {
 		c.WebSearch.Timeout = Duration(15 * time.Second)
@@ -488,14 +515,36 @@ func (c Config) Validate() error {
 }
 
 func (c Config) validateWebSearch() error {
-	if c.WebSearch.Adapter != "searxng" {
+	switch c.WebSearch.Adapter {
+	case "searxng":
+		if c.WebSearch.BaseURLEnv == "" {
+			return errors.New("web_search.base_url_env is required for the searxng adapter")
+		}
+	case "google_cse":
+		if c.WebSearch.APIKeyEnv == "" {
+			return errors.New("web_search.api_key_env is required for the google_cse adapter")
+		}
+		if c.WebSearch.EngineIDEnv == "" {
+			return errors.New("web_search.engine_id_env is required for the google_cse adapter")
+		}
+	case "tavily":
+		if c.WebSearch.APIKeyEnv == "" {
+			return errors.New("web_search.api_key_env is required for the tavily adapter")
+		}
+		if c.WebSearch.SearchDepth != "basic" && c.WebSearch.SearchDepth != "advanced" {
+			return errors.New(`web_search.search_depth must be "basic" or "advanced"`)
+		}
+	default:
 		return fmt.Errorf("unsupported web search adapter %q", c.WebSearch.Adapter)
 	}
-	if !environmentNamePattern.MatchString(c.WebSearch.BaseURLEnv) {
+	if c.WebSearch.BaseURLEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.BaseURLEnv) {
 		return errors.New("web_search.base_url_env is invalid")
 	}
 	if c.WebSearch.APIKeyEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.APIKeyEnv) {
 		return errors.New("web_search.api_key_env is invalid")
+	}
+	if c.WebSearch.EngineIDEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.EngineIDEnv) {
+		return errors.New("web_search.engine_id_env is invalid")
 	}
 	if c.WebSearch.Timeout.Value() <= 0 {
 		return errors.New("web_search.timeout must be positive")

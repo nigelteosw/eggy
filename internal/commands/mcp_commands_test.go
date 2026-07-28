@@ -12,15 +12,14 @@ import (
 
 func TestMCPCommandsUseManager(t *testing.T) {
 	fake := &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway", State: mcpadapter.StateReady, Tools: 3}}, loginURL: "https://auth.example/authorize?opaque=redacted"}
-	restarts := 0
-	commands := &CommandService{mcp: fake, restart: func() { restarts++ }}
+	commands := &CommandService{mcp: fake}
 	tests := []struct{ input, want string }{
 		{"/mcp", "railway"},
 		{"/mcp status railway", "ready"},
 		{"/mcp probe railway", "Latency"},
 		{"/mcp login railway", "https://auth.example/authorize"},
 		{"/mcp logout railway", "Logged out"},
-		{"/mcp reload railway", "Restarting"},
+		{"/mcp reload railway", "Reloaded"},
 	}
 	for _, test := range tests {
 		output, handled, err := commands.Execute(context.Background(), test.input)
@@ -31,8 +30,8 @@ func TestMCPCommandsUseManager(t *testing.T) {
 			t.Fatalf("credential material in %s output: %s", test.input, output)
 		}
 	}
-	if fake.probes != 1 || fake.logins != 1 || fake.logouts != 1 || restarts != 2 {
-		t.Fatalf("fake=%#v restarts=%d", fake, restarts)
+	if fake.probes != 1 || fake.logins != 1 || fake.logouts != 1 || fake.refreshes != 1 {
+		t.Fatalf("fake=%#v", fake)
 	}
 }
 
@@ -49,20 +48,30 @@ func TestMCPCommandsValidateConfigurationAndUsage(t *testing.T) {
 	}
 }
 
-func TestMCPLogoutDoesNotClaimRestartWithoutCallback(t *testing.T) {
-	commands := &CommandService{mcp: &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway"}}}}
-	output, handled, err := commands.Execute(context.Background(), "/mcp logout railway")
-	if err != nil || !handled || strings.Contains(output, "Restarting Eggy") || !strings.Contains(output, "Restart Eggy") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+// Logging out and reloading are in-process operations now: neither may claim
+// a restart, and neither may trigger one.
+func TestMCPLogoutAndReloadDoNotRestart(t *testing.T) {
+	restarts := 0
+	fake := &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway", State: mcpadapter.StateReady, Tools: 3}}}
+	commands := &CommandService{mcp: fake, restart: func() { restarts++ }}
+	for _, input := range []string{"/mcp logout railway", "/mcp reload railway"} {
+		output, handled, err := commands.Execute(context.Background(), input)
+		if err != nil || !handled || strings.Contains(output, "estart") {
+			t.Fatalf("%s output=%q handled=%v err=%v", input, output, handled, err)
+		}
+	}
+	if restarts != 0 {
+		t.Fatalf("restarts=%d", restarts)
 	}
 }
 
 type fakeMCPCommands struct {
-	statuses []mcpadapter.ServerStatus
-	loginURL string
-	probes   int
-	logins   int
-	logouts  int
+	statuses  []mcpadapter.ServerStatus
+	loginURL  string
+	probes    int
+	logins    int
+	logouts   int
+	refreshes int
 }
 
 func (f *fakeMCPCommands) Statuses() []mcpadapter.ServerStatus { return f.statuses }
@@ -85,4 +94,5 @@ func (f *fakeMCPCommands) BeginLogin(context.Context, string) (string, error) {
 	}
 	return f.loginURL, nil
 }
-func (f *fakeMCPCommands) Logout(string) error { f.logouts++; return nil }
+func (f *fakeMCPCommands) Logout(string) error                   { f.logouts++; return nil }
+func (f *fakeMCPCommands) Refresh(context.Context, string) error { f.refreshes++; return nil }

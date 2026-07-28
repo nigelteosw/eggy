@@ -21,7 +21,7 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
 - Optional provider-neutral native web search, initially backed by a private or public SearXNG JSON API.
-- Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated server failures, and encrypted durable OAuth.
+- Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated per-tool failures, live reconnect and catalog reload without a restart, and encrypted durable OAuth.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
 - `eggyd`, the companion `eggy` CLI, Docker, Railway, and a fake-adapter smoke mode.
 - An optional embedded web UI: session-authenticated multi-threaded chat with SSE streaming and inline approvals, plus a settings panel for providers/models/calendar/MCP — an independent channel into the same agent core as Telegram, not a mirror of it.
@@ -226,9 +226,9 @@ Set `EGGY_ENCRYPTION_KEY`, deploy or restart Eggy, then authorize Railway from t
 /mcp status railway
 ```
 
-Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted in `/data/auth.json`, requests a controlled restart, and discovers the filtered tool catalog. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record, while `/mcp reload railway` restarts Eggy to rediscover a changed catalog.
+Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted in `/data/auth.json`, connects, and discovers the filtered tool catalog — no restart. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record and drops only its tools, while `/mcp reload railway` reconnects the server and rediscovers a changed catalog. Only adding or editing a server definition in `config.yaml` needs a restart.
 
-MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server. Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
+MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server, and it is not permanent: a server that was down at boot, or whose session died, is reconnected by the next call, a probe, or `/mcp reload`. A tool name that collides with another server's costs that one tool a warning, not the server. Repeated failures of one tool put that tool alone into a configured cooldown (`failure_threshold`, `cooldown`). Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
 
 Additional remote servers use the same adapter. Add another named entry beneath `mcp.servers`, choose `auth: oauth`, `auth: bearer-env` with `bearer_token_env: SOME_ENV_NAME`, or `auth: none`, and set exact `tool_filter.include`/`exclude` names. Version 1 supports Streamable HTTP tools only—not stdio, legacy SSE, resources, prompts, roots, sampling, elicitation, or MCP Apps.
 

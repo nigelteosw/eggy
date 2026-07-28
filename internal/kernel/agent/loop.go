@@ -70,6 +70,7 @@ type RunResult struct {
 type Loop struct {
 	tools    map[string]ports.Tool
 	defs     []ports.ToolDefinition
+	dynamic  func() []ports.Tool
 	selected map[string]ModelTarget
 	policy   ContextPolicy
 }
@@ -96,6 +97,39 @@ func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, policy C
 	}
 }
 
+// SetDynamicTools installs a source of tools that can change while the
+// process runs, such as an MCP catalog that reconnects or reloads. The source
+// is read once per turn, so a changed catalog takes effect on the next turn
+// without rebuilding the loop.
+//
+// A dynamic tool can never shadow a registered one: the static registry wins
+// every name collision, which is what keeps the kernel primitives
+// (read_file, terminal, patch, write_file) defined exactly once.
+func (l *Loop) SetDynamicTools(source func() []ports.Tool) { l.dynamic = source }
+
+// resolve merges the static registry with the current dynamic tools. Callers
+// take one snapshot per turn so a catalog that changes mid-turn cannot make a
+// tool the model was just offered disappear before it is called.
+func (l *Loop) resolve() (map[string]ports.Tool, []ports.ToolDefinition) {
+	if l.dynamic == nil {
+		return l.tools, l.defs
+	}
+	tools := make(map[string]ports.Tool, len(l.tools))
+	for name, tool := range l.tools {
+		tools[name] = tool
+	}
+	definitions := append([]ports.ToolDefinition(nil), l.defs...)
+	for _, tool := range l.dynamic() {
+		definition := tool.Definition()
+		if _, exists := tools[definition.Name]; exists {
+			continue
+		}
+		tools[definition.Name] = tool
+		definitions = append(definitions, definition)
+	}
+	return tools, definitions
+}
+
 // Run drives one turn to completion. There is exactly one termination
 // condition: the model stops calling tools. Nothing designates a tool as
 // terminal, because nothing distinguishes "the coding run finished" from
@@ -117,7 +151,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []p
 	if !ok || target.Model == nil || target.ModelID == "" {
 		return RunResult{}, fmt.Errorf("model alias %q is not configured", alias)
 	}
-	definitions := l.filteredDefinitions(options)
+	tools, definitions := l.filteredTools(options)
 	messages := append([]ports.Message(nil), history...)
 	if input != "" {
 		messages = append(messages, ports.Message{Role: ports.RoleUser, Content: input})
@@ -191,7 +225,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []p
 		tail = append(tail, assistant)
 		emit(Event{Kind: EventAssistantMessage, Message: assistant})
 		for _, call := range assistant.ToolCalls {
-			tool, ok := l.tools[call.Name]
+			tool, ok := tools[call.Name]
 			if !ok {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
@@ -219,11 +253,12 @@ func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []p
 // the model. It is what /capabilities and /context report on, so the manifest
 // stays "only the tools actually available to the current turn".
 func (l *Loop) ToolDefinitions(options RunOptions) []ports.ToolDefinition {
-	return l.filteredDefinitions(options)
+	_, definitions := l.filteredTools(options)
+	return definitions
 }
 
 func (l *Loop) ToolNames(options RunOptions) []string {
-	definitions := l.filteredDefinitions(options)
+	_, definitions := l.filteredTools(options)
 	names := make([]string, 0, len(definitions))
 	for _, definition := range definitions {
 		names = append(names, definition.Name)
@@ -231,8 +266,11 @@ func (l *Loop) ToolNames(options RunOptions) []string {
 	return names
 }
 
-func (l *Loop) filteredDefinitions(options RunOptions) []ports.ToolDefinition {
-	defs := append([]ports.ToolDefinition(nil), l.defs...)
+// filteredTools is the exact tool set one turn runs on: the live catalog
+// narrowed by the turn's allowlist. Executable tools and the definitions sent
+// to the model come from the same snapshot, so they can never disagree.
+func (l *Loop) filteredTools(options RunOptions) (map[string]ports.Tool, []ports.ToolDefinition) {
+	tools, defs := l.resolve()
 
 	// Apply explicit tool allowlist.
 	if options.AllowedTools != nil {
@@ -245,5 +283,5 @@ func (l *Loop) filteredDefinitions(options RunOptions) []ports.ToolDefinition {
 		defs = filtered
 	}
 
-	return defs
+	return tools, defs
 }

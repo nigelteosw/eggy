@@ -9,37 +9,11 @@ of finished work.
 
 ## P1: Make MCP servers dynamic
 
-`plugins/tools/mcp` is complete within its design — OAuth with encrypted
-storage, paginated discovery, include/exclude filtering, name normalization,
-per-server cooldown, an opt-out for servers that cannot take parallel calls.
-The limit is the design itself: it assumes MCP servers are boot-time static
-and HTTP-only, so every operational question resolves to "restart Eggy."
-
-### Reconnect and refresh without a process restart
-
-These are one change, not two: reconnection is pointless while the tool
-catalog is a slice copied at wiring time.
-
-- [ ] Reconnect disconnected servers. `NewManager`
-      (`plugins/tools/mcp/manager.go:33`) connects exactly once, so a server
-      that is down at boot stays `unavailable` for the process lifetime. Worse,
-      a session that drops mid-life never recovers: `callGate` restores
-      `StateReady` once `cooldownUntil` passes but never re-establishes the
-      session, so the server flips back to ready and fails again forever.
-      `Probe` diagnoses this and repairs nothing.
-- [ ] Make the agent's tool set a live view over `Manager.Tools()` rather than a
-      slice snapshotted during wiring, so a reconnect or a changed catalog takes
-      effect on the next turn.
-- [ ] Honor `ToolListChangedHandler` for real. It currently only sets
-      `status.ReloadRequired`, and `/mcp reload` resolves to `service.restart()`
-      (`internal/commands/commands_mcp.go`). Same for `/mcp logout`, which
-      restarts the process to drop one server's tools.
-- [ ] Skip a colliding tool with a warning instead of disabling its whole
-      server. `manager.go:114` sets `serverTools = nil` and marks the server
-      `unavailable` because one tool name clashed with another server's.
-- [ ] Make the failure policy per-tool and configurable. `resultHandler`
-      hardcodes three consecutive failures into a 30-second cooldown counted
-      per *server*, so one broken tool trips the breaker for every tool on it.
+Reconnection and live catalog refresh have landed: the manager owns a live
+tool set, the loop reads it once per turn, and reconnect, reload, login, and
+logout all take effect without a process restart. Failure accounting is
+per-tool and configurable, and a colliding tool name costs one tool rather
+than its whole server. What remains is transport and authorization.
 
 ### Support stdio servers
 
@@ -61,10 +35,6 @@ catalog is a slice copied at wiring time.
       mitigation is blunt — unprompted turns cannot reach MCP tools at all —
       and owner-prompted turns have no gating whatsoever. Recorded as a known
       gap in the standing constraints below until this is resolved.
-- [ ] Add a test that an MCP tool can never shadow a kernel primitive.
-      `normalizeToolName` guarantees a `server__tool` shape that cannot collide
-      with `read_file`, `terminal`, `patch`, or `write_file`, but that is
-      incidental today and the constraint is load-bearing.
 
 Servers stay configured in `config.yaml`'s `mcp.servers` map. Runtime
 `/mcp add <url>` is deliberately out of scope: a server definition carries an

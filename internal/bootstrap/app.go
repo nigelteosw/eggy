@@ -277,9 +277,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerAll(registry, app.workspaces.Tools()...); err != nil {
 		return nil, err
 	}
-	// Registered after every other kernel tool and before MCP: the registry
-	// rejects duplicates, so an adapter that tries to shadow a primitive
-	// fails bootstrap rather than silently winning.
+	// Registered after every other kernel tool: the registry rejects
+	// duplicates, so an adapter that tries to shadow a primitive fails
+	// bootstrap rather than silently winning. MCP tools are not registered
+	// here at all -- they are a live view (see SetDynamicTools below), where
+	// the same invariant holds because a registered tool always wins the
+	// name.
 	if err := registerAll(registry, primitives...); err != nil {
 		return nil, err
 	}
@@ -303,9 +306,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 				_ = app.mcp.Close()
 			}
 		}()
-		if err := registerAll(registry, app.mcp.Tools()...); err != nil {
-			return nil, err
-		}
 	}
 
 	var googleStart, googleCallback http.Handler
@@ -342,6 +342,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		MaxSteps:           maxToolStepsPerTurn,
 	}
 	app.loop = agent.NewSelectedLoop(targets, registeredTools, contextPolicy)
+	if app.mcp != nil {
+		// The catalog is read per turn rather than copied here, so a
+		// reconnected server, a reloaded catalog, or a logout changes the
+		// tools the next turn sees without restarting the process.
+		app.loop.SetDynamicTools(app.mcp.Tools)
+	}
 	// integrations is what this process actually wired, in stable order, and
 	// is what /capabilities reports. Building it from the constructed adapters
 	// rather than from config is the point: a misconfigured integration can
@@ -362,10 +368,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			integrations = append(integrations, wired.name)
 		}
 	}
-	toolNames := make([]string, 0, len(registeredTools))
-	for _, tool := range registeredTools {
-		toolNames = append(toolNames, tool.Definition().Name)
-	}
+	// Taken from the loop rather than the registry so the manifest includes
+	// the live MCP catalog and stays "the tools actually available".
+	toolNames := app.loop.ToolNames(agent.RunOptions{})
 	selfRepository := ""
 	for _, repo := range config.Repositories {
 		if repo.Self {
@@ -450,7 +455,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 		Files:            web.NewHomeFiles(layout),
 	})
-	app.httpHandler = web.NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp, options.RequestRestart))
+	app.httpHandler = web.NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp))
 	if telegramClient != nil {
 		autocomplete := commands.TelegramAutocomplete()
 		commands := make([]telegram.BotCommand, 0, len(autocomplete))

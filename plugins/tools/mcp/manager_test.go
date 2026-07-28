@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func TestManagerFiltersAndIsolatesServers(t *testing.T) {
@@ -132,7 +133,7 @@ func TestManagerSerializesCallsUnlessServerAllowsParallelism(t *testing.T) {
 	calls.Wait()
 }
 
-func TestManagerProbeAndToolListChangeStatus(t *testing.T) {
+func TestManagerProbeAndToolListChangeRefreshInPlace(t *testing.T) {
 	session := &fakeSession{tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}}
 	var clientOptions *sdk.ClientOptions
 	connect := func(_ context.Context, _ ServerConfig, _ *http.Client, _ auth.OAuthHandler, options *sdk.ClientOptions) (clientSession, error) {
@@ -148,12 +149,206 @@ func TestManagerProbeAndToolListChangeStatus(t *testing.T) {
 	if err != nil || probe.State != StateReady || probe.Tools != 1 {
 		t.Fatalf("probe=%#v err=%v", probe, err)
 	}
+	session.tools = append(session.tools, &sdk.Tool{Name: "write", InputSchema: objectSchema()})
 	clientOptions.ToolListChangedHandler(context.Background(), nil)
 	status, _ := manager.Status("example")
-	if !status.ReloadRequired {
+	if status.ReloadRequired || status.Tools != 2 {
+		t.Fatalf("status=%#v", status)
+	}
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"example__read", "example__write"}) {
+		t.Fatalf("tools=%v", names)
+	}
+}
+
+func TestManagerReconnectsServerThatWasDownAtBoot(t *testing.T) {
+	session := &fakeSession{tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}}
+	online := false
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		if !online {
+			return nil, errors.New("connection refused")
+		}
+		return session, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{Name: "example", URL: "https://mcp.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096}}, Options{Connect: connect, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if names := managerToolNames(manager); len(names) != 0 {
+		t.Fatalf("tools before reconnect=%v", names)
+	}
+	if err := manager.Reconnect(context.Background(), "example"); err == nil {
+		t.Fatal("expected reconnect to a refusing server to fail")
+	}
+	online = true
+	if err := manager.Reconnect(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"example__read"}) {
+		t.Fatalf("tools after reconnect=%v", names)
+	}
+}
+
+// A session that dies mid-life used to be unrecoverable: the breaker returned
+// the server to ready and every later call failed on the same dead session.
+func TestManagerRebuildsSessionWhenCooldownExpires(t *testing.T) {
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	dead := &fakeSession{
+		tools:   []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}},
+		callErr: errors.New("session closed"),
+	}
+	live := &fakeSession{
+		tools:      []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}},
+		callResult: &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "ok"}}},
+	}
+	current := clientSession(dead)
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		return current, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{Name: "example", URL: "https://mcp.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096, FailureThreshold: 2, Cooldown: 10 * time.Second}}, Options{
+		Connect: connect, Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	tool := manager.Tools()[0]
+	for range 2 {
+		if _, err := tool.Execute(context.Background(), nil); err == nil {
+			t.Fatal("expected the dead session to fail the call")
+		}
+	}
+	if status, _ := manager.Status("example"); status.State != StateCooldown {
+		t.Fatalf("status=%#v", status)
+	}
+	now = now.Add(11 * time.Second)
+	current = live
+	if _, err := tool.Execute(context.Background(), nil); err != nil {
+		t.Fatalf("call after cooldown: %v", err)
+	}
+	if !dead.closed || live.callCount != 1 {
+		t.Fatalf("dead.closed=%t live.callCount=%d", dead.closed, live.callCount)
+	}
+	if status, _ := manager.Status("example"); status.State != StateReady {
 		t.Fatalf("status=%#v", status)
 	}
 }
+
+// One tool's failures must not deny the other tools on the same server.
+func TestManagerCooldownIsPerTool(t *testing.T) {
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	session := &failingToolSession{broken: "unstable", result: &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "ok"}}}}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "example", URL: "https://mcp.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096,
+		SupportsParallelToolCalls: true, FailureThreshold: 2, Cooldown: 10 * time.Second,
+	}}, Options{Connect: func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		return session, nil
+	}, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	tools := map[string]ports.Tool{}
+	for _, tool := range manager.Tools() {
+		tools[tool.Definition().Name] = tool
+	}
+	for range 2 {
+		if _, err := tools["example__unstable"].Execute(context.Background(), nil); err == nil {
+			t.Fatal("expected the broken tool to fail")
+		}
+	}
+	if _, err := tools["example__unstable"].Execute(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "cooling down") {
+		t.Fatalf("broken tool err=%v", err)
+	}
+	if _, err := tools["example__healthy"].Execute(context.Background(), nil); err != nil {
+		t.Fatalf("healthy tool was denied by another tool's breaker: %v", err)
+	}
+}
+
+// A colliding tool name costs that one tool, not the whole server.
+func TestManagerSkipsCollidingToolAndKeepsServerReady(t *testing.T) {
+	sessions := map[string]*fakeSession{
+		"alpha": {tools: []*sdk.Tool{{Name: "shared", InputSchema: objectSchema()}}},
+		"beta":  {tools: []*sdk.Tool{{Name: "shared", InputSchema: objectSchema()}, {Name: "own", InputSchema: objectSchema()}}},
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{
+		{Name: "alpha", URL: "https://alpha.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096},
+		// beta projects the same name as alpha, because normalization is per
+		// server and both servers are named so the projected names collide.
+		{Name: "alpha_", URL: "https://beta.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096},
+	}, Options{Connect: func(_ context.Context, cfg ServerConfig, _ *http.Client, _ auth.OAuthHandler, _ *sdk.ClientOptions) (clientSession, error) {
+		if cfg.Name == "alpha" {
+			return sessions["alpha"], nil
+		}
+		return sessions["beta"], nil
+	}, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"alpha__own", "alpha__shared"}) {
+		t.Fatalf("tools=%v", names)
+	}
+	second, _ := manager.Status("alpha_")
+	if second.State != StateReady || second.Tools != 1 {
+		t.Fatalf("second server was disabled by a collision: %#v", second)
+	}
+	if !slices.ContainsFunc(second.Warnings, func(warning string) bool { return strings.Contains(warning, "collision") }) {
+		t.Fatalf("warnings=%v", second.Warnings)
+	}
+}
+
+// Logging out removes one server's tools from the live catalog; every other
+// server keeps working, and no restart is involved.
+func TestManagerLogoutDropsOnlyThatServersTools(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	sessions := map[string]*fakeSession{
+		"railway": {tools: []*sdk.Tool{{Name: "deploy", InputSchema: objectSchema()}}},
+		"other":   {tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}},
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{
+		{Name: "railway", URL: "https://railway.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback", Auth: "oauth", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096},
+		{Name: "other", URL: "https://other.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096},
+	}, Options{Connect: sessionConnector(sessions), OAuthStore: store, HTTPClient: &http.Client{Transport: &oauthRoundTripper{}}, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"other__read", "railway__deploy"}) {
+		t.Fatalf("tools=%v", names)
+	}
+	if err := manager.Logout("railway"); err != nil {
+		t.Fatal(err)
+	}
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"other__read"}) {
+		t.Fatalf("tools after logout=%v", names)
+	}
+	status, _ := manager.Status("railway")
+	if status.State != StateLoginRequired || !sessions["railway"].closed {
+		t.Fatalf("status=%#v closed=%t", status, sessions["railway"].closed)
+	}
+}
+
+type failingToolSession struct {
+	broken string
+	result *sdk.CallToolResult
+}
+
+func (s *failingToolSession) ListTools(context.Context, *sdk.ListToolsParams) (*sdk.ListToolsResult, error) {
+	return &sdk.ListToolsResult{Tools: []*sdk.Tool{
+		{Name: "healthy", InputSchema: objectSchema()},
+		{Name: s.broken, InputSchema: objectSchema()},
+	}}, nil
+}
+
+func (s *failingToolSession) CallTool(_ context.Context, params *sdk.CallToolParams) (*sdk.CallToolResult, error) {
+	if params.Name == s.broken {
+		return nil, errors.New("tool failure")
+	}
+	return s.result, nil
+}
+
+func (s *failingToolSession) Close() error { return nil }
 
 func TestNewFakeManagerProjectsConfiguredIncludes(t *testing.T) {
 	manager, err := NewFakeManager([]ServerConfig{

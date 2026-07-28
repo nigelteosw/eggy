@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -14,15 +15,17 @@ import (
 type remoteTool struct {
 	definition ports.ToolDefinition
 	remoteName string
-	session    clientSession
-	timeout    time.Duration
-	maxBytes   int64
-	before     func() error
-	onResult   func(error)
-	executeMu  *sync.Mutex
+	// session is resolved per call rather than captured, so a tool built
+	// before a reconnect keeps working over the session that replaced it.
+	session   func() clientSession
+	timeout   time.Duration
+	maxBytes  int64
+	before    func(context.Context) error
+	onResult  func(error)
+	executeMu *sync.Mutex
 }
 
-func newRemoteTool(server string, remote *sdk.Tool, session clientSession, timeout time.Duration, maxBytes int64, onResult func(error)) (*remoteTool, error) {
+func newRemoteTool(server string, remote *sdk.Tool, session func() clientSession, timeout time.Duration, maxBytes int64) (*remoteTool, error) {
 	if remote == nil {
 		return nil, errors.New("MCP tool definition is nil")
 	}
@@ -36,7 +39,7 @@ func newRemoteTool(server string, remote *sdk.Tool, session clientSession, timeo
 	}
 	return &remoteTool{
 		definition: ports.ToolDefinition{Name: name, Description: remote.Description, Schema: schema},
-		remoteName: remote.Name, session: session, timeout: timeout, maxBytes: maxBytes, onResult: onResult,
+		remoteName: remote.Name, session: session, timeout: timeout, maxBytes: maxBytes,
 	}, nil
 }
 
@@ -48,9 +51,13 @@ func (t *remoteTool) Execute(ctx context.Context, raw json.RawMessage) (json.Raw
 		defer t.executeMu.Unlock()
 	}
 	if t.before != nil {
-		if err := t.before(); err != nil {
+		if err := t.before(ctx); err != nil {
 			return nil, err
 		}
+	}
+	session := t.session()
+	if session == nil {
+		return nil, fmt.Errorf("MCP tool %q has no connected server", t.definition.Name)
 	}
 	var arguments map[string]any
 	if len(raw) == 0 {
@@ -65,7 +72,7 @@ func (t *remoteTool) Execute(ctx context.Context, raw json.RawMessage) (json.Raw
 		callCtx, cancel = context.WithTimeout(ctx, t.timeout)
 	}
 	defer cancel()
-	result, err := t.session.CallTool(callCtx, &sdk.CallToolParams{Name: t.remoteName, Arguments: arguments})
+	result, err := session.CallTool(callCtx, &sdk.CallToolParams{Name: t.remoteName, Arguments: arguments})
 	if err == nil {
 		var converted json.RawMessage
 		converted, err = convertResult(result, t.maxBytes)

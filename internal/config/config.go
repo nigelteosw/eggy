@@ -173,17 +173,22 @@ type MCPConfig struct {
 }
 
 type MCPServerConfig struct {
-	URL                       string              `yaml:"url"`
-	Transport                 string              `yaml:"transport"`
-	Auth                      string              `yaml:"auth"`
-	BearerTokenEnv            string              `yaml:"bearer_token_env,omitempty"`
-	OAuthScopes               []string            `yaml:"oauth_scopes,omitempty"`
-	Enabled                   bool                `yaml:"enabled"`
-	ConnectTimeout            Duration            `yaml:"connect_timeout"`
-	Timeout                   Duration            `yaml:"timeout"`
-	MaxOutputBytes            int64               `yaml:"max_output_bytes"`
-	SupportsParallelToolCalls bool                `yaml:"supports_parallel_tool_calls"`
-	ToolFilter                MCPToolFilterConfig `yaml:"tool_filter"`
+	URL                       string   `yaml:"url"`
+	Transport                 string   `yaml:"transport"`
+	Auth                      string   `yaml:"auth"`
+	BearerTokenEnv            string   `yaml:"bearer_token_env,omitempty"`
+	OAuthScopes               []string `yaml:"oauth_scopes,omitempty"`
+	Enabled                   bool     `yaml:"enabled"`
+	ConnectTimeout            Duration `yaml:"connect_timeout"`
+	Timeout                   Duration `yaml:"timeout"`
+	MaxOutputBytes            int64    `yaml:"max_output_bytes"`
+	SupportsParallelToolCalls bool     `yaml:"supports_parallel_tool_calls"`
+	// FailureThreshold and Cooldown are the per-tool failure policy: this
+	// many consecutive failures of one tool take that tool, and only that
+	// tool, out of service for this long.
+	FailureThreshold int                 `yaml:"failure_threshold"`
+	Cooldown         Duration            `yaml:"cooldown"`
+	ToolFilter       MCPToolFilterConfig `yaml:"tool_filter"`
 }
 
 type MCPToolFilterConfig struct {
@@ -467,6 +472,12 @@ func (c *Config) applyDefaults() error {
 		if server.MaxOutputBytes == 0 {
 			server.MaxOutputBytes = 128 << 10
 		}
+		if server.FailureThreshold == 0 {
+			server.FailureThreshold = 3
+		}
+		if server.Cooldown == 0 {
+			server.Cooldown = Duration(30 * time.Second)
+		}
 		c.MCP.Servers[name] = server
 	}
 	return nil
@@ -645,6 +656,9 @@ func (c Config) validateMCP() error {
 		}
 		if server.ConnectTimeout.Value() <= 0 || server.Timeout.Value() <= 0 || server.MaxOutputBytes <= 0 {
 			return fmt.Errorf("MCP server %q timeouts and max_output_bytes must be positive", name)
+		}
+		if server.FailureThreshold < 0 || server.Cooldown < 0 {
+			return fmt.Errorf("MCP server %q failure_threshold and cooldown must not be negative", name)
 		}
 		for _, filter := range [][]string{server.ToolFilter.Include, server.ToolFilter.Exclude} {
 			seen := map[string]bool{}

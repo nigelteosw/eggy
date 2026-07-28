@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -332,5 +333,55 @@ func TestLoopDoesNotReplaySteeredInput(t *testing.T) {
 	}
 	if occurrences != 1 {
 		t.Fatalf("steered message appears %d times, want exactly 1", occurrences)
+	}
+}
+
+// A dynamic catalog is read per turn, so a tool that appears after wiring is
+// callable on the next turn without rebuilding the loop or restarting.
+func TestLoopReadsDynamicToolsPerTurn(t *testing.T) {
+	remote := &fakeTool{name: "railway__deploy", result: json.RawMessage(`{"ok":true}`)}
+	var catalog []ports.Tool
+	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: &queuedModel{}, ModelID: "provider-pro"}}, nil, ContextPolicy{})
+	loop.SetDynamicTools(func() []ports.Tool { return catalog })
+	if names := loop.ToolNames(RunOptions{}); len(names) != 0 {
+		t.Fatalf("names before the server connected=%v", names)
+	}
+	catalog = []ports.Tool{remote}
+	if names := loop.ToolNames(RunOptions{}); !slices.Equal(names, []string{"railway__deploy"}) {
+		t.Fatalf("names after the server connected=%v", names)
+	}
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "railway__deploy", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "deployed"}},
+	}}
+	loop.selected["pro"] = ModelTarget{Model: model, ModelID: "provider-pro"}
+	if _, err := loop.Run(context.Background(), "pro", "", "deploy", nil, RunOptions{}); err != nil || remote.calls != 1 {
+		t.Fatalf("calls=%d err=%v", remote.calls, err)
+	}
+	catalog = nil
+	if names := loop.ToolNames(RunOptions{}); len(names) != 0 {
+		t.Fatalf("names after logout=%v", names)
+	}
+}
+
+// The primitive surface is kernel-owned and defined exactly once: a dynamic
+// tool claiming a registered name is dropped, never substituted for it.
+func TestLoopDynamicToolCannotShadowARegisteredTool(t *testing.T) {
+	primitive := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"kernel"}`)}
+	impostor := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"mcp"}`)}
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "read"}},
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{primitive}, ContextPolicy{})
+	loop.SetDynamicTools(func() []ports.Tool { return []ports.Tool{impostor} })
+	if names := loop.ToolNames(RunOptions{}); !slices.Equal(names, []string{"read_file"}) {
+		t.Fatalf("names=%v", names)
+	}
+	if _, err := loop.Run(context.Background(), "pro", "", "read", nil, RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if primitive.calls != 1 || impostor.calls != 0 {
+		t.Fatalf("primitive=%d impostor=%d", primitive.calls, impostor.calls)
 	}
 }

@@ -231,7 +231,9 @@ condition.
 
 `plugins/tools/mcp` is a generic remote MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
 
-Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, cooldown, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability.
+The catalog is live rather than a boot-time snapshot: the manager owns one tool set derived from each server's last successful discovery, and the loop reads it once per turn through `Loop.SetDynamicTools`. Reconnecting a server that was down at boot or whose session died, refreshing on a `tools/list_changed` notification, and dropping one server's tools on logout therefore all take effect on the next turn without restarting the process. `Manager.Reconnect` is the single repair path, reached from `/mcp reload`, a completed login, a probe that found a dead session, and the call gate when a tool's cooldown expires.
+
+Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability. Failure accounting is per *tool*: `failure_threshold` consecutive failures of one tool cool that tool down for `cooldown`, leaving every other tool on the same server callable. A projected tool name already claimed by another server is skipped with a warning on the losing server rather than disabling it.
 
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server inside the shared `/data/auth.json` document (section `mcp`), independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name. Version 1 intentionally implements Streamable HTTP tools only.
 
@@ -263,8 +265,11 @@ set — `read_file`, `write_file`, `patch`, `terminal`. Bootstrap builds it
 *once* into the one registry the one loop runs on, so a primitive name
 resolves to one definition and one implementation. `services.PrimitiveNames`
 names them, and a bootstrap test asserts exactly one definition per name;
-because `ToolRegistry.Register` rejects duplicates and MCP tools are
-registered last, an adapter that tries to shadow a primitive fails bootstrap.
+because `ToolRegistry.Register` rejects duplicates, an adapter that tries to
+shadow a primitive fails bootstrap. MCP tools are not registered at all --
+they are a live view merged in per turn, where the same invariant holds
+because a registered tool always wins the name and the dynamic one is
+dropped.
 
 None of them takes a `repository` argument. Each resolves its workspace from
 `services.WorkspaceSessions.Resolve`, which has exactly one source: the

@@ -41,6 +41,10 @@ func (s *fakeSession) CallTool(_ context.Context, params *sdk.CallToolParams) (*
 
 func (s *fakeSession) Close() error { s.closed = true; return nil }
 
+func staticSession(session clientSession) func() clientSession {
+	return func() clientSession { return session }
+}
+
 func TestRemoteToolProjectsDefinitionAndCall(t *testing.T) {
 	session := &fakeSession{callResult: &sdk.CallToolResult{
 		Content:           []sdk.Content{&sdk.TextContent{Text: "two projects"}},
@@ -50,7 +54,7 @@ func TestRemoteToolProjectsDefinitionAndCall(t *testing.T) {
 		Name:        "list-projects",
 		Description: "List projects",
 		InputSchema: map[string]any{"type": "object", "additionalProperties": false},
-	}, session, time.Second, 4096, nil)
+	}, staticSession(session), time.Second, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +73,7 @@ func TestRemoteToolProjectsDefinitionAndCall(t *testing.T) {
 
 func TestRemoteToolRejectsNonObjectArguments(t *testing.T) {
 	session := &fakeSession{}
-	tool, err := newRemoteTool("railway", &sdk.Tool{Name: "list", InputSchema: map[string]any{"type": "object"}}, session, time.Second, 4096, nil)
+	tool, err := newRemoteTool("railway", &sdk.Tool{Name: "list", InputSchema: map[string]any{"type": "object"}}, staticSession(session), time.Second, 4096)
 	if err != nil {
 		t.Fatal(err)
 	}

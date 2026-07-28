@@ -22,7 +22,22 @@ type ServerConfig struct {
 	Timeout                   time.Duration
 	MaxOutputBytes            int64
 	SupportsParallelToolCalls bool
-	Filter                    ToolFilter
+	// FailureThreshold and Cooldown are the failure policy applied per tool:
+	// this many consecutive failures of one tool put that tool, and only that
+	// tool, out of service for this long.
+	FailureThreshold int
+	Cooldown         time.Duration
+	Filter           ToolFilter
+}
+
+func (c ServerConfig) withDefaults() ServerConfig {
+	if c.FailureThreshold <= 0 {
+		c.FailureThreshold = 3
+	}
+	if c.Cooldown <= 0 {
+		c.Cooldown = 30 * time.Second
+	}
+	return c
 }
 
 type Options struct {

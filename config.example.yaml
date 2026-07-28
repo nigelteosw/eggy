@@ -97,6 +97,10 @@ mcp:
       timeout: "60s"
       max_output_bytes: 131072
       supports_parallel_tool_calls: false
+      # Consecutive failures of one tool that take that tool, and only that
+      # tool, out of service for cooldown.
+      failure_threshold: 3
+      cooldown: "30s"
       tool_filter:
         include:
           - "check-railway-status"

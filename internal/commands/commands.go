@@ -187,6 +187,7 @@ type MCPCommands interface {
 	Probe(context.Context, string) (mcpadapter.ProbeResult, error)
 	BeginLogin(context.Context, string) (string, error)
 	Logout(string) error
+	Refresh(context.Context, string) error
 }
 
 // Execute parses Telegram-style "/command key=value ..." input and
@@ -699,7 +700,7 @@ func init() {
 			Examples: []Example{{Telegram: "/mcp logout railway", CLI: "eggy mcp logout railway"}}, Handler: handleMCPLogout,
 		},
 		{
-			Path: "mcp reload", Summary: "Restart Eggy to reload an MCP catalog",
+			Path: "mcp reload", Summary: "Reconnect an MCP server and reload its catalog",
 			Examples: []Example{{Telegram: "/mcp reload railway", CLI: "eggy mcp reload railway"}}, Handler: handleMCPReload,
 		},
 	}

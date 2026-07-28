@@ -9,7 +9,7 @@ import (
 // mcpExplanation is the one place that explains what MCP is and how to add a
 // server, shown by /help mcp, eggy help mcp, and any /mcp command run before
 // a server is configured.
-const mcpExplanation = "MCP (Model Context Protocol) lets Eggy call tools exposed by a remote server, such as Railway, directly in conversation. Servers are defined in config.yaml's mcp.servers map, not through /mcp or the CLI — see the mcp.servers.railway block in config.example.yaml for a complete example, including the URL, auth mode, and tool filter. After adding a server: an oauth server needs EGGY_ENCRYPTION_KEY set so its credentials can be stored encrypted, a bearer-env server needs its named token environment variable set, then restart Eggy either way. An oauth server also needs /mcp login <server> once Eggy is back up; a bearer-env or none server is ready to use immediately. Once a server is configured: /mcp lists servers and status, /mcp status <server> and /mcp probe <server> inspect one, /mcp login <server> and /mcp logout <server> manage OAuth, and /mcp reload <server> restarts Eggy to pick up a changed tool catalog."
+const mcpExplanation = "MCP (Model Context Protocol) lets Eggy call tools exposed by a remote server, such as Railway, directly in conversation. Servers are defined in config.yaml's mcp.servers map, not through /mcp or the CLI — see the mcp.servers.railway block in config.example.yaml for a complete example, including the URL, auth mode, and tool filter. After adding a server: an oauth server needs EGGY_ENCRYPTION_KEY set so its credentials can be stored encrypted, a bearer-env server needs its named token environment variable set, then restart Eggy either way. An oauth server also needs /mcp login <server> once Eggy is back up; a bearer-env or none server is ready to use immediately. Once a server is configured: /mcp lists servers and status, /mcp status <server> and /mcp probe <server> inspect one, /mcp login <server> and /mcp logout <server> manage OAuth, and /mcp reload <server> reconnects it and re-reads its tool catalog. Only adding or editing a server needs a restart; reconnecting, reloading, logging in, and logging out all take effect on the next turn."
 
 func mcpNotConfigured() CommandResult {
 	return CommandResult{State: ResultInfo, Title: "MCP is not configured.", Detail: mcpExplanation}
@@ -85,15 +85,13 @@ func handleMCPLogout(_ context.Context, service *CommandService, request Command
 	if err := service.mcp.Logout(name); err != nil {
 		return errorResult(err), nil
 	}
-	detail := "Restart Eggy to remove its tools from the active catalog."
-	if service.restart != nil {
-		service.restart()
-		detail = "Restarting Eggy to remove its tools."
-	}
-	return CommandResult{Title: "Logged out of MCP server " + name + ".", Detail: detail}, nil
+	return CommandResult{Title: "Logged out of MCP server " + name + ".", Detail: "Its tools were removed from the active catalog. Run /mcp login " + name + " to restore them."}, nil
 }
 
-func handleMCPReload(_ context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
+// handleMCPReload reloads one server in place. A server that is unreachable,
+// or whose session died, is reconnected as part of the reload, so this is
+// also the repair path for a server that was down when Eggy started.
+func handleMCPReload(ctx context.Context, service *CommandService, request CommandRequest) (CommandResult, error) {
 	name, result := mcpServerArg(service, request, "mcp reload")
 	if result != nil {
 		return *result, nil
@@ -101,11 +99,18 @@ func handleMCPReload(_ context.Context, service *CommandService, request Command
 	if _, err := service.mcp.Status(name); err != nil {
 		return errorResult(err), nil
 	}
-	if service.restart == nil {
-		return CommandResult{State: ResultInfo, Title: "Restart is not available in this environment."}, nil
+	if err := service.mcp.Refresh(ctx, name); err != nil {
+		return errorResult(err), nil
 	}
-	service.restart()
-	return CommandResult{Title: "Restarting Eggy to reload MCP server " + name + "."}, nil
+	status, err := service.mcp.Status(name)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	fields := []ResultField{{Label: "State", Value: string(status.State)}, {Label: "Tools", Value: fmt.Sprintf("%d", status.Tools)}}
+	if len(status.Warnings) > 0 {
+		fields = append(fields, ResultField{Label: "Warnings", Value: strings.Join(status.Warnings, "; ")})
+	}
+	return CommandResult{Title: "Reloaded MCP server " + name + ".", Detail: "Its tools take effect on the next turn.", Fields: fields}, nil
 }
 
 func mcpServerArg(service *CommandService, request CommandRequest, path string) (string, *CommandResult) {

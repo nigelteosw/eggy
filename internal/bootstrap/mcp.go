@@ -35,7 +35,8 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 			Auth: configured.Auth, BearerToken: secrets.MCPBearerTokens[name], OAuthScopes: append([]string(nil), configured.OAuthScopes...),
 			Enabled: configured.Enabled, ConnectTimeout: configured.ConnectTimeout.Value(), Timeout: configured.Timeout.Value(), MaxOutputBytes: configured.MaxOutputBytes,
 			SupportsParallelToolCalls: configured.SupportsParallelToolCalls,
-			Filter:                    mcpadapter.ToolFilter{Include: append([]string(nil), configured.ToolFilter.Include...), Exclude: append([]string(nil), configured.ToolFilter.Exclude...)},
+			FailureThreshold:          configured.FailureThreshold, Cooldown: configured.Cooldown.Value(),
+			Filter: mcpadapter.ToolFilter{Include: append([]string(nil), configured.ToolFilter.Include...), Exclude: append([]string(nil), configured.ToolFilter.Exclude...)},
 		})
 	}
 	if options.FakeAdapters {
@@ -74,7 +75,10 @@ func ExecuteMCPCLI(ctx context.Context, config config.Config, secrets config.Sec
 	return service.ExecuteCLI(ctx, args)
 }
 
-func mcpCallbackHandler(manager *mcpadapter.Manager, restart func()) http.Handler {
+// mcpCallbackHandler completes an OAuth flow. CompleteLogin connects the
+// server as part of storing the credentials, so a finished login makes its
+// tools available on the next turn without restarting the process.
+func mcpCallbackHandler(manager *mcpadapter.Manager) http.Handler {
 	if manager == nil {
 		return nil
 	}
@@ -95,9 +99,6 @@ func mcpCallbackHandler(manager *mcpadapter.Manager, restart func()) http.Handle
 			return
 		}
 		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = response.Write([]byte("MCP authorization complete. Eggy is restarting.\n"))
-		if restart != nil {
-			restart()
-		}
+		_, _ = response.Write([]byte("MCP authorization complete. Its tools are available on the next turn.\n"))
 	})
 }

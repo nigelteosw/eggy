@@ -24,6 +24,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/auth/authfile"
@@ -84,6 +85,7 @@ type App struct {
 	loop                    *agent.Loop
 	agentRuntime            *services.AgentRuntime
 	manifest                agent.CapabilityManifest
+	turnService             *turns.Service
 	commands                *commands.CommandService
 	scheduler               *schedulerlocal.Scheduler
 	heartbeat               *services.HeartbeatPolicy
@@ -114,9 +116,9 @@ type App struct {
 	location                *time.Location
 }
 
-type ApprovalExecutor interface {
-	ExecuteApproved(context.Context, approvals.Approval) (any, error)
-}
+// ApprovalExecutor is an alias rather than its own interface so the executor
+// map bootstrap builds is the exact type turns.Options takes.
+type ApprovalExecutor = turns.ApprovalExecutor
 
 func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*App, error) {
 	if options.HTTPClient == nil {
@@ -498,6 +500,21 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if app.mcp != nil {
 		app.commands.SetMCP(app.mcp)
 	}
+	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
+	// an event type to the right entry point on this; everything the turn
+	// itself does lives in internal/kernel/turns.
+	app.turnService = turns.New(turns.Options{
+		Commands: app.commands, Registry: app.turns, Conversation: app.conversation,
+		Context: contextStore, Store: stateStore, Runtime: app.agentRuntime,
+		Skills: app.skillsService, Loop: app.loop, Channel: app.channel,
+		Transcripts: transcripts, Progress: progress, Workspaces: app.workspaces,
+		Threads: memoryStore, Approvals: app.approvals, Executors: app.approvalExecutors,
+		Heartbeat: app.heartbeat, Presenter: turnPresenter{channel: app.channel},
+		Manifest: app.manifest, Logger: app.logger, Now: app.now,
+		// The owner's timezone, not the scheduler's quiet-hours one: this is
+		// what renders the turn's trusted temporal context.
+		Location: app.location, Timezone: timezone,
+	})
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,

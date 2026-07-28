@@ -27,48 +27,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
 )
-
-// A heartbeat is a check-in on the owner, not a work tick: read-only plus
-// memory curation, and deliberately none of the repository write tools a
-// scheduled turn carries.
-func TestHeartbeatRunOptionsAllowMemoryCurationButNoRepositoryWrites(t *testing.T) {
-	readOnly := readOnlyRunOptions()
-	heartbeat := heartbeatRunOptions()
-	for tool := range readOnly.AllowedTools {
-		if !heartbeat.AllowedTools[tool] {
-			t.Fatalf("heartbeatRunOptions dropped read-only tool %q", tool)
-		}
-	}
-	if !heartbeat.AllowedTools["memory"] {
-		t.Fatal("heartbeatRunOptions missing the memory-curation tool")
-	}
-	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
-		if heartbeat.AllowedTools[tool] {
-			t.Fatalf("heartbeatRunOptions unexpectedly allows repository write tool %q", tool)
-		}
-	}
-}
-
-// A scheduled turn may propose: it carries the tools to make a change and
-// open a draft pull request. What holds the invariant is no longer the
-// absence of those tools but the unprompted-turn marking and the draft/branch
-// rules in the kernel -- see internal/kernel/services/unprompted_test.go.
-func TestProposeOnlyRunOptionsCarryRepositoryWriteToolsButNoMCP(t *testing.T) {
-	options := proposeOnlyRunOptions()
-	for tool := range readOnlyRunOptions().AllowedTools {
-		if !options.AllowedTools[tool] {
-			t.Fatalf("proposeOnlyRunOptions dropped read-only tool %q", tool)
-		}
-	}
-	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
-		if !options.AllowedTools[tool] {
-			t.Fatalf("proposeOnlyRunOptions missing repository write tool %q", tool)
-		}
-	}
-}
 
 func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
@@ -82,7 +44,7 @@ func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	direct := app.loop.ToolNames(agent.RunOptions{})
-	scheduled := app.loop.ToolNames(readOnlyRunOptions())
+	scheduled := app.loop.ToolNames(turns.ReadOnlyTools())
 	if !slices.Contains(direct, "railway__list_projects") || slices.Contains(scheduled, "railway__list_projects") {
 		t.Fatalf("direct=%v scheduled=%v mcp_status=%#v mcp_tools=%v", direct, scheduled, app.mcp.Statuses(), toolDefinitionNames(app.mcp.Tools()))
 	}
@@ -94,28 +56,6 @@ func toolDefinitionNames(tools []ports.Tool) []string {
 		names = append(names, tool.Definition().Name)
 	}
 	return names
-}
-
-func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
-	app := &App{manifest: agent.CapabilityManifest{RepositoryCommitReady: true, RepositoryPushReady: false, PullRequestReady: false}}
-	withoutRepository := app.capabilityManifest(ports.State{}, "deepseek-pro", nil)
-	if withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
-		t.Fatalf("without repository=%#v", withoutRepository)
-	}
-	withRepository := app.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro", nil)
-	if !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
-		t.Fatalf("with repository=%#v", withRepository)
-	}
-}
-
-func TestCapabilityManifestConvertsEnabledSkillsToDescriptors(t *testing.T) {
-	app := &App{}
-	manifest := app.capabilityManifest(ports.State{}, "deepseek-pro", []ports.SkillSummary{
-		{Name: "fix-flaky-tests", Description: "Use when a test intermittently fails"},
-	})
-	if len(manifest.Skills) != 1 || manifest.Skills[0].Name != "fix-flaky-tests" || manifest.Skills[0].Description != "Use when a test intermittently fails" {
-		t.Fatalf("skills=%#v", manifest.Skills)
-	}
 }
 
 func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {

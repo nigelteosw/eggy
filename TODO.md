@@ -14,44 +14,26 @@ The delivery seam is clean: `destination` is its own kernel package,
 `config.Owner.ID` is the system-wide identity, and the Telegram block is
 optional so a web-only deployment boots without it.
 
-The surface extraction has landed: the command surface is `internal/commands`
-and the HTTP surface is `internal/web`, leaving `internal/bootstrap` at ~2.4k
-non-test lines holding two layers rather than four — the composition root
-(`app.go`, `mcp.go`, `logging.go`, `web_search.go`, `assistant_tools.go`, the
-`migrate_*.go` files) and the turn orchestrator (`app_events.go`, ~820 lines).
+The surface extraction has landed: the command surface is `internal/commands`,
+the HTTP surface is `internal/web`, and the turn orchestrator is now the kernel
+package `internal/kernel/turns`. Each declares the narrow interfaces it needs
+rather than taking a whole service or the 40-field `App`, and `app_events.go`
+is down to ~325 lines holding only the daemon loop, event routing, and the
+background workers. `internal/commands` no longer imports
+`internal/kernel/services` at all.
 
-What remains is the turn orchestrator itself. It is core agentic behavior, not
-wiring — including the propose-only/heartbeat allowlists that decide which
-turns are unprompted in the one package no kernel test can guard.
+The unprompted-turn invariant is now entirely kernel-held and kernel-tested:
+`services.WithUnpromptedTurn` marks the turn, `turns.ScheduledTurn` and
+`turns.Heartbeat` are what apply the mark, and
+`internal/kernel/turns/turns_test.go` asserts which kinds of turn carry it and
+what each may reach.
 
-Each surface now declares the interface it needs rather than taking a whole
-service: `ConversationResetter`, `ChangeLister`, `TurnStopper`,
-`RepositoryAdmin`, `SkillAdmin`, and `AgentSettings` in `internal/commands`
-(which no longer imports `internal/kernel/services` at all), and
-`ThreadDirectory`, `HistoryReader`, and `ChatStream` in `internal/web`. What
-remains is the orchestrator.
+### What is left here
 
-### Move the turn orchestrator into the kernel
-
-- [ ] Move `handleMessage`, `handleHeartbeat`, `handleApproval`,
-      `messageHandlingPolicy`, and the propose-only/heartbeat tool allowlists
-      out of `internal/bootstrap/app_events.go` into a kernel `TurnService`
-      that accepts a neutral turn request (destination, text, policy).
-      Telegram and web then become peers that each only build that request.
-      Follow the pattern the surfaces now use: let `TurnService` declare the
-      narrow interfaces it needs instead of taking the 40-field `App`.
-  - [ ] Move the remaining half of the unprompted-turn invariant into the
-        kernel with it. The invariant itself is held in the kernel already
-        (`internal/kernel/services/unprompted.go`, tested in
-        `unprompted_test.go` and `change_tools_test.go`), but *which turns are
-        unprompted* is still decided by `proposeOnlyRunOptions` and the
-        `services.WithUnpromptedTurn` calls in `app_events.go`, where no kernel
-        test can guard it.
-- [ ] Drop the dead `case <-ctx.Done()` branch in `App.Enqueue`
-      (`app_events.go:32`): with a `default` present it can never fire, so a
-      cancelled context reports "event queue is full" instead of the context
-      error. Drop the `ctx.Done()` case or drop the `default`, not both. Worth
-      doing before the move above, so the refactor carries correct code.
+- [ ] `App` is still ~40 fields, because it remains the composition root's
+      holder for everything it wires. That is defensible for a struct nothing
+      outside the package sees, but `NewApp` is long enough that grouping the
+      wiring into a few sub-constructors would help.
 
 Unprompted output stays Telegram-only, deliberately. Heartbeat, scheduled agent
 turns, and scheduled messages all stamp `proactiveDestination()`

@@ -9,6 +9,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
+	"github.com/nigelteosw/eggy/internal/kernel/turns"
 )
 
 func TestWebSearchToolIsAbsentWithoutEnvironment(t *testing.T) {
@@ -34,8 +35,8 @@ func TestWebSearchToolIsRegisteredWhenConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	direct := app.loop.ToolNames(agent.RunOptions{})
-	scheduled := app.loop.ToolNames(readOnlyRunOptions())
-	heartbeat := app.loop.ToolNames(heartbeatRunOptions())
+	scheduled := app.loop.ToolNames(turns.ReadOnlyTools())
+	heartbeat := app.loop.ToolNames(turns.HeartbeatTools())
 	if !slices.Contains(direct, "web_search") {
 		t.Fatalf("direct tools=%v", direct)
 	}

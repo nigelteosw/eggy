@@ -28,6 +28,21 @@ its JSON routes. They depend one way only — `config` <- `commands` <- `web` <-
 `bootstrap` — which Go's acyclic import rule enforces on its own, since
 bootstrap imports all three.
 
+What happens *inside* a turn is not bootstrap's either: `internal/kernel/turns`
+owns the kinds of turn (owner message, checks resumption, scheduled,
+heartbeat), the tool allowlist each runs with, the per-turn transcript, and the
+owner/unprompted distinction the safety invariants key off. Bootstrap routes an
+event type to an entry point on it and nothing more, which is what lets a
+kernel test guard those invariants.
+
+Each of these packages declares the narrow interfaces it needs rather than
+taking a whole service — `commands.ChangeLister` is one method where
+`services.Changes` has eleven, `web.ThreadDirectory` is three where
+`ports.ThreadStore` has eight, and `turns.Runtime` takes `RecordUsage` while
+`commands.AgentSettings` deliberately does not. The concrete services satisfy
+them structurally, so this costs the kernel nothing and keeps each surface from
+reaching past what it needs.
+
 ```mermaid
 flowchart TB
     subgraph entry[Entry points]
@@ -57,19 +72,21 @@ flowchart TB
     daemon -->|slash command| commands
 
     subgraph kernel[Provider-neutral kernel - internal/kernel and internal/ports]
+        turnservice[internal/kernel/turns<br/>turn kinds, tool allowlists, transcripts]
         outer[The agent loop]
         services[Domain services<br/>context, scheduling, Calendar, repositories]
         coding[Session bookkeeping and shipping services]
         ports[Small provider-neutral ports]
 
+        turnservice --> outer
         outer --> services
         outer -->|workspace_edit, propose_change| coding
         services --> ports
         coding --> ports
     end
 
-    daemon -->|owner message| outer
-    daemon -->|unprompted propose-only turn| outer
+    daemon -->|owner message| turnservice
+    daemon -->|unprompted propose-only turn| turnservice
     commands --> services
     registry --> outer
 
@@ -114,9 +131,9 @@ Solid arrows show runtime calls and message flow. The dotted adapter-to-port
 arrow shows dependency inversion: kernel code depends on ports, while adapters
 implement those ports and are selected only by bootstrap. Direct commands and
 deterministic scheduled messages skip the model loop; scheduled agent turns
-and heartbeat turns enter the loop with a restricted tool set and no ambient
-conversation history. Repository changes are not a separate lane: they are
-tool calls in the same loop.
+and heartbeat turns enter it through `internal/kernel/turns` with a restricted
+tool set and no ambient conversation history. Repository changes are not a
+separate lane: they are tool calls in the same loop.
 
 ## The agent loop
 

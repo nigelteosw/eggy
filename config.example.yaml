@@ -71,6 +71,12 @@ calendar:
   default_calendar: "primary"
   timezone: "Asia/Singapore"
 mcp:
+  # Anything listed here is trusted. An MCP tool call carries no per-call
+  # approval -- unlike a commit, push, pull request, or Calendar mutation --
+  # because a server can only get here by you putting it here. Reviewing the
+  # server IS the approval. Use tool_filter to narrow what a server exposes
+  # rather than expecting a prompt at call time. See "Trust model" in
+  # docs/ARCHITECTURE.md.
   servers:
     # A stdio server is a local subprocess Eggy spawns and speaks to over
     # stdin/stdout, which is how most of the MCP ecosystem ships. It takes a

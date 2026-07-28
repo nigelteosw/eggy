@@ -228,9 +228,52 @@ condition.
 
 `plugins/tools/mcp` is a generic MCP client built on the official Go SDK. Bootstrap creates one runtime per configured `mcp.servers` entry, discovers every `tools/list` page, applies exact include/exclude filters, and projects each selected tool into the existing `ports.Tool` interface as `<server>__<normalized_tool>`. The kernel and ports have no MCP dependency.
 
-The catalog is live rather than a boot-time snapshot: the manager owns one tool set derived from each server's last successful discovery, and the loop reads it once per turn through `Loop.SetDynamicTools`. Reconnecting a server that was down at boot or whose session died, refreshing on a `tools/list_changed` notification, and dropping one server's tools on logout therefore all take effect on the next turn without restarting the process. `Manager.Reconnect` is the single repair path, reached from `/mcp reload`, a completed login, a probe that found a dead session, and the call gate when a tool's cooldown expires.
+The catalog is live rather than a boot-time snapshot: the manager owns one tool set derived from each server's last successful discovery, and the loop reads it once per turn through a provider registered on `services.ToolRegistry`. Reconnecting a server that was down at boot or whose session died, refreshing on a `tools/list_changed` notification, and dropping one server's tools on logout therefore all take effect on the next turn without restarting the process. `Manager.Reconnect` is the single repair path, reached from `/mcp reload`, a completed login, a probe that found a dead session, and the call gate when a tool's cooldown expires.
 
 Only direct-owner turns receive these projected tools; the explicit scheduled/heartbeat allowlists omit them. Server connection, authentication, discovery, and catalog-staleness state are isolated per server; readiness remains based on Eggy's local stores rather than remote MCP availability. Failure accounting is per *tool*: `failure_threshold` consecutive failures of one tool cool that tool down for `cooldown`, leaving every other tool on the same server callable. A projected tool name already claimed by another server is skipped with a warning on the losing server rather than disabling it.
+
+#### Trust model: a configured MCP server is trusted code
+
+MCP tool calls carry **no payload-bound approval**, unlike commits, pushes,
+pull-request creation, and Calendar mutations. This is a stated decision, not
+an oversight.
+
+A server enters the catalog only through `mcp.servers` in `config.yaml`,
+edited on the host or through the owner-authenticated web settings panel, and
+only takes effect on restart. The agent has no tool that adds, edits, or
+enables a server; there is deliberately no runtime `/mcp add`. A server
+definition carries an auth mode, a tool filter, and for stdio a command line
+and an environment allowlist — all of which belong in reviewed configuration
+rather than in a chat message. The settings panel refuses stdio entirely, so a
+command line only ever comes from the file.
+
+So a configured MCP server is trusted the same way a configured repository is:
+the owner reviewed it, and its tools then run ungated inside a turn. Eggy is a
+single-owner agent, and the environment that names an MCP server already holds
+the provider keys, the GitHub token, and the encryption key.
+
+What still bounds an MCP tool, none of which is an approval:
+
+- Unprompted turns cannot reach one at all. Scheduled and heartbeat turns run
+  with explicit allowlists of kernel tool names, enforced twice — projected
+  tools are filtered out of the definitions sent to the model, and the loop
+  refuses to execute a call outside the allowlist.
+- The per-server `tool_filter` include/exclude list decides which of a
+  server's tools are projected at all. Railway's `list-variables` is excluded
+  in the shipped example precisely because its results would place deployment
+  secrets into model context.
+- Per-*tool* failure accounting: `failure_threshold` consecutive failures cool
+  that one tool down for `cooldown`.
+- A stdio child gets a constructed environment and its own process group.
+
+What is **not** bounded: an owner-prompted turn may invoke any projected tool
+with any arguments, with no per-call confirmation. A malicious or compromised
+server can do anything its projected tools expose. Narrowing a server's
+`tool_filter`, or disabling it, is the control — there is no runtime gate.
+
+*This decision should be re-opened if Eggy ever gains more than one owner, or
+if MCP servers start being added by someone other than the person who accepts
+the risk.*
 
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server inside the shared `/data/auth.json` document (section `mcp`), independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name.
 

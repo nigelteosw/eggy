@@ -261,3 +261,7 @@ Live credential tests are intentionally outside the default suite. Verify Telegr
 ## Security boundary
 
 Eggy is for configured trusted repositories. Workspace roots, environment allowlists, timeouts, output caps, credential redaction, temporary askpass, and process-group termination reduce accidental exposure; same-container repository code is not a strong sandbox against a malicious repository. Provider credentials never enter model prompts, state snapshots, diffs, or structured errors.
+
+**Configured MCP servers are trusted the same way.** Repository commits, pushes, pull requests, and Calendar mutations each require a separate payload-bound approval. MCP tool calls do not, and that is a deliberate choice rather than a gap: a server can only enter the catalog through `mcp.servers` in `config.yaml` — edited on the host or in the owner-authenticated settings panel, effective on restart — and the agent has no tool that adds or enables one. Having reviewed a server, you have accepted its tools.
+
+What still limits an MCP tool: scheduled and heartbeat turns cannot reach one at all, each server's `tool_filter` decides which of its tools are exposed in the first place, and repeated failures of a single tool cool that tool down. What is not limited: during a turn you started, Eggy may call any exposed tool with any arguments without asking. Narrow a server's `tool_filter` — or disable it — for anything you would not want called unattended.

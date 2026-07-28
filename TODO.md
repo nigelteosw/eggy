@@ -30,31 +30,6 @@ body. Eggy's context assembly is in good shape. **Do not optimize bytes.**
 
 ---
 
-## P1: Close the MCP authorization gap
-
-The only open safety item, and the one that blocks another decision below.
-
-An MCP tool call is an arbitrary remote side effect gated by nothing but a
-failure cooldown. Every other capability that reaches outside the process —
-commit, push, pull-request creation, Calendar mutation — carries a
-payload-bound approval. MCP carries none. Owner-prompted turns invoke MCP
-tools ungated; the only mitigation is that unprompted turns cannot reach them
-at all.
-
-- [ ] Decide between two defensible answers, and implement whichever is
-      chosen:
-      - **Gate it.** An approval classification for MCP calls, payload-bound
-        like the others. Needs a rule for which calls are gated — gating every
-        read would make MCP useless, and the server does not tell us which of
-        its tools mutate.
-      - **State the trust.** Document that configured MCP servers are trusted
-        the same way configured repositories are, and that `mcp.servers` is
-        therefore a reviewed-configuration surface rather than a runtime one.
-
-      The current state — an unstated assumption — is the one option that is
-      not defensible. Whichever way this goes, update the standing constraint
-      below, which currently records it as a known gap.
-
 ## P2: Verify the prompt-caching win empirically
 
 The section reorder (stable prefix first) is correct by construction:
@@ -131,6 +106,21 @@ Manual deployment steps, not code changes.
 
 Settled. Each names what would justify re-opening it.
 
+**MCP servers are trusted; MCP calls are ungated by design.** (2026-07-28)
+Resolved the former "MCP authorization gap" by stating the trust rather than
+building an approval classification. A server enters the catalog only through
+`mcp.servers` in `config.yaml` — edited on the host or in the
+owner-authenticated settings panel, effective on restart — and the agent has
+no tool that adds or enables one, so reviewing the server *is* the approval.
+Gating was the other defensible answer but needs a mutation signal the
+protocol does not provide; it would have decayed into a hand-maintained list.
+What still bounds a call: unprompted turns cannot reach one (enforced twice),
+`tool_filter` decides what is exposed at all, and per-tool failure cooldowns
+apply. Written up in `docs/ARCHITECTURE.md` ("Trust model"), `README.md`, and
+`config.example.yaml`. *Re-open if Eggy gains more than one owner, or if
+servers start being added by someone other than the person accepting the
+risk.*
+
 **Scope: almost everything stays.** (2026-07-28) The owner reviewed every
 capability cluster against actual use. Web search was the only cut. Slash
 commands (both grammars), MCP, web UI, Calendar, memory + embeddings,
@@ -144,10 +134,12 @@ available Google Calendar MCP server, so native is the only option that
 exists, not a preference. Two things matter if one appears. First, the line
 count overstates the saving — of ~1,170 lines only ~535 are fungible Google
 plumbing; the other ~240 in `services/calendar.go` are the safety envelope
-(payload-bound approval, idempotency keys, ETag binding). Second, that
-envelope has no MCP equivalent while the authorization gap above is open.
-*Re-open only after that gap is closed, and only for a server that has proven
-itself.*
+(payload-bound approval, idempotency keys, ETag binding). Second — and this
+sharpened rather than dissolved when MCP trust was stated above — MCP calls
+are ungated *by design*, so moving Calendar there means calendar creates and
+deletes stop asking before they happen. That is not a gap to wait out; it is a
+trade the owner would have to accept deliberately. *Re-open only for a server
+that has proven itself, and only with that trade named explicitly.*
 
 **Do not build deferred MCP tool schemas yet.** Anthropic's guidance is to
 defer when tool definitions exceed ~10K tokens and to skip deferral below ~10
@@ -177,6 +169,14 @@ boundary violation — `internal/web` imports `internal/config`, not the
 adapter — and they back a real settings panel. *Genericize only when a second
 config section needs the same treatment, at which point the generic route pays
 for itself.*
+
+**The runtime policy says nothing about MCP, deliberately.** The model is not
+told that MCP calls are ungated: that is operator information, and a generic
+"be careful with remote tools" line is exactly the unconditional prose the
+policy split removed. Server-supplied tool descriptions already say what each
+tool does, and the core policy already forbids claiming an action succeeded
+without its result. *Re-open only if a real incident traces to the model not
+knowing.*
 
 **The Pi four-tool test applies to new tools only.** Before adding a tool, ask
 whether the model could do it with `terminal` and a CLI. Applied retroactively
@@ -219,8 +219,9 @@ Properties every change must preserve.
   is assembled from `CapabilityManifest.Tools`, the same field the manifest
   renders.
 - Calendar mutations, commits, pushes, and PR creation each require their own
-  payload-bound approval. **MCP calls currently require none — a known gap,
-  tracked above.**
+  payload-bound approval. MCP calls deliberately require none: a configured
+  server is trusted code, reviewed when it was added to `mcp.servers`. Keep
+  that surface config-only — no runtime tool may add or enable a server.
 - Unprompted output is Telegram-only, stamped explicitly via
   `proactiveDestination()`, so quiet-hours and weekly-limit accounting stays
   meaningful.

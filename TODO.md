@@ -7,44 +7,6 @@ Priorities are ordered by urgency, then by dependency. Remove an item when its
 implementation and focused tests have landed — do not leave it here as a record
 of finished work.
 
-## P0: Separate the agent core from its control surfaces
-
-The delivery seam is clean: `destination` is its own kernel package,
-`events.Event` carries a typed `Destination` each surface builds for itself,
-`config.Owner.ID` is the system-wide identity, and the Telegram block is
-optional so a web-only deployment boots without it.
-
-The surface extraction has landed: the command surface is `internal/commands`,
-the HTTP surface is `internal/web`, and the turn orchestrator is now the kernel
-package `internal/kernel/turns`. Each declares the narrow interfaces it needs
-rather than taking a whole service or the 40-field `App`, and `app_events.go`
-is down to ~325 lines holding only the daemon loop, event routing, and the
-background workers. `internal/commands` no longer imports
-`internal/kernel/services` at all.
-
-The unprompted-turn invariant is now entirely kernel-held and kernel-tested:
-`services.WithUnpromptedTurn` marks the turn, `turns.ScheduledTurn` and
-`turns.Heartbeat` are what apply the mark, and
-`internal/kernel/turns/turns_test.go` asserts which kinds of turn carry it and
-what each may reach.
-
-### What is left here
-
-- [ ] `App` is still ~40 fields, because it remains the composition root's
-      holder for everything it wires. That is defensible for a struct nothing
-      outside the package sees, but `NewApp` is long enough that grouping the
-      wiring into a few sub-constructors would help.
-
-Unprompted output stays Telegram-only, deliberately. Heartbeat, scheduled agent
-turns, and scheduled messages all stamp `proactiveDestination()`
-(`app_events.go`) on ctx explicitly rather than relying on a channel fallback.
-The web UI is a pull surface the owner opens, not one Eggy pushes to, and a
-single proactive channel keeps `HeartbeatPolicy`'s quiet-hours and weekly-limit
-accounting meaningful rather than per-channel. A web-only deployment therefore
-produces no unprompted output at all. Revisit only if the web UI gains real
-push delivery; turning this into *configuration* would change that one
-function.
-
 ## P1: Make MCP servers dynamic
 
 `plugins/tools/mcp` is complete within its design — OAuth with encrypted
@@ -111,17 +73,21 @@ rather than in a chat message.
 
 ## P1: Make context and capabilities inspectable
 
-- [ ] Add a deterministic `/capabilities` view showing the selected reasoning
-      model, registered assistant tools, configured repositories, enabled
-      integrations, and implementation-loop readiness.
-- [ ] Add a deterministic `/context` view showing injected bytes or estimated
-      tokens per context file, recent-history and session-context sizes,
-      tool-schema overhead, truncation markers, and the known context limit and
-      remaining budget.
-- [ ] Extend `/runs` detail with the model, base revision, phase, provider
-      session ID, elapsed time, and validation status.
-- [ ] Derive every diagnostic from bootstrap and persisted runtime state. Never
-      expose credentials, raw environment contents, or credential paths.
+`/capabilities`, `/context`, and `/runs show <id>` have landed.
+`services.Diagnostics` measures both reports in the kernel — through
+`agent.Instructions` and `Loop.ToolDefinitions`, the same assembly a turn
+uses — so a diagnostic cannot drift from what the turn actually sends.
+
+### What is left here
+
+- [ ] A run records no model alias and no provider session ID, so `/runs show`
+      cannot report either. Recording the selected alias on `ports.Change` at
+      creation is the small fix; the provider session ID no longer exists as a
+      concept and should be dropped from this item rather than reconstructed.
+- [ ] Estimated tokens are bytes/4. Eggy has no tokenizer and no configured
+      per-model context window, so `/context` reports the loop's char budget as
+      the limit that actually bites. Revisit only if a provider limit becomes
+      configuration rather than a number in someone's head.
 
 ## P1: Harden durable context and recall
 
@@ -260,6 +226,12 @@ Every roadmap item must preserve these properties:
   is that nothing lands without payload-bound authorization and a
   human-reviewed pull request; the draft flag travels inside the shipping
   payload so it is bound by that authorization too.
+- Unprompted output stays Telegram-only. Heartbeat, scheduled agent turns, and
+  scheduled messages all stamp `proactiveDestination()` (`app_events.go`) on
+  ctx explicitly rather than relying on a channel fallback. The web UI is a
+  pull surface, and a single proactive channel keeps `HeartbeatPolicy`'s
+  quiet-hours and weekly-limit accounting meaningful rather than per-channel.
+  A web-only deployment therefore produces no unprompted output at all.
 - A heartbeat is a check-in on the owner, not a work tick: read-only plus
   memory curation, and no repository write tools at all. Only a scheduled turn
   carries the propose path, because the owner wrote the schedule asking for

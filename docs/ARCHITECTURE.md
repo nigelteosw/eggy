@@ -426,14 +426,22 @@ message edits for approval outcomes and run progress. The `eggy` CLI reads
 the same `config.yaml`/`state.json`/session files for local/offline
 inspection and `config` management without constructing the full runtime.
 
-Both surfaces share one command set: `/status`, `/repositories`, `/runs`,
-`/stop`, `/schedules`,
+Both surfaces share one command set: `/status`, `/capabilities`, `/context`,
+`/repositories`, `/runs`, `/runs show <id>`, `/stop`, `/schedules`,
 `/memory`, `/clear`, `/model [alias|default]`, `/config get|set ...`,
 `/usage [reset]`, `/calendar_auth`, `/mcp [status|probe|login|logout|reload]`, and `/restart`. `/restart` triggers a
 self-exec-in-place process restart to pick up an edited `config.yaml`/`.env`
 without an external supervisor, which keeps the single-replica deployment model
 intact: no orchestrator is required to bring the process back, and no second
 `eggyd` is ever briefly live alongside the old one.
+
+`/capabilities` and `/context` are answered by `services.Diagnostics` rather
+than by command code. Both reports are measured through the same assembly a
+turn uses — `agent.Instructions` for the injected system sections and
+`Loop.ToolDefinitions` for the tool set that turn would carry — so the
+diagnostic and the turn cannot disagree. Diagnostics is read-only by
+construction and reports names, byte counts, and readiness flags only: no
+credential, environment value, or credential path can reach either view.
 
 ### The channel port
 

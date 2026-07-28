@@ -6,11 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,21 +25,16 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 	"github.com/nigelteosw/eggy/plugins/calendar/google"
 	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
-	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
 	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
 	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
-	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
-	sessionjson "github.com/nigelteosw/eggy/plugins/sessions/jsonfile"
 	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
-	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
@@ -103,6 +96,7 @@ type App struct {
 	repositoriesService     *services.RepositoriesService
 	skillsService           *services.SkillsService
 	conversation            *services.ConversationService
+	diagnostics             *services.Diagnostics
 	memory                  *memorysqlite.Store
 	embedder                ports.Embedder
 	memoryWorker            *services.MemoryEmbeddingWorker
@@ -121,30 +115,7 @@ type App struct {
 type ApprovalExecutor = turns.ApprovalExecutor
 
 func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*App, error) {
-	if options.HTTPClient == nil {
-		options.HTTPClient = http.DefaultClient
-	}
-	if options.TelegramBaseURL == "" {
-		options.TelegramBaseURL = "https://api.telegram.org"
-	}
-	if options.GitHubAPIBase == "" {
-		options.GitHubAPIBase = "https://api.github.com"
-	}
-	if options.GoogleAuthURL == "" {
-		options.GoogleAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
-	}
-	if options.GoogleTokenURL == "" {
-		options.GoogleTokenURL = "https://oauth2.googleapis.com/token"
-	}
-	if options.GoogleAPIBase == "" {
-		options.GoogleAPIBase = "https://www.googleapis.com/calendar/v3"
-	}
-	if options.Now == nil {
-		options.Now = time.Now
-	}
-	if options.Logger == nil {
-		options.Logger = slog.Default()
-	}
+	options.applyDefaults()
 	timezone := strings.TrimSpace(config.Calendar.Timezone)
 	if timezone == "" {
 		timezone = config.Scheduler.QuietHours.Timezone
@@ -153,44 +124,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, fmt.Errorf("load owner timezone: %w", err)
 	}
-	// config.DataDir is the home root: every durable artifact resolves off
-	// this one layout instead of a path literal spread across the wiring.
-	// Migrate first, so a home written by an older Eggy is current before
-	// any store opens a file in it.
-	layout := home.At(config.DataDir)
-	if err := layout.Migrate(); err != nil {
+	opened, err := openStores(config, options)
+	if err != nil {
 		return nil, err
 	}
-	statePath := layout.State()
-	_, statErr := os.Stat(statePath)
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return nil, fmt.Errorf("stat state: %w", statErr)
-	}
-	sessionStore := sessionjson.Open(layout.Sessions())
-	changeStore := sessionjson.OpenChanges(layout.Changes())
-	if _, err := importLegacyCodingRuns(context.Background(), statePath, changeStore, options.Now); err != nil {
-		return nil, fmt.Errorf("import legacy coding runs: %w", err)
-	}
-	stateStore := jsonfile.Open(statePath)
-	authStore := authfile.Open(layout.Auth())
-	if err := migrateCalendarAuth(context.Background(), stateStore, authStore.Calendar()); err != nil {
-		return nil, fmt.Errorf("migrate calendar credential: %w", err)
-	}
-	cronStore := cronfile.Open(layout.Cron())
-	if err := migrateSchedules(context.Background(), stateStore, cronStore); err != nil {
-		return nil, fmt.Errorf("migrate schedules: %w", err)
-	}
-	contextStore := contextmarkdown.Open(contextmarkdown.Paths{
-		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
-	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
-	memoryStore, err := memorysqlite.OpenWithProfile(
-		layout.Database(),
-		config.Embeddings.CandidateLimit,
-		embeddingProfile(config, options),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("open conversation memory: %w", err)
-	}
+	layout, stateStore, contextStore, memoryStore := opened.layout, opened.state, opened.context, opened.memory
+	sessionStore, changeStore, authStore := opened.sessions, opened.changes, opened.auth
 	keepMemory := false
 	defer func() {
 		if !keepMemory {
@@ -198,11 +137,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 	}()
 	app := &App{
-		config: config, home: layout, store: stateStore, calendarAuth: authStore.Calendar(), context: contextStore, scheduler: schedulerlocal.New(cronStore),
+		config: config, home: layout, store: stateStore, calendarAuth: authStore.Calendar(), context: contextStore, scheduler: schedulerlocal.New(opened.cron),
 		memory: memoryStore, memoryEmbeddingInterval: time.Minute,
 		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
 	}
-	if errors.Is(statErr, os.ErrNotExist) && len(config.Repositories) > 0 {
+	if opened.firstBoot && len(config.Repositories) > 0 {
 		seeded := map[string]ports.Repository{}
 		for _, configured := range config.Repositories {
 			seeded[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
@@ -280,36 +219,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	app.conversation = services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
 
-	aliases := make([]string, 0, len(config.ModelAliases))
-	targets := make(map[string]agent.ModelTarget, len(config.ModelAliases))
-	providerModels := make(map[string]ports.Model, len(config.Providers))
-	for name, provider := range config.Providers {
-		if options.FakeAdapters {
-			providerModels[name] = staticModel{}
-			continue
-		}
-		baseURL := provider.BaseURL
-		if override := options.ProviderBaseURLs[name]; override != "" {
-			baseURL = override
-		}
-		switch provider.Adapter {
-		case "openai_compatible":
-			providerModels[name] = openaicompat.New(baseURL, secrets.ProviderAPIKeys[name], options.HTTPClient)
-		default:
-			return nil, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
-		}
+	catalog, err := buildModelCatalog(config, secrets, options)
+	if err != nil {
+		return nil, err
 	}
+	aliases, targets := catalog.aliases, catalog.targets
 	if config.Embeddings.Provider != "" {
 		if options.FakeAdapters {
 			app.embedder = deterministicEmbedder{dimensions: config.Embeddings.Dimensions}
 		} else {
-			provider := config.Providers[config.Embeddings.Provider]
-			baseURL := provider.BaseURL
-			if override := options.ProviderBaseURLs[config.Embeddings.Provider]; override != "" {
-				baseURL = override
-			}
 			app.embedder = openaicompat.NewEmbedder(
-				baseURL,
+				providerBaseURL(config, options, config.Embeddings.Provider),
 				secrets.ProviderAPIKeys[config.Embeddings.Provider],
 				config.Embeddings.Model,
 				config.Embeddings.Dimensions,
@@ -318,20 +238,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 		app.memoryWorker = services.NewMemoryEmbeddingWorker(memoryStore, app.embedder, 0)
 	}
-	efforts := make(map[string][]string, len(config.ModelAliases))
-	for alias, configured := range config.ModelAliases {
-		model := providerModels[configured.Provider]
-		if model == nil {
-			return nil, fmt.Errorf("model alias %q provider %q is unavailable", alias, configured.Provider)
-		}
-		aliases = append(aliases, alias)
-		targets[alias] = agent.ModelTarget{Model: model, ModelID: configured.Model}
-		if len(configured.ReasoningEfforts) > 0 {
-			efforts[alias] = configured.ReasoningEfforts
-		}
-	}
-	sort.Strings(aliases)
-	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, efforts)
+	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
 	// One kernel-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
@@ -353,40 +260,28 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
 	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel))
-	for _, tool := range baseTools {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, baseTools...); err != nil {
+		return nil, err
 	}
 	progress := channelutil.NewProgressTracker(app.channel)
 	app.progress = progress
-	for _, tool := range services.NewRepositoryTools(stateStore) {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, services.NewRepositoryTools(stateStore)...); err != nil {
+		return nil, err
 	}
-	for _, tool := range services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver) {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver)...); err != nil {
+		return nil, err
 	}
-	for _, tool := range services.NewRepositoryMetadataTools(stateStore, repositoryAdapter) {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, services.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+		return nil, err
 	}
-	for _, tool := range app.workspaces.Tools() {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, app.workspaces.Tools()...); err != nil {
+		return nil, err
 	}
 	// Registered after every other kernel tool and before MCP: the registry
 	// rejects duplicates, so an adapter that tries to shadow a primitive
 	// fails bootstrap rather than silently winning.
-	for _, tool := range primitives {
-		if err := registry.Register(tool); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, primitives...); err != nil {
+		return nil, err
 	}
 	webSearcher, err := newWebSearcher(config, secrets, options)
 	if err != nil {
@@ -408,10 +303,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 				_ = app.mcp.Close()
 			}
 		}()
-		for _, tool := range app.mcp.Tools() {
-			if err := registry.Register(tool); err != nil {
-				return nil, err
-			}
+		if err := registerAll(registry, app.mcp.Tools()...); err != nil {
+			return nil, err
 		}
 	}
 
@@ -431,27 +324,44 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			return nil, err
 		}
 		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, authStore.Calendar(), key, options.Now)
-		for _, tool := range calendarTools(app.calendar, app.channel, config.Calendar.DefaultCalendar, options.Now, location, timezone) {
-			if err := registry.Register(tool); err != nil {
-				return nil, err
-			}
-		}
-	}
-	for _, tool := range scheduleTools(app.scheduler, options.Now) {
-		if err := registry.Register(tool); err != nil {
+		if err := registerAll(registry, calendarTools(app.calendar, app.channel, config.Calendar.DefaultCalendar, options.Now, location, timezone)...); err != nil {
 			return nil, err
 		}
+	}
+	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
+		return nil, err
 	}
 	registeredTools := registry.Tools()
 	// One context budget for one loop, shared with the session transcript's
 	// own excerpt bounds: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, agent.ContextPolicy{
+	contextPolicy := agent.ContextPolicy{
 		BudgetChars:        config.ImplementationSessions.ContextBudgetChars,
 		RecentSteps:        config.ImplementationSessions.RecentMessages,
 		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
 		MaxSteps:           maxToolStepsPerTurn,
-	})
+	}
+	app.loop = agent.NewSelectedLoop(targets, registeredTools, contextPolicy)
+	// integrations is what this process actually wired, in stable order, and
+	// is what /capabilities reports. Building it from the constructed adapters
+	// rather than from config is the point: a misconfigured integration can
+	// never report itself as enabled.
+	integrations := []string{"web"}
+	for _, wired := range []struct {
+		name  string
+		built bool
+	}{
+		{"telegram", telegramClient != nil},
+		{"github", repositoryAdapter != nil},
+		{"google_calendar", app.calendar != nil},
+		{"mcp", app.mcp != nil},
+		{"web_search", webSearcher != nil},
+		{"embeddings", app.embedder != nil},
+	} {
+		if wired.built {
+			integrations = append(integrations, wired.name)
+		}
+	}
 	toolNames := make([]string, 0, len(registeredTools))
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
@@ -477,6 +387,14 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, err
 	}
+	// Diagnostics reports on what was just wired above. It is built here,
+	// after the loop and the manifest, so /capabilities and /context describe
+	// this process rather than what config asked for.
+	app.diagnostics = services.NewDiagnostics(services.DiagnosticsOptions{
+		Context: contextStore, Store: stateStore, Runtime: app.agentRuntime,
+		Skills: app.skillsService, Conversation: app.conversation, Loop: app.loop,
+		Manifest: app.manifest, Policy: contextPolicy, Integrations: integrations,
+	})
 	app.commands = commands.New(commands.Options{
 		Turns:        app.turns,
 		Config:       config,
@@ -496,6 +414,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Timezone:     timezone,
 		Now:          options.Now,
 		Restart:      options.RequestRestart,
+		Diagnostics:  app.diagnostics,
 	})
 	if app.mcp != nil {
 		app.commands.SetMCP(app.mcp)

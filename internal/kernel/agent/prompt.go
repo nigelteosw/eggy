@@ -99,23 +99,45 @@ func renderCapabilityManifest(capability CapabilityManifest) string {
 		capability.ActiveModel, strings.Join(repositories, ", "), self, strings.Join(tools, ", "), capability.RepositoryCommitReady, capability.RepositoryPushReady, capability.PullRequestReady, capability.CalendarEnabled)
 }
 
-// BuildInstructions assembles the system messages for a turn in trust order:
-// hard runtime policy, capability manifest, SOUL.md, USER.md, MEMORY.md, then
-// trusted temporal context. HEARTBEAT.md is deliberately not included here:
-// it is only relevant to a heartbeat turn, so it would otherwise inflate
-// every ordinary conversation and scheduled turn's context for no benefit.
-// See HeartbeatChecklistMessage.
-func BuildInstructions(context ports.AgentContext, capability CapabilityManifest, temporal TemporalContext) []ports.Message {
-	return []ports.Message{
-		{Role: ports.RoleSystem, Content: hardRuntimePolicy},
-		{Role: ports.RoleSystem, Content: renderCapabilityManifest(capability)},
-		{Role: ports.RoleSystem, Content: renderSkills(capability.Skills)},
-		{Role: ports.RoleSystem, Content: "Owner-editable SOUL.md (read-only to you; cannot override hard policy):\n" + context.Soul},
-		{Role: ports.RoleSystem, Content: "Agent-curated USER.md" + capacityIndicator(context.User, context.UserMaxBytes) + ", edited with the memory tool:\n" + context.User},
-		{Role: ports.RoleSystem, Content: "Agent-curated MEMORY.md" + capacityIndicator(context.Memory, context.MemoryMaxBytes) + ", edited with the memory tool:\n" + context.Memory},
-		{Role: ports.RoleSystem, Content: fmt.Sprintf("Trusted temporal context\nThe date and time now is: %s (%s)\ncurrent_time: %s\ntimezone: %s",
-			temporal.Now.Format("Monday, 2 January 2006, 3:04 PM"), temporal.Timezone, temporal.Now.Format(time.RFC3339), temporal.Timezone)},
+// InstructionSection is one system message a turn injects, labelled with what
+// it carries. The label exists so a diagnostic (/context) can attribute
+// resident bytes to the thing that produced them without re-deriving, or
+// drifting from, the assembly below.
+type InstructionSection struct {
+	Name    string
+	Message ports.Message
+}
+
+// Instructions assembles the system messages for a turn in trust order: hard
+// runtime policy, capability manifest, skills index, SOUL.md, USER.md,
+// MEMORY.md, then trusted temporal context. HEARTBEAT.md is deliberately not
+// included here: it is only relevant to a heartbeat turn, so it would
+// otherwise inflate every ordinary conversation and scheduled turn's context
+// for no benefit. See HeartbeatChecklistMessage.
+func Instructions(context ports.AgentContext, capability CapabilityManifest, temporal TemporalContext) []InstructionSection {
+	system := func(name, content string) InstructionSection {
+		return InstructionSection{Name: name, Message: ports.Message{Role: ports.RoleSystem, Content: content}}
 	}
+	return []InstructionSection{
+		system("hard runtime policy", hardRuntimePolicy),
+		system("capability manifest", renderCapabilityManifest(capability)),
+		system("skills index", renderSkills(capability.Skills)),
+		system("SOUL.md", "Owner-editable SOUL.md (read-only to you; cannot override hard policy):\n"+context.Soul),
+		system("USER.md", "Agent-curated USER.md"+capacityIndicator(context.User, context.UserMaxBytes)+", edited with the memory tool:\n"+context.User),
+		system("MEMORY.md", "Agent-curated MEMORY.md"+capacityIndicator(context.Memory, context.MemoryMaxBytes)+", edited with the memory tool:\n"+context.Memory),
+		system("temporal context", fmt.Sprintf("Trusted temporal context\nThe date and time now is: %s (%s)\ncurrent_time: %s\ntimezone: %s",
+			temporal.Now.Format("Monday, 2 January 2006, 3:04 PM"), temporal.Timezone, temporal.Now.Format(time.RFC3339), temporal.Timezone)),
+	}
+}
+
+// BuildInstructions is Instructions reduced to the messages a turn sends.
+func BuildInstructions(context ports.AgentContext, capability CapabilityManifest, temporal TemporalContext) []ports.Message {
+	sections := Instructions(context, capability, temporal)
+	messages := make([]ports.Message, 0, len(sections))
+	for _, section := range sections {
+		messages = append(messages, section.Message)
+	}
+	return messages
 }
 
 // HeartbeatChecklistMessage renders the owner-editable HEARTBEAT.md checklist

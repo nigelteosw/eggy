@@ -40,6 +40,7 @@ type CommandService struct {
 	now          func() time.Time
 	restart      func()
 	mcp          MCPCommands
+	diagnostics  Diagnostics
 }
 
 // Options carries everything a CommandService needs. It exists so bootstrap
@@ -69,6 +70,7 @@ type Options struct {
 	Now          func() time.Time
 	Restart      func()
 	MCP          MCPCommands
+	Diagnostics  Diagnostics
 }
 
 // New builds the command service from options.
@@ -93,6 +95,7 @@ func New(options Options) *CommandService {
 		now:          options.Now,
 		restart:      options.Restart,
 		mcp:          options.MCP,
+		diagnostics:  options.Diagnostics,
 	}
 }
 
@@ -170,6 +173,14 @@ type AgentSettings interface {
 	ResetUsage(ctx context.Context) error
 }
 
+// Diagnostics answers /capabilities and /context. Both reports are measured
+// in the kernel, where the turn's own instruction assembly and tool filtering
+// live, so a diagnostic cannot drift from what a turn actually sends.
+type Diagnostics interface {
+	CapabilityReport(ctx context.Context) (ports.CapabilityReport, error)
+	ContextReport(ctx context.Context, conversationID string) (ports.ContextReport, error)
+}
+
 type MCPCommands interface {
 	Statuses() []mcpadapter.ServerStatus
 	Status(string) (mcpadapter.ServerStatus, error)
@@ -242,7 +253,7 @@ func ExecuteConfigCLI(ctx context.Context, configPath string, args []string) (Co
 // topLevelCommandOrder is the stable display order for the bare /help
 // listing, eggy help, and Telegram's autocomplete list.
 var topLevelCommandOrder = []string{
-	"start", "help", "status", "repositories", "runs", "stop",
+	"start", "help", "status", "capabilities", "context", "repositories", "runs", "stop",
 	"schedules", "memory", "skills", "model", "thinking", "config", "usage", "clear",
 	"calendar_auth", "mcp", "restart",
 }
@@ -441,6 +452,30 @@ func init() {
 				{Telegram: "/runs", CLI: "eggy runs"},
 			},
 			Handler: handleRuns,
+		},
+		{
+			Path:    "runs show",
+			Summary: "Show one run in full: branch, base revision, phase, validation, elapsed time, and pull request",
+			Examples: []Example{
+				{Telegram: "/runs show run-1", CLI: "eggy runs show run-1"},
+			},
+			Handler: handleRunsShow,
+		},
+		{
+			Path:    "capabilities",
+			Summary: "Show the active model, registered tools, repositories, integrations, and shipping readiness",
+			Examples: []Example{
+				{Telegram: "/capabilities", CLI: "eggy capabilities"},
+			},
+			Handler: handleCapabilities,
+		},
+		{
+			Path:    "context",
+			Summary: "Show what is resident in this conversation's context, and the limits that compact or truncate it",
+			Examples: []Example{
+				{Telegram: "/context", CLI: "eggy context"},
+			},
+			Handler: handleContext,
 		},
 		{
 			Path:    "stop",

@@ -1,0 +1,184 @@
+package bootstrap
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"sort"
+	"time"
+
+	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/home"
+	"github.com/nigelteosw/eggy/internal/kernel/agent"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/authfile"
+	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
+	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
+	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
+	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
+	sessionjson "github.com/nigelteosw/eggy/plugins/sessions/jsonfile"
+	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
+)
+
+// This file holds the parts of NewApp's wiring that are self-contained enough
+// to name: option defaults, the durable stores, and the model catalog. Each
+// takes what it needs and returns what it built, so NewApp reads as a sequence
+// of steps rather than one long straight line.
+
+func (o *AppOptions) applyDefaults() {
+	if o.HTTPClient == nil {
+		o.HTTPClient = http.DefaultClient
+	}
+	if o.TelegramBaseURL == "" {
+		o.TelegramBaseURL = "https://api.telegram.org"
+	}
+	if o.GitHubAPIBase == "" {
+		o.GitHubAPIBase = "https://api.github.com"
+	}
+	if o.GoogleAuthURL == "" {
+		o.GoogleAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
+	}
+	if o.GoogleTokenURL == "" {
+		o.GoogleTokenURL = "https://oauth2.googleapis.com/token"
+	}
+	if o.GoogleAPIBase == "" {
+		o.GoogleAPIBase = "https://www.googleapis.com/calendar/v3"
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Logger == nil {
+		o.Logger = slog.Default()
+	}
+}
+
+// stores is every durable artifact NewApp opens, already migrated.
+type stores struct {
+	layout    home.Layout
+	state     ports.StateStore
+	sessions  *sessionjson.Store
+	changes   *sessionjson.ChangeStore
+	auth      *authfile.Store
+	cron      *cronfile.Store
+	context   ports.ContextStore
+	memory    *memorysqlite.Store
+	firstBoot bool
+}
+
+// openStores resolves the home layout and opens every store off it. The caller
+// owns closing stores.memory: this returns it open on success.
+func openStores(config config.Config, options AppOptions) (stores, error) {
+	// config.DataDir is the home root: every durable artifact resolves off
+	// this one layout instead of a path literal spread across the wiring.
+	// Migrate first, so a home written by an older Eggy is current before
+	// any store opens a file in it.
+	layout := home.At(config.DataDir)
+	if err := layout.Migrate(); err != nil {
+		return stores{}, err
+	}
+	statePath := layout.State()
+	_, statErr := os.Stat(statePath)
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return stores{}, fmt.Errorf("stat state: %w", statErr)
+	}
+	opened := stores{
+		layout:    layout,
+		sessions:  sessionjson.Open(layout.Sessions()),
+		changes:   sessionjson.OpenChanges(layout.Changes()),
+		auth:      authfile.Open(layout.Auth()),
+		cron:      cronfile.Open(layout.Cron()),
+		firstBoot: errors.Is(statErr, os.ErrNotExist),
+	}
+	if _, err := importLegacyCodingRuns(context.Background(), statePath, opened.changes, options.Now); err != nil {
+		return stores{}, fmt.Errorf("import legacy coding runs: %w", err)
+	}
+	stateStore := jsonfile.Open(statePath)
+	opened.state = stateStore
+	if err := migrateCalendarAuth(context.Background(), stateStore, opened.auth.Calendar()); err != nil {
+		return stores{}, fmt.Errorf("migrate calendar credential: %w", err)
+	}
+	if err := migrateSchedules(context.Background(), stateStore, opened.cron); err != nil {
+		return stores{}, fmt.Errorf("migrate schedules: %w", err)
+	}
+	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
+		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
+	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
+	memoryStore, err := memorysqlite.OpenWithProfile(
+		layout.Database(),
+		config.Embeddings.CandidateLimit,
+		embeddingProfile(config, options),
+	)
+	if err != nil {
+		return stores{}, fmt.Errorf("open conversation memory: %w", err)
+	}
+	opened.memory = memoryStore
+	return opened, nil
+}
+
+// modelCatalog is the configured provider set resolved into what the agent
+// loop and the runtime each need.
+type modelCatalog struct {
+	providers map[string]ports.Model
+	aliases   []string
+	targets   map[string]agent.ModelTarget
+	efforts   map[string][]string
+}
+
+func buildModelCatalog(config config.Config, secrets config.Secrets, options AppOptions) (modelCatalog, error) {
+	catalog := modelCatalog{
+		providers: make(map[string]ports.Model, len(config.Providers)),
+		aliases:   make([]string, 0, len(config.ModelAliases)),
+		targets:   make(map[string]agent.ModelTarget, len(config.ModelAliases)),
+		efforts:   make(map[string][]string, len(config.ModelAliases)),
+	}
+	for name, provider := range config.Providers {
+		if options.FakeAdapters {
+			catalog.providers[name] = staticModel{}
+			continue
+		}
+		switch provider.Adapter {
+		case "openai_compatible":
+			catalog.providers[name] = openaicompat.New(providerBaseURL(config, options, name), secrets.ProviderAPIKeys[name], options.HTTPClient)
+		default:
+			return modelCatalog{}, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
+		}
+	}
+	for alias, configured := range config.ModelAliases {
+		model := catalog.providers[configured.Provider]
+		if model == nil {
+			return modelCatalog{}, fmt.Errorf("model alias %q provider %q is unavailable", alias, configured.Provider)
+		}
+		catalog.aliases = append(catalog.aliases, alias)
+		catalog.targets[alias] = agent.ModelTarget{Model: model, ModelID: configured.Model}
+		if len(configured.ReasoningEfforts) > 0 {
+			catalog.efforts[alias] = configured.ReasoningEfforts
+		}
+	}
+	sort.Strings(catalog.aliases)
+	return catalog, nil
+}
+
+// providerBaseURL is the configured base URL for a provider, with the test
+// override applied.
+func providerBaseURL(config config.Config, options AppOptions, provider string) string {
+	if override := options.ProviderBaseURLs[provider]; override != "" {
+		return override
+	}
+	return config.Providers[provider].BaseURL
+}
+
+// registerAll registers every tool or fails on the first rejection. The
+// registry rejects duplicates, so a colliding adapter fails bootstrap rather
+// than silently winning.
+func registerAll(registry *services.ToolRegistry, tools ...ports.Tool) error {
+	for _, tool := range tools {
+		if err := registry.Register(tool); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -1,7 +1,6 @@
 package services
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,10 +20,6 @@ type changeToolFixture struct {
 	threads     *fakeThreadStore
 }
 
-type stubModelSelector string
-
-func (s stubModelSelector) SelectedModel(context.Context) (string, error) { return string(s), nil }
-
 func newChangeToolFixture(t *testing.T, shipper *fakeShipper) changeToolFixture {
 	t.Helper()
 	store := newMemoryStore()
@@ -35,7 +30,7 @@ func newChangeToolFixture(t *testing.T, shipper *fakeShipper) changeToolFixture 
 	changes := NewChanges(newMemoryChangeStore(), time.Now)
 	transcripts := NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
 	byName := map[string]ports.Tool{}
-	for _, tool := range NewChangeTools(store, workspaces, changes, transcripts, repository, shipper, stubModelSelector("opus"), func() string { return "run-1" }, nil) {
+	for _, tool := range NewChangeTools(store, workspaces, changes, transcripts, repository, shipper, func() string { return "run-1" }, nil) {
 		byName[tool.Definition().Name] = tool
 	}
 	for _, tool := range workspaces.Tools() {
@@ -82,7 +77,7 @@ func TestWorkspaceEditBranchesTheThreadsExistingCheckoutInPlace(t *testing.T) {
 // /runs show reports what did the work even after the owner runs /model.
 func TestWorkspaceEditRecordsTheSelectedModel(t *testing.T) {
 	fixture := newChangeToolFixture(t, &fakeShipper{})
-	ctx := webThread("thread-a")
+	ctx := WithSelectedModel(webThread("thread-a"), "opus")
 	if _, err := fixture.tools["workspace_edit"].Execute(ctx, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -91,25 +86,25 @@ func TestWorkspaceEditRecordsTheSelectedModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	if change.Model != "opus" {
-		t.Fatalf("change.Model=%q, want the alias selected when the branch was created", change.Model)
+		t.Fatalf("change.Model=%q, want the alias the turn was running on", change.Model)
 	}
 }
 
-// The alias is a diagnostic, so a model selection that cannot be read leaves
-// it blank rather than stopping the owner from branching.
-func TestSelectedModelAliasToleratesAnUnreadableSelection(t *testing.T) {
-	if alias := selectedModelAlias(context.Background(), nil); alias != "" {
-		t.Errorf("alias with no selector = %q, want empty", alias)
+// Outside a turn there is no model to attribute the work to, and the change
+// says so rather than borrowing the current selection.
+func TestWorkspaceEditOutsideATurnRecordsNoModel(t *testing.T) {
+	fixture := newChangeToolFixture(t, &fakeShipper{})
+	ctx := webThread("thread-a")
+	if _, err := fixture.tools["workspace_edit"].Execute(ctx, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
+		t.Fatal(err)
 	}
-	if alias := selectedModelAlias(context.Background(), failingModelSelector{}); alias != "" {
-		t.Errorf("alias with a failing selector = %q, want empty", alias)
+	change, err := fixture.changes.Load(ctx, "run-1")
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-type failingModelSelector struct{}
-
-func (failingModelSelector) SelectedModel(context.Context) (string, error) {
-	return "", errors.New("no model configured")
+	if change.Model != "" {
+		t.Fatalf("change.Model=%q, want empty outside a turn", change.Model)
+	}
 }
 
 // Asking twice in a thread keeps the branch it already has, rather than

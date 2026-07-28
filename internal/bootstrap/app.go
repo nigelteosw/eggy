@@ -268,7 +268,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerAll(registry, services.NewRepositoryTools(stateStore)...); err != nil {
 		return nil, err
 	}
-	if err := registerAll(registry, services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, app.agentRuntime, newRunID, progress.Deliver)...); err != nil {
+	if err := registerAll(registry, services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver)...); err != nil {
 		return nil, err
 	}
 	if err := registerAll(registry, services.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {

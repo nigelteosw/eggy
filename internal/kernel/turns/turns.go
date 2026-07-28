@@ -389,6 +389,7 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	// ambient instruction that isolation exists to prevent.
 	turnContext, endTurn := s.registry.Begin(ctx, policy.RecordConversation)
 	defer endTurn()
+	turnContext = services.WithSelectedModel(turnContext, alias)
 	options.PendingInput = func() []ports.Message { return s.registry.Pending(ctx) }
 	stopTyping := func() {}
 	if s.presenter != nil {
@@ -501,6 +502,7 @@ func (s *Service) Heartbeat(ctx context.Context) error {
 	// it.
 	heartbeatContext, endTurn := s.registry.Begin(ctx, false)
 	defer endTurn()
+	heartbeatContext = services.WithSelectedModel(heartbeatContext, alias)
 	transcript, closeTranscript := s.openTranscript(ctx, "heartbeat")
 	defer closeTranscript()
 	if transcript != nil {

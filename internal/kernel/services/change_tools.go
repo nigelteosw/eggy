@@ -31,26 +31,6 @@ var ErrOwnerChangeInProgress = errors.New("this thread has an owner's change ope
 // branch and HEAD it recorded before it commits anything, and every step of
 // the commit -> push -> pull-request chain still goes through
 // ShippingService's payload-digest approvals.
-// ChangeModelSelector reads the reasoning-model alias a turn would use now, so
-// workspace_edit can stamp it on the change it opens.
-type ChangeModelSelector interface {
-	SelectedModel(ctx context.Context) (string, error)
-}
-
-// selectedModelAlias resolves the alias to record on a new change. A model
-// selection that cannot be read is recorded as unknown rather than failing the
-// edit: the alias is a diagnostic, and no branch should go uncreated for it.
-func selectedModelAlias(ctx context.Context, models ChangeModelSelector) string {
-	if models == nil {
-		return ""
-	}
-	alias, err := models.SelectedModel(ctx)
-	if err != nil {
-		return ""
-	}
-	return alias
-}
-
 func NewChangeTools(
 	store ports.StateStore,
 	workspaces *WorkspaceSessions,
@@ -58,7 +38,6 @@ func NewChangeTools(
 	transcripts *Transcripts,
 	repository ports.CodingRepository,
 	shipper Shipper,
-	models ChangeModelSelector,
 	newRunID func() string,
 	progress ports.ProgressReporter,
 ) []ports.Tool {
@@ -128,7 +107,7 @@ func NewChangeTools(
 		if revision.Branch != branch {
 			return nil, fmt.Errorf("repository created unexpected branch %q", revision.Branch)
 		}
-		if _, err := changes.Open(ctx, runID, configured.Name, branch, revision.Head, selectedModelAlias(ctx, models)); err != nil {
+		if _, err := changes.Open(ctx, runID, configured.Name, branch, revision.Head, SelectedModelFromContext(ctx)); err != nil {
 			return nil, err
 		}
 		if err := workspaces.MarkEditing(ctx, branch, runID); err != nil {

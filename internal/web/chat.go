@@ -18,6 +18,34 @@ import (
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 )
 
+// ThreadDirectory and HistoryReader are what the chat routes need from the
+// thread and memory stores, declared here rather than taken as the full
+// ports.ThreadStore and ports.MemoryStore. The narrowing is not cosmetic:
+// ports.ThreadStore also carries AttachWorkspace, SetWorkspaceEdit, and
+// DetachWorkspace, and ports.MemoryStore carries WriteMessage, SetEmbedding,
+// and the search methods. Workspace lifecycle belongs to the turn path and
+// embedding maintenance to the memory worker; an HTTP handler holding the
+// whole interface could reach either by accident. The concrete stores
+// satisfy these structurally, so nothing outside this package changed.
+type ThreadDirectory interface {
+	CreateThread(ctx context.Context, id, channel string, at time.Time) (ports.Thread, error)
+	ListThreads(ctx context.Context, channel string) ([]ports.Thread, error)
+	GetThread(ctx context.Context, id string) (thread ports.Thread, found bool, err error)
+}
+
+// HistoryReader reads a thread's messages back for display. Writing is the
+// turn path's job, so this deliberately cannot.
+type HistoryReader interface {
+	RecentMessages(ctx context.Context, conversationID string, limit int) ([]ports.StoredMessage, error)
+}
+
+// ChatStream is the live event fan-out a streaming connection subscribes to.
+// The web surface only ever subscribes; publishing belongs to the channel
+// adapter that owns the hub.
+type ChatStream interface {
+	Register(threadID string) (connID string, events <-chan webchat.Event, unregister func())
+}
+
 const chatKeepaliveInterval = 15 * time.Second
 
 // chatHistoryDisplayLimit bounds how many of a thread's most recent
@@ -49,7 +77,7 @@ func newThreadID() string {
 // doesn't exist, so a deleted-out-from-under-an-open-tab or malformed
 // thread ID never reaches the handler's real work. Returns ok=false when
 // the response has already been written.
-func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ports.ThreadStore) (id string, ok bool) {
+func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ThreadDirectory) (id string, ok bool) {
 	id = r.PathValue("id")
 	if _, found, err := threads.GetThread(r.Context(), id); err != nil {
 		writeWebError(w, http.StatusInternalServerError, err.Error())
@@ -61,7 +89,7 @@ func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ports
 	return id, true
 }
 
-func newThreadListHandler(threads ports.ThreadStore) http.HandlerFunc {
+func newThreadListHandler(threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		threads, err := threads.ListThreads(r.Context(), "web")
 		if err != nil {
@@ -80,7 +108,7 @@ func newThreadListHandler(threads ports.ThreadStore) http.HandlerFunc {
 	}
 }
 
-func newThreadCreateHandler(threads ports.ThreadStore, now func() time.Time) http.HandlerFunc {
+func newThreadCreateHandler(threads ThreadDirectory, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		thread, err := threads.CreateThread(r.Context(), newThreadID(), "web", now())
 		if err != nil {
@@ -96,7 +124,7 @@ func newThreadCreateHandler(threads ports.ThreadStore, now func() time.Time) htt
 	}
 }
 
-func newThreadHistoryHandler(threads ports.ThreadStore, memory ports.MemoryStore) http.HandlerFunc {
+func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
@@ -119,7 +147,7 @@ func newThreadHistoryHandler(threads ports.ThreadStore, memory ports.MemoryStore
 	}
 }
 
-func newThreadSendHandler(enqueue func(context.Context, events.Event) error, owner string, threads ports.ThreadStore) http.HandlerFunc {
+func newThreadSendHandler(enqueue func(context.Context, events.Event) error, owner string, threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
@@ -184,7 +212,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 	}
 }
 
-func newThreadStreamHandler(hub *webchat.Hub, threads ports.ThreadStore) http.HandlerFunc {
+func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := requireExistingThread(w, r, threads)
 		if !ok {

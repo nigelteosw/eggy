@@ -13,8 +13,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
@@ -30,10 +28,10 @@ type WebUIConfig struct {
 	Password   string
 	SigningKey []byte
 	Now        func() time.Time
-	ChatHub    *webchat.Hub
+	ChatHub    ChatStream
 	Enqueue    func(context.Context, events.Event) error
-	Memory     ports.MemoryStore
-	Threads    ports.ThreadStore
+	Memory     HistoryReader
+	Threads    ThreadDirectory
 	OwnerID    string
 	// Files exposes the owner-facing part of the home directory. Nil in
 	// tests that only exercise login/config routes; the /api/files routes

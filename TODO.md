@@ -18,19 +18,28 @@ The surface extraction has landed: the command surface is `internal/commands`
 and the HTTP surface is `internal/web`, leaving `internal/bootstrap` at ~2.4k
 non-test lines holding two layers rather than four — the composition root
 (`app.go`, `mcp.go`, `logging.go`, `web_search.go`, `assistant_tools.go`, the
-`migrate_*.go` files) and the turn orchestrator (`app_events.go`, ~790 lines).
+`migrate_*.go` files) and the turn orchestrator (`app_events.go`, ~820 lines).
 
 What remains is the turn orchestrator itself. It is core agentic behavior, not
-wiring — including the read-only/heartbeat allowlists that encode a documented
-safety invariant in the one package no kernel test can guard.
+wiring — including the propose-only/heartbeat allowlists that decide which
+turns are unprompted in the one package no kernel test can guard.
+
+Each surface now declares the interface it needs rather than taking a whole
+service: `ConversationResetter`, `ChangeLister`, `TurnStopper`,
+`RepositoryAdmin`, `SkillAdmin`, and `AgentSettings` in `internal/commands`
+(which no longer imports `internal/kernel/services` at all), and
+`ThreadDirectory`, `HistoryReader`, and `ChatStream` in `internal/web`. What
+remains is the orchestrator.
 
 ### Move the turn orchestrator into the kernel
 
 - [ ] Move `handleMessage`, `handleHeartbeat`, `handleApproval`,
-      `messageHandlingPolicy`, and the read-only/heartbeat tool allowlists out
-      of `internal/bootstrap/app_events.go` into a kernel `TurnService` that
-      accepts a neutral turn request (destination, text, policy). Telegram and
-      web then become peers that each only build that request.
+      `messageHandlingPolicy`, and the propose-only/heartbeat tool allowlists
+      out of `internal/bootstrap/app_events.go` into a kernel `TurnService`
+      that accepts a neutral turn request (destination, text, policy).
+      Telegram and web then become peers that each only build that request.
+      Follow the pattern the surfaces now use: let `TurnService` declare the
+      narrow interfaces it needs instead of taking the 40-field `App`.
   - [ ] Move the remaining half of the unprompted-turn invariant into the
         kernel with it. The invariant itself is held in the kernel already
         (`internal/kernel/services/unprompted.go`, tested in
@@ -38,13 +47,11 @@ safety invariant in the one package no kernel test can guard.
         unprompted* is still decided by `proposeOnlyRunOptions` and the
         `services.WithUnpromptedTurn` calls in `app_events.go`, where no kernel
         test can guard it.
-- [ ] Give each surface a narrow interface onto the core rather than the whole
-      40-field `App` struct. `internal/commands` and `internal/web` are their
-      own packages now but still receive broad dependency sets.
 - [ ] Drop the dead `case <-ctx.Done()` branch in `App.Enqueue`
       (`app_events.go:32`): with a `default` present it can never fire, so a
       cancelled context reports "event queue is full" instead of the context
-      error. Drop the `ctx.Done()` case or drop the `default`, not both.
+      error. Drop the `ctx.Done()` case or drop the `default`, not both. Worth
+      doing before the move above, so the refactor carries correct code.
 
 Unprompted output stays Telegram-only, deliberately. Heartbeat, scheduled agent
 turns, and scheduled messages all stamp `proactiveDestination()`
@@ -149,15 +156,6 @@ store (`plugins/memory/sqlite`), not by file-backed excerpts.
 
 Filed from a code review; each is small and independently landable.
 
-- [ ] `lineEmitter` is quadratic and unbounded
-      (`plugins/runner/localprocess/runner.go:248`). On each newline it calls
-      `pending.String()` (a full copy), `Reset()`, then rewrites the remainder —
-      O(n²) for a write chunk containing many lines. Unlike the `cappedBuffer`
-      beside it, `pending` has no limit, so a command emitting megabytes without
-      a newline (progress bars using `\r`, minified output, a runaway build log)
-      grows it without bound. This streams agent-run `go test`/`build` output,
-      so it is reachable in normal operation. Scan for `'\n'` by index, consume
-      in place, and cap `pending` at `r.maxOutput`.
 - [ ] The login throttle keys on the wrong address. `clientIP`
       (`internal/web/web.go:252`) reads only `r.RemoteAddr`, which behind
       Railway's proxy is the proxy's address for every request — so all attempts

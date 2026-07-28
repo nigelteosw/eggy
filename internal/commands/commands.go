@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
@@ -26,13 +26,12 @@ type CommandService struct {
 	calendarAuth ports.CalendarAuthStore
 	schedules    ScheduleLister
 	context      ports.ContextStore
-	conversation *services.ConversationService
-	changes      *services.Changes
-	turns        *services.ActiveTurns
-	shipping     *services.ShippingService
-	repositories *services.RepositoriesService
-	skills       *services.SkillsService
-	agentRuntime *services.AgentRuntime
+	conversation ConversationResetter
+	changes      ChangeLister
+	turns        TurnStopper
+	repositories RepositoryAdmin
+	skills       SkillAdmin
+	agentRuntime AgentSettings
 	channel      ports.Channel
 	defaultModel string
 	configPath   string
@@ -56,13 +55,12 @@ type Options struct {
 	CalendarAuth ports.CalendarAuthStore
 	Schedules    ScheduleLister
 	Context      ports.ContextStore
-	Conversation *services.ConversationService
-	Changes      *services.Changes
-	Turns        *services.ActiveTurns
-	Shipping     *services.ShippingService
-	Repositories *services.RepositoriesService
-	Skills       *services.SkillsService
-	AgentRuntime *services.AgentRuntime
+	Conversation ConversationResetter
+	Changes      ChangeLister
+	Turns        TurnStopper
+	Repositories RepositoryAdmin
+	Skills       SkillAdmin
+	AgentRuntime AgentSettings
 	Channel      ports.Channel
 	DefaultModel string
 	ConfigPath   string
@@ -84,7 +82,6 @@ func New(options Options) *CommandService {
 		conversation: options.Conversation,
 		changes:      options.Changes,
 		turns:        options.Turns,
-		shipping:     options.Shipping,
 		repositories: options.Repositories,
 		skills:       options.Skills,
 		agentRuntime: options.AgentRuntime,
@@ -99,11 +96,78 @@ func New(options Options) *CommandService {
 	}
 }
 
+// The interfaces below are what this package needs from the kernel, declared
+// here rather than in the kernel: each names the handful of methods the
+// commands actually call, so the command surface cannot reach past them into
+// the rest of a service. The narrowing is the point -- /clear resets one
+// conversation and can never record a message, /runs reads changes and can
+// never mutate one, /stop cancels a turn and can never begin or steer one.
+// A bootstrap that passes the real *services.X still satisfies them
+// structurally, so nothing in the kernel had to change to allow this.
+//
+// It is also why this package imports no kernel service package at all now,
+// only ports and approvals.
+
 // ScheduleLister reads the cron directory for the /schedules and /status
 // commands. It is an interface so those commands stay testable without a
 // scheduler.
 type ScheduleLister interface {
 	List(context.Context) ([]ports.Schedule, error)
+}
+
+// ConversationResetter clears one conversation's durable history for /clear.
+// Recording and recall belong to the turn path, not to a command.
+type ConversationResetter interface {
+	Reset(ctx context.Context, conversationID string) error
+}
+
+// ChangeLister reads change history for /runs and /status. Every mutator on
+// the underlying service is deliberately absent: a command reports on
+// repository work, it never advances it.
+type ChangeLister interface {
+	List(ctx context.Context) ([]ports.Change, error)
+}
+
+// TurnStopper cancels the turn running in the calling conversation for
+// /stop. Beginning, steering, and draining a turn belong to the orchestrator.
+type TurnStopper interface {
+	Stop(ctx context.Context) bool
+}
+
+// RepositoryAdmin is the /repositories surface. Adding requires owner
+// approval and so returns an approval to deliver, while removing is a local
+// bookkeeping change that does not.
+type RepositoryAdmin interface {
+	List(ctx context.Context) (map[string]ports.Repository, error)
+	RequestAdd(ctx context.Context, name, cloneURL, baseBranch string, protectedBranches []string) (approvals.Approval, error)
+	Remove(ctx context.Context, name string) error
+}
+
+// SkillAdmin is the /skills surface. Write and delete return an approval to
+// deliver, since a skill's body steers later tool calls; disable and enable
+// only change what is surfaced and take effect immediately.
+type SkillAdmin interface {
+	List(ctx context.Context) ([]ports.SkillSummary, error)
+	Show(ctx context.Context, name string) (ports.Skill, error)
+	RequestWrite(ctx context.Context, name, description, body string) (approvals.Approval, error)
+	RequestDelete(ctx context.Context, name string) (approvals.Approval, error)
+	Disable(ctx context.Context, name string) error
+	Enable(ctx context.Context, name string) error
+}
+
+// AgentSettings is the owner-facing runtime settings surface: /model,
+// /thinking, and /usage. RecordUsage is deliberately not here -- accumulating
+// usage is the turn path's job, and a command only ever reads or resets it.
+type AgentSettings interface {
+	SelectedModel(ctx context.Context) (string, error)
+	SelectModel(ctx context.Context, alias string) error
+	ReasoningEffort(ctx context.Context) (string, error)
+	ReasoningEfforts(alias string) []string
+	SelectReasoningEffort(ctx context.Context, effort string) error
+	ShowThinking(ctx context.Context) (bool, error)
+	SetShowThinking(ctx context.Context, show bool) error
+	Usage(ctx context.Context) (map[string]ports.ModelUsage, error)
+	ResetUsage(ctx context.Context) error
 }
 
 type MCPCommands interface {

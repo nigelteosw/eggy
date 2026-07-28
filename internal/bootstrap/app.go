@@ -484,7 +484,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Context:      contextStore,
 		Conversation: app.conversation,
 		Changes:      changes,
-		Shipping:     app.shipping,
 		Repositories: app.repositoriesService,
 		Skills:       app.skillsService,
 		AgentRuntime: app.agentRuntime,

@@ -468,7 +468,7 @@ func (s *Service) Active() bool { return s.registry.Active() }
 // recent-conversation history, so instructions from an old chat cannot be
 // silently revived. Its context is the durable docs (SOUL/USER/MEMORY), the
 // owner-editable HEARTBEAT.md checklist, and the capability manifest -- never
-// state.RecentMessages.
+// the ambient conversation window.
 //
 // Silent context curation (USER.md/MEMORY.md) is never gated by quiet hours
 // or the weekly proactive-message limit; only the owner-facing check-in is.

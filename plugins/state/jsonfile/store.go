@@ -15,7 +15,13 @@ import (
 	"github.com/nigelteosw/eggy/plugins/filelock"
 )
 
-const CurrentSchemaVersion = 4
+// CurrentSchemaVersion is 5 because State dropped three fields that only
+// existed to be migrated out of: recent_messages (replaced by the SQLite
+// conversation window), schedules (replaced by one file per job under
+// <home>/cron), and calendar (replaced by auth.json). Their boot migrations
+// are gone, so a state.json still carrying those keys simply has them
+// ignored on load and dropped on the next write.
+const CurrentSchemaVersion = 5
 
 var ErrVersionConflict = ports.ErrStateVersionConflict
 
@@ -30,7 +36,6 @@ func initialState() ports.State {
 	return ports.State{
 		SchemaVersion:   CurrentSchemaVersion,
 		Approvals:       map[string]approvals.Approval{},
-		Schedules:       map[string]ports.Schedule{},
 		ProcessedEvents: map[string]time.Time{},
 	}
 }

@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -93,17 +92,7 @@ func openStores(config config.Config, options AppOptions) (stores, error) {
 		cron:      cronfile.Open(layout.Cron()),
 		firstBoot: errors.Is(statErr, os.ErrNotExist),
 	}
-	if _, err := importLegacyCodingRuns(context.Background(), statePath, opened.changes, options.Now); err != nil {
-		return stores{}, fmt.Errorf("import legacy coding runs: %w", err)
-	}
-	stateStore := jsonfile.Open(statePath)
-	opened.state = stateStore
-	if err := migrateCalendarAuth(context.Background(), stateStore, opened.auth.Calendar()); err != nil {
-		return stores{}, fmt.Errorf("migrate calendar credential: %w", err)
-	}
-	if err := migrateSchedules(context.Background(), stateStore, opened.cron); err != nil {
-		return stores{}, fmt.Errorf("migrate schedules: %w", err)
-	}
+	opened.state = jsonfile.Open(statePath)
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
 		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
 	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)

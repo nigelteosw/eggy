@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -87,21 +88,36 @@ func (h *heartbeatTestHarness) lastModelBody(t *testing.T) string {
 	return string(h.modelBodies[len(h.modelBodies)-1])
 }
 
+// assertNoDurableMessages proves the turn recorded nothing durable of its
+// own. A message seeded by seedStaleConversation is not the turn's, so it is
+// excluded by content rather than by count: an off-by-one allowance would
+// pass just as happily if the turn wrote one message and the seed vanished.
 func (h *heartbeatTestHarness) assertNoDurableMessages(t *testing.T) {
 	t.Helper()
 	messages, err := h.app.memory.PendingEmbeddings(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 0 {
-		t.Fatalf("durable messages=%#v", messages)
+	written := messages[:0]
+	for _, message := range messages {
+		if message.Content != staleConversationMarker {
+			written = append(written, message)
+		}
+	}
+	if len(written) != 0 {
+		t.Fatalf("durable messages=%#v", written)
 	}
 }
 
 // TestHeartbeatIsIsolatedFromRecentConversationHistory proves a heartbeat
-// turn never sees state.RecentMessages (so an old chat cannot silently
-// revive an instruction), but does see the owner-editable HEARTBEAT.md
-// checklist and an explicit isolation marker.
+// turn never sees the ambient recent-conversation window (so an old chat
+// cannot silently revive an instruction), but does see the owner-editable
+// HEARTBEAT.md checklist and an explicit isolation marker.
+//
+// The stale message is seeded into the durable conversation store, which is
+// where the ambient window now comes from. It used to be seeded into a field
+// on State; that field is gone, but the property it guarded is not, so the
+// test follows the data rather than retiring with it.
 func TestHeartbeatIsIsolatedFromRecentConversationHistory(t *testing.T) {
 	dataDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataDir, "HEARTBEAT.md"), []byte("# Eggy Heartbeat\n\n## Check\n\nOWNER_SPECIFIC_CHECKLIST_MARKER\n"), 0o600); err != nil {
@@ -109,12 +125,7 @@ func TestHeartbeatIsIsolatedFromRecentConversationHistory(t *testing.T) {
 	}
 	noon := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	harness := newHeartbeatTestHarness(t, dataDir, noon, "All clear.")
-	if _, err := harness.app.store.Update(context.Background(), 0, func(state *ports.State) error {
-		state.RecentMessages = append(state.RecentMessages, ports.Message{Role: ports.RoleUser, Content: "STALE_OLD_CHAT_INSTRUCTION_MARKER"})
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedStaleConversation(t, harness)
 	harness.triggerHeartbeat(t)
 	body := harness.lastModelBody(t)
 	if !strings.Contains(body, "OWNER_SPECIFIC_CHECKLIST_MARKER") {
@@ -123,7 +134,7 @@ func TestHeartbeatIsIsolatedFromRecentConversationHistory(t *testing.T) {
 	if !strings.Contains(body, "isolated turn") {
 		t.Fatalf("expected an explicit isolation marker in request: %s", body)
 	}
-	if strings.Contains(body, "STALE_OLD_CHAT_INSTRUCTION_MARKER") {
+	if strings.Contains(body, staleConversationMarker) {
 		t.Fatalf("recent conversation history leaked into heartbeat turn: %s", body)
 	}
 	harness.mu.Lock()
@@ -222,18 +233,13 @@ func TestScheduledMessageDeliversVerbatimWithoutModelCall(t *testing.T) {
 
 // TestScheduledAgentTurnExcludesRecentConversationHistory proves a
 // TypeSchedule agent turn (as distinct from TypeScheduledMessage above) is
-// self-contained: it does not see state.RecentMessages either, matching the
-// heartbeat isolation guarantee.
+// self-contained: it does not see the ambient conversation window either,
+// matching the heartbeat isolation guarantee.
 func TestScheduledAgentTurnExcludesRecentConversationHistory(t *testing.T) {
 	dataDir := t.TempDir()
 	noon := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	harness := newHeartbeatTestHarness(t, dataDir, noon, "Checked.")
-	if _, err := harness.app.store.Update(context.Background(), 0, func(state *ports.State) error {
-		state.RecentMessages = append(state.RecentMessages, ports.Message{Role: ports.RoleUser, Content: "STALE_OLD_CHAT_INSTRUCTION_MARKER"})
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedStaleConversation(t, harness)
 	payload, _ := json.Marshal(events.Message{Text: "Check my calendar for conflicts"})
 	if err := harness.app.HandleEvent(context.Background(), events.Event{
 		ID: "schedule-test", Type: events.TypeSchedule, Owner: "42", Payload: payload,
@@ -241,8 +247,26 @@ func TestScheduledAgentTurnExcludesRecentConversationHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := harness.lastModelBody(t)
-	if strings.Contains(body, "STALE_OLD_CHAT_INSTRUCTION_MARKER") {
+	if strings.Contains(body, staleConversationMarker) {
 		t.Fatalf("recent conversation history leaked into scheduled agent turn: %s", body)
 	}
 	harness.assertNoDurableMessages(t)
+}
+
+// seedStaleConversation writes an old owner instruction into the durable
+// conversation window an ordinary turn would read, so an isolation test can
+// prove a heartbeat or scheduled turn does not pick it up.
+const staleConversationMarker = "STALE_OLD_CHAT_INSTRUCTION_MARKER"
+
+func seedStaleConversation(t *testing.T, harness *heartbeatTestHarness) {
+	t.Helper()
+	if err := harness.app.memory.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: destination.Destination{Kind: destination.Telegram}.ConversationID(),
+		Role:           ports.RoleUser,
+		Content:        staleConversationMarker,
+		Source:         "telegram",
+		CreatedAt:      time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

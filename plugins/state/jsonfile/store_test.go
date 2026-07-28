@@ -36,14 +36,17 @@ func TestMigratesSchemaOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SchemaVersion != CurrentSchemaVersion || state.Version != 7 || len(state.RecentMessages) != 1 || state.Calendar.EncryptedRefreshToken != "cipher" || len(state.ProcessedEvents) != 1 || len(state.ProactiveMessages) != 1 {
+	// recent_messages, schedules, and calendar are retired keys: an older
+	// file still carries them, and loading must ignore them rather than fail.
+	// The surviving collections must come through untouched.
+	if state.SchemaVersion != CurrentSchemaVersion || state.Version != 7 || len(state.ProcessedEvents) != 1 || len(state.ProactiveMessages) != 1 {
 		t.Fatalf("migrated state = %#v", state)
 	}
 	if state.Agent.SelectedModel != "" || len(state.Agent.Usage) != 0 {
 		t.Fatalf("unexpected agent state = %#v", state.Agent)
 	}
 	persisted, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(persisted), `"schema_version": 4`) {
+	if err != nil || !strings.Contains(string(persisted), `"schema_version": 5`) {
 		t.Fatalf("persisted migration=%s err=%v", persisted, err)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o600 {
@@ -85,20 +88,14 @@ func TestMigratesRepresentativeProductionState(t *testing.T) {
 	if state.SchemaVersion != CurrentSchemaVersion || state.Version != 42 {
 		t.Fatalf("schema/version = %#v", state)
 	}
-	if len(state.RecentMessages) != 2 || len(state.ProcessedEvents) != 1 || len(state.ProactiveMessages) != 1 {
+	if len(state.ProcessedEvents) != 1 || len(state.ProactiveMessages) != 1 {
 		t.Fatalf("unrelated collections corrupted = %#v", state)
 	}
 	if len(state.Approvals) != 1 || state.Approvals["a-1"].Status != approvals.Pending {
 		t.Fatalf("approvals corrupted = %#v", state.Approvals)
 	}
-	if len(state.Schedules) != 1 || state.Schedules["s-1"].Instruction != "check in" {
-		t.Fatalf("schedules corrupted = %#v", state.Schedules)
-	}
 	if len(state.Repositories) != 1 || state.Repositories["eggy"].CloneURL != "https://github.com/nigelteosw/eggy.git" {
 		t.Fatalf("repositories corrupted = %#v", state.Repositories)
-	}
-	if state.Calendar.EncryptedRefreshToken != "cipher" || state.Calendar.EnrollmentDigest != "digest" {
-		t.Fatalf("calendar auth corrupted = %#v", state.Calendar)
 	}
 	if state.Agent.SelectedModel != "gpt-5" || state.Agent.ReasoningEffort != "medium" || state.Agent.Usage["gpt-5"].TotalTokens != 150 {
 		t.Fatalf("agent state corrupted = %#v", state.Agent)
@@ -116,10 +113,10 @@ func TestMigratesRepresentativeProductionState(t *testing.T) {
 
 func TestRejectsFutureSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version":5}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version":6}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(path).Load(context.Background()); err == nil || !strings.Contains(err.Error(), "unsupported state schema 5") {
+	if _, err := Open(path).Load(context.Background()); err == nil || !strings.Contains(err.Error(), "unsupported state schema 6") {
 		t.Fatalf("error=%v", err)
 	}
 }

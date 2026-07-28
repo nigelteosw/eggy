@@ -336,29 +336,53 @@ configured repositories belonged anyway.
       `internal/kernel/services/implementer.go`, neither of which exists. Fixed
       in passing; the rest of that file's port list deserves the same audit.
 
-## P1: Correctness and dead weight
+## P1: Correctness and dead weight — LANDED
 
-- [ ] `ports.State.RecentMessages` (`ports.go:325`) is dead. Nothing reads or
-      writes it; the SQLite memory store replaced it. Delete the field and
-      note the schema change.
-- [ ] `ports.State.Calendar` is retained only for a boot migration
-      (`ports.go:333`). Fold into the migration exit plan below.
-- [ ] Path containment is lexical, not symlink-aware.
-      `resolveWorkspacePath` (`workspace_path.go:20`) and `Runner.withinRoot`
-      (`runner.go:178`) use `filepath.Abs` + `filepath.Rel` with no
-      `EvalSymlinks`, so a symlink inside the workspace pointing at `/` passes
-      both. The `terminal` tool runs `sh -c` with an arbitrary command anyway,
-      so containment was never a real boundary. Fix the comment that claims
-      "a primitive can never touch a file outside the checkout" and state the
-      trusted-repository threat model plainly, rather than adding
-      `EvalSymlinks` and implying a boundary that `sh -c` defeats.
-- [ ] Give migration code an exit plan. `legacy_coding_runs.go`,
-      `migrate_auth.go`, `migrate_cron.go`, and `mcp/oauth_migrate.go` have
-      none. Single-user, single-replica, deploy under our control: pick a date,
-      write it in each file, delete on that date.
-- [ ] State plainly in `README.md` that the web password is a plaintext shared
-      secret in config, not a hash. Defensible for a single-owner app; should
-      be a documented choice.
+**Migrations removed** (owner-authorized). `legacy_coding_runs.go`,
+`migrate_auth.go`, `migrate_cron.go`, and `mcp/oauth_migrate.go` are deleted
+along with their boot call sites. All four were idempotent one-way moves into
+the current layout, and the deployed instance has booted with them many times.
+
+*Precondition, stated because removal is irreversible:* this is safe only
+because `/data` has already been through them. Restoring a `/data` backup that
+predates any of these migrations, on a build after this commit, would strand
+that data — the Calendar credential in `state.json`, schedules in
+`state.json`, per-server MCP OAuth files under `<home>/mcp/`, and pre-
+unification `coding_runs`. Recovering would mean checking out a commit at or
+before this one, booting once, then upgrading.
+
+**Three dead `State` fields removed.** `RecentMessages` (replaced by the
+SQLite conversation window), `Schedules` (replaced by one file per job under
+`<home>/cron`), and `Calendar` (replaced by `auth.json`) existed only to be
+migrated out of. `SchemaVersion` is 5. Loading is unaffected — the store uses a
+plain `json.Unmarshal`, so a `state.json` still carrying those keys has them
+ignored and dropped on the next write. `store_test.go` keeps its old-shape
+fixtures and now asserts exactly that: a file written by an older Eggy still
+loads, retired keys and all.
+
+**One safety test followed its data instead of retiring with it.**
+`TestHeartbeatIsIsolatedFromRecentConversationHistory` seeded a stale
+instruction into `State.RecentMessages` and proved a heartbeat could not see
+it. That field is gone; the property is not. It now seeds the durable
+conversation store, which is where the ambient window actually comes from.
+`assertNoDurableMessages` excludes the seed by content rather than by count,
+so it cannot be satisfied by an off-by-one.
+
+**Path containment comment corrected.** `resolveWorkspacePath` claimed "a
+primitive can never touch a file outside the checkout the session is bound
+to." It cannot promise that, and `EvalSymlinks` was deliberately *not* added:
+the `terminal` tool hands an arbitrary command to `sh -c` in the same
+workspace, so hardening the path join would advertise a guarantee the process
+cannot keep. The comment now states the containment is lexical, says what it
+does stop (a traversal mistake, not an attacker), and names the real threat
+model — configured repositories are trusted code running as Eggy's own user —
+pointing at process isolation as the only real fix.
+
+**Web password documented as plaintext.** `README.md` now states that
+`EGGY_UI_PASSWORD` is compared as a plaintext shared secret rather than a
+hash, why that is defensible here (the same environment already holds the
+provider keys, GitHub token, and encryption key), and the two conditions that
+would invalidate it.
 
 ## P1: Close the MCP authorization gap
 

@@ -184,7 +184,7 @@ type MemoryStore interface {
 	WriteMessage(context.Context, StoredMessage) error
 	// RecentMessages returns conversationID's most recent messages, oldest
 	// first, bounded to limit -- the thread-scoped live turn-context window
-	// that replaced the old global State.RecentMessages.
+	// that replaced a former global field on State.
 	RecentMessages(ctx context.Context, conversationID string, limit int) ([]StoredMessage, error)
 	// ResetConversation clears conversationID's live turn-context window
 	// (later RecentMessages calls only see messages recorded after at) without
@@ -305,16 +305,11 @@ type SkillsStore interface {
 type State struct {
 	SchemaVersion     int                           `json:"schema_version"`
 	Version           uint64                        `json:"version"`
-	RecentMessages    []Message                     `json:"recent_messages,omitempty"`
 	Approvals         map[string]approvals.Approval `json:"approvals,omitempty"`
-	Schedules         map[string]Schedule           `json:"schedules,omitempty"`
 	Repositories      map[string]Repository         `json:"repositories,omitempty"`
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
-	// Calendar is retained only so a state.json written by an older Eggy
-	// can be migrated into auth.json at boot. Nothing reads it at runtime.
-	Calendar CalendarAuth      `json:"calendar,omitempty"`
-	Agent    AgentRuntimeState `json:"agent,omitempty"`
+	Agent             AgentRuntimeState             `json:"agent,omitempty"`
 	// DisabledSkills names skills currently excluded from the compact
 	// steering index built for the agent. Disabling never removes or edits
 	// the skill's file, so it carries no approval gate, unlike SkillsStore.Write/Delete.

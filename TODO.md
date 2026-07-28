@@ -33,7 +33,7 @@ deliberately rather than keeping the proxy.
 - [ ] Rework the `readOnlyRunOptions`/`heartbeatRunOptions` allowlists
       (`internal/bootstrap/app_events.go:117-145`) around the narrowed
       invariant, and land it as a kernel test once the turn orchestrator moves
-      (see "Split bootstrap into a core and its surfaces"): an unprompted turn
+      (see "Move the turn orchestrator into the kernel"): an unprompted turn
       cannot target a base branch, cannot open a non-draft pull request, and
       still cannot reach MCP tools.
 - [ ] Update `docs/ARCHITECTURE.md`'s safety-invariant list and the standing
@@ -46,29 +46,32 @@ The delivery seam is clean: `destination` is its own kernel package,
 `config.Owner.ID` is the system-wide identity, and the Telegram block is
 optional so a web-only deployment boots without it.
 
-What remains is above it. `internal/bootstrap` is ~11.4k lines holding four
-layers at once: the composition root (`app.go`), the turn orchestrator
-(`app_events.go`), the command surface (`commands*.go`, `command_catalog.go`,
-`command_result.go`), and the HTTP surface (`web.go`, `chat.go`, `server.go`).
-The turn orchestrator is core agentic behavior, not wiring — including the
-read-only/heartbeat allowlists that encode a documented safety invariant in the
-one package no kernel test can guard.
+The surface extraction has landed: the command surface is `internal/commands`
+and the HTTP surface is `internal/web`, leaving `internal/bootstrap` at ~2.4k
+non-test lines holding two layers rather than four — the composition root
+(`app.go`, `mcp.go`, `logging.go`, `web_search.go`, `assistant_tools.go`, the
+`migrate_*.go` files) and the turn orchestrator (`app_events.go`, ~790 lines).
 
-### Split bootstrap into a core and its surfaces
+What remains is the turn orchestrator itself. It is core agentic behavior, not
+wiring — including the read-only/heartbeat allowlists that encode a documented
+safety invariant in the one package no kernel test can guard.
 
-- [ ] Move the turn orchestrator (`handleMessage`, `handleHeartbeat`,
-      `handleApproval`, `messageHandlingPolicy`, and the read-only/heartbeat
-      tool allowlists) out of `internal/bootstrap/app_events.go` into a kernel
-      `TurnService` that accepts a neutral turn request (destination, text,
-      policy). Telegram and web then become peers that each only build that
-      request.
+### Move the turn orchestrator into the kernel
+
+- [ ] Move `handleMessage`, `handleHeartbeat`, `handleApproval`,
+      `messageHandlingPolicy`, and the read-only/heartbeat tool allowlists out
+      of `internal/bootstrap/app_events.go` into a kernel `TurnService` that
+      accepts a neutral turn request (destination, text, policy). Telegram and
+      web then become peers that each only build that request.
   - [ ] Land the narrowed unprompted-turn invariant as a kernel test, per "Let
         scheduled and heartbeat turns propose changes" above.
-- [ ] Extract the command surface (`CommandService`, catalog, `CommandResult`)
-      into its own package, and the HTTP surface (`web.go`, `chat.go`,
-      `server.go`) into another. `internal/bootstrap` keeps wiring only.
 - [ ] Give each surface a narrow interface onto the core rather than the whole
-      36-field `App` struct.
+      40-field `App` struct. `internal/commands` and `internal/web` are their
+      own packages now but still receive broad dependency sets.
+- [ ] Drop the dead `case <-ctx.Done()` branch in `App.Enqueue`
+      (`app_events.go:32`): with a `default` present it can never fire, so a
+      cancelled context reports "event queue is full" instead of the context
+      error. Drop the `ctx.Done()` case or drop the `default`, not both.
 
 Unprompted output stays Telegram-only, deliberately. Heartbeat, scheduled agent
 turns, and scheduled messages all stamp `proactiveDestination()`
@@ -79,6 +82,70 @@ accounting meaningful rather than per-channel. A web-only deployment therefore
 produces no unprompted output at all. Revisit only if the web UI gains real
 push delivery; turning this into *configuration* would change that one
 function.
+
+## P1: Make MCP servers dynamic
+
+`plugins/tools/mcp` is complete within its design — OAuth with encrypted
+storage, paginated discovery, include/exclude filtering, name normalization,
+per-server cooldown, an opt-out for servers that cannot take parallel calls.
+The limit is the design itself: it assumes MCP servers are boot-time static
+and HTTP-only, so every operational question resolves to "restart Eggy."
+
+### Reconnect and refresh without a process restart
+
+These are one change, not two: reconnection is pointless while the tool
+catalog is a slice copied at wiring time.
+
+- [ ] Reconnect disconnected servers. `NewManager`
+      (`plugins/tools/mcp/manager.go:33`) connects exactly once, so a server
+      that is down at boot stays `unavailable` for the process lifetime. Worse,
+      a session that drops mid-life never recovers: `callGate` restores
+      `StateReady` once `cooldownUntil` passes but never re-establishes the
+      session, so the server flips back to ready and fails again forever.
+      `Probe` diagnoses this and repairs nothing.
+- [ ] Make the agent's tool set a live view over `Manager.Tools()` rather than a
+      slice snapshotted during wiring, so a reconnect or a changed catalog takes
+      effect on the next turn.
+- [ ] Honor `ToolListChangedHandler` for real. It currently only sets
+      `status.ReloadRequired`, and `/mcp reload` resolves to `service.restart()`
+      (`internal/commands/commands_mcp.go`). Same for `/mcp logout`, which
+      restarts the process to drop one server's tools.
+- [ ] Skip a colliding tool with a warning instead of disabling its whole
+      server. `manager.go:114` sets `serverTools = nil` and marks the server
+      `unavailable` because one tool name clashed with another server's.
+- [ ] Make the failure policy per-tool and configurable. `resultHandler`
+      hardcodes three consecutive failures into a 30-second cooldown counted
+      per *server*, so one broken tool trips the breaker for every tool on it.
+
+### Support stdio servers
+
+- [ ] `ServerConfig` carries a `URL` and nothing else, so Eggy can reach hosted
+      HTTP servers and none of the `npx`-launched stdio servers that make up
+      most of the ecosystem. Add a stdio transport alongside the HTTP one.
+- [ ] Decide the sandboxing story in the same change: stdio means spawning
+      subprocesses, which is the same question as "P3: Evaluate stronger
+      execution isolation". Credentials stay outside the child environment and
+      only an explicit allowlist is forwarded, exactly as repository execution
+      already does.
+
+### Close the MCP authorization gap
+
+- [ ] Decide whether MCP tool calls need an approval classification. Repository
+      writes, commits, pushes, pull requests, and calendar mutations all require
+      payload-bound authorization; an MCP tool is an arbitrary remote side
+      effect gated by nothing but a cooldown counter. The only current
+      mitigation is blunt — unprompted turns cannot reach MCP tools at all —
+      and owner-prompted turns have no gating whatsoever. Recorded as a known
+      gap in the standing constraints below until this is resolved.
+- [ ] Add a test that an MCP tool can never shadow a kernel primitive.
+      `normalizeToolName` guarantees a `server__tool` shape that cannot collide
+      with `read_file`, `terminal`, `patch`, or `write_file`, but that is
+      incidental today and the constraint is load-bearing.
+
+Servers stay configured in `config.yaml`'s `mcp.servers` map. Runtime
+`/mcp add <url>` is deliberately out of scope: a server definition carries an
+auth mode and a tool filter, both of which belong in reviewed configuration
+rather than in a chat message.
 
 ## P1: Make context and capabilities inspectable
 
@@ -104,6 +171,49 @@ tone, `USER.md` holds stable owner preferences, and `MEMORY.md` holds compact
 facts, decisions, and reusable lessons. None may override runtime policy or
 grant capabilities. Conversation recall is served by the SQLite-backed memory
 store (`plugins/memory/sqlite`), not by file-backed excerpts.
+
+## P1: Correctness and exposure fixes
+
+Filed from a code review; each is small and independently landable.
+
+- [ ] `lineEmitter` is quadratic and unbounded
+      (`plugins/runner/localprocess/runner.go:248`). On each newline it calls
+      `pending.String()` (a full copy), `Reset()`, then rewrites the remainder —
+      O(n²) for a write chunk containing many lines. Unlike the `cappedBuffer`
+      beside it, `pending` has no limit, so a command emitting megabytes without
+      a newline (progress bars using `\r`, minified output, a runaway build log)
+      grows it without bound. This streams agent-run `go test`/`build` output,
+      so it is reachable in normal operation. Scan for `'\n'` by index, consume
+      in place, and cap `pending` at `r.maxOutput`.
+- [ ] The login throttle keys on the wrong address. `clientIP`
+      (`internal/web/web.go:252`) reads only `r.RemoteAddr`, which behind
+      Railway's proxy is the proxy's address for every request — so all attempts
+      share one bucket, the throttle barely slows an attacker, and an attacker
+      can lock the owner out. Needs an explicit trusted-proxy policy with
+      `X-Forwarded-For` parsing; it has to be explicit, since blindly trusting
+      the header is worse than not parsing it. Separately, `throttle.Delay` is
+      applied via `time.Sleep` inside the handler (`web.go:202`), holding a
+      server goroutine per throttled request.
+- [ ] Path containment is lexical, not symlink-aware. Both
+      `resolveWorkspacePath` (`internal/kernel/services/workspace_path.go:20`)
+      and `Runner.withinRoot` (`runner.go:178`) use `filepath.Abs` +
+      `filepath.Rel` with no `EvalSymlinks`, so a symlink inside the workspace
+      pointing at `/` passes both checks. The caveat is that the terminal tool
+      runs `sh -c` with an arbitrary command string, so containment was never a
+      real boundary — the child can read outside the workspace directly. So this
+      is a choice, not a bug: either add `EvalSymlinks` and make the workspace
+      an actual boundary, or amend the comment that claims "a primitive can
+      never touch a file outside the checkout the session is bound to." Prefer
+      the comment fix plus an explicit threat-model note, since the stated model
+      is that configured repositories are trusted.
+- [ ] Give the migration code an exit plan. `legacy_coding_runs.go`,
+      `migrate_auth.go`, and `migrate_cron.go` are accumulating with none; for a
+      single-user, single-replica app where the deploy is under our control they
+      become permanent carrying cost. Add a dated removal note to each or
+      quarantine them in a `migrations/` subpackage.
+- [ ] State plainly in `README.md` that the web password is a plaintext shared
+      secret in config rather than a hash. Defensible for a single-owner app,
+      but it should be a documented choice.
 
 ## P2: Build plug-and-play capabilities
 
@@ -150,6 +260,8 @@ it must never destructively modify the owner's checkout.
       capabilities, bounded resources, and an explicit network policy.
 - [ ] Keep credentials outside coding workspaces and forward only the minimum
       environment required by each subprocess.
+- [ ] Settle this alongside stdio MCP transport (see "Support stdio servers"),
+      which raises the same subprocess question.
 
 ## Operational follow-ups
 
@@ -184,6 +296,10 @@ Every roadmap item must preserve these properties:
 - Commit, push, and pull-request creation retain independent payload-bound
   authorization; protected branches remain unpushable even with approval. Eggy
   never merges a pull request.
+- MCP tool calls are the one capability with no payload-bound authorization.
+  Owner-prompted turns invoke them ungated; the only mitigation is that
+  unprompted turns cannot reach MCP tools at all. This is a known gap, tracked
+  under "Close the MCP authorization gap", not a settled design.
 - Unprompted turns (scheduled, heartbeat) may only *propose* repository
   changes: isolated branch, draft pull request, never a base branch. Work on an
   owner-facing branch remains explicitly owner-triggered. The invariant that

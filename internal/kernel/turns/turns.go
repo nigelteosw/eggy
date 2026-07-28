@@ -222,6 +222,11 @@ type Policy struct {
 	IncludeRecentHistory bool
 	RecordConversation   bool
 	Source               string
+	// Extra are system messages appended after the shared instructions, for
+	// rules that govern one kind of turn only. Keeping them here rather than in
+	// agent.Instructions is what stops one turn kind's rules from riding along
+	// on every other turn -- see agent.ScheduledTurnMessage.
+	Extra []ports.Message
 }
 
 // ReadOnlyTools is the floor every restricted turn starts from.
@@ -312,7 +317,9 @@ func (s *Service) ChecksTurn(ctx context.Context, instruction string) error {
 // time this schedule fires. It is marked unprompted, which is what confines
 // it to proposing.
 func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
-	return s.run(services.WithUnpromptedTurn(ctx), text, ProposeOnlyTools(), Policy{})
+	return s.run(services.WithUnpromptedTurn(ctx), text, ProposeOnlyTools(), Policy{
+		Extra: []ports.Message{agent.ScheduledTurnMessage()},
+	})
 }
 
 // run is one turn, whatever kind. Everything above differs only in the tool
@@ -359,6 +366,7 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	manifest := s.capabilityManifest(state, alias, enabledSkills)
 	manifest.Tools = s.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: s.now().In(s.location), Timezone: s.timezone})
+	history = append(history, policy.Extra...)
 	dest := destination.FromContext(ctx)
 	if policy.IncludeRecentHistory {
 		recent, err := s.conversation.RecentMessages(ctx, dest.ConversationID())

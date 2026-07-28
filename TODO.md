@@ -37,38 +37,99 @@ SOUL/USER/MEMORY, no skills installed, Calendar off, MCP off:
 | skills index | 32 |
 
 With Calendar wired, real durable docs, and one MCP server this is comfortably
-25–30KB before the owner types anything. That is not catastrophic in absolute
-terms — but two thirds of it is spent badly, which is the actual finding below.
+25–30KB before the owner types anything.
+
+**This is not the problem.** Measured against comparable agents, Eggy's context
+assembly is already good — see the comparison below. The defects are that the
+policy blob is unconditional and that the section order defeats prompt caching.
+Both are correctness issues, not budget issues. Do not optimize bytes.
 
 ---
 
-## P0: Instructions do not track the turn
+## Where Eggy actually sits
 
-`agent.Instructions` takes `(AgentContext, CapabilityManifest, TemporalContext)`
-and no tool allowlist. `hardRuntimePolicy` is a single 4,451-byte constant sent
-verbatim on **every** turn. So a heartbeat turn — 12 tools, no write
-primitives, no `workspace_edit`, no `propose_change`, no shipping — still
-receives the paragraphs governing `propose_change`, the commit → push →
-pull-request approval chain, scheduled-turn draft-PR rules, and repository
-inspection. Roughly half the policy describes tools the turn cannot call.
+Checked against the three agents this project was modelled on (July 2026).
 
-This is the concrete form of "too much context": the agent is told about
-capabilities the manifest simultaneously tells it it does not have.
+| agent | system prompt floor | tools | skill loading |
+| --- | --- | ---: | --- |
+| **Pi** (`badlogic/pi-mono`) | <1,000 tokens | 4 | `AGENTS.md` on demand |
+| **Eggy** | ~3.4K tokens | 20 | index + `skill_read` ✅ |
+| **Hermes** (Nous) | not published | dynamic | index + `skill_view` ✅ |
+| **OpenClaw** | 40–90KB (layers 1–6: 20–40KB framework; layers 7–8: 20–50KB workspace files) | dozens | **none — full injection** |
 
-- [ ] Split `hardRuntimePolicy` into a small always-on core (truthfulness,
-      credential handling, no-fabricated-success, temporal trust, durable-context
-      trust level) plus per-capability fragments keyed by tool name.
-- [ ] Have `Instructions` take the turn's `RunOptions` and emit only the
-      fragments whose tools are in the allowlist. `Loop.filteredTools` already
-      computes exactly that set; pass it in rather than recomputing.
-- [ ] Delete prose from the policy that a tool description already carries.
-      `memory`'s description is 551 bytes and the policy re-explains USER.md /
-      MEMORY.md budgets on top of it. Same for `propose_change` (414-byte
-      description plus two policy paragraphs). Pick one home per fact.
-- [ ] Add a test asserting a heartbeat turn's instruction bytes are materially
-      below an owner turn's, so this cannot silently regress.
+Three things follow, and they invert the premise that Eggy has a disclosure
+problem:
 
-Target: owner-turn floor under 9KB, heartbeat under 4KB.
+**Eggy's skill disclosure is ahead of OpenClaw's, not behind it.** OpenClaw
+injects every installed skill's full `SKILL.md` into the system prompt at init.
+At 83 skills that truncates — only 41 are visible — and burns context on skills
+never triggered. The fix (advertise name+description ~100 tokens each, add
+`load_skill(name)`) is open issue #39945, closed with no maintainer activity.
+That is precisely what `SkillSummary` + `skill_read` already does here. Eggy
+structurally cannot hit OpenClaw's truncation failure.
+
+**Pi is the argument for the P0 deletion below.** Four tools — `read`, `write`,
+`edit`, `bash` — and a sub-1,000-token system prompt. Mario Zechner's stated
+reasoning: frontier models already understand coding agents from RL training,
+so rather than adding specialized tools, trust the model to invoke CLI
+utilities through bash. Eggy already ships that exact primitive (`terminal`),
+and then adds 16 more tools around it. `web_search` is the clearest case — Pi
+would have the model curl it.
+
+**Hermes validates the P0 conditioning fix and adds one Eggy is missing.** It
+assembles the prompt in three ordered tiers — stable (identity, tool guidance,
+skills index), context (project files), volatile (memory, profile, timestamp) —
+explicitly ordered so the stable prefix survives provider-side prompt caching
+and volatile data at the tail cannot invalidate it. Eggy's ordering does the
+opposite in one place; see P0 below.
+
+---
+
+## P0: Instructions do not track the turn — LANDED
+
+`hardRuntimePolicy` was a single 4,451-byte constant sent verbatim on every
+turn, so a heartbeat (12 tools, no write primitives) still received the
+paragraphs governing `propose_change`, the commit → push → pull-request
+approval chain, and scheduled-turn draft-PR rules.
+
+Now split into `coreRuntimePolicy` (binds every turn, names no tool) plus
+`runtimePolicyFragments` keyed by the tools they govern.
+`renderRuntimePolicy` reads `CapabilityManifest.Tools` — the same field the
+manifest section renders — so the policy and the manifest cannot disagree
+about what a turn can do. Turn-kind rules moved to the turn that owns them:
+`agent.ScheduledTurnMessage` via the new `Policy.Extra`, and the heartbeat's
+paragraph was deleted outright as `Service.Heartbeat` already appended it
+verbatim.
+
+Assembled policy size: owner 3,360 (−1,091), heartbeat 2,433 (−2,018),
+read-only 2,135 (−2,316). The saving is incidental; the invariant is the
+point, and `TestHeartbeatPolicyNamesNoToolOutsideItsAllowlist` asserts it
+structurally rather than by byte count.
+
+- [ ] Remaining: prose still duplicated between policy fragments and tool
+      descriptions. `memory`'s description is 551 bytes and the memory fragment
+      re-explains the byte budget on top of it; `propose_change` has a 414-byte
+      description plus a fragment paragraph. Pick one home per fact.
+
+## P0: Section order defeats prompt caching — LANDED
+
+The capability manifest sat second — it changes on `/model` and on MCP
+connect — while SOUL.md, which changes almost never, sat fourth. Providers
+cache the longest stable *prefix*, so one `/model` switch re-encoded SOUL.md,
+USER.md, and MEMORY.md behind it on every subsequent turn.
+
+Reordered most-stable-first: policy → SOUL.md → skills index → capability
+manifest → USER.md → MEMORY.md → temporal context. Trust order is unaffected;
+the rationale is in `Instructions`' doc comment.
+
+The caveat is discharged: `openaicompat.Generate` maps each `ports.Message`
+1:1 onto a `providerMessage` preserving order and role, with no concatenation
+or reordering, so the stable prefix reaches the wire intact.
+
+- [ ] Confirm the win empirically rather than by construction.
+      `ModelUsage.CachedPromptTokens` already decodes
+      `prompt_tokens_details.cached_tokens`, so the cache-hit rate is already
+      being recorded — surface it in `/usage` and compare before/after.
 
 ## P0: Decide what Eggy is, then delete the rest
 
@@ -90,6 +151,13 @@ capability cluster, including its plugin, kernel service, tools, and commands:
 - [ ] Choose the core. The defensible one is: **one chat surface, one
       repository workflow, durable context, skills.** That is Claude Code's
       shape and it is what the README's own framing claims Eggy is.
+- [ ] Apply Pi's test to every tool before it survives: *could the model do
+      this with `terminal` and a CLI?* Pi ships four tools on the theory that
+      frontier models already know how to drive a shell, and Eggy already has
+      the shell. `web_search` fails this test outright. `repository_github`
+      largely fails it — `gh` is a CLI. `calendar_*` passes only because there
+      is no authenticated CLI in the workspace, which is an argument for MCP,
+      not for five kernel tools.
 - [ ] Cut candidates, in descending order of cost-to-value:
       - **Web search, three providers → one, or none.** 762 lines to give the
         model a search tool an MCP server could provide. Strongest cut.
@@ -154,6 +222,27 @@ before any of the structural work below is worth doing.
 
 Net effect: MCP becomes a plugin that supplies tools and a few status
 commands. Nothing in `internal/kernel` mentions it.
+
+### Deferred MCP tool schemas — not yet
+
+An earlier draft of this file proposed building a tool-search mechanism (names
+resident, schemas fetched on demand) for MCP. **Do not build it yet.**
+Anthropic's guidance for the Tool Search Tool is to defer when tool definitions
+exceed ~10K tokens, and to skip deferral entirely below ~10 tools, where search
+latency costs more than the tokens saved. Eggy's 20 tools cost ~2K tokens —
+a fifth of the threshold. Claude Code's own `ENABLE_TOOL_SEARCH=auto` encodes
+the same rule: load upfront while schemas fit in 10% of the window, defer only
+the overflow.
+
+The failure mode is real but not yet present: 50+ MCP tools across a few
+servers runs 55–72K tokens upfront, and deferral cuts that ~85%. Claude Code
+measured a 46.9% total-token reduction in real use, plus tool-selection
+accuracy gains (Opus 4.5: 79.5% → 88.1%).
+
+- [ ] Add a `/context` line reporting MCP tool schema bytes separately from
+      kernel tool schema bytes, so the threshold is observable.
+- [ ] Revisit deferral only when MCP schemas alone exceed ~10K tokens. Until
+      then, resident schemas are the correct choice and the simpler one.
 
 ## P1: Collapse `internal/kernel/services`
 
@@ -290,3 +379,18 @@ part of the complexity problem.
 **Process**
 - Changes are developed test-first and verified with focused tests followed by
   `make fmt vet test race build`; `make smoke` when Docker is available.
+
+---
+
+## Sources
+
+Comparative figures above were checked in July 2026, not recalled.
+
+- [OpenClaw issue #39945 — Progressive Disclosure for Skills](https://github.com/openclaw/openclaw/issues/39945) — 83 skills, 41 visible, closed without maintainer action
+- [OpenClaw 9-layer system prompt breakdown](https://youmind.com/landing/x-viral-articles/openclaw-agent-system-prompt-architecture) — layer sizes
+- [openclaw/openclaw](https://github.com/openclaw/openclaw)
+- [Anatomy of Pi, the minimal coding agent](https://shivamagarwal7.medium.com/agentic-ai-pi-anatomy-of-a-minimal-coding-agent-powering-openclaw-5ecd4dd6b440) — 4 tools, <1K-token prompt
+- [Hermes Agent — Prompt Assembly](https://hermes-agent.nousresearch.com/docs/developer-guide/prompt-assembly/) — stable/context/volatile tiers, cache rationale
+- [Hermes Agent — Architecture](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture)
+- [Anthropic — Advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use) — Tool Search Tool, deferral thresholds
+- [Claude Code — MCP docs](https://code.claude.com/docs/en/mcp)

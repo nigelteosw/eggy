@@ -16,7 +16,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}, Usage: ports.ModelUsage{PromptTokens: 3, TotalTokens: 3}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, Usage: ports.ModelUsage{PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
 	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
 	if err != nil || result.Message.Content != "ready" {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -39,7 +39,7 @@ func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}, ReasoningContent: "considering which tool to call"},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, ReasoningContent: "the tool confirmed readiness"},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
 	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
 
 func TestLoopFiltersTools(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Content: "done"}}}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, ContextPolicy{})
 	if _, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
@@ -64,7 +64,7 @@ func TestLoopFiltersTools(t *testing.T) {
 
 func TestLoopOffersAllToolsWithoutAnAllowlist(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Content: "done"}}}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, ContextPolicy{})
 
@@ -77,7 +77,7 @@ func TestLoopOffersAllToolsWithoutAnAllowlist(t *testing.T) {
 }
 
 func TestLoopToolNamesMatchFilteredDefinitions(t *testing.T) {
-	loop := NewSelectedLoop(nil, []ports.Tool{
+	loop := NewSelectedLoop(nil, StaticTools{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, ContextPolicy{})
 
@@ -94,7 +94,7 @@ func TestLoopToolNamesMatchFilteredDefinitions(t *testing.T) {
 func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{ToolCalls: []ports.ToolCall{{ID: "1", Name: "repository_modify"}}}}}}
 	tool := &fakeTool{name: "repository_modify"}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{tool}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
 
 	_, err := loop.Run(context.Background(), "model", "", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
 	if !errors.Is(err, ErrUnknownTool) {
@@ -112,7 +112,7 @@ func TestLoopFiresToolStartBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *te
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}},
 	}}
 	tool := &fakeTool{name: "status", result: json.RawMessage(`{}`)}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{tool}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
 
 	var calledBefore []int
 	var calls []string
@@ -145,7 +145,7 @@ func TestLoopEndsWhenTheModelStopsCallingToolsNotWhenAToolIsCalled(t *testing.T)
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "Opened https://example.test/pr/7"}},
 	}}
 	propose := &fakeTool{name: "propose_change", result: json.RawMessage(`{"pull_request_url":"https://example.test/pr/7"}`)}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{propose}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{propose}, ContextPolicy{})
 
 	result, err := loop.Run(context.Background(), "model", "", "ship it", nil, RunOptions{})
 	if err != nil {
@@ -164,7 +164,7 @@ func TestLoopEmitsTheFullEventStreamForATurn(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "read it"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
 	}, ContextPolicy{})
 	var kinds []string
@@ -187,7 +187,7 @@ func TestLoopHandsAToolFailureBackToTheModelAndContinues(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "fixed"}},
 	}}
 	patch := &sequencedTool{name: "patch", results: []json.RawMessage{nil, json.RawMessage(`{"status":"ok"}`)}, errs: []error{errors.New("old_string not found"), nil}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{patch}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{patch}, ContextPolicy{})
 
 	var kinds []string
 	result, err := loop.Run(context.Background(), "model", "", "edit", nil, RunOptions{
@@ -272,7 +272,7 @@ func TestLoopAppendsSteeredInputAtEachStepBoundary(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{"path":"a.go"}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ok, skipping the tests"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
 	}, ContextPolicy{})
 
@@ -310,7 +310,7 @@ func TestLoopDoesNotReplaySteeredInput(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "done"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
 	}, ContextPolicy{})
 	delivered := false
@@ -336,13 +336,13 @@ func TestLoopDoesNotReplaySteeredInput(t *testing.T) {
 	}
 }
 
-// A dynamic catalog is read per turn, so a tool that appears after wiring is
+// The tool source is read per turn, so a tool that appears after wiring is
 // callable on the next turn without rebuilding the loop or restarting.
-func TestLoopReadsDynamicToolsPerTurn(t *testing.T) {
+func TestLoopReadsItsToolSourcePerTurn(t *testing.T) {
 	remote := &fakeTool{name: "railway__deploy", result: json.RawMessage(`{"ok":true}`)}
 	var catalog []ports.Tool
-	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: &queuedModel{}, ModelID: "provider-pro"}}, nil, ContextPolicy{})
-	loop.SetDynamicTools(func() []ports.Tool { return catalog })
+	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: &queuedModel{}, ModelID: "provider-pro"}},
+		ToolSourceFunc(func() []ports.Tool { return catalog }), ContextPolicy{})
 	if names := loop.ToolNames(RunOptions{}); len(names) != 0 {
 		t.Fatalf("names before the server connected=%v", names)
 	}
@@ -364,17 +364,19 @@ func TestLoopReadsDynamicToolsPerTurn(t *testing.T) {
 	}
 }
 
-// The primitive surface is kernel-owned and defined exactly once: a dynamic
-// tool claiming a registered name is dropped, never substituted for it.
-func TestLoopDynamicToolCannotShadowARegisteredTool(t *testing.T) {
+// Precedence is settled by the source (services.ToolRegistry, which drops a
+// provider tool colliding with a registered one). The loop keeps a first-wins
+// backstop so a source that hands it duplicates anyway cannot substitute an
+// impostor for a kernel primitive.
+func TestLoopFirstToolWinsADuplicateNameFromItsSource(t *testing.T) {
 	primitive := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"kernel"}`)}
 	impostor := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"mcp"}`)}
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "read_file", Arguments: json.RawMessage(`{}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "read"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: model, ModelID: "provider-pro"}}, []ports.Tool{primitive}, ContextPolicy{})
-	loop.SetDynamicTools(func() []ports.Tool { return []ports.Tool{impostor} })
+	loop := NewSelectedLoop(map[string]ModelTarget{"pro": {Model: model, ModelID: "provider-pro"}},
+		StaticTools{primitive, impostor}, ContextPolicy{})
 	if names := loop.ToolNames(RunOptions{}); !slices.Equal(names, []string{"read_file"}) {
 		t.Fatalf("names=%v", names)
 	}

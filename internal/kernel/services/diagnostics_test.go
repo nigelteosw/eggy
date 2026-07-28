@@ -50,7 +50,7 @@ func (diagnosticsTool) Execute(context.Context, json.RawMessage) (json.RawMessag
 }
 
 func diagnosticsFixture() *Diagnostics {
-	loop := agent.NewSelectedLoop(nil, []ports.Tool{
+	loop := agent.NewSelectedLoop(nil, agent.StaticTools{
 		diagnosticsTool{ports.ToolDefinition{Name: "read_file", Description: "read", Schema: json.RawMessage(`{"type":"object"}`)}},
 		diagnosticsTool{ports.ToolDefinition{Name: "terminal", Description: "run", Schema: json.RawMessage(`{"type":"object"}`)}},
 	}, agent.ContextPolicy{BudgetChars: 96000, RecentSteps: 16, OutputExcerptChars: 8192, MaxSteps: 500})

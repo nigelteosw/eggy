@@ -207,44 +207,63 @@ The Pi test ("could the model do this with `terminal` and a CLI?") is still
 worth applying to *new* tools. It does not apply retroactively to a capability
 whose value is the approval envelope rather than the API call.
 
-## P1: MCP must be a plugin, not an agent modification
+## P1: MCP must be a plugin, not an agent modification — LANDED
 
-`mcp` appears in 14 non-test files under `internal/`. Most are legitimate
-(bootstrap wiring, config schema). These are not:
+No file under `internal/kernel` refers to MCP as anything but a comment
+example, and no package under `internal/` imports `plugins/tools/mcp` except
+`internal/bootstrap`, the composition root that is allowed to.
 
-- [ ] `internal/commands` imports `plugins/tools/mcp` directly.
-      `MCPCommands` returns `mcpadapter.ServerStatus` and
-      `mcpadapter.ProbeResult` (`commands.go:184`). A plugin type crosses into
-      `internal/`, breaking the repo's own standing constraint. Declare
-      neutral status/probe structs in `internal/commands` or `internal/ports`
-      and have the adapter map to them.
-- [ ] `commands.SetMCP` is a post-construction setter whose own doc comment
-      documents a nil-interface trap it cannot prevent (`commands.go:229-235`),
-      and `bootstrap/mcp.go:69-77` re-documents the same trap at the call site.
-      Pass it through `commands.Options` at construction like every other
-      collaborator and delete both comments.
-- [ ] `agent.Loop.SetDynamicTools` exists solely for MCP. The loop grew a
-      second, mutable tool source and a per-turn merge (`loop.go:108-131`) to
-      accommodate one plugin. Either make *all* tools come from one
-      `func() []ports.Tool` provider the registry also satisfies — so the loop
-      has one tool source, not two — or accept a restart-to-reload MCP and
-      delete the dynamic path entirely. The second is cheaper and matches how
-      `config.yaml`-owned servers already behave.
-- [ ] `internal/web` carries three MCP-specific config routes backed by
-      `config.SetMCPServer` / `RemoveMCPServer` / `GetMCPServersConfig`
-      (`web.go:94-96`, `config_mutate.go:143-218`). Either add a generic
-      config-section route and drop the MCP special case, or drop the routes
-      and let `config.yaml` be the only way to define a server (which the
-      existing "Runtime `/mcp add` is out of scope" decision already implies).
-- [ ] `NewHTTPHandlerAt` takes the MCP OAuth callback as a trailing variadic
-      `...http.Handler` (`web/server.go:11`). Make it a named field on an
-      options struct; a variadic handler slot is a hole, not a parameter.
-- [ ] Remove MCP from `hardRuntimePolicy` (`prompt.go:55`). Once instructions
-      track the allowlist (P0), "reaches no MCP tool" is expressed by the tool
-      list not containing one, and does not need a sentence.
+**The boundary violation.** `internal/commands` imported the adapter and
+exposed `mcpadapter.ServerStatus` / `ProbeResult` through `MCPCommands`. It now
+declares its own `ToolServerStatus` / `ToolServerProbe` — labelled strings and
+a count, which is all the command layer ever rendered — and
+`bootstrap.mcpCommands` maps the adapter onto them, the same way bootstrap
+maps every other adapter.
 
-Net effect: MCP becomes a plugin that supplies tools and a few status
-commands. Nothing in `internal/kernel` mentions it.
+**The nil-interface trap is gone rather than documented.** `commands.SetMCP`
+was deleted outright; `commands.Options.MCP` already existed and was already
+wired at construction, so the setter was pure redundancy. Its doc comment and
+the duplicate warning at `bootstrap/mcp.go`'s call site are replaced by
+`newMCPCommands`, which returns a true nil interface when no manager was
+built. The hazard is now structurally impossible instead of described.
+
+**The loop has one tool source again.** `agent.Loop.SetDynamicTools`, its
+`dynamic` field, and its per-turn merge are deleted. `NewSelectedLoop` takes a
+single `agent.ToolSource`, and `services.ToolRegistry` — already the thing
+that owned tool identity — grew `AddProvider` for catalogs that change while
+the process runs. Bootstrap wires `registry.AddProvider(app.mcp.Tools)`.
+
+Live reload is preserved: providers are read on every `Tools()` call, so
+`/mcp reload`, a reconnect, and a logout all still take effect on the next turn
+with no restart. The alternative (restart-to-reload) would have been cheaper
+to build but removes a capability, which the settled scope says not to do.
+
+The precedence invariant moved with the merge, from the loop to the registry,
+and is now tested where it lives: a provider tool can never shadow a registered
+one, so the kernel primitives stay defined exactly once no matter what a remote
+server advertises. The loop keeps a first-wins backstop for a source that hands
+it duplicates anyway.
+
+**The variadic handler hole is closed.** `NewHTTPHandlerAt`'s trailing
+`...http.Handler` — which accepted any number of handlers and silently ignored
+all but the first — is replaced by `web.NewHTTPHandler(web.Routes{...})` with a
+named `MCPCallback` field. `NewHTTPHandlerAt` is gone; there is one constructor.
+
+### Deliberately not done
+
+- [ ] `internal/web`'s three MCP config routes and `config.SetMCPServer` /
+      `RemoveMCPServer` / `GetMCPServersConfig` are left alone. They are a
+      special case with no generic equivalent, but they are *not* a boundary
+      violation — `internal/web` imports `internal/config`, not the adapter —
+      and they back a real web settings panel. Genericizing them is a refactor
+      with risk and no user-visible benefit; deleting them removes a feature
+      the settled scope says to keep. Revisit only if a second config section
+      needs the same treatment, at which point the generic route pays for
+      itself.
+
+MCP in the prompt needed no work: `hardRuntimePolicy`'s "reaches no MCP tool"
+sentence left with the scheduled-turn rules when the policy was split, and the
+tool list now expresses it.
 
 ### Deferred MCP tool schemas — not yet
 

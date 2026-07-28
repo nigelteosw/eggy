@@ -6,12 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
 func TestMCPCommandsUseManager(t *testing.T) {
-	fake := &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway", State: mcpadapter.StateReady, Tools: 3}}, loginURL: "https://auth.example/authorize?opaque=redacted"}
+	fake := &fakeMCPCommands{statuses: []ToolServerStatus{{Name: "railway", State: "ready", Tools: 3}}, loginURL: "https://auth.example/authorize?opaque=redacted"}
 	commands := &CommandService{mcp: fake}
 	tests := []struct{ input, want string }{
 		{"/mcp", "railway"},
@@ -52,7 +50,7 @@ func TestMCPCommandsValidateConfigurationAndUsage(t *testing.T) {
 // a restart, and neither may trigger one.
 func TestMCPLogoutAndReloadDoNotRestart(t *testing.T) {
 	restarts := 0
-	fake := &fakeMCPCommands{statuses: []mcpadapter.ServerStatus{{Name: "railway", State: mcpadapter.StateReady, Tools: 3}}}
+	fake := &fakeMCPCommands{statuses: []ToolServerStatus{{Name: "railway", State: "ready", Tools: 3}}}
 	commands := &CommandService{mcp: fake, restart: func() { restarts++ }}
 	for _, input := range []string{"/mcp logout railway", "/mcp reload railway"} {
 		output, handled, err := commands.Execute(context.Background(), input)
@@ -66,7 +64,7 @@ func TestMCPLogoutAndReloadDoNotRestart(t *testing.T) {
 }
 
 type fakeMCPCommands struct {
-	statuses  []mcpadapter.ServerStatus
+	statuses  []ToolServerStatus
 	loginURL  string
 	probes    int
 	logins    int
@@ -74,18 +72,18 @@ type fakeMCPCommands struct {
 	refreshes int
 }
 
-func (f *fakeMCPCommands) Statuses() []mcpadapter.ServerStatus { return f.statuses }
-func (f *fakeMCPCommands) Status(name string) (mcpadapter.ServerStatus, error) {
+func (f *fakeMCPCommands) Statuses() []ToolServerStatus { return f.statuses }
+func (f *fakeMCPCommands) Status(name string) (ToolServerStatus, error) {
 	for _, status := range f.statuses {
 		if status.Name == name {
 			return status, nil
 		}
 	}
-	return mcpadapter.ServerStatus{}, mcpadapter.ErrServerNotFound
+	return ToolServerStatus{}, errors.New("MCP server is not configured")
 }
-func (f *fakeMCPCommands) Probe(context.Context, string) (mcpadapter.ProbeResult, error) {
+func (f *fakeMCPCommands) Probe(context.Context, string) (ToolServerProbe, error) {
 	f.probes++
-	return mcpadapter.ProbeResult{Server: "railway", State: mcpadapter.StateReady, Tools: 3, Latency: 12 * time.Millisecond}, nil
+	return ToolServerProbe{Server: "railway", State: "ready", Tools: 3, Latency: 12 * time.Millisecond}, nil
 }
 func (f *fakeMCPCommands) BeginLogin(context.Context, string) (string, error) {
 	f.logins++

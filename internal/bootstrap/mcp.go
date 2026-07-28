@@ -60,21 +60,77 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 	return mcpadapter.NewManager(ctx, servers, mcpadapter.Options{HTTPClient: options.HTTPClient, OAuthStore: oauthStore, Now: options.Now})
 }
 
+// mcpCommands adapts the MCP manager to the command layer's own neutral
+// types, so internal/commands never imports the adapter package. This is the
+// only place that knows both sides exist, which is what the composition root
+// is for.
+type mcpCommands struct{ manager *mcpadapter.Manager }
+
+// newMCPCommands returns a true nil interface when no manager was built,
+// rather than a non-nil interface wrapping a nil pointer. That distinction is
+// load-bearing: every handler guards on `service.mcp == nil` to report "MCP is
+// not configured", and a boxed nil pointer passes that guard and then panics
+// on the first method call.
+func newMCPCommands(manager *mcpadapter.Manager) commands.MCPCommands {
+	if manager == nil {
+		return nil
+	}
+	return mcpCommands{manager: manager}
+}
+
+func mcpStatus(status mcpadapter.ServerStatus) commands.ToolServerStatus {
+	return commands.ToolServerStatus{
+		Name: status.Name, State: string(status.State), Tools: status.Tools,
+		ReloadRequired: status.ReloadRequired, Warnings: status.Warnings,
+		Diagnostic: status.Diagnostic,
+	}
+}
+
+func (c mcpCommands) Statuses() []commands.ToolServerStatus {
+	source := c.manager.Statuses()
+	statuses := make([]commands.ToolServerStatus, 0, len(source))
+	for _, status := range source {
+		statuses = append(statuses, mcpStatus(status))
+	}
+	return statuses
+}
+
+func (c mcpCommands) Status(name string) (commands.ToolServerStatus, error) {
+	status, err := c.manager.Status(name)
+	if err != nil {
+		return commands.ToolServerStatus{}, err
+	}
+	return mcpStatus(status), nil
+}
+
+func (c mcpCommands) Probe(ctx context.Context, name string) (commands.ToolServerProbe, error) {
+	probe, err := c.manager.Probe(ctx, name)
+	if err != nil {
+		return commands.ToolServerProbe{}, err
+	}
+	return commands.ToolServerProbe{
+		Server: probe.Server, State: string(probe.State), Tools: probe.Tools,
+		Latency: probe.Latency, Diagnostic: probe.Diagnostic,
+	}, nil
+}
+
+func (c mcpCommands) BeginLogin(ctx context.Context, name string) (string, error) {
+	return c.manager.BeginLogin(ctx, name)
+}
+func (c mcpCommands) Logout(name string) error { return c.manager.Logout(name) }
+func (c mcpCommands) Refresh(ctx context.Context, name string) error {
+	return c.manager.Refresh(ctx, name)
+}
+
 func ExecuteMCPCLI(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions, args []string) (commands.CommandResult, bool, error) {
 	manager, err := newMCPManager(ctx, config, secrets, options)
 	if err != nil {
 		return commands.CommandResult{}, false, err
 	}
-	service := commands.New(commands.Options{Config: config})
 	if manager != nil {
-		// Guarded rather than passed straight into Options: calling SetMCP
-		// with a nil *mcpadapter.Manager would store a non-nil MCPCommands
-		// wrapping a nil pointer, and every handler's "is MCP configured"
-		// guard would then call a method on a nil receiver instead of
-		// reporting "not configured".
 		defer manager.Close()
-		service.SetMCP(manager)
 	}
+	service := commands.New(commands.Options{Config: config, MCP: newMCPCommands(manager)})
 	return service.ExecuteCLI(ctx, args)
 }
 

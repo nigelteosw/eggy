@@ -29,7 +29,7 @@ func TestLoopRecordsEveryEventOnTheTranscript(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "all good"}},
 	}}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "status", result: json.RawMessage(`{"ok":true}`)},
 	}, ContextPolicy{})
 	transcript := &recordingTranscript{}
@@ -64,7 +64,7 @@ func TestLoopCompactsInsteadOfEndingALongTurn(t *testing.T) {
 	}
 	responses = append(responses, ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, Content: "done"}})
 	model := &queuedModel{responses: responses}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"package main"}`)},
 	}, ContextPolicy{RecentSteps: 2})
 	transcript := &recordingTranscript{}
@@ -115,7 +115,7 @@ func TestLoopStopsARunawayTurnAtTheHardStepLimit(t *testing.T) {
 		}})
 	}
 	model := &queuedModel{responses: responses}
-	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, []ports.Tool{
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "status", result: json.RawMessage(`{}`)},
 	}, ContextPolicy{MaxSteps: 3})
 

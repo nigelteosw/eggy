@@ -67,59 +67,66 @@ type RunResult struct {
 	ReasoningContent string
 }
 
+// ToolSource is where a turn's tools come from. There is exactly one per
+// loop: the loop does not know, and must not know, that some of those tools
+// arrive from a registry and others from a live MCP catalog. Composing those
+// is the source's job -- see services.ToolRegistry, which holds the rule that
+// a registered tool always wins a name collision.
+//
+// It is read once per turn, so a source whose contents change while the
+// process runs (a reconnected MCP server, a reloaded catalog, a logout) takes
+// effect on the next turn without rebuilding the loop.
+type ToolSource interface {
+	Tools() []ports.Tool
+}
+
+// StaticTools is a ToolSource over a fixed slice, for callers that have no
+// live catalog at all.
+type StaticTools []ports.Tool
+
+func (s StaticTools) Tools() []ports.Tool { return s }
+
+// ToolSourceFunc adapts a function to ToolSource.
+type ToolSourceFunc func() []ports.Tool
+
+func (f ToolSourceFunc) Tools() []ports.Tool { return f() }
+
 type Loop struct {
-	tools    map[string]ports.Tool
-	defs     []ports.ToolDefinition
-	dynamic  func() []ports.Tool
+	source   ToolSource
 	selected map[string]ModelTarget
 	policy   ContextPolicy
 }
 
 // NewSelectedLoop builds the one loop. policy is a context budget rather
 // than a work cap: a turn that runs long compacts and continues.
-func NewSelectedLoop(models map[string]ModelTarget, tools []ports.Tool, policy ContextPolicy) *Loop {
-	registry := make(map[string]ports.Tool, len(tools))
-	definitions := make([]ports.ToolDefinition, 0, len(tools))
-	for _, tool := range tools {
-		definition := tool.Definition()
-		registry[definition.Name] = tool
-		definitions = append(definitions, definition)
-	}
+func NewSelectedLoop(models map[string]ModelTarget, source ToolSource, policy ContextPolicy) *Loop {
 	targets := make(map[string]ModelTarget, len(models))
 	for alias, target := range models {
 		targets[alias] = target
 	}
 	return &Loop{
-		tools:    registry,
-		defs:     definitions,
+		source:   source,
 		selected: targets,
 		policy:   policy.normalized(),
 	}
 }
 
-// SetDynamicTools installs a source of tools that can change while the
-// process runs, such as an MCP catalog that reconnects or reloads. The source
-// is read once per turn, so a changed catalog takes effect on the next turn
-// without rebuilding the loop.
+// resolve snapshots the source. Callers take one snapshot per turn so a
+// catalog that changes mid-turn cannot make a tool the model was just offered
+// disappear before it is called.
 //
-// A dynamic tool can never shadow a registered one: the static registry wins
-// every name collision, which is what keeps the kernel primitives
-// (read_file, terminal, patch, write_file) defined exactly once.
-func (l *Loop) SetDynamicTools(source func() []ports.Tool) { l.dynamic = source }
-
-// resolve merges the static registry with the current dynamic tools. Callers
-// take one snapshot per turn so a catalog that changes mid-turn cannot make a
-// tool the model was just offered disappear before it is called.
+// A duplicate name here resolves first-wins, but that is a backstop rather
+// than the rule: the source is expected to have already settled precedence
+// (ToolRegistry rejects duplicate registrations outright and drops a provider
+// tool that collides with one).
 func (l *Loop) resolve() (map[string]ports.Tool, []ports.ToolDefinition) {
-	if l.dynamic == nil {
-		return l.tools, l.defs
+	if l.source == nil {
+		return nil, nil
 	}
-	tools := make(map[string]ports.Tool, len(l.tools))
-	for name, tool := range l.tools {
-		tools[name] = tool
-	}
-	definitions := append([]ports.ToolDefinition(nil), l.defs...)
-	for _, tool := range l.dynamic() {
+	available := l.source.Tools()
+	tools := make(map[string]ports.Tool, len(available))
+	definitions := make([]ports.ToolDefinition, 0, len(available))
+	for _, tool := range available {
 		definition := tool.Definition()
 		if _, exists := tools[definition.Name]; exists {
 			continue

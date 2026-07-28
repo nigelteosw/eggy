@@ -4,11 +4,36 @@ import (
 	"net/http"
 )
 
-func NewHTTPHandler(ready func() error, telegram, googleStart, googleCallback, web http.Handler, mcpCallback ...http.Handler) http.Handler {
-	return NewHTTPHandlerAt("/webhooks/telegram", ready, telegram, googleStart, googleCallback, web, mcpCallback...)
+// Routes are the optional handlers the HTTP surface mounts. Every field is
+// optional: a nil handler means that route is not served (the Telegram
+// webhook path is the one exception -- it reports unavailable rather than
+// 404, so a misconfigured deployment is distinguishable from a wrong URL).
+//
+// This is a struct rather than a positional parameter list because the list
+// had already grown a trailing variadic http.Handler to bolt on the MCP OAuth
+// callback. A variadic slot is a hole, not a parameter: it accepts any number
+// of handlers, silently ignores all but the first, and gives the reader no
+// name for what it carries.
+type Routes struct {
+	Ready          func() error
+	TelegramPath   string
+	Telegram       http.Handler
+	GoogleStart    http.Handler
+	GoogleCallback http.Handler
+	MCPCallback    http.Handler
+	Web            http.Handler
 }
 
-func NewHTTPHandlerAt(telegramPath string, ready func() error, telegram, googleStart, googleCallback, web http.Handler, mcpCallback ...http.Handler) http.Handler {
+// DefaultTelegramWebhookPath is used when Routes.TelegramPath is empty.
+const DefaultTelegramWebhookPath = "/webhooks/telegram"
+
+func NewHTTPHandler(routes Routes) http.Handler {
+	telegramPath := routes.TelegramPath
+	if telegramPath == "" {
+		telegramPath = DefaultTelegramWebhookPath
+	}
+	ready, telegram := routes.Ready, routes.Telegram
+	googleStart, googleCallback, web := routes.GoogleStart, routes.GoogleCallback, routes.Web
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -37,8 +62,8 @@ func NewHTTPHandlerAt(telegramPath string, ready func() error, telegram, googleS
 	if googleCallback != nil {
 		mux.Handle("GET /auth/google/callback", googleCallback)
 	}
-	if len(mcpCallback) > 0 && mcpCallback[0] != nil {
-		mux.Handle("GET /auth/mcp/{server}/callback", mcpCallback[0])
+	if routes.MCPCallback != nil {
+		mux.Handle("GET /auth/mcp/{server}/callback", routes.MCPCallback)
 	}
 	if web != nil {
 		mux.Handle("/", web)

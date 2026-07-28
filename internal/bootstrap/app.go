@@ -175,7 +175,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// Telegram is optional: a web-only deployment omits the config block and
 	// gets no client, no channel, and no webhook route. newRoutedChannel
 	// already collapses to the web channel alone when telegramChannel is a
-	// true nil, and web.NewHTTPHandlerAt already serves the webhook path as
+	// true nil, and web.NewHTTPHandler already serves the webhook path as
 	// unavailable when its handler is nil.
 	if !options.FakeAdapters && config.Telegram.Configured() {
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
@@ -279,9 +279,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// Registered after every other kernel tool: the registry rejects
 	// duplicates, so an adapter that tries to shadow a primitive fails
 	// bootstrap rather than silently winning. MCP tools are not registered
-	// here at all -- they are a live view (see SetDynamicTools below), where
-	// the same invariant holds because a registered tool always wins the
-	// name.
+	// here at all -- they arrive as a live provider on the same registry (see
+	// AddProvider below), where the same invariant holds because a registered
+	// tool always wins the name.
 	if err := registerAll(registry, primitives...); err != nil {
 		return nil, err
 	}
@@ -321,7 +321,14 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
 		return nil, err
 	}
-	registeredTools := registry.Tools()
+	if app.mcp != nil {
+		// The catalog is read per turn rather than copied, so a reconnected
+		// server, a reloaded catalog, or a logout changes the tools the next
+		// turn sees without restarting the process. It is a provider on the one
+		// registry rather than a second source on the loop: MCP supplies tools,
+		// it does not modify the agent.
+		registry.AddProvider(app.mcp.Tools)
+	}
 	// One context budget for one loop, shared with the session transcript's
 	// own excerpt bounds: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
@@ -331,13 +338,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
 		MaxSteps:           maxToolStepsPerTurn,
 	}
-	app.loop = agent.NewSelectedLoop(targets, registeredTools, contextPolicy)
-	if app.mcp != nil {
-		// The catalog is read per turn rather than copied here, so a
-		// reconnected server, a reloaded catalog, or a logout changes the
-		// tools the next turn sees without restarting the process.
-		app.loop.SetDynamicTools(app.mcp.Tools)
-	}
+	app.loop = agent.NewSelectedLoop(targets, registry, contextPolicy)
 	// integrations is what this process actually wired, in stable order, and
 	// is what /capabilities reports. Building it from the constructed adapters
 	// rather than from config is the point: a misconfigured integration can
@@ -409,10 +410,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Now:          options.Now,
 		Restart:      options.RequestRestart,
 		Diagnostics:  app.diagnostics,
+		MCP:          newMCPCommands(app.mcp),
 	})
-	if app.mcp != nil {
-		app.commands.SetMCP(app.mcp)
-	}
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
 	// itself does lives in internal/kernel/turns.
@@ -444,7 +443,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 		Files:            web.NewHomeFiles(layout),
 	})
-	app.httpHandler = web.NewHTTPHandlerAt(config.Server.TelegramWebhookPath, app.Ready, webhook, googleStart, googleCallback, webHandler, mcpCallbackHandler(app.mcp))
+	app.httpHandler = web.NewHTTPHandler(web.Routes{
+		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath, Telegram: webhook,
+		GoogleStart: googleStart, GoogleCallback: googleCallback,
+		MCPCallback: mcpCallbackHandler(app.mcp), Web: webHandler,
+	})
 	if telegramClient != nil {
 		autocomplete := commands.TelegramAutocomplete()
 		commands := make([]telegram.BotCommand, 0, len(autocomplete))

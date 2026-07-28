@@ -10,10 +10,10 @@ import (
 func TestHTTPHandlerHealthAndReadiness(t *testing.T) {
 	readyErr := errors.New("calendar unavailable")
 	telegramCalls := 0
-	handler := NewHTTPHandler(func() error { return readyErr }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := NewHTTPHandler(Routes{Ready: func() error { return readyErr }, Telegram: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		telegramCalls++
 		w.WriteHeader(http.StatusNoContent)
-	}), nil, nil, nil)
+	})})
 
 	for _, tc := range []struct {
 		path string
@@ -41,7 +41,7 @@ func TestHTTPHandlerHealthAndReadiness(t *testing.T) {
 func TestHTTPHandlerOptionalGoogleRoutes(t *testing.T) {
 	start := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTemporaryRedirect) })
 	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := NewHTTPHandler(func() error { return nil }, nil, start, callback, nil)
+	handler := NewHTTPHandler(Routes{Ready: func() error { return nil }, GoogleStart: start, GoogleCallback: callback})
 	for _, tc := range []struct {
 		path string
 		want int
@@ -61,7 +61,7 @@ func TestHTTPHandlerOptionalMCPCallbackRoute(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	handler := NewHTTPHandler(func() error { return nil }, nil, nil, nil, nil, callback)
+	handler := NewHTTPHandler(Routes{Ready: func() error { return nil }, MCPCallback: callback})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/mcp/railway/callback?code=x&state=y", nil))
 	if response.Code != http.StatusNoContent {
@@ -71,7 +71,7 @@ func TestHTTPHandlerOptionalMCPCallbackRoute(t *testing.T) {
 
 func TestHTTPHandlerMountsWebHandlerAsFallback(t *testing.T) {
 	web := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
-	handler := NewHTTPHandler(func() error { return nil }, nil, nil, nil, web)
+	handler := NewHTTPHandler(Routes{Ready: func() error { return nil }, Web: web})
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/anything", nil))
 	if response.Code != http.StatusTeapot {

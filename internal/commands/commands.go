@@ -10,7 +10,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
-	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
 // CommandService dispatches "/command" (Telegram) and "command --flag"
@@ -181,10 +180,33 @@ type Diagnostics interface {
 	ContextReport(ctx context.Context, conversationID string) (ports.ContextReport, error)
 }
 
+// ToolServerStatus and ToolServerProbe are this package's own view of an MCP
+// server, deliberately not the adapter's types. internal/ may not import
+// plugins/ -- the command layer renders labelled strings and a count, and
+// nothing about that needs the adapter's State enum, its SDK types, or its
+// package in the import graph. internal/bootstrap maps one to the other, the
+// same way it does for every other adapter.
+type ToolServerStatus struct {
+	Name           string
+	State          string
+	Tools          int
+	ReloadRequired bool
+	Warnings       []string
+	Diagnostic     string
+}
+
+type ToolServerProbe struct {
+	Server     string
+	State      string
+	Tools      int
+	Latency    time.Duration
+	Diagnostic string
+}
+
 type MCPCommands interface {
-	Statuses() []mcpadapter.ServerStatus
-	Status(string) (mcpadapter.ServerStatus, error)
-	Probe(context.Context, string) (mcpadapter.ProbeResult, error)
+	Statuses() []ToolServerStatus
+	Status(string) (ToolServerStatus, error)
+	Probe(context.Context, string) (ToolServerProbe, error)
 	BeginLogin(context.Context, string) (string, error)
 	Logout(string) error
 	Refresh(context.Context, string) error
@@ -225,14 +247,6 @@ func (s *CommandService) ExecuteCLI(ctx context.Context, args []string) (Command
 func (s *CommandService) Dispatch(ctx context.Context, req CommandRequest) (CommandResult, error) {
 	return s.dispatch(ctx, req)
 }
-
-// SetMCP attaches the MCP manager after construction, which bootstrap needs
-// because the manager is built after the command service it belongs to.
-// Callers must not call this with a nil *mcpadapter.Manager: that stores a
-// non-nil MCPCommands wrapping a nil pointer, so every handler's
-// "is MCP configured" guard passes and then calls a method on a nil receiver
-// instead of reporting that MCP is not configured.
-func (s *CommandService) SetMCP(mcp MCPCommands) { s.mcp = mcp }
 
 func (s *CommandService) dispatch(ctx context.Context, req CommandRequest) (CommandResult, error) {
 	entry, ok := catalogIndex[strings.Join(req.Path, " ")]

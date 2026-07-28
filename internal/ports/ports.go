@@ -481,11 +481,15 @@ type Change struct {
 	// ChecksRef and ChecksConclusion record the last commit whose
 	// pull-request checks Eggy has already reacted to, so a shipped change is
 	// resumed once per failing result rather than on every poll.
-	ChecksRef        string    `json:"checks_ref,omitempty"`
-	ChecksConclusion string    `json:"checks_conclusion,omitempty"`
-	StartedAt        time.Time `json:"started_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	FinishedAt       time.Time `json:"finished_at,omitempty"`
+	ChecksRef        string `json:"checks_ref,omitempty"`
+	ChecksConclusion string `json:"checks_conclusion,omitempty"`
+	// Unprompted records that a scheduled or heartbeat turn opened this
+	// change, so a later unprompted turn can tell its own work from an
+	// owner's open change in the same thread and never continue theirs.
+	Unprompted bool      `json:"unprompted,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	FinishedAt time.Time `json:"finished_at,omitempty"`
 }
 
 type ChangeStore interface {
@@ -574,7 +578,11 @@ type RepositoryPusher interface {
 
 type PullRequestProvider interface {
 	RemoteHead(context.Context, string, string) (string, error)
-	CreatePullRequest(context.Context, Repository, string, string, string) (PullRequest, error)
+	// CreatePullRequest opens a pull request for branch. draft asks the
+	// provider to open it as a draft, which is what an unprompted turn's
+	// proposal is: something the owner reviews and marks ready, never
+	// something that presents itself as finished work.
+	CreatePullRequest(ctx context.Context, repository Repository, branch, title, body string, draft bool) (PullRequest, error)
 	// FindOpenPullRequest looks up an already-open pull request for branch,
 	// so shipping can keep improving the same pull request across repeated
 	// /continue rounds instead of opening a new one every time. found is

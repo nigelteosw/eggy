@@ -405,6 +405,7 @@ type fakeRepository struct {
 	guidance                               string
 	existingPR                             *ports.PullRequest
 	updatedPRNumber                        int
+	draftPR                                bool
 }
 
 func (r *fakeRepository) Clone(context.Context, ports.Repository, string) error {
@@ -459,8 +460,9 @@ func (r *fakeRepository) Commit(context.Context, string, string) (string, error)
 	return "abc123", nil
 }
 func (r *fakeRepository) Push(context.Context, string, string) error { r.pushes++; return nil }
-func (r *fakeRepository) CreatePullRequest(context.Context, ports.Repository, string, string, string) (ports.PullRequest, error) {
+func (r *fakeRepository) CreatePullRequest(_ context.Context, _ ports.Repository, _, _, _ string, draft bool) (ports.PullRequest, error) {
 	r.prs++
+	r.draftPR = draft
 	return ports.PullRequest{Number: 1, URL: "https://example/pr/1"}, nil
 }
 func (r *fakeRepository) FindOpenPullRequest(context.Context, ports.Repository, string) (ports.PullRequest, bool, error) {

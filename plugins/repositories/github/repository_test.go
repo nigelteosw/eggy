@@ -105,11 +105,11 @@ func TestGitHubCreatesPullRequestWithHeaderOnlyCredential(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"html_url":"https://github.test/acme/repo/pull/12","number":12}`))}, nil
 	})}
 	adapter := New(nil, "sensitive-token", "https://api.github.test", client)
-	pr, err := adapter.CreatePullRequest(context.Background(), ports.Repository{CloneURL: "https://github.com/acme/repo.git", BaseBranch: "main"}, "feature", "Title", "Body")
+	pr, err := adapter.CreatePullRequest(context.Background(), ports.Repository{CloneURL: "https://github.com/acme/repo.git", BaseBranch: "main"}, "feature", "Title", "Body", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotPath != "/repos/acme/repo/pulls" || gotAuthorization != "Bearer sensitive-token" || gotBody["head"] != "feature" || pr.Number != 12 {
+	if gotPath != "/repos/acme/repo/pulls" || gotAuthorization != "Bearer sensitive-token" || gotBody["head"] != "feature" || gotBody["draft"] != false || pr.Number != 12 {
 		t.Fatalf("path=%q auth=%q body=%#v pr=%#v", gotPath, gotAuthorization, gotBody, pr)
 	}
 	encoded, _ := json.Marshal(gotBody)

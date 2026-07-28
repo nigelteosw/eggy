@@ -14,6 +14,11 @@ import (
 // checkout has never been branched, so there is nothing to ship.
 var ErrWorkspaceNotEditable = errors.New("this conversation's workspace has no branch: call workspace_edit before proposing a change")
 
+// ErrOwnerChangeInProgress is returned when an unprompted turn (scheduled or
+// heartbeat) tries to edit or propose a change the owner opened. An
+// unprompted turn works only on a change of its own.
+var ErrOwnerChangeInProgress = errors.New("this thread has an owner's change open: an unprompted turn cannot continue it, and must not edit or propose here")
+
 // NewChangeTools returns the two tools that turn an attached checkout into a
 // pull request: workspace_edit branches it, propose_change ships what is in
 // it. Neither is terminal. propose_change returns the pull-request URL as an
@@ -54,6 +59,19 @@ func NewChangeTools(
 		binding, err := workspaces.Resolve(ctx)
 		if err != nil && !errors.Is(err, ErrNoWorkspace) {
 			return nil, err
+		}
+		// An unprompted turn never joins work the owner has open. It shares a
+		// thread with them (proactive output is one channel), so without this
+		// a heartbeat would adopt whatever branch the owner left mid-change
+		// and propose it as its own.
+		if IsUnpromptedTurn(ctx) && binding.Writable && binding.Change != "" {
+			change, err := changes.Load(ctx, binding.Change)
+			if err != nil {
+				return nil, err
+			}
+			if !change.Unprompted {
+				return nil, ErrOwnerChangeInProgress
+			}
 		}
 		// Editing an already-branched checkout is a no-op rather than an
 		// error: the model asking twice in a thread should keep working in
@@ -142,6 +160,9 @@ func NewChangeTools(
 		if err != nil {
 			return nil, err
 		}
+		if IsUnpromptedTurn(ctx) && !change.Unprompted {
+			return nil, ErrOwnerChangeInProgress
+		}
 		// Eggy re-derives the state it is about to ship rather than trusting
 		// the model's account of it: the checkout must still be on the branch
 		// and HEAD recorded when editing started, or something committed or
@@ -167,7 +188,10 @@ func NewChangeTools(
 		if err := changes.RecordImplementation(ctx, change.ID, diff, input.Validation); err != nil {
 			return nil, err
 		}
-		target := ShipTarget{ChangeID: change.ID, Workspace: binding.Path, Transcript: TranscriptOf(ctx)}
+		// An unprompted turn proposes; it does not present finished work. The
+		// flag rides in the ship target, so it is inside every payload the
+		// commit/push/pull-request approvals are bound to.
+		target := ShipTarget{ChangeID: change.ID, Workspace: binding.Path, Transcript: TranscriptOf(ctx), Draft: IsUnpromptedTurn(ctx)}
 		if err := transcripts.Milestone(ctx, target.Transcript, "Ready to ship"); err != nil {
 			return nil, err
 		}

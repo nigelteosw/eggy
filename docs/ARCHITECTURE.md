@@ -69,7 +69,7 @@ flowchart TB
     end
 
     daemon -->|owner message| outer
-    daemon -->|scheduled read-only turn| outer
+    daemon -->|unprompted propose-only turn| outer
     commands --> services
     registry --> outer
 
@@ -163,9 +163,26 @@ the checkout is gone, and is what makes `/runs` history readable.
 Direct owner Telegram messages additionally see recent conversation history
 and get the full tool set, including `workspace_edit` and `propose_change`
 plus discovered MCP tools. Scheduled agent turns and heartbeat turns are
-self-contained instead: no ambient recent-conversation history (so an old
-chat instruction cannot be silently revived) and an explicit read-only
-allowlist — they can never branch a checkout or ship. A heartbeat turn
+self-contained instead: no ambient recent-conversation history, so an old
+chat instruction cannot be silently revived.
+
+They differ in what they are *for*, and the allowlists follow that. A
+scheduled turn runs work the owner wrote a schedule to ask for, so it carries
+the repository write tools (but no MCP tool) and may branch a checkout and
+ship it — only ever as a *proposal*, though: the pull request is a draft, the
+branch is one it created, and a change the owner already has open in that
+thread is off limits. What holds is not that it cannot write but that nothing
+it does lands without a payload-bound authorization and a human-reviewed pull
+request. The manifest's `self_repository` names the registered repository
+holding Eggy's own source, so such a turn knows where its `AGENTS.md` and
+`docs/ARCHITECTURE.md` live.
+
+A heartbeat is a check-in on the owner rather than a work tick: read-only
+plus the memory-curation tools, and deliberately none of the repository write
+tools. Its job is to decide whether anything is worth saying and to curate
+durable context, not to start work nobody asked for — which also keeps its
+cost proportionate, since every tick is a model call whether or not it
+produces a check-in. A heartbeat turn
 additionally sees the owner-editable `HEARTBEAT.md` checklist and is skipped
 entirely, with no model call, while any turn is active; silent `USER.md`/`MEMORY.md` curation on a heartbeat turn is never
 gated by quiet hours or the weekly proactive-message limit, only the
@@ -449,8 +466,13 @@ These hold regardless of what else changes in the kernel or an adapter:
   bounded, and binary content is represented only by metadata.
 - Independent commit, push, and pull-request authorization with
   protected-branch denial, whether decided by an owner tap or automatically.
-- Scheduled and heartbeat turns cannot reach `workspace_edit`,
-  `propose_change`, or the write primitives.
+- An unprompted turn may only *propose*: its pull request is always a draft,
+  always on a branch of its own, never on a base or protected branch, and
+  never on top of a change the owner has open. The draft flag rides inside the
+  shipping payload, so it is covered by the same payload-digest authorization
+  as the branch and diff.
+- Heartbeat turns cannot reach `workspace_edit`, `propose_change`, or the
+  write primitives at all: a check-in is not a work tick.
 - Scheduled and heartbeat turns cannot reach MCP tools.
 - Eggy captures the diff and verifies branch/HEAD equality itself before
   shipping, independently of what the model reports.

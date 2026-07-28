@@ -131,6 +131,10 @@ Continuing an unfinished change is ordinary conversation: the thread's workspace
 
 For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs the bounded implementation loop with the selected model, captures the diff and validation, then commits, pushes, and opens a pull request in sequence with no owner tap in between. Protected branches are still denied at push time regardless of automation. Eggy never merges; the owner reviews and merges the pull request on GitHub.
 
+Scheduled turns can do repository work too, but only as a *proposal*: an unprompted turn works on a branch it created, opens its pull request as a **draft**, and can never target a base or protected branch or continue a change the owner already has open. Mark the repository holding Eggy's own source with `self: true` in `config.yaml` and the agent knows which repository is its own body — that name is what such a turn reads `AGENTS.md` and `docs/ARCHITECTURE.md` from. Unprompted turns still reach no MCP tools.
+
+Heartbeat turns are different on purpose. A heartbeat is a periodic check-in on *you* — it consults `HEARTBEAT.md`, decides whether anything is worth saying, and curates `USER.md`/`MEMORY.md`. It carries no repository write tools at all, so it never starts work you did not ask for. Cadence defaults to `3h`; quiet hours and the weekly proactive limit bound how often a check-in actually reaches you, independently of how often the turn runs.
+
 ## Web UI
 
 Eggy also ships an embedded web UI — a React/TypeScript/Tailwind single-page app, built by `make build-web` and served directly by `eggyd` itself (no separate hosting, no separate process). It's optional and off by default: set `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD`, and `EGGY_ENCRYPTION_KEY` to enable it, then it's reachable at Eggy's public URL.

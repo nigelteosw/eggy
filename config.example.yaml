@@ -36,6 +36,11 @@ repositories:
     clone_url: "https://github.com/nigelteosw/eggy.git"
     base_branch: "main"
     protected_branches: ["main"]
+    # Marks the repository holding Eggy's own source. It grants nothing: it
+    # only tells the agent which repository is its own body, so an unprompted
+    # self-improvement turn knows where AGENTS.md and docs/ARCHITECTURE.md
+    # live. At most one repository may set it.
+    self: true
 runner:
   root: "/data/runs"
   timeout: "45m"
@@ -47,7 +52,7 @@ implementation_sessions:
   recent_messages: 16
   output_excerpt_chars: 8192
 scheduler:
-  heartbeat_cadence: "30m"
+  heartbeat_cadence: "3h"
   quiet_hours:
     start: "22:00"
     end: "07:00"

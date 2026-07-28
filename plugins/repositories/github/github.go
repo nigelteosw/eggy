@@ -411,12 +411,12 @@ func (a *Adapter) Push(ctx context.Context, workspace, branch string) error {
 	return err
 }
 
-func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Repository, branch, title, body string) (ports.PullRequest, error) {
+func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Repository, branch, title, body string, draft bool) (ports.PullRequest, error) {
 	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}
-	payload := map[string]string{"head": branch, "base": repository.BaseBranch, "title": title, "body": body}
+	payload := map[string]any{"head": branch, "base": repository.BaseBranch, "title": title, "body": body, "draft": draft}
 	var result struct {
 		URL    string `json:"html_url"`
 		Number int    `json:"number"`

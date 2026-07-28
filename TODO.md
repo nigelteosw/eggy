@@ -7,38 +7,6 @@ Priorities are ordered by urgency, then by dependency. Remove an item when its
 implementation and focused tests have landed — do not leave it here as a record
 of finished work.
 
-## P0: Finish the unified loop
-
-There is one `agent.Loop` (`internal/kernel/agent/loop.go`), one kernel-owned
-primitive tool set, and one termination condition: the model stops calling
-tools. Shipping is an action (`propose_change`) rather than a run outcome, a
-workspace belongs to the thread rather than the run, every turn writes a
-durable transcript with a compaction checkpoint, and a failed pull-request
-check resumes the thread that proposed it. One gap remains.
-
-### Let scheduled and heartbeat turns propose changes
-
-The invariant "scheduled and heartbeat turns cannot reach repository write
-tools" was always a proxy for the one that matters: *nothing lands without a
-payload-bound authorization and a human-reviewed pull request*. Narrow it
-deliberately rather than keeping the proxy.
-
-- [ ] Add `self_repository` to `agent.CapabilityManifest`
-      (`internal/kernel/agent/prompt.go:12`) so the agent knows which registered
-      repository is its own body, and that `AGENTS.md` and
-      `docs/ARCHITECTURE.md` describe it.
-- [ ] Give heartbeat and scheduled turns a `propose_improvement` path: isolated
-      branch, draft pull request, never a base branch. Arbitrary repository
-      writes from an unprompted turn stay barred.
-- [ ] Rework the `readOnlyRunOptions`/`heartbeatRunOptions` allowlists
-      (`internal/bootstrap/app_events.go:117-145`) around the narrowed
-      invariant, and land it as a kernel test once the turn orchestrator moves
-      (see "Move the turn orchestrator into the kernel"): an unprompted turn
-      cannot target a base branch, cannot open a non-draft pull request, and
-      still cannot reach MCP tools.
-- [ ] Update `docs/ARCHITECTURE.md`'s safety-invariant list and the standing
-      constraints at the bottom of this file together with the code, not after.
-
 ## P0: Separate the agent core from its control surfaces
 
 The delivery seam is clean: `destination` is its own kernel package,
@@ -63,8 +31,13 @@ safety invariant in the one package no kernel test can guard.
       of `internal/bootstrap/app_events.go` into a kernel `TurnService` that
       accepts a neutral turn request (destination, text, policy). Telegram and
       web then become peers that each only build that request.
-  - [ ] Land the narrowed unprompted-turn invariant as a kernel test, per "Let
-        scheduled and heartbeat turns propose changes" above.
+  - [ ] Move the remaining half of the unprompted-turn invariant into the
+        kernel with it. The invariant itself is held in the kernel already
+        (`internal/kernel/services/unprompted.go`, tested in
+        `unprompted_test.go` and `change_tools_test.go`), but *which turns are
+        unprompted* is still decided by `proposeOnlyRunOptions` and the
+        `services.WithUnpromptedTurn` calls in `app_events.go`, where no kernel
+        test can guard it.
 - [ ] Give each surface a narrow interface onto the core rather than the whole
       40-field `App` struct. `internal/commands` and `internal/web` are their
       own packages now but still receive broad dependency sets.
@@ -300,11 +273,18 @@ Every roadmap item must preserve these properties:
   Owner-prompted turns invoke them ungated; the only mitigation is that
   unprompted turns cannot reach MCP tools at all. This is a known gap, tracked
   under "Close the MCP authorization gap", not a settled design.
-- Unprompted turns (scheduled, heartbeat) may only *propose* repository
-  changes: isolated branch, draft pull request, never a base branch. Work on an
-  owner-facing branch remains explicitly owner-triggered. The invariant that
-  holds unconditionally is that nothing lands without payload-bound
-  authorization and a human-reviewed pull request.
+- Unprompted turns may only *propose* repository changes: isolated branch,
+  draft pull request, never a base or protected branch, and never a change the
+  owner already has open in that thread. Work on an owner-facing branch
+  remains explicitly owner-triggered. The invariant that holds unconditionally
+  is that nothing lands without payload-bound authorization and a
+  human-reviewed pull request; the draft flag travels inside the shipping
+  payload so it is bound by that authorization too.
+- A heartbeat is a check-in on the owner, not a work tick: read-only plus
+  memory curation, and no repository write tools at all. Only a scheduled turn
+  carries the propose path, because the owner wrote the schedule asking for
+  it. Widening this is a product decision, not a safety one — the safety
+  machinery above already covers it.
 - Operational state remains file-backed, so production runs exactly one `eggyd`
   replica.
 - Every capability has a small, swappable boundary: task workflows are

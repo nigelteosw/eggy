@@ -31,7 +31,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.T) {
+// A heartbeat is a check-in on the owner, not a work tick: read-only plus
+// memory curation, and deliberately none of the repository write tools a
+// scheduled turn carries.
+func TestHeartbeatRunOptionsAllowMemoryCurationButNoRepositoryWrites(t *testing.T) {
 	readOnly := readOnlyRunOptions()
 	heartbeat := heartbeatRunOptions()
 	for tool := range readOnly.AllowedTools {
@@ -45,6 +48,24 @@ func TestHeartbeatRunOptionsAllowsMemoryCurationOnTopOfReadOnlyTools(t *testing.
 	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
 		if heartbeat.AllowedTools[tool] {
 			t.Fatalf("heartbeatRunOptions unexpectedly allows repository write tool %q", tool)
+		}
+	}
+}
+
+// A scheduled turn may propose: it carries the tools to make a change and
+// open a draft pull request. What holds the invariant is no longer the
+// absence of those tools but the unprompted-turn marking and the draft/branch
+// rules in the kernel -- see internal/kernel/services/unprompted_test.go.
+func TestProposeOnlyRunOptionsCarryRepositoryWriteToolsButNoMCP(t *testing.T) {
+	options := proposeOnlyRunOptions()
+	for tool := range readOnlyRunOptions().AllowedTools {
+		if !options.AllowedTools[tool] {
+			t.Fatalf("proposeOnlyRunOptions dropped read-only tool %q", tool)
+		}
+	}
+	for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
+		if !options.AllowedTools[tool] {
+			t.Fatalf("proposeOnlyRunOptions missing repository write tool %q", tool)
 		}
 	}
 }
@@ -126,9 +147,9 @@ func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
 	}
 }
 
-func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t *testing.T) {
+func TestDirectOwnerMessagesAndSchedulesBothExposeRepositoryTools(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}, Self: true}}
 	var modelBodies [][]byte
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host == "deepseek.test" {
@@ -156,9 +177,15 @@ func TestDirectOwnerMessagesExposeRepositoryToolsWhileSchedulesRemainReadOnly(t 
 	if !directTools["workspace_edit"] || !directTools["propose_change"] {
 		t.Fatalf("direct owner message did not advertise repository tools: %s", modelBodies[0])
 	}
+	// A scheduled turn now carries the same propose path: the invariant it
+	// must hold is that it can only propose (draft pull request, own branch),
+	// not that it cannot write at all.
 	scheduledTools := requestedToolNames(t, modelBodies[1])
-	if scheduledTools["workspace_edit"] || scheduledTools["propose_change"] {
-		t.Fatalf("scheduled turn advertised repository tools: %s", modelBodies[1])
+	if !scheduledTools["workspace_edit"] || !scheduledTools["propose_change"] {
+		t.Fatalf("scheduled turn did not advertise the propose path: %s", modelBodies[1])
+	}
+	if !strings.Contains(string(modelBodies[1]), "self_repository: eggy") {
+		t.Fatalf("scheduled turn did not learn which repository is its own body: %s", modelBodies[1])
 	}
 }
 

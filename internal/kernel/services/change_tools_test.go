@@ -234,3 +234,49 @@ func TestProposeChangeRequiresValidationEvidence(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+// An unprompted turn shares its thread with the owner (proactive output is
+// one channel), so the tools -- not the allowlist -- are what keep a
+// heartbeat from adopting a branch the owner left mid-change and proposing
+// it as its own.
+func TestUnpromptedTurnCannotEditOrProposeTheOwnersOpenChange(t *testing.T) {
+	fixture := newChangeToolFixture(t, &fakeShipper{})
+	owner := webThread("thread-a")
+	if _, err := fixture.tools["workspace_open"].Execute(owner, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.tools["workspace_edit"].Execute(owner, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	unprompted := WithUnpromptedTurn(owner)
+	if _, err := fixture.tools["workspace_edit"].Execute(unprompted, json.RawMessage(`{}`)); !errors.Is(err, ErrOwnerChangeInProgress) {
+		t.Fatalf("workspace_edit err=%v, want ErrOwnerChangeInProgress", err)
+	}
+	_, err := fixture.tools["propose_change"].Execute(unprompted, json.RawMessage(`{"summary":"s","validation":"go test","commit_message":"feat: x"}`))
+	if !errors.Is(err, ErrOwnerChangeInProgress) {
+		t.Fatalf("propose_change err=%v, want ErrOwnerChangeInProgress", err)
+	}
+	if fixture.shipper.calls != 0 {
+		t.Fatalf("shipper calls=%d, want nothing shipped", fixture.shipper.calls)
+	}
+}
+
+// The mirror of the test above: an unprompted turn working on a change it
+// opened itself proposes normally, and marks the proposal a draft.
+func TestUnpromptedTurnProposesItsOwnChangeAsADraft(t *testing.T) {
+	fixture := newChangeToolFixture(t, &fakeShipper{})
+	ctx := WithUnpromptedTurn(webThread("thread-a"))
+	if _, err := fixture.tools["workspace_open"].Execute(ctx, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.tools["workspace_edit"].Execute(ctx, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.tools["propose_change"].Execute(ctx, json.RawMessage(`{"summary":"s","validation":"go test","commit_message":"feat: x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !fixture.shipper.target.Draft {
+		t.Fatalf("target=%#v, want Draft set for an unprompted proposal", fixture.shipper.target)
+	}
+}

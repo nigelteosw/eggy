@@ -153,7 +153,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			OutputExcerptChars: 8192,
 		},
 		Scheduler: SchedulerConfig{
-			HeartbeatCadence: Duration(30 * time.Minute),
+			HeartbeatCadence: Duration(3 * time.Hour),
 			QuietHours: QuietHoursConfig{
 				Start:    "22:00",
 				End:      "07:00",

@@ -454,8 +454,15 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	for _, tool := range registeredTools {
 		toolNames = append(toolNames, tool.Definition().Name)
 	}
+	selfRepository := ""
+	for _, repo := range config.Repositories {
+		if repo.Self {
+			selfRepository = repo.Name
+			break
+		}
+	}
 	app.manifest = agent.CapabilityManifest{
-		Tools: toolNames, CalendarEnabled: config.Calendar.Enabled,
+		Tools: toolNames, CalendarEnabled: config.Calendar.Enabled, SelfRepository: selfRepository,
 		RepositoryCommitReady: repositoryCapabilities.Commit,
 		RepositoryPushReady:   repositoryCapabilities.Push,
 		PullRequestReady:      repositoryCapabilities.PullRequest,

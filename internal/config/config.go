@@ -101,6 +101,12 @@ type RepositoryConfig struct {
 	CloneURL          string   `yaml:"clone_url"`
 	BaseBranch        string   `yaml:"base_branch"`
 	ProtectedBranches []string `yaml:"protected_branches"`
+	// Self marks the repository that holds Eggy's own source. It grants no
+	// capability of its own -- it only tells the agent which registered
+	// repository is its own body, so a self-improvement turn knows where
+	// AGENTS.md and docs/ARCHITECTURE.md describing it live. At most one
+	// repository may set it.
+	Self bool `yaml:"self,omitempty"`
 }
 
 type RunnerConfig struct {
@@ -525,7 +531,14 @@ func (c Config) Validate() error {
 		return errors.New("implementation_sessions context_budget_chars, recent_messages, and output_excerpt_chars must be positive")
 	}
 	names := map[string]bool{}
+	self := ""
 	for _, repo := range c.Repositories {
+		if repo.Self {
+			if self != "" {
+				return fmt.Errorf("repositories %q and %q both set self: exactly one repository is Eggy's own body", self, repo.Name)
+			}
+			self = repo.Name
+		}
 		if repo.Name == "" || names[repo.Name] {
 			return fmt.Errorf("duplicate repository name %q", repo.Name)
 		}

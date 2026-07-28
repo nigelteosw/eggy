@@ -67,8 +67,8 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		ctx = destination.With(ctx, proactiveDestination())
-		return a.handleMessage(ctx, message, readOnlyRunOptions(), messageHandlingPolicy{})
+		ctx = services.WithUnpromptedTurn(destination.With(ctx, proactiveDestination()))
+		return a.handleMessage(ctx, message, proposeOnlyRunOptions(), messageHandlingPolicy{})
 	case events.TypeScheduledMessage:
 		// A deterministic, pre-rendered notification (a reminder or
 		// watchdog-style check-in): delivered verbatim with no model call at
@@ -101,7 +101,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		}
 		return a.handleApproval(ctx, decision)
 	case events.TypeHeartbeat:
-		return a.handleHeartbeat(destination.With(ctx, proactiveDestination()))
+		return a.handleHeartbeat(services.WithUnpromptedTurn(destination.With(ctx, proactiveDestination())))
 	default:
 		return errors.New("unsupported event type")
 	}
@@ -143,11 +143,42 @@ func readOnlyRunOptions() agent.RunOptions {
 	}}
 }
 
-// heartbeatRunOptions extends readOnlyRunOptions with the narrow memory-
-// curation tools so a heartbeat turn can proactively write stable facts to
-// USER.md/MEMORY.md, mirroring Hermes's periodic-nudge curation without
-// adding a separate subsystem: it is the same explicit, guarded tool call a
-// direct conversation turn can already make.
+// proposeOnlyRunOptions is what a scheduled turn runs with: readOnlyRunOptions
+// plus the tools needed to make and propose a change. A heartbeat does not
+// get it -- see heartbeatRunOptions.
+//
+// The older allowlist barred repository writes outright. That was a proxy for
+// the invariant that matters -- nothing lands without a payload-bound
+// authorization and a human-reviewed pull request -- and the proxy cost Eggy
+// the ability to improve itself between owner messages. The invariant is now
+// held where it belongs rather than by absence: services.WithUnpromptedTurn
+// marks the turn, propose_change opens a draft pull request on a branch of
+// its own, ShippingService refuses a base or protected branch, and an
+// unprompted turn cannot touch a change the owner has open.
+//
+// What stays barred is unchanged: no MCP tool, so an unprompted turn still
+// reaches no arbitrary remote side effect (see the MCP authorization gap in
+// TODO.md), and no approval-issuing tool beyond the shipping chain
+// propose_change owns.
+func proposeOnlyRunOptions() agent.RunOptions {
+	options := readOnlyRunOptions()
+	for _, tool := range []string{"workspace_edit", "patch", "write_file", "propose_change"} {
+		options.AllowedTools[tool] = true
+	}
+	return options
+}
+
+// heartbeatRunOptions extends readOnlyRunOptions -- deliberately not
+// proposeOnlyRunOptions -- with the narrow memory-curation tools so a
+// heartbeat turn can proactively write stable facts to USER.md/MEMORY.md.
+//
+// A heartbeat is a check-in on the owner, not a work tick. Its job is to
+// notice what is worth telling them and to curate durable context; it is not
+// the place to start repository work nobody asked for. A scheduled turn is
+// the propose path, because the owner wrote the schedule that asks for it.
+// Keeping the write tools off a heartbeat also keeps its cost proportionate
+// to what it is for: every tick is a model call, and one that cannot edit is
+// a far cheaper one.
 func heartbeatRunOptions() agent.RunOptions {
 	options := readOnlyRunOptions()
 	for _, tool := range []string{"memory", "skill_disable", "skill_enable"} {
@@ -515,9 +546,14 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	scheduleTicker := time.NewTicker(time.Minute)
 	defer scheduleTicker.Stop()
+	// Every tick is a model call whether or not it produces a check-in, since
+	// silent USER.md/MEMORY.md curation runs regardless of quiet hours. Three
+	// hours is the cadence that keeps that cost proportionate; the weekly
+	// proactive limit, not this, is what bounds how often the owner hears
+	// from a heartbeat.
 	heartbeatCadence := a.config.Scheduler.HeartbeatCadence.Value()
 	if heartbeatCadence <= 0 {
-		heartbeatCadence = 30 * time.Minute
+		heartbeatCadence = 3 * time.Hour
 	}
 	heartbeatTicker := time.NewTicker(heartbeatCadence)
 	defer heartbeatTicker.Stop()
@@ -708,7 +744,7 @@ func (a *App) handleHeartbeat(ctx context.Context) error {
 	manifest.Tools = a.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: a.now().In(a.location), Timezone: a.timezone})
 	history = append(history, agent.HeartbeatChecklistMessage(agentContext.Heartbeat))
-	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only: an isolated turn with no recent-conversation history. Protected writes are forbidden."})
+	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only: an isolated turn with no recent-conversation history. This is a check-in on the owner, not a work tick: decide whether anything is worth telling them, and curate durable context. You carry no repository write tools here, so do not plan or promise repository work -- if something needs changing, say so and let the owner ask."})
 	instruction := "Separately, review durable context for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in."
 	if sendAllowed {
 		instruction = "Evaluate whether one concise proactive check-in is useful now, using the HEARTBEAT.md checklist as a starting point. " + instruction + fmt.Sprintf(" Reply with exactly %q and nothing else when no check-in is useful.", services.HeartbeatNoReportSentinel)

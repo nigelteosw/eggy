@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -16,6 +17,12 @@ type ShipTarget struct {
 	ChangeID   string
 	Workspace  string
 	Transcript string
+	// Draft marks this as an unprompted turn's proposal: the pull request is
+	// opened as a draft for the owner to review. It travels inside every
+	// shipping payload, so it is covered by the same payload-digest
+	// authorization as the branch and diff rather than being a hint the
+	// executing step could quietly drop.
+	Draft bool
 }
 
 type ShippingService struct {
@@ -45,7 +52,33 @@ var (
 	ErrRepositoryCommitUnavailable = errors.New("repository commit capability is unavailable")
 	ErrRepositoryPushUnavailable   = errors.New("repository push capability is unavailable")
 	ErrPullRequestUnavailable      = errors.New("pull-request capability is unavailable")
+	// ErrUnpromptedBaseBranch is returned when an unprompted turn's proposal
+	// would target the repository's base branch or one of its protected
+	// branches. An unprompted turn only ever proposes on a branch of its own.
+	ErrUnpromptedBaseBranch = errors.New("an unprompted turn cannot propose a change on a base or protected branch")
 )
+
+// rejectBaseBranch fails a draft proposal that would land on the repository's
+// own base or protected branch.
+func (s *ShippingService) rejectBaseBranch(ctx context.Context, changeID, branch string) error {
+	change, err := s.change(ctx, changeID)
+	if err != nil {
+		return err
+	}
+	repository, err := s.repositoryFor(ctx, change)
+	if err != nil {
+		return err
+	}
+	if branch == repository.BaseBranch {
+		return fmt.Errorf("%w: %s", ErrUnpromptedBaseBranch, branch)
+	}
+	for _, protected := range repository.ProtectedBranches {
+		if branch == protected {
+			return fmt.Errorf("%w: %s", ErrUnpromptedBaseBranch, branch)
+		}
+	}
+	return nil
+}
 
 // Ship runs commit, push, and pull-request creation back to back, deciding
 // each step's approval itself instead of waiting for an owner Telegram tap.
@@ -55,6 +88,16 @@ var (
 // where the chain stopped (an unavailable capability or a protected branch)
 // with a nil error, since those are expected outcomes rather than failures.
 func (s *ShippingService) Ship(ctx context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error) {
+	if target.Draft {
+		// An unprompted turn proposes on an isolated branch of its own and
+		// nowhere else. Push already refuses a protected branch, but a base
+		// branch that nobody listed as protected would slip through, and this
+		// invariant must not depend on a repository's configuration being
+		// thorough.
+		if err := s.rejectBaseBranch(ctx, target.ChangeID, branch); err != nil {
+			return ports.PullRequest{}, "", err
+		}
+	}
 	commitApproval, err := s.RequestCommit(ctx, target, commitMessage)
 	if err != nil {
 		return ports.PullRequest{}, "", err
@@ -77,7 +120,11 @@ func (s *ShippingService) Ship(ctx context.Context, target ShipTarget, branch, c
 		return ports.PullRequest{}, "", err
 	}
 
-	prApproval, err := s.RequestPullRequest(ctx, target, branch, "Eggy: "+branch, "Automated by Eggy after a validated implementation run.")
+	body := "Automated by Eggy after a validated implementation run."
+	if target.Draft {
+		body = "Proposed by Eggy from an unprompted turn (scheduled or heartbeat) after a validated implementation run. Opened as a draft: nothing here is claimed as finished work, and it lands only if you review and merge it."
+	}
+	prApproval, err := s.RequestPullRequest(ctx, target, branch, "Eggy: "+branch, body)
 	if err != nil {
 		if errors.Is(err, ErrPullRequestUnavailable) {
 			return ports.PullRequest{}, "Pushed. Pull-request creation is unavailable for the configured repository provider.", nil
@@ -273,7 +320,7 @@ func (s *ShippingService) CreatePullRequest(ctx context.Context, target ShipTarg
 		}
 		return existing, nil
 	}
-	result, err := s.pullRequests.CreatePullRequest(ctx, repository, branch, title, body)
+	result, err := s.pullRequests.CreatePullRequest(ctx, repository, branch, title, body, target.Draft)
 	if err != nil {
 		return ports.PullRequest{}, err
 	}

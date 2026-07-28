@@ -40,7 +40,7 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "timeout: 45m0s") || !strings.Contains(string(body), "heartbeat_cadence: 30m0s") {
+	if !strings.Contains(string(body), "timeout: 45m0s") || !strings.Contains(string(body), "heartbeat_cadence: 3h0m0s") {
 		t.Fatalf("durations were not encoded as strings:\n%s", body)
 	}
 	for _, secret := range testSecrets() {

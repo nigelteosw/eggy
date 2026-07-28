@@ -39,7 +39,8 @@ func (s *Changes) Open(ctx context.Context, id, repository, branch, baseRevision
 	now := s.now()
 	return s.store.Create(ctx, ports.Change{
 		ID: id, Repository: repository, Branch: branch, BaseRevision: baseRevision,
-		Phase: ports.PhaseRunning, StartedAt: now, UpdatedAt: now,
+		Unprompted: IsUnpromptedTurn(ctx),
+		Phase:      ports.PhaseRunning, StartedAt: now, UpdatedAt: now,
 	})
 }
 

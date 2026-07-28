@@ -20,7 +20,6 @@ Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supp
 - Provider-neutral GitHub metadata reads (repository/issue/pull-request/check-run) that never clone.
 - PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
 - Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
-- Optional provider-neutral native web search, initially backed by a private or public SearXNG JSON API.
 - Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated per-tool failures, live reconnect and catalog reload without a restart, and encrypted durable OAuth.
 - Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
 - `eggyd`, the companion `eggy` CLI, Docker, Railway, and a fake-adapter smoke mode.
@@ -167,53 +166,6 @@ Calendar reads run automatically. Eggy can list the IDs, names, access roles, an
 
 Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
 
-## Web search
-
-Web search is optional, and three adapters are available. Select one with
-`web_search.adapter` in `config.yaml`; each reads its own environment
-variables:
-
-| Adapter | Variables | Notes |
-| --- | --- | --- |
-| `searxng` | `WEB_SEARCH_API` | Self-hosted or public instance. No API key. |
-| `tavily` | `TAVILY_API_KEY` | Built for agents; returns extracted page content rather than a SERP snippet. |
-| `google_cse` | `GOOGLE_CSE_KEY`, `GOOGLE_CSE_ID` | Google Programmable Search Engine. Both values required. |
-
-```dotenv
-WEB_SEARCH_API=https://your-searxng-domain.up.railway.app/
-```
-
-When the selected adapter's variables are unset or blank, Eggy does not
-construct the adapter, register the `web_search` tool, or change ordinary
-startup. When configured, the read-only tool is available to direct owner
-turns; scheduled and heartbeat turns do not receive it. A temporary search
-outage fails only that tool call and does not prevent Eggy from starting.
-
-The API-key adapters authenticate every request, so unlike a scraping backend
-they are unaffected by the datacenter IP blocking that can degrade a hosted
-SearXNG instance. For them `WEB_SEARCH_API` is not required; it serves only as
-an endpoint override.
-
-The rest of this section covers the `searxng` adapter specifically.
-
-SearXNG keeps its own `SEARXNG_BASE_URL` and `SEARXNG_SECRET` on the SearXNG
-service. Eggy needs neither value as a credential and must never receive
-`SEARXNG_SECRET`; `WEB_SEARCH_API` simply points to the same reachable address
-as SearXNG's base URL. The SearXNG `settings.yml` must include `json` under
-`search.formats`.
-
-Verify the provider before configuring Eggy:
-
-```sh
-curl -fsS \
-  'https://your-searxng-domain.up.railway.app/search?q=Eggy&format=json'
-```
-
-The provider-neutral `web_search` configuration in `config.yaml` controls the
-adapter, timeout, default result count, and safe-search level. Existing
-persisted configurations may omit the block; Eggy applies the documented
-SearXNG defaults.
-
 ## MCP servers and Railway
 
 MCP servers are configured under `mcp.servers`, over either of two transports: `streamable-http` for a hosted server, given by `url`, and `stdio` for a local server Eggy spawns itself, given by `command` and `args`. The supplied example enables Railway's hosted server at `https://mcp.railway.com` with OAuth and an explicit curated tool list. `list-variables` is deliberately excluded because its results can place deployment secrets directly into model context; this is a Railway filter choice, not a hardcoded adapter rule.
@@ -247,7 +199,7 @@ Everything else is shared with the HTTP transport: tool filters, namespacing, ti
 
 1. Create a Railway service from this repository.
 2. Generate a public Railway domain and add a persistent volume mounted at `/data`. Keep both `data_dir: /data` and `runner.root: /data/runs`: uncommitted coding workspaces and session transcripts live there and can be explicitly resumed after a restart.
-3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. Set `WEB_SEARCH_API` only when you want the optional SearXNG-backed `web_search` tool. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`. Telegram is optional: for a web-only deployment set `EGGY_OWNER_ID` to any stable identifier instead, and omit all three Telegram variables. The generated config then carries no `telegram` block and the webhook route stays unavailable. A web-only deployment produces no unprompted output: heartbeat check-ins and scheduled messages are addressed to Telegram by design and are dropped rather than pushed into a web thread.
+3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`. Telegram is optional: for a web-only deployment set `EGGY_OWNER_ID` to any stable identifier instead, and omit all three Telegram variables. The generated config then carries no `telegram` block and the webhook route stays unavailable. A web-only deployment produces no unprompted output: heartbeat check-ins and scheduled messages are addressed to Telegram by design and are dropped rather than pushed into a web thread.
 4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
 5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
 6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
@@ -257,7 +209,7 @@ Calendar is disabled in the generated first-boot configuration. Enable it delibe
 
 For Railway MCP, keep the `mcp.servers.railway` block from `config.example.yaml`, set `EGGY_ENCRYPTION_KEY`, restart, and run `/mcp login railway`. Existing persisted configs are not rewritten automatically; add the block deliberately. No Railway API token is needed in OAuth mode.
 
-`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. `WEB_SEARCH_API` is resolved on every start, so setting or removing it and restarting Eggy enables or removes the tool without rewriting `/data/config.yaml`. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — are edited as raw YAML, either on the host or in the web UI's Files tab, which validates the whole document before it lands. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
+`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — are edited as raw YAML, either on the host or in the web UI's Files tab, which validates the whole document before it lands. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
 
 `EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
 

@@ -199,7 +199,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	for _, secret := range secrets.MCPBearerTokens {
 		activeSecrets = append(activeSecrets, secret)
 	}
-	activeSecrets = append(activeSecrets, secrets.WebSearchAPIKey)
 	// The transcript bounds one event's excerpt; how much a turn can still
 	// see is agent.ContextPolicy's business alone (see NewSelectedLoop below).
 	transcripts := services.NewTranscripts(sessionStore, config.ImplementationSessions.OutputExcerptChars, options.Now, activeSecrets...)
@@ -286,15 +285,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerAll(registry, primitives...); err != nil {
 		return nil, err
 	}
-	webSearcher, err := newWebSearcher(config, secrets, options)
-	if err != nil {
-		return nil, err
-	}
-	if webSearcher != nil {
-		if err := registry.Register(services.NewWebSearchTool(webSearcher, config.WebSearch.MaxResults)); err != nil {
-			return nil, err
-		}
-	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
 	if err != nil {
 		return nil, err
@@ -361,7 +351,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		{"github", repositoryAdapter != nil},
 		{"google_calendar", app.calendar != nil},
 		{"mcp", app.mcp != nil},
-		{"web_search", webSearcher != nil},
 		{"embeddings", app.embedder != nil},
 	} {
 		if wired.built {

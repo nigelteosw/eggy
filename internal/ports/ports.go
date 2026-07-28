@@ -83,23 +83,6 @@ type Tool interface {
 	Execute(context.Context, json.RawMessage) (json.RawMessage, error)
 }
 
-type WebSearchRequest struct {
-	Query string
-	Limit int
-}
-
-type WebSearchResult struct {
-	Title       string   `json:"title"`
-	URL         string   `json:"url"`
-	Snippet     string   `json:"snippet,omitempty"`
-	PublishedAt string   `json:"published_at,omitempty"`
-	Sources     []string `json:"sources,omitempty"`
-}
-
-type WebSearcher interface {
-	Search(context.Context, WebSearchRequest) ([]WebSearchResult, error)
-}
-
 // Channel delivers agent output to one surface. It deliberately carries no
 // chat or thread identifier: the target is the destination stamped on ctx
 // for the turn (see internal/kernel/destination.Destination), so a tool or

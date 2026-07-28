@@ -44,7 +44,6 @@ type Config struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
-	WebSearch              WebSearchConfig             `yaml:"web_search,omitempty"`
 	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
@@ -150,24 +149,6 @@ type CalendarConfig struct {
 	Timezone        string `yaml:"timezone"`
 }
 
-type WebSearchConfig struct {
-	Adapter     string   `yaml:"adapter"`
-	BaseURLEnv  string   `yaml:"base_url_env,omitempty"`
-	APIKeyEnv   string   `yaml:"api_key_env,omitempty"`
-	EngineIDEnv string   `yaml:"engine_id_env,omitempty"`
-	SearchDepth string   `yaml:"search_depth,omitempty"`
-	Timeout     Duration `yaml:"timeout"`
-	MaxResults  int      `yaml:"max_results"`
-	SafeSearch  *int     `yaml:"safe_search,omitempty"`
-}
-
-func (c WebSearchConfig) SafeSearchValue() int {
-	if c.SafeSearch == nil {
-		return 1
-	}
-	return *c.SafeSearch
-}
-
 type MCPConfig struct {
 	Servers map[string]MCPServerConfig `yaml:"servers,omitempty"`
 }
@@ -216,9 +197,6 @@ type Secrets struct {
 	GoogleClientSecret    string
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
-	WebSearchBaseURL      string
-	WebSearchAPIKey       string
-	WebSearchEngineID     string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -229,7 +207,7 @@ func (s Secrets) Values() []string {
 	values := []string{
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
 		s.GoogleClientID, s.GoogleClientSecret, s.EncryptionKey,
-		s.WebSearchAPIKey, s.UIPassword,
+		s.UIPassword,
 	}
 	for _, key := range s.ProviderAPIKeys {
 		values = append(values, key)
@@ -256,7 +234,6 @@ type commonConfigDocument struct {
 	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
 	Scheduler              SchedulerConfig             `yaml:"scheduler"`
 	Calendar               CalendarConfig              `yaml:"calendar"`
-	WebSearch              WebSearchConfig             `yaml:"web_search,omitempty"`
 	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
 }
 
@@ -297,15 +274,6 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		UIPassword:      getenv("EGGY_UI_PASSWORD"),
 		ProviderAPIKeys: map[string]string{},
 		MCPBearerTokens: map[string]string{},
-	}
-	if cfg.WebSearch.BaseURLEnv != "" {
-		secrets.WebSearchBaseURL = strings.TrimSpace(getenv(cfg.WebSearch.BaseURLEnv))
-	}
-	if cfg.WebSearch.APIKeyEnv != "" {
-		secrets.WebSearchAPIKey = strings.TrimSpace(getenv(cfg.WebSearch.APIKeyEnv))
-	}
-	if cfg.WebSearch.EngineIDEnv != "" {
-		secrets.WebSearchEngineID = strings.TrimSpace(getenv(cfg.WebSearch.EngineIDEnv))
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
@@ -375,12 +343,12 @@ func normalizeConfig(document configDocument) Config {
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Embeddings: document.Embeddings,
-		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, WebSearch: common.WebSearch, MCP: common.MCP,
+		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, WebSearch: c.WebSearch, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -441,37 +409,6 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.embeddingsConfigured() && c.Embeddings.CandidateLimit == 0 {
 		c.Embeddings.CandidateLimit = 5000
-	}
-	if c.WebSearch.Adapter == "" {
-		c.WebSearch.Adapter = "searxng"
-	}
-	// Each adapter is enabled by its own secrets, so each defaults only the
-	// environment names it actually reads.
-	switch c.WebSearch.Adapter {
-	case "searxng":
-		if c.WebSearch.BaseURLEnv == "" {
-			c.WebSearch.BaseURLEnv = "WEB_SEARCH_API"
-		}
-	case "google_cse":
-		if c.WebSearch.APIKeyEnv == "" {
-			c.WebSearch.APIKeyEnv = "GOOGLE_CSE_KEY"
-		}
-		if c.WebSearch.EngineIDEnv == "" {
-			c.WebSearch.EngineIDEnv = "GOOGLE_CSE_ID"
-		}
-	case "tavily":
-		if c.WebSearch.APIKeyEnv == "" {
-			c.WebSearch.APIKeyEnv = "TAVILY_API_KEY"
-		}
-		if c.WebSearch.SearchDepth == "" {
-			c.WebSearch.SearchDepth = "basic"
-		}
-	}
-	if c.WebSearch.Timeout == 0 {
-		c.WebSearch.Timeout = Duration(15 * time.Second)
-	}
-	if c.WebSearch.MaxResults == 0 {
-		c.WebSearch.MaxResults = 8
 	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
@@ -591,55 +528,8 @@ func (c Config) Validate() error {
 	if c.Calendar.Enabled && c.Calendar.DefaultCalendar == "" {
 		return errors.New("calendar.default_calendar is required")
 	}
-	if err := c.validateWebSearch(); err != nil {
-		return err
-	}
 	if err := c.validateMCP(); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (c Config) validateWebSearch() error {
-	switch c.WebSearch.Adapter {
-	case "searxng":
-		if c.WebSearch.BaseURLEnv == "" {
-			return errors.New("web_search.base_url_env is required for the searxng adapter")
-		}
-	case "google_cse":
-		if c.WebSearch.APIKeyEnv == "" {
-			return errors.New("web_search.api_key_env is required for the google_cse adapter")
-		}
-		if c.WebSearch.EngineIDEnv == "" {
-			return errors.New("web_search.engine_id_env is required for the google_cse adapter")
-		}
-	case "tavily":
-		if c.WebSearch.APIKeyEnv == "" {
-			return errors.New("web_search.api_key_env is required for the tavily adapter")
-		}
-		if c.WebSearch.SearchDepth != "basic" && c.WebSearch.SearchDepth != "advanced" {
-			return errors.New(`web_search.search_depth must be "basic" or "advanced"`)
-		}
-	default:
-		return fmt.Errorf("unsupported web search adapter %q", c.WebSearch.Adapter)
-	}
-	if c.WebSearch.BaseURLEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.BaseURLEnv) {
-		return errors.New("web_search.base_url_env is invalid")
-	}
-	if c.WebSearch.APIKeyEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.APIKeyEnv) {
-		return errors.New("web_search.api_key_env is invalid")
-	}
-	if c.WebSearch.EngineIDEnv != "" && !environmentNamePattern.MatchString(c.WebSearch.EngineIDEnv) {
-		return errors.New("web_search.engine_id_env is invalid")
-	}
-	if c.WebSearch.Timeout.Value() <= 0 {
-		return errors.New("web_search.timeout must be positive")
-	}
-	if c.WebSearch.MaxResults < 1 || c.WebSearch.MaxResults > 20 {
-		return errors.New("web_search.max_results must be between 1 and 20")
-	}
-	if safeSearch := c.WebSearch.SafeSearchValue(); safeSearch < 0 || safeSearch > 2 {
-		return errors.New("web_search.safe_search must be between 0 and 2")
 	}
 	return nil
 }
@@ -864,18 +754,6 @@ func (c Config) validateSecrets(s Secrets) error {
 			struct{ name, value string }{"EGGY_UI_USER_EMAIL", s.UIUserEmail},
 			struct{ name, value string }{"EGGY_UI_PASSWORD", s.UIPassword},
 			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
-	}
-	if s.WebSearchBaseURL != "" {
-		webSearchURL, err := url.Parse(s.WebSearchBaseURL)
-		if err != nil || (webSearchURL.Scheme != "http" && webSearchURL.Scheme != "https") || webSearchURL.Host == "" {
-			return fmt.Errorf("%s must be an HTTP(S) URL", c.WebSearch.BaseURLEnv)
-		}
-		if webSearchURL.User != nil {
-			return fmt.Errorf("%s must not contain credentials", c.WebSearch.BaseURLEnv)
-		}
-		if webSearchURL.RawQuery != "" || webSearchURL.Fragment != "" {
-			return fmt.Errorf("%s must not contain a query or fragment", c.WebSearch.BaseURLEnv)
-		}
 	}
 	for _, item := range required {
 		if strings.TrimSpace(item.value) == "" {

@@ -96,7 +96,6 @@ flowchart TB
         repositoryAdapter[GitHub and Git adapter]
         runnerAdapter[Restricted local-process runner]
         calendarAdapter[Google Calendar adapter]
-        searchAdapter[SearXNG web-search adapter]
         mcpAdapter[Generic MCP client manager]
         stores[File-backed state, context, and session stores]
         schedulerAdapter[Local scheduler]
@@ -110,7 +109,6 @@ flowchart TB
         modelAPI[Configured model provider]
         github[GitHub]
         google[Google Calendar]
-        searxng[SearXNG]
         mcpServers[Remote MCP servers<br/>Railway first]
         process[Git and local processes]
         data[Railway volume - /data<br/>config, state, context, sessions, runs]
@@ -121,7 +119,6 @@ flowchart TB
     repositoryAdapter --> github
     runnerAdapter --> process
     calendarAdapter --> google
-    searchAdapter --> searxng
     mcpAdapter --> mcpServers
     stores --> data
     schedulerAdapter --> data
@@ -238,27 +235,6 @@ Only direct-owner turns receive these projected tools; the explicit scheduled/he
 OAuth uses the SDK's `auth.OAuthHandler` seam and exported metadata/DCR helpers, with standard PKCE and `oauth2` exchange/refresh. Dynamic client information and tokens are stored as one AES-256-GCM record per server inside the shared `/data/auth.json` document (section `mcp`), independently from `state.json`. Bearer credentials are resolved only from the configured environment-variable name.
 
 Two transports are supported, selected per server by `transport` and resolved in one place (`session.go`): `streamable-http` against a hosted `url`, and `stdio` against a locally spawned `command`. A stdio child's environment is *constructed* from the server's `env_allowlist` plus `PATH` and `HOME` rather than inherited, so Eggy's other credentials cannot reach it, and it is started in its own process group so closing the session kills anything it spawned in turn. Stdio deliberately adds no isolation beyond that: the child is the same user with the same filesystem access as Eggy, the same trusted-code assumption the `terminal` tool already makes, and container isolation would address both rather than one. Config rejects mixing the two transports' fields, and the web settings panel refuses to edit a stdio server, so a command line and an environment allowlist only ever come from reviewed configuration. Resources, prompts, roots, sampling, elicitation, legacy SSE, and MCP Apps remain out of scope.
-
-### Native web search
-
-The kernel-owned `web_search` tool depends only on the narrow
-`ports.WebSearcher` interface and returns normalized title, URL, snippet,
-publication, and source fields. Provider HTTP and response types remain in
-`plugins/search/searxng`; future search providers add another package
-under the same adapter category plus a bootstrap selector branch without
-changing the kernel tool or port.
-
-Bootstrap resolves the configured `base_url_env`, which defaults to
-`WEB_SEARCH_API`. A blank value means no adapter is constructed and no
-`web_search` tool is registered. A configured endpoint is not probed at
-startup: temporary provider failure is an ordinary bounded tool error rather
-than an Eggy readiness failure. Direct owner turns receive the tool, while the
-explicit scheduled and heartbeat allowlists omit it.
-
-SearXNG's own `SEARXNG_BASE_URL` and `SEARXNG_SECRET` remain entirely outside
-Eggy. Eggy receives only the provider URL through `WEB_SEARCH_API`; request
-timeouts, response bytes, result counts, and individual result fields are
-bounded before external text enters model context.
 
 ### The primitive tool set
 

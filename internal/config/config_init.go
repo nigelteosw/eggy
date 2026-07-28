@@ -163,10 +163,6 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			WeeklyProactiveLimit:     5,
 		},
 		Calendar: CalendarConfig{Enabled: false, DefaultCalendar: "primary", Timezone: "Asia/Singapore"},
-		WebSearch: WebSearchConfig{
-			Adapter: "searxng", BaseURLEnv: "WEB_SEARCH_API",
-			Timeout: Duration(15 * time.Second), MaxResults: 8,
-		},
 	}
 	if repositoryURL := strings.TrimSpace(getenv("EGGY_REPOSITORY_URL")); repositoryURL != "" {
 		name := strings.TrimSpace(getenv("EGGY_REPOSITORY_NAME"))

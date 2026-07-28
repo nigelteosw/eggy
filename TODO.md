@@ -13,31 +13,38 @@ landed.
 
 Measured on the current tree, not estimated.
 
-**Size.** 21,399 lines of production Go, 17,660 of test. 20 tools on an
-ordinary owner turn (25 with Calendar, more with MCP). 17 top-level slash
-commands across ~40 catalog paths. 11 config sections. One package,
-`internal/kernel/services`, holds 30 source files.
+**Size.** 20,591 lines of production Go, 16,856 of test (was 21,399 / 17,660
+before web search was removed). 20 tools on an ordinary owner turn (25 with
+Calendar, more with MCP). 17 top-level slash commands across ~40 catalog
+paths. 10 config sections. One package, `internal/kernel/services`, holds 29
+source files.
 
 **Separation of concerns is not the problem.** `ports` / `kernel` / `plugins`
 is a real boundary and it mostly holds. The loop (`agent/loop.go`, 287 lines)
 is small and correct. What is out of hand is the *number* of concerns, and a
-handful of specific leaks. Refactoring will not fix the first; only deleting
-capabilities will.
+handful of specific leaks.
 
-**Per-turn context floor: 13,507 bytes (~3.4K tokens)** with empty
-SOUL/USER/MEMORY, no skills installed, Calendar off, MCP off:
+The scope review (below) settled that the concerns are wanted: all but one
+capability stays. So the number is not coming down, and the work is to contain
+what is there — kill the boundary violations, split the one oversized package,
+and delete dead weight — rather than to remove features.
 
-| section | bytes |
-| --- | ---: |
-| hard runtime policy | 4,451 |
-| tool schemas (20 tools) | 7,855 |
-| capability manifest | 542 |
-| SOUL.md / USER.md / MEMORY.md | 495 |
-| temporal context | 132 |
-| skills index | 32 |
+**Per-turn context floor: 12,416 bytes (~3.1K tokens)** with empty
+SOUL/USER/MEMORY, no skills installed, Calendar off, MCP off. Re-measured
+after the two P0 fixes landed; it was 13,507 before:
+
+| section | bytes | |
+| --- | ---: | --- |
+| tool schemas (20 tools) | 7,855 | |
+| hard runtime policy | 3,360 | was 4,451 — now conditional on the turn |
+| capability manifest | 542 | |
+| SOUL.md / USER.md / MEMORY.md | 495 | |
+| temporal context | 132 | |
+| skills index | 32 | |
 
 With Calendar wired, real durable docs, and one MCP server this is comfortably
-25–30KB before the owner types anything.
+25–30KB before the owner types anything. Tool schemas are now the largest
+section by a wide margin — that is where the ceiling is, not the prompt.
 
 **This is not the problem.** Measured against comparable agents, Eggy's context
 assembly is already good — see the comparison below. The defects are that the
@@ -53,7 +60,7 @@ Checked against the three agents this project was modelled on (July 2026).
 | agent | system prompt floor | tools | skill loading |
 | --- | --- | ---: | --- |
 | **Pi** (`badlogic/pi-mono`) | <1,000 tokens | 4 | `AGENTS.md` on demand |
-| **Eggy** | ~3.4K tokens | 20 | index + `skill_read` ✅ |
+| **Eggy** | ~3.1K tokens | 20 | index + `skill_read` ✅ |
 | **Hermes** (Nous) | not published | dynamic | index + `skill_view` ✅ |
 | **OpenClaw** | 40–90KB (layers 1–6: 20–40KB framework; layers 7–8: 20–50KB workspace files) | dozens | **none — full injection** |
 
@@ -68,20 +75,22 @@ never triggered. The fix (advertise name+description ~100 tokens each, add
 That is precisely what `SkillSummary` + `skill_read` already does here. Eggy
 structurally cannot hit OpenClaw's truncation failure.
 
-**Pi is the argument for the P0 deletion below.** Four tools — `read`, `write`,
-`edit`, `bash` — and a sub-1,000-token system prompt. Mario Zechner's stated
-reasoning: frontier models already understand coding agents from RL training,
-so rather than adding specialized tools, trust the model to invoke CLI
-utilities through bash. Eggy already ships that exact primitive (`terminal`),
-and then adds 16 more tools around it. `web_search` is the clearest case — Pi
-would have the model curl it.
+**Pi is the standard to hold new tools to, not a retrofit target.** Four tools
+— `read`, `write`, `edit`, `bash` — and a sub-1,000-token system prompt. Mario
+Zechner's stated reasoning: frontier models already understand coding agents
+from RL training, so rather than adding specialized tools, trust the model to
+invoke CLI utilities through bash. Eggy ships that exact primitive
+(`terminal`) and adds 16 tools around it. `web_search` fails the test outright
+and is the one cut. The rest survive it for a reason the raw count hides:
+their value is an approval envelope or a credential Eggy holds, not the API
+call. Apply the test to every *new* tool; do not apply it retroactively.
 
-**Hermes validates the P0 conditioning fix and adds one Eggy is missing.** It
-assembles the prompt in three ordered tiers — stable (identity, tool guidance,
-skills index), context (project files), volatile (memory, profile, timestamp) —
-explicitly ordered so the stable prefix survives provider-side prompt caching
-and volatile data at the tail cannot invalidate it. Eggy's ordering does the
-opposite in one place; see P0 below.
+**Hermes validated the two P0 fixes above.** It assembles the prompt in three
+ordered tiers — stable (identity, tool guidance, skills index), context
+(project files), volatile (memory, profile, timestamp) — explicitly ordered so
+the stable prefix survives provider-side prompt caching and volatile data at
+the tail cannot invalidate it. Eggy's ordering did the opposite in one place;
+that is now fixed.
 
 ---
 
@@ -131,58 +140,72 @@ or reordering, so the stable prefix reaches the wire intact.
       `prompt_tokens_details.cached_tokens`, so the cache-hit rate is already
       being recorded — surface it in `/usage` and compare before/after.
 
-## P0: Decide what Eggy is, then delete the rest
+## P0: Scope — SETTLED (2026-07-28)
 
-The reduction that matters is not structural. Approximate production LOC per
-capability cluster, including its plugin, kernel service, tools, and commands:
+The owner reviewed every capability cluster against actual use. The result is
+that almost everything stays, and that is a legitimate answer: the complexity
+is intrinsic to what Eggy is meant to do, not accidental. It also means the
+reduction cannot come from deletion. Everything below this section is
+containment and separation instead.
 
-| cluster | LOC | notes |
+| cluster | LOC | decision |
 | --- | ---: | --- |
-| slash commands | 2,393 | two grammars (Telegram + CLI) over one catalog |
-| MCP | 1,816 | two transports, OAuth, per-tool failure policy |
-| web UI + webchat | 1,345 | second surface; a pull surface only |
-| memory + embeddings | 920 | SQLite + vector recall |
-| shipping / changes / checks | 935 | commit → push → PR → checks watcher |
-| calendar | 777 | OAuth, ETag binding, approval-gated mutations |
-| web search | 762 | three interchangeable providers |
-| scheduler + heartbeat | 701 | cron, quiet hours, weekly proactive limits |
-| skills | 688 | |
+| slash commands | 2,393 | **keep both grammars** — Telegram and CLI both used regularly |
+| MCP | 1,816 | keep — the extension mechanism going forward |
+| web UI + webchat | 1,345 | **keep** — a real surface, not just Telegram |
+| calendar | ~1,170 | **keep, and keep it native** (see below) |
+| memory + embeddings | 920 | **keep** — semantic recall is used |
+| shipping / changes / checks | 935 | keep — core repository workflow |
+| scheduler + heartbeat | 701 | keep |
+| skills | 688 | keep |
+| web search | 762 | **DELETED** ✅ |
 
-- [ ] Choose the core. The defensible one is: **one chat surface, one
-      repository workflow, durable context, skills.** That is Claude Code's
-      shape and it is what the README's own framing claims Eggy is.
-- [ ] Apply Pi's test to every tool before it survives: *could the model do
-      this with `terminal` and a CLI?* Pi ships four tools on the theory that
-      frontier models already know how to drive a shell, and Eggy already has
-      the shell. `web_search` fails this test outright. `repository_github`
-      largely fails it — `gh` is a CLI. `calendar_*` passes only because there
-      is no authenticated CLI in the workspace, which is an argument for MCP,
-      not for five kernel tools.
-- [ ] Cut candidates, in descending order of cost-to-value:
-      - **Web search, three providers → one, or none.** 762 lines to give the
-        model a search tool an MCP server could provide. Strongest cut.
-        `plugins/search/{tavily,searxng,googlecse}` are interchangeable
-        adapters serving one interface; keep at most one.
-      - **Calendar.** 777 lines, an OAuth flow, encrypted token storage, an
-        approval action family, ETag binding, and five tools (~2.5KB of turn
-        context) for a capability an MCP server already covers. This is the
-        clearest case of something that should have been MCP from the start.
-      - **Embeddings / vector recall.** `SearchSimilar`, the embedding worker,
-        and the `embeddings` config block exist so `recall_conversation` can do
-        semantic search. Text search over a single owner's history is very
-        likely enough. Cutting this removes a provider dependency, a background
-        worker, and a config section.
-      - **The CLI grammar, or the Telegram grammar.** `internal/commands` runs
-        one catalog through two parsers (`ParseTelegramInput`, `ParseCLIArgs`).
-        If `eggy <cmd>` is only ever used for setup, shrink it to the three or
-        four commands setup actually needs and drop the shared-catalog
-        machinery.
-- [ ] Whatever survives: each cut removes its config section, its tools, its
-      slash commands, its approval actions, and its README section in the same
-      change. A half-removed capability is worse than the whole one.
+### The one cut — DONE
 
-Do not treat this list as decided. It is the decision that has to be made
-before any of the structural work below is worth doing.
+Web search removed whole: `plugins/search/{tavily,searxng,googlecse}`,
+`services/web_search_tool.go`, `bootstrap/web_search.go`,
+`ports.WebSearcher`/`WebSearchRequest`/`WebSearchResult`, the `WebSearchConfig`
+section with its defaults and validation, three `Secrets` fields, the bootstrap
+wiring and `integrations` entry, and the `config.example.yaml`, `.env.example`,
+README, and `docs/ARCHITECTURE.md` sections. Nothing left behind.
+
+One test in the deleted config block was not actually about web search: it
+asserted that marshaling a `Config` never emits a *resolved* secret, only the
+environment-variable name. That property still binds every provider key, MCP
+bearer token, and the GitHub token, so it was rewritten generically as
+`TestMarshaledConfigNeverLeaksAResolvedSecret` rather than deleted with its
+subject.
+
+### Calendar stays native — do not move it to MCP
+
+**The primary reason is availability: there is no widely available Google
+Calendar MCP server.** Native is not a design preference here, it is the only
+option that exists. An earlier draft of this file called Calendar "the
+clearest case of something that should have been MCP from the start" — that
+was wrong on the facts, not just on the trade-off.
+
+Two things follow for whenever a credible Google Calendar MCP server does
+appear, because the decision should be re-opened then rather than treated as
+settled forever:
+
+- The line count overstates the saving. Of Calendar's ~1,170 lines only ~535
+  are fungible Google plumbing (API calls, OAuth, token encryption). The other
+  ~240 in `services/calendar.go` are the safety envelope:
+  `RequestCreate`/`Create`, `RequestUpdate`/`Update`, `RequestDelete`/`Delete`,
+  `ExecuteApproved` — payload-bound owner approval, idempotency keys, and ETag
+  binding so a mutation cannot silently clobber a change made elsewhere.
+- That envelope has no MCP equivalent today. MCP tool calls are ungated (see
+  "Close the MCP authorization gap"), so migrating before that gap is closed
+  would let the agent create and delete calendar events with no confirmation.
+  **Close the authorization gap first, then reconsider.**
+
+`gcalcli` through `terminal` is not a third option: `terminal` is
+workspace-scoped, so it needs an attached repository that calendar has nothing
+to do with, and it is ungated too.
+
+The Pi test ("could the model do this with `terminal` and a CLI?") is still
+worth applying to *new* tools. It does not apply retroactively to a capability
+whose value is the approval envelope rather than the API call.
 
 ## P1: MCP must be a plugin, not an agent modification
 

@@ -35,16 +35,20 @@ message.
 `agent.Instructions` and `Loop.ToolDefinitions`, the same assembly a turn
 uses — so a diagnostic cannot drift from what the turn actually sends.
 
+`workspace_edit` stamps the selected model alias on `ports.Change` when it
+opens a run, and `/runs show` reports it — recorded at creation, so it names
+what did the work rather than whatever `/model` is set to now. A run opened
+before this landed reports "not recorded". Provider session IDs are not
+reported: they no longer exist as a concept and were dropped rather than
+reconstructed.
+
 ### What is left here
 
-- [ ] A run records no model alias and no provider session ID, so `/runs show`
-      cannot report either. Recording the selected alias on `ports.Change` at
-      creation is the small fix; the provider session ID no longer exists as a
-      concept and should be dropped from this item rather than reconstructed.
-- [ ] Estimated tokens are bytes/4. Eggy has no tokenizer and no configured
-      per-model context window, so `/context` reports the loop's char budget as
-      the limit that actually bites. Revisit only if a provider limit becomes
-      configuration rather than a number in someone's head.
+Nothing outstanding. Estimated tokens stay at bytes/4: Eggy has no tokenizer
+and no configured per-model context window, so `/context` reports the loop's
+char budget as the limit that actually bites, and labels the token counts as
+estimates. Revisit only if a provider limit becomes configuration rather than
+a number in someone's head.
 
 ## P1: Harden durable context and recall
 

@@ -28,8 +28,11 @@ func NewChanges(store ports.ChangeStore, now func() time.Time, activeSecrets ...
 	return &Changes{store: store, now: now, guard: NewSecretGuard(activeSecrets)}
 }
 
-// Open records a new change for the branch workspace_edit just created.
-func (s *Changes) Open(ctx context.Context, id, repository, branch, baseRevision string) (ports.Change, error) {
+// Open records a new change for the branch workspace_edit just created. The
+// model alias is the caller's, captured now: a change outlives the selection
+// that opened it, so reading it back later would report whatever /model
+// happens to be set to rather than what produced the diff.
+func (s *Changes) Open(ctx context.Context, id, repository, branch, baseRevision, model string) (ports.Change, error) {
 	if s.store == nil {
 		return ports.Change{}, errors.New("change store is unavailable")
 	}
@@ -39,6 +42,7 @@ func (s *Changes) Open(ctx context.Context, id, repository, branch, baseRevision
 	now := s.now()
 	return s.store.Create(ctx, ports.Change{
 		ID: id, Repository: repository, Branch: branch, BaseRevision: baseRevision,
+		Model:      model,
 		Unprompted: IsUnpromptedTurn(ctx),
 		Phase:      ports.PhaseRunning, StartedAt: now, UpdatedAt: now,
 	})

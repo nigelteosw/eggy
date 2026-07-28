@@ -468,16 +468,21 @@ type TranscriptStore interface {
 // Branch are not that same duplication: they are what this change *was*,
 // which stays meaningful long after the checkout is reaped.
 type Change struct {
-	ID                string       `json:"id"`
-	Repository        string       `json:"repository"`
-	Branch            string       `json:"branch"`
-	BaseRevision      string       `json:"base_revision,omitempty"`
-	Phase             SessionPhase `json:"phase"`
-	Diff              string       `json:"diff,omitempty"`
-	Validation        string       `json:"validation,omitempty"`
-	Commit            string       `json:"commit,omitempty"`
-	PullRequestURL    string       `json:"pull_request_url,omitempty"`
-	PullRequestNumber int          `json:"pull_request_number,omitempty"`
+	ID           string       `json:"id"`
+	Repository   string       `json:"repository"`
+	Branch       string       `json:"branch"`
+	BaseRevision string       `json:"base_revision,omitempty"`
+	Phase        SessionPhase `json:"phase"`
+	// Model is the reasoning-model alias selected when the change was opened.
+	// It is recorded at creation rather than read back at display time, so
+	// /runs show reports the model that did the work even after /model
+	// switches. Empty on changes opened before this was recorded.
+	Model             string `json:"model,omitempty"`
+	Diff              string `json:"diff,omitempty"`
+	Validation        string `json:"validation,omitempty"`
+	Commit            string `json:"commit,omitempty"`
+	PullRequestURL    string `json:"pull_request_url,omitempty"`
+	PullRequestNumber int    `json:"pull_request_number,omitempty"`
 	// ChecksRef and ChecksConclusion record the last commit whose
 	// pull-request checks Eggy has already reacted to, so a shipped change is
 	// resumed once per failing result rather than on every poll.

@@ -42,8 +42,9 @@ func handleRuns(ctx context.Context, s *CommandService, req CommandRequest) (Com
 }
 
 // handleRunsShow reports one run in full. Everything shown is read straight
-// off the persisted ports.Change: a run does not record a per-run model alias
-// or a provider session ID, so neither is invented here.
+// off the persisted ports.Change, including the model alias the run recorded
+// when it opened; nothing is re-derived from current state, so the report
+// cannot drift from what the run actually did.
 func handleRunsShow(ctx context.Context, s *CommandService, req CommandRequest) (CommandResult, error) {
 	if s.changes == nil {
 		return CommandResult{State: ResultInfo, Title: "Coding is not configured."}, nil
@@ -66,6 +67,9 @@ func handleRunsShow(ctx context.Context, s *CommandService, req CommandRequest) 
 		{Label: "Branch", Value: orDash(session.Branch)},
 		{Label: "Base revision", Value: orDash(session.BaseRevision)},
 		{Label: "Phase", Value: string(session.Phase)},
+		// A run opened before Eggy recorded the alias has no model to report,
+		// and saying so beats naming today's selection as if it were the run's.
+		{Label: "Model", Value: orUnrecorded(session.Model)},
 		{Label: "Validation", Value: orDash(session.Validation)},
 		{Label: "Elapsed", Value: elapsed(session, s.now)},
 		{Label: "Started", Value: session.StartedAt.Format(time.RFC3339)},
@@ -106,6 +110,13 @@ func trigger(unprompted bool) string {
 		return "unprompted (scheduled turn; proposes only)"
 	}
 	return "owner"
+}
+
+func orUnrecorded(value string) string {
+	if value == "" {
+		return "not recorded"
+	}
+	return value
 }
 
 func orDash(value string) string {

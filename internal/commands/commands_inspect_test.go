@@ -101,14 +101,14 @@ func TestRunsShowDetail(t *testing.T) {
 	service := &CommandService{
 		changes: stubChanges{[]ports.Change{{
 			ID: "run-1", Repository: "eggy", Branch: "eggy/run-1", BaseRevision: "abc123",
-			Phase: ports.PhaseRunning, Validation: "go test ./... passed",
+			Phase: ports.PhaseRunning, Model: "deepseek-pro", Validation: "go test ./... passed",
 			PullRequestURL: "https://github.com/acme/eggy/pull/7", PullRequestNumber: 7,
 			StartedAt: started, UpdatedAt: started.Add(time.Minute),
 		}}},
 		now: func() time.Time { return started.Add(90 * time.Second) },
 	}
 	rendered := dispatchInput(t, service, "/runs show run-1").RenderPlainText()
-	for _, want := range []string{"run-1", "eggy/run-1", "abc123", "running", "go test ./... passed", "1m30s", "#7", "owner"} {
+	for _, want := range []string{"run-1", "eggy/run-1", "abc123", "running", "go test ./... passed", "1m30s", "#7", "owner", "deepseek-pro"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("/runs show output is missing %q:\n%s", want, rendered)
 		}
@@ -120,6 +120,23 @@ func TestRunsShowDetail(t *testing.T) {
 	}
 	if usage := dispatchInput(t, service, "/runs show"); usage.State != ResultHelp {
 		t.Errorf("/runs show without an id = %q, want usage help", usage.State)
+	}
+}
+
+// A run opened before Eggy recorded the alias says so, rather than borrowing
+// whatever model happens to be selected when /runs show is typed.
+func TestRunsShowReportsAnUnrecordedModel(t *testing.T) {
+	started := time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC)
+	service := &CommandService{
+		changes: stubChanges{[]ports.Change{{
+			ID: "run-1", Repository: "eggy", Phase: ports.PhaseRunning,
+			StartedAt: started, UpdatedAt: started,
+		}}},
+		now: func() time.Time { return started },
+	}
+	rendered := dispatchInput(t, service, "/runs show run-1").RenderPlainText()
+	if !strings.Contains(rendered, "Model: not recorded") {
+		t.Errorf("/runs show should report an unrecorded model:\n%s", rendered)
 	}
 }
 

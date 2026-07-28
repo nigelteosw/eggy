@@ -83,11 +83,11 @@ func TestUnpromptedTurnMarkingTravelsOnContext(t *testing.T) {
 
 func TestChangeOpenedByAnUnpromptedTurnIsRecordedAsSuch(t *testing.T) {
 	changes := NewChanges(newMemoryChangeStore(), nil)
-	owned, err := changes.Open(context.Background(), "run-owner", "eggy", "eggy/a", "abc")
+	owned, err := changes.Open(context.Background(), "run-owner", "eggy", "eggy/a", "abc", "opus")
 	if err != nil {
 		t.Fatal(err)
 	}
-	unprompted, err := changes.Open(WithUnpromptedTurn(context.Background()), "run-heartbeat", "eggy", "eggy/b", "abc")
+	unprompted, err := changes.Open(WithUnpromptedTurn(context.Background()), "run-heartbeat", "eggy", "eggy/b", "abc", "opus")
 	if err != nil {
 		t.Fatal(err)
 	}

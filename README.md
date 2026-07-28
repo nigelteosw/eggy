@@ -216,7 +216,7 @@ SearXNG defaults.
 
 ## MCP servers and Railway
 
-Remote Streamable HTTP MCP servers are configured under `mcp.servers`. The supplied example enables Railway's hosted server at `https://mcp.railway.com` with OAuth and an explicit curated tool list. `list-variables` is deliberately excluded because its results can place deployment secrets directly into model context; this is a Railway filter choice, not a hardcoded adapter rule.
+MCP servers are configured under `mcp.servers`, over either of two transports: `streamable-http` for a hosted server, given by `url`, and `stdio` for a local server Eggy spawns itself, given by `command` and `args`. The supplied example enables Railway's hosted server at `https://mcp.railway.com` with OAuth and an explicit curated tool list. `list-variables` is deliberately excluded because its results can place deployment secrets directly into model context; this is a Railway filter choice, not a hardcoded adapter rule.
 
 Set `EGGY_ENCRYPTION_KEY`, deploy or restart Eggy, then authorize Railway from the owner-only command surface:
 
@@ -230,7 +230,18 @@ Open the returned Railway authorization URL and approve the intended workspace a
 
 MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server, and it is not permanent: a server that was down at boot, or whose session died, is reconnected by the next call, a probe, or `/mcp reload`. A tool name that collides with another server's costs that one tool a warning, not the server. Repeated failures of one tool put that tool alone into a configured cooldown (`failure_threshold`, `cooldown`). Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
 
-Additional remote servers use the same adapter. Add another named entry beneath `mcp.servers`, choose `auth: oauth`, `auth: bearer-env` with `bearer_token_env: SOME_ENV_NAME`, or `auth: none`, and set exact `tool_filter.include`/`exclude` names. Version 1 supports Streamable HTTP tools only—not stdio, legacy SSE, resources, prompts, roots, sampling, elicitation, or MCP Apps.
+Additional hosted servers use the same adapter. Add another named entry beneath `mcp.servers`, choose `auth: oauth`, `auth: bearer-env` with `bearer_token_env: SOME_ENV_NAME`, or `auth: none`, and set exact `tool_filter.include`/`exclude` names. Only tools are supported — not legacy SSE, resources, prompts, roots, sampling, elicitation, or MCP Apps.
+
+### stdio servers
+
+A `transport: stdio` server is a local subprocess. Set `command` and `args` instead of `url` and use `auth: none`: there is no HTTP authorization mode, because a stdio server's authorization is whatever its environment grants it. Two properties are deliberate:
+
+- **The environment is built, not inherited.** Only the variables named in `env_allowlist` are forwarded, plus `PATH` and `HOME`, without which no command can be located or run. Every other secret in Eggy's environment — provider keys, the GitHub token, the encryption key — stays outside the child. An allowlisted variable that is unset is simply absent rather than passed empty.
+- **The child leads its own process group,** and closing the session kills the group. An `npx` server that spawns `node` would otherwise leave the `node` behind on every reconnect.
+
+What stdio does **not** get is isolation. The child runs as the same user, with the same filesystem access, as Eggy itself — the same trusted-code assumption already made for configured repositories and the `terminal` tool. Configure a stdio server only from a source you would run yourself. Container-per-run isolation would cover both and is tracked separately in `TODO.md`.
+
+Everything else is shared with the HTTP transport: tool filters, namespacing, timeouts, output limits, per-tool cooldowns, `/mcp status`, `/mcp probe`, and `/mcp reload`. Stdio servers are not editable from the web settings panel — a command line and an environment allowlist belong in reviewed configuration — so `config.yaml` is the only place they are defined.
 
 ## Railway deployment
 

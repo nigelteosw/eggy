@@ -173,8 +173,61 @@ mcp:
 	tests := []struct{ name, old, replacement, want string }{
 		{"https", "https://mcp.railway.com", "http://remote.test", "must use HTTPS"},
 		{"credentials in URL", "https://mcp.railway.com", "https://token@mcp.railway.com", "must not contain credentials"},
-		{"transport", "streamable-http", "stdio", "unsupported transport"},
+		{"transport", "streamable-http", "sse", "unsupported transport"},
 		{"auth", "auth: oauth", "auth: token", "unsupported auth"},
+		{"stdio fields on http", "auth: oauth", "auth: oauth\n      command: npx", "apply only to the stdio transport"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := loadText(t, strings.Replace(base, tt.old, tt.replacement, 1), testSecrets())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error=%v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfigAcceptsStdioMCP(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig()+`
+mcp:
+  servers:
+    filesystem:
+      transport: stdio
+      auth: none
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/data/repos"]
+      env_allowlist: [FILESYSTEM_ROOT]
+      enabled: true
+`, testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["filesystem"]
+	if server.Command != "npx" || len(server.Args) != 3 || len(server.EnvAllowlist) != 1 {
+		t.Fatalf("stdio server = %#v", server)
+	}
+	if server.ConnectTimeout.Value() != 10*time.Second || server.MaxOutputBytes != 128<<10 {
+		t.Fatalf("stdio server missed shared defaults: %#v", server)
+	}
+}
+
+func TestStdioMCPValidation(t *testing.T) {
+	base := validConfig() + `
+mcp:
+  servers:
+    filesystem:
+      transport: stdio
+      auth: none
+      command: npx
+      enabled: true
+`
+	tests := []struct{ name, old, replacement, want string }{
+		{"url", "command: npx", "command: npx\n      url: https://mcp.example.com", "url applies only to the streamable-http"},
+		{"missing command", "command: npx", "command: \"\"", "must set a command"},
+		{"auth", "auth: none", "auth: oauth", "must use auth none"},
+		{"empty arg", "command: npx", "command: npx\n      args: [\"\"]", "args must not contain empty values"},
+		{"env name", "command: npx", "command: npx\n      env_allowlist: [lowercase]", "env_allowlist entry"},
+		{"duplicate env", "command: npx", "command: npx\n      env_allowlist: [HOME, HOME]", "duplicate env_allowlist"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

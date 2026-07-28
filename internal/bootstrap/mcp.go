@@ -31,8 +31,11 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 			needsOAuthStore = true
 		}
 		servers = append(servers, mcpadapter.ServerConfig{
-			Name: name, URL: configured.URL, RedirectURL: strings.TrimRight(config.Server.PublicBaseURL, "/") + "/auth/mcp/" + name + "/callback",
-			Auth: configured.Auth, BearerToken: secrets.MCPBearerTokens[name], OAuthScopes: append([]string(nil), configured.OAuthScopes...),
+			Name: name, Transport: configured.Transport, URL: configured.URL,
+			Command: configured.Command, Args: append([]string(nil), configured.Args...),
+			EnvAllowlist: append([]string(nil), configured.EnvAllowlist...),
+			RedirectURL:  strings.TrimRight(config.Server.PublicBaseURL, "/") + "/auth/mcp/" + name + "/callback",
+			Auth:         configured.Auth, BearerToken: secrets.MCPBearerTokens[name], OAuthScopes: append([]string(nil), configured.OAuthScopes...),
 			Enabled: configured.Enabled, ConnectTimeout: configured.ConnectTimeout.Value(), Timeout: configured.Timeout.Value(), MaxOutputBytes: configured.MaxOutputBytes,
 			SupportsParallelToolCalls: configured.SupportsParallelToolCalls,
 			FailureThreshold:          configured.FailureThreshold, Cooldown: configured.Cooldown.Value(),

@@ -88,6 +88,27 @@ web_search:
   safe_search: 1
 mcp:
   servers:
+    # A stdio server is a local subprocess Eggy spawns and speaks to over
+    # stdin/stdout, which is how most of the MCP ecosystem ships. It takes a
+    # command and args instead of a url, and always auth: none -- its
+    # authorization is whatever env_allowlist grants it. Only the named
+    # variables are forwarded (plus PATH and HOME, without which nothing can
+    # be launched); every other secret Eggy holds stays out of the child.
+    # The child runs as the same user with the same filesystem access as Eggy,
+    # so treat a stdio server as trusted code, exactly like a configured
+    # repository.
+    # filesystem:
+    #   transport: "stdio"
+    #   auth: "none"
+    #   command: "npx"
+    #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/data/repos"]
+    #   env_allowlist: []
+    #   enabled: true
+    #   connect_timeout: "20s"
+    #   timeout: "60s"
+    #   max_output_bytes: 131072
+    #   tool_filter:
+    #     include: ["read_text_file", "list_directory"]
     railway:
       url: "https://mcp.railway.com"
       transport: "streamable-http"

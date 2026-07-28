@@ -7,26 +7,12 @@ Priorities are ordered by urgency, then by dependency. Remove an item when its
 implementation and focused tests have landed — do not leave it here as a record
 of finished work.
 
-## P1: Make MCP servers dynamic
+## P1: Close the MCP authorization gap
 
-Reconnection and live catalog refresh have landed: the manager owns a live
-tool set, the loop reads it once per turn, and reconnect, reload, login, and
-logout all take effect without a process restart. Failure accounting is
-per-tool and configurable, and a colliding tool name costs one tool rather
-than its whole server. What remains is transport and authorization.
-
-### Support stdio servers
-
-- [ ] `ServerConfig` carries a `URL` and nothing else, so Eggy can reach hosted
-      HTTP servers and none of the `npx`-launched stdio servers that make up
-      most of the ecosystem. Add a stdio transport alongside the HTTP one.
-- [ ] Decide the sandboxing story in the same change: stdio means spawning
-      subprocesses, which is the same question as "P3: Evaluate stronger
-      execution isolation". Credentials stay outside the child environment and
-      only an explicit allowlist is forwarded, exactly as repository execution
-      already does.
-
-### Close the MCP authorization gap
+Dynamic reconnection, live catalog refresh, and both transports have landed:
+the manager owns a live tool set, the loop reads it once per turn, and stdio
+servers spawn with a constructed environment in their own process group.
+Failure accounting is per-tool. What remains is authorization.
 
 - [ ] Decide whether MCP tool calls need an approval classification. Repository
       writes, commits, pushes, pull requests, and calendar mutations all require
@@ -38,8 +24,9 @@ than its whole server. What remains is transport and authorization.
 
 Servers stay configured in `config.yaml`'s `mcp.servers` map. Runtime
 `/mcp add <url>` is deliberately out of scope: a server definition carries an
-auth mode and a tool filter, both of which belong in reviewed configuration
-rather than in a chat message.
+auth mode, a tool filter, and for stdio a command line and an environment
+allowlist, all of which belong in reviewed configuration rather than in a chat
+message.
 
 ## P1: Make context and capabilities inspectable
 
@@ -134,14 +121,16 @@ it must never destructively modify the owner's checkout.
 
 ## P3: Evaluate stronger execution isolation
 
+Three subprocess surfaces now share one assumption — the `terminal` tool,
+repository runs, and stdio MCP servers all execute trusted code as Eggy's own
+user with Eggy's own filesystem access. Each already constructs a minimal
+environment rather than inheriting one; none is isolated.
+
 - [ ] Evaluate container-per-run isolation while keeping the current
       trusted-repository assumption explicit.
 - [ ] If adopted, run as a non-root user with explicit mounts, dropped
-      capabilities, bounded resources, and an explicit network policy.
-- [ ] Keep credentials outside coding workspaces and forward only the minimum
-      environment required by each subprocess.
-- [ ] Settle this alongside stdio MCP transport (see "Support stdio servers"),
-      which raises the same subprocess question.
+      capabilities, bounded resources, and an explicit network policy, and
+      cover stdio MCP children in the same mechanism.
 
 ## Operational follow-ups
 
@@ -169,7 +158,9 @@ Every roadmap item must preserve these properties:
   deduplication.
 - Repository execution retains root and path restrictions, environment
   allowlisting, timeouts, output limits, process-group cancellation, isolated
-  workspaces, and cleanup.
+  workspaces, and cleanup. A stdio MCP child holds the same environment and
+  process-group properties: its environment is constructed from an explicit
+  allowlist rather than inherited, and closing its session kills its group.
 - Ambiguous requests are clarified before a modifying workflow starts. Progress
   is streamed as normalized provider-neutral events, and Eggy independently
   captures the complete final diff and validation evidence before shipping.

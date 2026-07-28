@@ -173,8 +173,19 @@ type MCPConfig struct {
 }
 
 type MCPServerConfig struct {
-	URL                       string   `yaml:"url"`
-	Transport                 string   `yaml:"transport"`
+	// URL belongs to the streamable-http transport; Command, Args, and
+	// EnvAllowlist belong to stdio. Mixing the two sets is rejected rather
+	// than silently ignored, so a config never looks like it configured a
+	// transport it did not.
+	URL       string   `yaml:"url,omitempty"`
+	Transport string   `yaml:"transport"`
+	Command   string   `yaml:"command,omitempty"`
+	Args      []string `yaml:"args,omitempty"`
+	// EnvAllowlist names the environment variables forwarded to a stdio
+	// child. Nothing else crosses over, so credentials Eggy holds for other
+	// capabilities stay outside the child unless a server asks for them by
+	// name.
+	EnvAllowlist              []string `yaml:"env_allowlist,omitempty"`
 	Auth                      string   `yaml:"auth"`
 	BearerTokenEnv            string   `yaml:"bearer_token_env,omitempty"`
 	OAuthScopes               []string `yaml:"oauth_scopes,omitempty"`
@@ -638,14 +649,23 @@ func (c Config) validateMCP() error {
 		if !configuredNamePattern.MatchString(name) {
 			return fmt.Errorf("invalid MCP server name %q", name)
 		}
-		u, err := url.Parse(server.URL)
-		if err != nil || u.Scheme != "https" || u.Host == "" {
-			return fmt.Errorf("MCP server %q URL must use HTTPS", name)
-		}
-		if u.User != nil {
-			return fmt.Errorf("MCP server %q URL must not contain credentials", name)
-		}
-		if server.Transport != "streamable-http" {
+		switch server.Transport {
+		case "streamable-http":
+			u, err := url.Parse(server.URL)
+			if err != nil || u.Scheme != "https" || u.Host == "" {
+				return fmt.Errorf("MCP server %q URL must use HTTPS", name)
+			}
+			if u.User != nil {
+				return fmt.Errorf("MCP server %q URL must not contain credentials", name)
+			}
+			if server.Command != "" || len(server.Args) > 0 || len(server.EnvAllowlist) > 0 {
+				return fmt.Errorf("MCP server %q command, args, and env_allowlist apply only to the stdio transport", name)
+			}
+		case "stdio":
+			if err := validateStdioMCP(name, server); err != nil {
+				return err
+			}
+		default:
 			return fmt.Errorf("MCP server %q has unsupported transport %q", name, server.Transport)
 		}
 		if server.Auth != "oauth" && server.Auth != "bearer-env" && server.Auth != "none" {
@@ -672,6 +692,37 @@ func (c Config) validateMCP() error {
 				seen[tool] = true
 			}
 		}
+	}
+	return nil
+}
+
+// validateStdioMCP checks the fields only a stdio server may set. A stdio
+// server is a local subprocess, so it has no URL and no HTTP authorization
+// mode: its authorization is whatever the allowlisted environment grants it.
+func validateStdioMCP(name string, server MCPServerConfig) error {
+	if server.URL != "" {
+		return fmt.Errorf("MCP server %q url applies only to the streamable-http transport", name)
+	}
+	if strings.TrimSpace(server.Command) == "" {
+		return fmt.Errorf("MCP server %q must set a command for the stdio transport", name)
+	}
+	if server.Auth != "none" {
+		return fmt.Errorf("MCP server %q must use auth none for the stdio transport", name)
+	}
+	for _, arg := range server.Args {
+		if strings.TrimSpace(arg) == "" {
+			return fmt.Errorf("MCP server %q args must not contain empty values", name)
+		}
+	}
+	seen := map[string]bool{}
+	for _, variable := range server.EnvAllowlist {
+		if !environmentNamePattern.MatchString(variable) {
+			return fmt.Errorf("MCP server %q env_allowlist entry %q is invalid", name, variable)
+		}
+		if seen[variable] {
+			return fmt.Errorf("MCP server %q has duplicate env_allowlist entry %q", name, variable)
+		}
+		seen[variable] = true
 	}
 	return nil
 }

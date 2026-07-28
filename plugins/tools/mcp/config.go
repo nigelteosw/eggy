@@ -11,8 +11,18 @@ type ToolFilter struct {
 }
 
 type ServerConfig struct {
-	Name                      string
-	URL                       string
+	Name string
+	// Transport selects how the server is reached: TransportHTTP uses URL,
+	// TransportStdio spawns Command with Args. An empty value means
+	// TransportHTTP, so existing configurations keep working.
+	Transport string
+	URL       string
+	Command   string
+	Args      []string
+	// EnvAllowlist names the environment variables a stdio child receives.
+	// Anything unnamed is withheld, so Eggy's credentials do not leak into a
+	// subprocess that has no business with them.
+	EnvAllowlist              []string
 	RedirectURL               string
 	Auth                      string
 	BearerToken               string
@@ -31,6 +41,9 @@ type ServerConfig struct {
 }
 
 func (c ServerConfig) withDefaults() ServerConfig {
+	if c.Transport == "" {
+		c.Transport = TransportHTTP
+	}
 	if c.FailureThreshold <= 0 {
 		c.FailureThreshold = 3
 	}

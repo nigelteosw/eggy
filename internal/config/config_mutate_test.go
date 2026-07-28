@@ -171,6 +171,28 @@ func TestSetMCPServerAddsNewServerWithSaneDefaults(t *testing.T) {
 	}
 }
 
+func TestSetMCPServerRefusesStdioServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+mcp:
+  servers:
+    filesystem:
+      transport: stdio
+      auth: none
+      command: npx
+      enabled: true
+`
+	before := []byte(body)
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetMCPServer(path, "filesystem", "https://mcp.example.com", "none", "", true)
+	if err == nil || !strings.Contains(err.Error(), "stdio transport") {
+		t.Fatalf("error = %v", err)
+	}
+	assertFileBytes(t, path, before)
+}
+
 func TestSetMCPServerPreservesToolFilterWhenEditingEssentialsOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	body := validConfig() + `

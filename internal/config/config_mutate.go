@@ -141,9 +141,12 @@ func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
 }
 
 // SetMCPServer upserts one MCP server definition by its essential,
-// web-editable fields (url, auth, bearer_token_env, enabled). Transport is
-// always "streamable-http" -- the only supported value -- so it is not
-// user-facing. Advanced fields not exposed by the web form (oauth_scopes,
+// web-editable fields (url, auth, bearer_token_env, enabled). Every server it
+// writes uses the streamable-http transport: a stdio server is a local
+// subprocess with a command line and an environment allowlist, which belongs
+// in reviewed configuration rather than a web form, so editing one here is
+// refused instead of silently rewritten into an HTTP server. Advanced fields
+// not exposed by the web form (oauth_scopes,
 // tool_filter, timeouts) are preserved untouched when editing an existing
 // server; a brand-new server gets the same sane defaults
 // Config.applyDefaults would give it, so it validates immediately instead of
@@ -158,6 +161,9 @@ func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) er
 			cfg.MCP.Servers = map[string]MCPServerConfig{}
 		}
 		server := cfg.MCP.Servers[name]
+		if server.Transport == "stdio" {
+			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
+		}
 		server.URL = url
 		if server.Transport == "" {
 			server.Transport = "streamable-http"

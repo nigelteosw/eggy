@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/commands"
@@ -33,6 +34,14 @@ type WebUIConfig struct {
 	Memory     HistoryReader
 	Threads    ThreadDirectory
 	OwnerID    string
+	// TrustedProxyHops is how many reverse proxies Eggy is deployed behind
+	// (server.trusted_proxy_hops). It is the login throttle's whole notion
+	// of client identity: at 0 the throttle keys on RemoteAddr and
+	// X-Forwarded-For is ignored, because a header anyone can spoof would
+	// let an attacker mint a fresh throttle bucket per attempt. Set it to
+	// the real hop count -- 1 behind Railway -- and the throttle keys on the
+	// address that proxy observed instead of on the proxy itself.
+	TrustedProxyHops int
 	// Files exposes the owner-facing part of the home directory. Nil in
 	// tests that only exercise login/config routes; the /api/files routes
 	// then report the home as unavailable rather than panicking.
@@ -197,9 +206,14 @@ func webConfigSetRoute(service *commands.CommandService, path []string) http.Han
 
 func handleWebLogin(webConfig WebUIConfig, throttle *webui.LoginThrottle, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
+		ip := clientIP(r, webConfig.TrustedProxyHops)
+		// Refuse rather than sleep: sleeping inside the handler pins a
+		// server goroutine per throttled attempt, which is a cheap way to
+		// exhaust the process using nothing but wrong passwords.
 		if delay := throttle.Delay(ip); delay > 0 {
-			time.Sleep(delay)
+			w.Header().Set("Retry-After", strconv.Itoa(int((delay+time.Second-1)/time.Second)))
+			writeWebError(w, http.StatusTooManyRequests, "too many failed login attempts, try again shortly")
+			return
 		}
 		var credentials struct {
 			Email    string `json:"email"`
@@ -249,7 +263,31 @@ func requireWebSession(webConfig WebUIConfig, now func() time.Time, next http.Ha
 	}
 }
 
-func clientIP(r *http.Request) string {
+// clientIP identifies the client the login throttle counts against. With
+// hops > 0 it walks X-Forwarded-For from the right, skipping the hops-1
+// proxies Eggy is known to sit behind, so the returned address is the one the
+// outermost trusted proxy actually observed -- entries further left are
+// attacker-supplied and never used. Anything unexpected (no header, a chain
+// shorter than the configured hop count, an unparseable entry) falls back to
+// RemoteAddr rather than trusting a value that does not fit the deployment.
+func clientIP(r *http.Request, hops int) string {
+	remote := remoteHost(r)
+	if hops <= 0 {
+		return remote
+	}
+	forwarded := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	index := len(forwarded) - hops
+	if index < 0 {
+		return remote
+	}
+	candidate := strings.TrimSpace(forwarded[index])
+	if net.ParseIP(candidate) == nil {
+		return remote
+	}
+	return candidate
+}
+
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

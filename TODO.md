@@ -104,15 +104,6 @@ store (`plugins/memory/sqlite`), not by file-backed excerpts.
 
 Filed from a code review; each is small and independently landable.
 
-- [ ] The login throttle keys on the wrong address. `clientIP`
-      (`internal/web/web.go:252`) reads only `r.RemoteAddr`, which behind
-      Railway's proxy is the proxy's address for every request — so all attempts
-      share one bucket, the throttle barely slows an attacker, and an attacker
-      can lock the owner out. Needs an explicit trusted-proxy policy with
-      `X-Forwarded-For` parsing; it has to be explicit, since blindly trusting
-      the header is worse than not parsing it. Separately, `throttle.Delay` is
-      applied via `time.Sleep` inside the handler (`web.go:202`), holding a
-      server goroutine per throttled request.
 - [ ] Path containment is lexical, not symlink-aware. Both
       `resolveWorkspacePath` (`internal/kernel/services/workspace_path.go:20`)
       and `Runner.withinRoot` (`runner.go:178`) use `filepath.Abs` +
@@ -184,6 +175,10 @@ it must never destructively modify the owner's checkout.
 
 ## Operational follow-ups
 
+- [ ] Set `server.trusted_proxy_hops: 1` in Railway's deployed
+      `/data/config.yaml`. It defaults to 0, which behind Railway's proxy keys
+      the web login throttle on the proxy's address for every request. Manual
+      deployment step, not a code change.
 - [ ] Reset Railway's deployed `/data/config.yaml` so the next boot generates the
       current unversioned config shape. Manual deployment step, not a code
       change.

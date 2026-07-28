@@ -24,6 +24,7 @@ type LoginThrottle struct {
 type attemptState struct {
 	failures    int
 	windowStart time.Time
+	lastFailure time.Time
 }
 
 func NewLoginThrottle(now func() time.Time) *LoginThrottle {
@@ -33,13 +34,21 @@ func NewLoginThrottle(now func() time.Time) *LoginThrottle {
 	return &LoginThrottle{now: now, attempts: map[string]*attemptState{}}
 }
 
-// Delay returns how long the caller should wait before processing a login
-// attempt from key.
+// Delay returns how long key must wait before another login attempt is
+// processed, zero when it may proceed. Past the threshold the wait is measured
+// from key's most recent failure, so it is a per-attempt cooling-off period
+// rather than a lockout lasting the rest of the window: an attacker pays
+// throttleDelay before every further guess, while an owner who mistyped their
+// password a few times is held up for seconds, not the full 15 minutes.
 func (t *LoginThrottle) Delay(key string) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.stateLocked(key).failures >= throttleThreshold {
-		return throttleDelay
+	state := t.stateLocked(key)
+	if state.failures < throttleThreshold {
+		return 0
+	}
+	if remaining := throttleDelay - t.now().Sub(state.lastFailure); remaining > 0 {
+		return remaining
 	}
 	return 0
 }
@@ -48,7 +57,9 @@ func (t *LoginThrottle) Delay(key string) time.Duration {
 func (t *LoginThrottle) RecordFailure(key string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.stateLocked(key).failures++
+	state := t.stateLocked(key)
+	state.failures++
+	state.lastFailure = t.now()
 }
 
 // Reset clears key's failure count, e.g. after a successful login.

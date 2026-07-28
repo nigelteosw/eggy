@@ -43,6 +43,30 @@ func TestLoginThrottleResetsOnSuccess(t *testing.T) {
 	}
 }
 
+// The penalty is a cooling-off period per attempt, not a lockout for the rest
+// of the window: an attacker pays throttleDelay before each further guess,
+// while an owner who mistyped five times waits seconds rather than minutes.
+func TestLoginThrottleDelayExpiresBetweenAttempts(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	throttle := NewLoginThrottle(func() time.Time { return now })
+	for i := 0; i < 5; i++ {
+		throttle.RecordFailure("1.2.3.4")
+	}
+	now = now.Add(time.Second)
+	if delay := throttle.Delay("1.2.3.4"); delay != time.Second {
+		t.Fatalf("expected the remaining 1s of the penalty, got %v", delay)
+	}
+	now = now.Add(time.Second)
+	if delay := throttle.Delay("1.2.3.4"); delay != 0 {
+		t.Fatalf("expected the penalty to elapse, got %v", delay)
+	}
+	// Guessing again restarts the penalty, so each attempt keeps costing.
+	throttle.RecordFailure("1.2.3.4")
+	if delay := throttle.Delay("1.2.3.4"); delay != 2*time.Second {
+		t.Fatalf("expected a fresh penalty after another failure, got %v", delay)
+	}
+}
+
 func TestLoginThrottleWindowExpires(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	throttle := NewLoginThrottle(func() time.Time { return now })

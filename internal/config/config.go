@@ -75,6 +75,14 @@ type ServerConfig struct {
 	Listen              string `yaml:"listen"`
 	PublicBaseURL       string `yaml:"public_base_url"`
 	TelegramWebhookPath string `yaml:"telegram_webhook_path"`
+	// TrustedProxyHops is how many reverse proxies sit in front of Eggy: 0
+	// when it is exposed directly, 1 behind a single proxy such as
+	// Railway's. The web login throttle uses it to find the real client
+	// address in X-Forwarded-For; at 0 the header is ignored entirely.
+	// Stating a hop count rather than a proxy address list is deliberate --
+	// platform proxy IPs are neither stable nor documented, and blindly
+	// trusting the header is worse than not parsing it at all.
+	TrustedProxyHops int `yaml:"trusted_proxy_hops,omitempty"`
 }
 
 // OwnerConfig is Eggy's system-wide identity: the one owner every surface
@@ -508,6 +516,9 @@ func (c Config) Validate() error {
 	}
 	if !strings.HasPrefix(c.Server.TelegramWebhookPath, "/") {
 		return errors.New("server.telegram_webhook_path must begin with /")
+	}
+	if c.Server.TrustedProxyHops < 0 {
+		return errors.New("server.trusted_proxy_hops must not be negative")
 	}
 	if err := c.validateProviders(); err != nil {
 		return err

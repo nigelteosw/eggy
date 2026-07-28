@@ -2,6 +2,12 @@ server:
   listen: ":8080"
   public_base_url: "https://eggy.example.com"
   telegram_webhook_path: "/webhooks/telegram"
+  # How many reverse proxies sit in front of Eggy. 0 (the default) means it is
+  # reached directly and X-Forwarded-For is ignored; set 1 behind a single
+  # proxy such as Railway's. The web login throttle needs this to tell clients
+  # apart -- at the wrong value every attempt shares one bucket, so guessing is
+  # barely slowed and an attacker can lock the owner out.
+  trusted_proxy_hops: 0
 # Eggy's home directory. config.yaml, .env, auth.json, SOUL.md, memories/,
 # skills/, cron/, sessions/, changes/, logs/, state.json, eggy.db, and runs/
 # all live under it. EGGY_HOME or --home selects it before this file is read.

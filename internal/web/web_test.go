@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -127,10 +128,96 @@ func TestWebLoginThrottlesRepeatedFailures(t *testing.T) {
 			t.Fatalf("attempt %d: expected 401", i)
 		}
 	}
+	// The sixth attempt is refused outright rather than slept on, so a
+	// throttled attacker cannot pin a server goroutine per request.
 	start := time.Now()
-	badLogin()
-	if elapsed := time.Since(start); elapsed < 2*time.Second {
-		t.Fatalf("expected the 6th attempt to be delayed ~2s, took %v", elapsed)
+	response := badLogin()
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("throttled attempt blocked the handler for %v", elapsed)
+	}
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if retryAfter := response.Header().Get("Retry-After"); retryAfter != "2" {
+		t.Fatalf("Retry-After=%q", retryAfter)
+	}
+}
+
+// Behind a proxy every request carries the proxy's RemoteAddr, so keying the
+// throttle on it alone puts every attempt in one bucket: guessing is barely
+// slowed and an attacker locks the owner out. TrustedProxyHops states how many
+// proxies Eggy sits behind so the real client can be read off X-Forwarded-For.
+func TestWebLoginThrottleKeysPerClientBehindTrustedProxy(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	config := testWebConfig(now)
+	config.TrustedProxyHops = 1
+	handler := NewWebHandler("", config)
+	badLogin := func(forwardedFor string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`))
+		request.RemoteAddr = "10.0.0.1:443"
+		request.Header.Set("X-Forwarded-For", forwardedFor)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	for i := 0; i < 6; i++ {
+		badLogin("9.9.9.9")
+	}
+	if code := badLogin("9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Fatalf("attacker not throttled: status=%d", code)
+	}
+	if code := badLogin("8.8.8.8").Code; code != http.StatusUnauthorized {
+		t.Fatalf("a different client shares the attacker's bucket: status=%d", code)
+	}
+}
+
+// A spoofed X-Forwarded-For must not let an attacker mint a fresh bucket per
+// attempt, so the header is ignored entirely when no proxy is configured.
+func TestWebLoginThrottleIgnoresForwardedForWithoutTrustedProxy(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler("", testWebConfig(now))
+	badLogin := func(forwardedFor string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`))
+		request.RemoteAddr = "9.9.9.9:12345"
+		request.Header.Set("X-Forwarded-For", forwardedFor)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	for i := 0; i < 6; i++ {
+		badLogin("1.2.3." + strconv.Itoa(i))
+	}
+	if code := badLogin("5.5.5.5").Code; code != http.StatusTooManyRequests {
+		t.Fatalf("spoofed X-Forwarded-For evaded the throttle: status=%d", code)
+	}
+}
+
+func TestClientIPSelectsHopFromTheRight(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		hops         int
+		remoteAddr   string
+		forwardedFor string
+		want         string
+	}{
+		{"no proxy uses remote addr", 0, "9.9.9.9:1", "1.1.1.1", "9.9.9.9"},
+		{"one hop takes the last entry", 1, "10.0.0.1:1", "1.1.1.1, 2.2.2.2", "2.2.2.2"},
+		{"two hops skip the inner proxy", 2, "10.0.0.1:1", "1.1.1.1, 2.2.2.2, 3.3.3.3", "2.2.2.2"},
+		{"short chain falls back to remote addr", 2, "10.0.0.1:1", "1.1.1.1", "10.0.0.1"},
+		{"missing header falls back to remote addr", 1, "10.0.0.1:1", "", "10.0.0.1"},
+		{"unparseable entry falls back to remote addr", 1, "10.0.0.1:1", "not-an-ip", "10.0.0.1"},
+		{"ipv6 entry is preserved", 1, "10.0.0.1:1", "2001:db8::1", "2001:db8::1"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+			request.RemoteAddr = testCase.remoteAddr
+			if testCase.forwardedFor != "" {
+				request.Header.Set("X-Forwarded-For", testCase.forwardedFor)
+			}
+			if got := clientIP(request, testCase.hops); got != testCase.want {
+				t.Fatalf("clientIP()=%q want %q", got, testCase.want)
+			}
+		})
 	}
 }
 

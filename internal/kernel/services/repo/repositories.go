@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"regexp"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -20,14 +21,14 @@ type RepositoriesService struct {
 	store        ports.StateStore
 	runner       ports.Runner
 	checker      ports.RemoteChecker
-	requester    ApprovalRequester
+	requester    services.ApprovalRequester
 	policy       ports.ApprovalPolicy
 	capabilities ports.RepositoryCapabilities
 	newRunID     func() string
 	changes      *Changes
 }
 
-func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester ApprovalRequester, policy ports.ApprovalPolicy, capabilities ports.RepositoryCapabilities, newRunID func() string, changes *Changes) *RepositoriesService {
+func NewRepositoriesService(store ports.StateStore, runner ports.Runner, checker ports.RemoteChecker, requester services.ApprovalRequester, policy ports.ApprovalPolicy, capabilities ports.RepositoryCapabilities, newRunID func() string, changes *Changes) *RepositoriesService {
 	return &RepositoriesService{store: store, runner: runner, checker: checker, requester: requester, policy: policy, capabilities: capabilities, newRunID: newRunID, changes: changes}
 }
 

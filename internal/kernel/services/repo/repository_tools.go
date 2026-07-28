@@ -1,8 +1,9 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"sort"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -34,7 +35,7 @@ func NewRepositoryTools(store ports.StateStore) []ports.Tool {
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
 	}}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		if err := decodeStrict(raw, &struct{}{}); err != nil {
+		if err := services.DecodeToolInput(raw, &struct{}{}); err != nil {
 			return nil, err
 		}
 		registered, err := loadRepositories(ctx, store)

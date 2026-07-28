@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"log/slog"
 	"time"
 
@@ -254,7 +255,7 @@ func (s *WorkspaceSessions) Tools() []ports.Tool {
 		var input struct {
 			Repository string `json:"repository"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		binding, err := s.Open(ctx, input.Repository)
@@ -270,7 +271,7 @@ func (s *WorkspaceSessions) Tools() []ports.Tool {
 		Schema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
 	}}
 	closeTool.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		if err := decodeStrict(raw, &struct{}{}); err != nil {
+		if err := services.DecodeToolInput(raw, &struct{}{}); err != nil {
 			return nil, err
 		}
 		if err := s.Close(ctx); err != nil {

@@ -4,6 +4,13 @@ Eggy is a Go 1.26 ports-and-adapters modular monolith.
 
 ## Boundaries
 
+- `internal/kernel/services` is the base kernel-service package;
+  `internal/kernel/services/repo` holds everything about repositories,
+  workspaces, changes, and shipping. The dependency is one-way — `repo` may
+  import `services`, never the reverse — so anything `repo` needs from the base
+  package must be exported there (see `services.DecodeToolInput`). Test fakes
+  are duplicated across the two rather than shared through an exported
+  package: a fake is not API.
 - Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, Google, YAML, JSON-file persistence, Docker, or Railway packages.
 - Provider request/response types and credentials stay inside their adapter packages.
 - Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the command catalog in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `commands` <- `web` <- `bootstrap` — so none of those three may import `internal/bootstrap`.
@@ -23,10 +30,10 @@ runner, calendar backend, etc.) should only ever add a new package under
    `StreamingRunner`, `CodingRepository`, `RepositoryCommitter`,
    `RepositoryPusher`, `PullRequestProvider`, `RepositoryReader`,
    `RepositoryCapabilityProvider`, `CalendarProvider`, `Tool`, ...), or a
-   service-level interface such as `services.Implementer`
-   (`internal/kernel/services/implementer.go`) for an alternative coding-agent
-   runner. Do not change the interface's method signatures to fit one new
-   provider — every existing adapter implements them and would break.
+   service-level interface such as `repo.Shipper`
+   (`internal/kernel/services/repo/repository_tools.go`). Do not change the
+   interface's method signatures to fit one new provider — every existing
+   adapter implements them and would break.
 2. If the capability is genuinely new (no existing port fits), add a small,
    narrowly-scoped interface to `ports.go` rather than widening an existing
    one, and keep it provider-neutral (no provider-specific types, no

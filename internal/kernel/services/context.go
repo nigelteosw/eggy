@@ -97,7 +97,7 @@ func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		Text    string `json:"text"`
 		OldText string `json:"old_text"`
 	}
-	if err := decodeStrict(raw, &input); err != nil {
+	if err := DecodeToolInput(raw, &input); err != nil {
 		return nil, err
 	}
 	document, err := writableDocument(input.File)

@@ -22,6 +22,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
@@ -85,15 +86,15 @@ type App struct {
 	approvals               *services.ApprovalService
 	approvalExecutors       map[approvals.Action]ApprovalExecutor
 	transcripts             *services.Transcripts
-	changes                 *services.Changes
-	checks                  *services.ChecksWatcher
+	changes                 *repo.Changes
+	checks                  *repo.ChecksWatcher
 	progress                *channelutil.ProgressTracker
 	turns                   *services.ActiveTurns
-	workspaces              *services.WorkspaceSessions
-	shipping                *services.ShippingService
+	workspaces              *repo.WorkspaceSessions
+	shipping                *repo.ShippingService
 	calendar                *services.CalendarService
 	mcp                     *mcpadapter.Manager
-	repositoriesService     *services.RepositoriesService
+	repositoriesService     *repo.RepositoriesService
 	skillsService           *services.SkillsService
 	conversation            *services.ConversationService
 	diagnostics             *services.Diagnostics
@@ -202,9 +203,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// The transcript bounds one event's excerpt; how much a turn can still
 	// see is agent.ContextPolicy's business alone (see NewSelectedLoop below).
 	transcripts := services.NewTranscripts(sessionStore, config.ImplementationSessions.OutputExcerptChars, options.Now, activeSecrets...)
-	changes := services.NewChanges(changeStore, options.Now, activeSecrets...)
-	app.shipping = services.NewShippingService(stateStore, changes, transcripts, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
-	app.repositoriesService = services.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, changes)
+	changes := repo.NewChanges(changeStore, options.Now, activeSecrets...)
+	app.shipping = repo.NewShippingService(stateStore, changes, transcripts, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
+	app.repositoriesService = repo.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, changes)
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
 	app.skillsService = services.NewSkillsService(skillsStore, stateStore, app.approvals, app.approvals, services.NewSecretGuard(activeSecrets))
 	// Commit, push, and pull-request creation are no longer decided by an
@@ -242,17 +243,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
 	// it to mean something else in.
-	app.workspaces = services.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
-	primitives := services.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
+	app.workspaces = repo.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
+	primitives := repo.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
 	registry := services.NewToolRegistry()
 	app.transcripts, app.changes = transcripts, changes
 	// The checks loop reads through the same RepositoryReader that backs
 	// repository_github's "checks" kind, so there is one GitHub read path.
-	app.checks = services.NewChecksWatcher(stateStore, changes, memoryStore, repositoryAdapter)
+	app.checks = repo.NewChecksWatcher(stateStore, changes, memoryStore, repositoryAdapter)
 	app.turns = services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
-		services.NewStatusTool(stateStore, changes, app.scheduler),
+		repo.NewStatusTool(stateStore, changes, app.scheduler),
 		currentTimeTool(options.Now, location, timezone),
 		services.NewRecallConversationTool(memoryStore, app.embedder, services.NewSecretGuard(activeSecrets)),
 	}
@@ -264,13 +265,13 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	progress := channelutil.NewProgressTracker(app.channel)
 	app.progress = progress
-	if err := registerAll(registry, services.NewRepositoryTools(stateStore)...); err != nil {
+	if err := registerAll(registry, repo.NewRepositoryTools(stateStore)...); err != nil {
 		return nil, err
 	}
-	if err := registerAll(registry, services.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver)...); err != nil {
+	if err := registerAll(registry, repo.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver)...); err != nil {
 		return nil, err
 	}
-	if err := registerAll(registry, services.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+	if err := registerAll(registry, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
 		return nil, err
 	}
 	if err := registerAll(registry, app.workspaces.Tools()...); err != nil {

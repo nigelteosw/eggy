@@ -92,7 +92,7 @@ func decodeRecallConversationInput(raw json.RawMessage) (recallConversationInput
 		Mode  json.RawMessage `json:"mode"`
 		Limit json.RawMessage `json:"limit"`
 	}
-	if err := decodeStrict(raw, &rawInput); err != nil {
+	if err := DecodeToolInput(raw, &rawInput); err != nil {
 		return recallConversationInput{}, err
 	}
 	if rawInput.Query == "" {

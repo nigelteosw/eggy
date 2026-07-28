@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ func NewPrimitiveTools(workspaces WorkspaceResolver, runner ports.Runner, reader
 			StartLine int    `json:"start_line"`
 			EndLine   int    `json:"end_line"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		binding, err := resolve(ctx)
@@ -90,7 +91,7 @@ func NewPrimitiveTools(workspaces WorkspaceResolver, runner ports.Runner, reader
 		var input struct {
 			Command string `json:"command"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		binding, err := resolve(ctx)
@@ -111,7 +112,7 @@ func NewPrimitiveTools(workspaces WorkspaceResolver, runner ports.Runner, reader
 			OldString string `json:"old_string"`
 			NewString string `json:"new_string"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		binding, err := resolveWritable(ctx)
@@ -151,7 +152,7 @@ func NewPrimitiveTools(workspaces WorkspaceResolver, runner ports.Runner, reader
 			Path    string `json:"path"`
 			Content string `json:"content"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		binding, err := resolveWritable(ctx)

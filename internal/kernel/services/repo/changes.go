@@ -1,8 +1,9 @@
-package services
+package repo
 
 import (
 	"context"
 	"errors"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"strings"
 	"time"
 
@@ -11,21 +12,21 @@ import (
 
 // Changes owns the record of branched, shippable work: what a thread's
 // checkout was branched to do, and how far it got. It is deliberately
-// separate from Transcripts. A change has a lifecycle and no event log; a
+// separate from services.Transcripts. A change has a lifecycle and no event log; a
 // transcript has an event log and no lifecycle. Fusing them was what forced
 // callers to ask "is this session really a coding run?" by inspecting which
 // fields happened to be populated.
 type Changes struct {
 	store ports.ChangeStore
 	now   func() time.Time
-	guard *SecretGuard
+	guard *services.SecretGuard
 }
 
 func NewChanges(store ports.ChangeStore, now func() time.Time, activeSecrets ...string) *Changes {
 	if now == nil {
 		now = time.Now
 	}
-	return &Changes{store: store, now: now, guard: NewSecretGuard(activeSecrets)}
+	return &Changes{store: store, now: now, guard: services.NewSecretGuard(activeSecrets)}
 }
 
 // Open records a new change for the branch workspace_edit just created. The
@@ -43,7 +44,7 @@ func (s *Changes) Open(ctx context.Context, id, repository, branch, baseRevision
 	return s.store.Create(ctx, ports.Change{
 		ID: id, Repository: repository, Branch: branch, BaseRevision: baseRevision,
 		Model:      model,
-		Unprompted: IsUnpromptedTurn(ctx),
+		Unprompted: services.IsUnpromptedTurn(ctx),
 		Phase:      ports.PhaseRunning, StartedAt: now, UpdatedAt: now,
 	})
 }

@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -28,7 +29,7 @@ type ShipTarget struct {
 type ShippingService struct {
 	store        ports.StateStore
 	changes      *Changes
-	transcripts  *Transcripts
+	transcripts  *services.Transcripts
 	authorizer   ShippingAuthorizer
 	workspace    ports.WorkspaceInspector
 	committer    ports.RepositoryCommitter
@@ -142,7 +143,7 @@ func (s *ShippingService) Ship(ctx context.Context, target ShipTarget, branch, c
 	return pr, "", nil
 }
 
-func NewShippingService(store ports.StateStore, changes *Changes, transcripts *Transcripts, authorizer ShippingAuthorizer, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
+func NewShippingService(store ports.StateStore, changes *Changes, transcripts *services.Transcripts, authorizer ShippingAuthorizer, workspace ports.WorkspaceInspector, committer ports.RepositoryCommitter, pusher ports.RepositoryPusher, pullRequests ports.PullRequestProvider, capabilities ports.RepositoryCapabilities) *ShippingService {
 	return &ShippingService{store: store, changes: changes, transcripts: transcripts, authorizer: authorizer, workspace: workspace, committer: committer, pusher: pusher, pullRequests: pullRequests, capabilities: capabilities}
 }
 

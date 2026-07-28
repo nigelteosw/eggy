@@ -31,6 +31,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -94,7 +95,7 @@ type ProgressReporter interface {
 // WorkspaceResolver reports the checkout bound to the calling thread, so a
 // turn knows whether it is an editing turn.
 type WorkspaceResolver interface {
-	Resolve(ctx context.Context) (services.WorkspaceBinding, error)
+	Resolve(ctx context.Context) (repo.WorkspaceBinding, error)
 }
 
 // ThreadTitler auto-titles a web thread from its first message.

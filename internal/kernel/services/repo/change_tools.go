@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -35,7 +36,7 @@ func NewChangeTools(
 	store ports.StateStore,
 	workspaces *WorkspaceSessions,
 	changes *Changes,
-	transcripts *Transcripts,
+	transcripts *services.Transcripts,
 	repository ports.CodingRepository,
 	shipper Shipper,
 	newRunID func() string,
@@ -50,7 +51,7 @@ func NewChangeTools(
 		var input struct {
 			Repository string `json:"repository"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		if workspaces == nil || changes == nil || repository == nil || newRunID == nil {
@@ -64,7 +65,7 @@ func NewChangeTools(
 		// thread with them (proactive output is one channel), so without this
 		// a heartbeat would adopt whatever branch the owner left mid-change
 		// and propose it as its own.
-		if IsUnpromptedTurn(ctx) && binding.Writable && binding.Change != "" {
+		if services.IsUnpromptedTurn(ctx) && binding.Writable && binding.Change != "" {
 			change, err := changes.Load(ctx, binding.Change)
 			if err != nil {
 				return nil, err
@@ -107,7 +108,7 @@ func NewChangeTools(
 		if revision.Branch != branch {
 			return nil, fmt.Errorf("repository created unexpected branch %q", revision.Branch)
 		}
-		if _, err := changes.Open(ctx, runID, configured.Name, branch, revision.Head, SelectedModelFromContext(ctx)); err != nil {
+		if _, err := changes.Open(ctx, runID, configured.Name, branch, revision.Head, services.SelectedModelFromContext(ctx)); err != nil {
 			return nil, err
 		}
 		if err := workspaces.MarkEditing(ctx, branch, runID); err != nil {
@@ -135,7 +136,7 @@ func NewChangeTools(
 			Validation    string `json:"validation"`
 			CommitMessage string `json:"commit_message"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		for field, value := range map[string]string{"summary": input.Summary, "commit_message": input.CommitMessage} {
@@ -160,7 +161,7 @@ func NewChangeTools(
 		if err != nil {
 			return nil, err
 		}
-		if IsUnpromptedTurn(ctx) && !change.Unprompted {
+		if services.IsUnpromptedTurn(ctx) && !change.Unprompted {
 			return nil, ErrOwnerChangeInProgress
 		}
 		// Eggy re-derives the state it is about to ship rather than trusting
@@ -191,7 +192,7 @@ func NewChangeTools(
 		// An unprompted turn proposes; it does not present finished work. The
 		// flag rides in the ship target, so it is inside every payload the
 		// commit/push/pull-request approvals are bound to.
-		target := ShipTarget{ChangeID: change.ID, Workspace: binding.Path, Transcript: TranscriptOf(ctx), Draft: IsUnpromptedTurn(ctx)}
+		target := ShipTarget{ChangeID: change.ID, Workspace: binding.Path, Transcript: services.TranscriptOf(ctx), Draft: services.IsUnpromptedTurn(ctx)}
 		if err := transcripts.Milestone(ctx, target.Transcript, "Ready to ship"); err != nil {
 			return nil, err
 		}

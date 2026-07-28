@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
 )
 
 // TestPrimitiveToolsHaveExactlyOneDefinition is the guard on the unified
@@ -18,7 +18,7 @@ func TestPrimitiveToolsHaveExactlyOneDefinition(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := app.loop.ToolNames(agent.RunOptions{})
-	for _, name := range services.PrimitiveNames {
+	for _, name := range repo.PrimitiveNames {
 		if got := count(names, name); got != 1 {
 			t.Fatalf("primitive %q appears %d times in the tool surface, want exactly 1", name, got)
 		}

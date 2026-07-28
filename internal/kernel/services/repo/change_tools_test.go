@@ -1,8 +1,9 @@
-package services
+package repo
 
 import (
 	"encoding/json"
 	"errors"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ type changeToolFixture struct {
 	tools       map[string]ports.Tool
 	workspaces  *WorkspaceSessions
 	changes     *Changes
-	transcripts *Transcripts
+	transcripts *services.Transcripts
 	repository  *fakeRepository
 	shipper     *fakeShipper
 	threads     *fakeThreadStore
@@ -28,7 +29,7 @@ func newChangeToolFixture(t *testing.T, shipper *fakeShipper) changeToolFixture 
 	repository := &fakeRepository{}
 	workspaces := NewWorkspaceSessions(store, threads, &fakeReadWorkspaceRunner{workspace: "/tmp/runs/workspace-1"}, repository, func() string { return "1" }, nil, nil)
 	changes := NewChanges(newMemoryChangeStore(), time.Now)
-	transcripts := NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
+	transcripts := services.NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
 	byName := map[string]ports.Tool{}
 	for _, tool := range NewChangeTools(store, workspaces, changes, transcripts, repository, shipper, func() string { return "run-1" }, nil) {
 		byName[tool.Definition().Name] = tool
@@ -77,7 +78,7 @@ func TestWorkspaceEditBranchesTheThreadsExistingCheckoutInPlace(t *testing.T) {
 // /runs show reports what did the work even after the owner runs /model.
 func TestWorkspaceEditRecordsTheSelectedModel(t *testing.T) {
 	fixture := newChangeToolFixture(t, &fakeShipper{})
-	ctx := WithSelectedModel(webThread("thread-a"), "opus")
+	ctx := services.WithSelectedModel(webThread("thread-a"), "opus")
 	if _, err := fixture.tools["workspace_edit"].Execute(ctx, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +284,7 @@ func TestUnpromptedTurnCannotEditOrProposeTheOwnersOpenChange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unprompted := WithUnpromptedTurn(owner)
+	unprompted := services.WithUnpromptedTurn(owner)
 	if _, err := fixture.tools["workspace_edit"].Execute(unprompted, json.RawMessage(`{}`)); !errors.Is(err, ErrOwnerChangeInProgress) {
 		t.Fatalf("workspace_edit err=%v, want ErrOwnerChangeInProgress", err)
 	}
@@ -300,7 +301,7 @@ func TestUnpromptedTurnCannotEditOrProposeTheOwnersOpenChange(t *testing.T) {
 // opened itself proposes normally, and marks the proposal a draft.
 func TestUnpromptedTurnProposesItsOwnChangeAsADraft(t *testing.T) {
 	fixture := newChangeToolFixture(t, &fakeShipper{})
-	ctx := WithUnpromptedTurn(webThread("thread-a"))
+	ctx := services.WithUnpromptedTurn(webThread("thread-a"))
 	if _, err := fixture.tools["workspace_open"].Execute(ctx, json.RawMessage(`{"repository":"eggy"}`)); err != nil {
 		t.Fatal(err)
 	}

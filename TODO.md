@@ -16,8 +16,8 @@ Measured on the current tree, not estimated.
 **Size.** 20,591 lines of production Go, 16,856 of test (was 21,399 / 17,660
 before web search was removed). 20 tools on an ordinary owner turn (25 with
 Calendar, more with MCP). 17 top-level slash commands across ~40 catalog
-paths. 10 config sections. One package, `internal/kernel/services`, holds 29
-source files.
+paths. 10 config sections. `internal/kernel/services` holds 18 source files
+and `internal/kernel/services/repo` another 12.
 
 **Separation of concerns is not the problem.** `ports` / `kernel` / `plugins`
 is a real boundary and it mostly holds. The loop (`agent/loop.go`, 287 lines)
@@ -26,8 +26,8 @@ handful of specific leaks.
 
 The scope review (below) settled that the concerns are wanted: all but one
 capability stays. So the number is not coming down, and the work is to contain
-what is there — kill the boundary violations, split the one oversized package,
-and delete dead weight — rather than to remove features.
+what is there — kill the boundary violations, split the oversized package where
+a real seam exists, and delete dead weight — rather than to remove features.
 
 **Per-turn context floor: 12,416 bytes (~3.1K tokens)** with empty
 SOUL/USER/MEMORY, no skills installed, Calendar off, MCP off. Re-measured
@@ -286,22 +286,55 @@ accuracy gains (Opus 4.5: 79.5% → 88.1%).
 - [ ] Revisit deferral only when MCP schemas alone exceed ~10K tokens. Until
       then, resident schemas are the correct choice and the simpler one.
 
-## P1: Collapse `internal/kernel/services`
+## P1: Split `internal/kernel/services` — LANDED (partially)
 
-30 files in one package with no internal structure. The repository cluster
-alone is `changes.go`, `change_tools.go`, `shipping.go`, `checks.go`,
-`workspace_sessions.go`, `repositories.go`, `repository_tools.go`,
-`repository_metadata_tools.go`, `workspace_path.go` — nine files and five
-overlapping nouns (Change, ShipTarget, WorkspaceBinding, Repository, Session).
+29 files in one package became 18 in `services` plus 12 in
+`services/repo` (repositories, workspaces, changes, shipping, checks, the
+primitive tools, and the status tool). The dependency is strictly one-way:
+`repo` imports `services`, never the reverse. 682 tests pass, unchanged in
+count.
 
-- [ ] Split into subpackages along the seams that already exist:
-      `services/repo`, `services/context`, `services/schedule`,
-      `services/diag`. The split is a rename plus import fixes; the types are
-      already separated, only the directory isn't.
-- [ ] While splitting, look hard at whether `Changes`, `Transcripts`, and
-      `WorkspaceSessions` need to be three stores. Each has its own file
-      format, its own lifecycle, and its own doc comment explaining why it is
-      not the other two. That explanation-per-boundary is itself the signal.
+### The plan in this file was wrong, and checking it first is why it landed
+
+An earlier revision claimed "the split is a rename plus import fixes; the
+types are already separated, only the directory isn't." That was asserted, not
+verified, and it was false. Measuring the actual cross-file references found
+two blockers that a four-way split (`repo`/`context`/`schedule`/`diag`) could
+not clear without making the package worse:
+
+- `decodeStrict`, an unexported helper, was used by 9 files that would have
+  landed in at least three different packages. A four-way split forces it
+  public, or duplicated four times.
+- `tools.go` held the `status` tool, which reads `Changes`. That is a
+  `services` file depending on a `repo` type while `repo` files depend on
+  `decodeStrict` in `services` — a genuine import cycle, invisible until you
+  look.
+
+So the split is **two packages, not four**, along the one seam that actually
+exists. Clearing the blockers took two small preparatory changes, both worth
+having on their own: `decodeStrict` is now the exported
+`services.DecodeToolInput` (tools live in more than one package now, and all
+of them must reject a malformed call identically), and the status tool moved
+to `repo/status_tool.go`, which is where a tool reporting active runs and
+configured repositories belonged anyway.
+
+### What is left
+
+- [ ] The remaining 18 files in `services` still cover several concerns
+      (durable context, skills, calendar, approvals, agent runtime, heartbeat,
+      dispatch, diagnostics, transcripts, turn plumbing). Splitting further
+      hits the same wall: `SecretGuard` alone is shared by context, memory,
+      skills, and transcripts. Do not attempt it without measuring the
+      cross-references first, and do not export internals to make a directory
+      boundary possible — that trades encapsulation for tidiness.
+- [ ] Test fakes are duplicated between the two packages
+      (`memoryStore`, `memoryTranscriptStore`, `fakeShippingGateway`,
+      `mustMarshal`, `webThread`). This is deliberate — a fake is not API, and
+      an exported `kerneltest` package for forty-line stubs is the worse
+      trade — but if a third package appears, revisit.
+- [ ] `AGENTS.md` referenced `services.Implementer` and
+      `internal/kernel/services/implementer.go`, neither of which exists. Fixed
+      in passing; the rest of that file's port list deserves the same audit.
 
 ## P1: Correctness and dead weight
 

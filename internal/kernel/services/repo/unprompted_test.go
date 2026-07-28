@@ -1,8 +1,9 @@
-package services
+package repo
 
 import (
 	"context"
 	"errors"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"testing"
 	"time"
 
@@ -21,10 +22,10 @@ func unpromptedShippingService(t *testing.T, change ports.Change) (*ShippingServ
 	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", BaseBranch: "main", ProtectedBranches: []string{"main", "release"}}}
 	changes, transcripts, _ := shippingFixture(change)
 	repository := &fakeRepository{branch: change.Branch}
-	// A real ApprovalService, not a fake gateway: the draft flag rides inside
+	// A real services.ApprovalService, not a fake gateway: the draft flag rides inside
 	// the payload each approval is digest-bound to, so a fake that skips the
 	// payload would prove nothing about it.
-	return NewShippingService(store, changes, transcripts, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities), repository
+	return NewShippingService(store, changes, transcripts, services.NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities), repository
 }
 
 func TestUnpromptedProposalOpensADraftPullRequest(t *testing.T) {
@@ -73,11 +74,11 @@ func TestUnpromptedProposalCannotTargetABaseOrProtectedBranch(t *testing.T) {
 }
 
 func TestUnpromptedTurnMarkingTravelsOnContext(t *testing.T) {
-	if IsUnpromptedTurn(context.Background()) {
+	if services.IsUnpromptedTurn(context.Background()) {
 		t.Fatal("an unmarked context must read as owner-prompted")
 	}
-	if !IsUnpromptedTurn(WithUnpromptedTurn(context.Background())) {
-		t.Fatal("WithUnpromptedTurn must mark the context")
+	if !services.IsUnpromptedTurn(services.WithUnpromptedTurn(context.Background())) {
+		t.Fatal("services.WithUnpromptedTurn must mark the context")
 	}
 }
 
@@ -87,7 +88,7 @@ func TestChangeOpenedByAnUnpromptedTurnIsRecordedAsSuch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unprompted, err := changes.Open(WithUnpromptedTurn(context.Background()), "run-heartbeat", "eggy", "eggy/b", "abc", "opus")
+	unprompted, err := changes.Open(services.WithUnpromptedTurn(context.Background()), "run-heartbeat", "eggy", "eggy/b", "abc", "opus")
 	if err != nil {
 		t.Fatal(err)
 	}

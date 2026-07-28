@@ -39,7 +39,7 @@ func (t skillReadTool) Execute(ctx context.Context, raw json.RawMessage) (json.R
 	var input struct {
 		Name string `json:"name"`
 	}
-	if err := decodeStrict(raw, &input); err != nil {
+	if err := DecodeToolInput(raw, &input); err != nil {
 		return nil, err
 	}
 	if input.Name == "" {
@@ -71,7 +71,7 @@ func (t skillToggleTool) Execute(ctx context.Context, raw json.RawMessage) (json
 	var input struct {
 		Name string `json:"name"`
 	}
-	if err := decodeStrict(raw, &input); err != nil {
+	if err := DecodeToolInput(raw, &input); err != nil {
 		return nil, err
 	}
 	if input.Name == "" {

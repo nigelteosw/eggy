@@ -1,10 +1,11 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -27,7 +28,7 @@ func NewRepositoryMetadataTools(store ports.StateStore, reader ports.RepositoryR
 			Number     int    `json:"number"`
 			Ref        string `json:"ref"`
 		}
-		if err := decodeStrict(raw, &input); err != nil {
+		if err := services.DecodeToolInput(raw, &input); err != nil {
 			return nil, err
 		}
 		repository, err := lookupRepository(ctx, store, input.Repository)

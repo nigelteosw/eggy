@@ -1,9 +1,10 @@
-package services
+package repo
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"testing"
 	"time"
 
@@ -14,12 +15,12 @@ import (
 var fullRepositoryCapabilities = ports.RepositoryCapabilities{Commit: true, Push: true, PullRequest: true}
 
 // shippingFixture builds a real Changes instance seeded with change, plus
-// the Transcripts its milestones land on, so shipping tests exercise the
+// the services.Transcripts its milestones land on, so shipping tests exercise the
 // same canonical stores production code uses instead of a lifecycle fake.
-func shippingFixture(change ports.Change) (*Changes, *Transcripts, *memoryChangeStore) {
+func shippingFixture(change ports.Change) (*Changes, *services.Transcripts, *memoryChangeStore) {
 	store := newMemoryChangeStore()
 	store.changes[change.ID] = change
-	transcripts := NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
+	transcripts := services.NewTranscripts(newMemoryTranscriptStore(), 0, time.Now)
 	_, _ = transcripts.Open(context.Background(), "turn-1", "ship it")
 	return NewChanges(store, time.Now), transcripts, store
 }
@@ -278,7 +279,7 @@ func TestShippingReusesExistingOpenPullRequestInsteadOfCreatingDuplicate(t *test
 }
 
 // TestShippingBlocksTamperedOrProtectedActionsEndToEnd drives a full Ship()
-// call against a real ApprovalService (not a fake gateway with hand-built
+// call against a real services.ApprovalService (not a fake gateway with hand-built
 // payloads), proving the implementation loop cannot bypass any
 // repository-write authorization check: a tampered diff, a moved
 // branch/head, a moved remote head, and a protected-branch push are each
@@ -294,7 +295,7 @@ func TestShippingBlocksTamperedOrProtectedActionsEndToEnd(t *testing.T) {
 		changeID := "run"
 		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 		repository := &fakeRepository{branch: "feature", diff: "changed-diff"}
-		service := NewShippingService(store, changes, transcripts, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+		service := NewShippingService(store, changes, transcripts, services.NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
 
 		if _, _, err := service.Ship(context.Background(), shipTargetFor(changeID), "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
 			t.Fatalf("error=%v", err)
@@ -310,7 +311,7 @@ func TestShippingBlocksTamperedOrProtectedActionsEndToEnd(t *testing.T) {
 		changeID := "run"
 		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 		repository := &fakeRepository{branch: "other", head: "moved"}
-		service := NewShippingService(store, changes, transcripts, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+		service := NewShippingService(store, changes, transcripts, services.NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
 
 		if _, _, err := service.Ship(context.Background(), shipTargetFor(changeID), "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
 			t.Fatalf("error=%v", err)
@@ -326,7 +327,7 @@ func TestShippingBlocksTamperedOrProtectedActionsEndToEnd(t *testing.T) {
 		changeID := "run"
 		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy"}}
 		repository := &fakeRepository{branch: "feature", remoteHead: "tampered"}
-		service := NewShippingService(store, changes, transcripts, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+		service := NewShippingService(store, changes, transcripts, services.NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
 
 		if _, _, err := service.Ship(context.Background(), shipTargetFor(changeID), "feature", "feat: done"); !errors.Is(err, approvals.ErrPayloadChanged) {
 			t.Fatalf("error=%v", err)
@@ -344,7 +345,7 @@ func TestShippingBlocksTamperedOrProtectedActionsEndToEnd(t *testing.T) {
 		changeID := session.ID
 		store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main"}}}
 		repository := &fakeRepository{branch: "main"}
-		service := NewShippingService(store, changes, transcripts, NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
+		service := NewShippingService(store, changes, transcripts, services.NewApprovalService(store, time.Now, time.Hour), repository, repository, repository, repository, fullRepositoryCapabilities)
 
 		_, note, err := service.Ship(context.Background(), shipTargetFor(changeID), "main", "feat: done")
 		if err != nil {
@@ -382,8 +383,8 @@ type fakeShippingGateway struct {
 	authorized approvals.Action
 }
 
-// Request satisfies ApprovalRequester so the same fake also serves
-// RepositoriesService/SkillsService tests elsewhere in this package.
+// Request satisfies services.ApprovalRequester so the same fake also serves
+// RepositoriesService/services.SkillsService tests elsewhere in this package.
 func (g *fakeShippingGateway) Request(_ context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
 	g.payload = payload
 	return approvals.Approval{ID: "approval", Action: action, Summary: summary}, nil

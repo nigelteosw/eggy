@@ -12,7 +12,7 @@
     "check": "astro check",
     "build": "astro build",
     "validate": "bun scripts/validate-built-site.ts",
-    "build:pages": "astro build && bun run validate && rm -rf pages-root && mkdir -p pages-root/docs && cp -R dist/. pages-root/docs/ && cp dist/404.html pages-root/404.html && touch pages-root/.nojekyll",
+    "build:pages": "astro build && bun run validate && rm -rf pages-root && mkdir -p pages-root && cp -R dist/. pages-root/ && touch pages-root/.nojekyll",
     "preview": "astro preview"
   },
   "dependencies": {

@@ -37,7 +37,7 @@ Secrets stay in environment variables or `.env`; `config.yaml` contains only nam
 EGGY_CONFIG="$PWD/config.yaml" ./bin/eggyd
 ```
 
-For a persistent hosted instance, continue to [Deploy on Railway](/eggy/docs/get-started/deploy-railway/).
+For a persistent hosted instance, continue to [Deploy on Railway](/eggy/get-started/deploy-railway/).
 
 ## What Eggy can do
 
@@ -80,8 +80,8 @@ Calendar mutations are different. Creating, updating, and deleting an event are 
 
 ## Quick links
 
-- [Run Eggy locally](/eggy/docs/get-started/quickstart/)
-- [Configure model providers](/eggy/docs/configure/model-providers/)
-- [Connect Google Calendar](/eggy/docs/configure/google-calendar/)
-- [Understand the security model](/eggy/docs/operate/security/)
-- [Read the architecture](/eggy/docs/project/architecture/)
+- [Run Eggy locally](/eggy/get-started/quickstart/)
+- [Configure model providers](/eggy/configure/model-providers/)
+- [Connect Google Calendar](/eggy/configure/google-calendar/)
+- [Understand the security model](/eggy/operate/security/)
+- [Read the architecture](/eggy/project/architecture/)

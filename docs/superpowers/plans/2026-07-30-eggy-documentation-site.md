@@ -4,14 +4,14 @@
 
 **Goal:** Build and publish a comprehensive, Coral-inspired static documentation site for Eggy's shipped operator and contributor behavior.
 
-**Architecture:** Astro renders Markdown entries from one content collection through a shared three-column documentation shell. A typed navigation catalog drives routing, sidebar groups, previous/next links, search metadata, and validation; small framework-free browser scripts provide search, copy buttons, and the mobile drawer. GitHub Actions packages the static build one directory below the Pages root so the public site resolves at `/eggy/docs/`.
+**Architecture:** Astro renders Markdown entries from one content collection through a shared three-column documentation shell. A typed navigation catalog drives routing, sidebar groups, previous/next links, search metadata, and validation; small framework-free browser scripts provide search, copy buttons, and the mobile drawer. GitHub Actions packages the static build at the Pages artifact root so the public site resolves at `/eggy/`.
 
 **Tech Stack:** Astro 7.1, TypeScript, Markdown content collections, Bun tests and package management, CSS, browser-native JavaScript, GitHub Pages Actions.
 
 ## Global Constraints
 
-- Publish at exactly `https://nigelteosw.github.io/eggy/docs/`.
-- Set Astro's production base to exactly `/eggy/docs/`.
+- Publish at exactly `https://nigelteosw.github.io/eggy/`.
+- Set Astro's production base to exactly `/eggy/`.
 - Document only behavior shipped on the current branch; never present `TODO.md` work as available.
 - Keep the site fully static with no server runtime, database, CMS, or dependency on a running Eggy instance.
 - Keep the documentation application entirely under `docs/`, except for its workflow under `.github/workflows/`.
@@ -214,7 +214,7 @@ import { defineConfig } from "astro/config";
 
 export default defineConfig({
   site: "https://nigelteosw.github.io",
-  base: "/eggy/docs",
+  base: "/eggy",
   output: "static",
   trailingSlash: "always",
   build: { format: "directory" },
@@ -625,15 +625,14 @@ git commit -m "docs: document Eggy architecture and development"
 - Modify: `docs/README.md`
 
 **Interfaces:**
-- Consumes: `flatNavigation`, `docs/dist`, and the `/eggy/docs/` base.
-- Produces: a Pages artifact root containing `docs/index.html`,
-  `docs/search-index.json`, route directories, assets, `docs/404.html`, and
-  root `.nojekyll`.
+- Consumes: `flatNavigation`, `docs/dist`, and the `/eggy/` base.
+- Produces: a Pages artifact root containing `index.html`,
+  `search-index.json`, route directories, assets, `404.html`, and `.nojekyll`.
 
 - [ ] **Step 1: Extend navigation tests to reject non-base-safe authored links**
 
 Scan Markdown links and fail internal absolute links that start with `/` but
-not `/eggy/docs/`, while allowing relative links, fragments, and external
+not `/eggy/`, while allowing relative links, fragments, and external
 URLs.
 
 - [ ] **Step 2: Run the test and verify it catches an injected bad-link fixture**
@@ -648,11 +647,11 @@ fails with the bad URL, then remove the fixture before implementation.
 - assert one generated `index.html` for every navigation path;
 - parse local `href` values from generated HTML;
 - ignore fragments, `mailto:`, `tel:`, and external URLs;
-- strip `/eggy/docs/` before resolving a link within `docs/dist`;
+- strip `/eggy/` before resolving a link within `docs/dist`;
 - map directory links to `index.html`;
 - fail with the source page and broken target;
 - assert exactly 20 items in `search-index.json`;
-- assert generated asset and canonical URLs contain `/eggy/docs/`.
+- assert generated asset and canonical URLs contain `/eggy/`.
 
 - [ ] **Step 4: Add the build-and-package script**
 
@@ -661,7 +660,7 @@ Add `build:pages` to `docs/package.json`:
 ```json
 {
   "scripts": {
-    "build:pages": "astro build && bun run validate && rm -rf pages-root && mkdir -p pages-root/docs && cp -R dist/. pages-root/docs/ && touch pages-root/.nojekyll"
+    "build:pages": "astro build && bun run validate && rm -rf pages-root && mkdir -p pages-root && cp -R dist/. pages-root/ && touch pages-root/.nojekyll"
   }
 }
 ```
@@ -699,8 +698,7 @@ bun run build:pages
 ```
 
 Explain that normal output is `docs/dist`, while `build:pages` packages the
-site under `docs/pages-root/docs` so GitHub Pages serves it at
-`/eggy/docs/`.
+site under `docs/pages-root` so GitHub Pages serves it at `/eggy/`.
 
 - [ ] **Step 7: Run focused Pages verification**
 
@@ -711,9 +709,9 @@ cd docs
 bun test
 bun run check
 bun run build:pages
-test -f pages-root/docs/index.html
-test -f pages-root/docs/search-index.json
-test -f pages-root/docs/get-started/quickstart/index.html
+test -f pages-root/index.html
+test -f pages-root/search-index.json
+test -f pages-root/get-started/quickstart/index.html
 test -f pages-root/.nojekyll
 ```
 
@@ -741,10 +739,10 @@ git commit -m "ci: deploy Eggy docs to GitHub Pages"
 
 Run `cd docs && bun run preview`, then open:
 
-- `/eggy/docs/`
+- `/eggy/`
 
 Astro preview must serve the same `dist` files copied into the Pages artifact,
-with `/eggy/docs/` preserved for assets and internal links.
+with `/eggy/` preserved for assets and internal links.
 
 - [ ] **Step 2: Inspect representative desktop pages**
 

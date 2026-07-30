@@ -3,7 +3,7 @@ import { join, normalize } from "node:path";
 import { flatNavigation } from "../src/data/navigation";
 
 const dist = join(import.meta.dir, "../dist");
-const base = "/eggy/docs/";
+const base = "/eggy/";
 const failures: string[] = [];
 
 for (const item of flatNavigation) {

@@ -14,9 +14,9 @@ from `TODO.md` must not appear as available functionality.
 
 The documentation is a fully static Astro site deployed with GitHub Pages at:
 
-`https://nigelteosw.github.io/eggy/docs/`
+`https://nigelteosw.github.io/eggy/`
 
-Astro uses `/eggy/docs/` as its production base path. Assets, navigation,
+Astro uses `/eggy/` as its production base path. Assets, navigation,
 search results, canonical URLs, and internal links must work from that nested
 path. A GitHub Actions workflow builds the site from `docs/` and deploys the
 generated `docs/dist/` artifact. The site has no server runtime, database, CMS,
@@ -149,7 +149,7 @@ disabled or reduced when the user requests reduced motion.
 - Search continues to allow navigation when JavaScript is unavailable because
   the sidebar and article links remain ordinary HTML links.
 - External links are visually distinguished and internal links remain within
-  `/eggy/docs/`.
+  `/eggy/`.
 - Optional Eggy subsystems are documented with explicit prerequisites and
   disabled-state behavior to prevent misleading setup instructions.
 
@@ -162,7 +162,7 @@ Before completion:
 3. Validate that every navigation entry resolves to a generated page.
 4. Validate internal links, unique routes, and unique navigation entries.
 5. Check documented Telegram commands against the implementation.
-6. Serve the production build from the nested `/eggy/docs/` path and inspect
+6. Serve the production build from `/eggy/` and inspect
    representative desktop and mobile pages.
 7. Confirm search, mobile navigation, page-outline links, copy buttons, 404
    behavior, and previous/next navigation.

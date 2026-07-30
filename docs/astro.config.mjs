@@ -2,7 +2,7 @@ import { defineConfig } from "astro/config";
 
 export default defineConfig({
   site: "https://nigelteosw.github.io",
-  base: "/eggy/docs",
+  base: "/eggy",
   output: "static",
   trailingSlash: "always",
   build: {

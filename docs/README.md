@@ -2,7 +2,7 @@
 
 The documentation is a static Astro application published at:
 
-`https://nigelteosw.github.io/eggy/docs/`
+`https://nigelteosw.github.io/eggy/`
 
 ## Develop
 
@@ -13,7 +13,7 @@ bun run dev
 ```
 
 Astro serves the project with the production base path at
-`http://localhost:4321/eggy/docs/`.
+`http://localhost:4321/eggy/`.
 
 ## Verify
 
@@ -31,6 +31,5 @@ bun run build:pages
 ```
 
 The normal Astro output is `docs/dist/`. The Pages command validates that
-build, then copies it into `docs/pages-root/docs/` with a root `.nojekyll`.
-GitHub Pages supplies the repository prefix `/eggy`, so the nested artifact is
-served from `/eggy/docs/`.
+build, then copies it into `docs/pages-root/` with a root `.nojekyll`. GitHub
+Pages supplies the repository prefix, so the artifact is served from `/eggy/`.

@@ -219,6 +219,26 @@ type configDocument struct {
 	commonConfigDocument `yaml:",inline"`
 }
 
+// SecretsFromEnv reads every secret whose environment variable name is fixed.
+// Provider API keys and MCP bearer tokens are not among them: their variable
+// names are chosen in config.yaml, so LoadConfig fills those in once the file
+// parses. This exists separately because a process that cannot load its config
+// still needs the owner's web credential to serve safe mode, and still needs
+// these values for log redaction.
+func SecretsFromEnv(getenv func(string) string) Secrets {
+	return Secrets{
+		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
+		GitHubToken:        getenv("GITHUB_TOKEN"),
+		GoogleClientID:     getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
+		EncryptionKey:      getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:        getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:         getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys:    map[string]string{},
+		MCPBearerTokens:    map[string]string{},
+	}
+}
+
 func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error) {
 	var cfg Config
 	data, err := os.ReadFile(path)
@@ -239,17 +259,7 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err := cfg.Validate(); err != nil {
 		return cfg, Secrets{}, err
 	}
-	secrets := Secrets{
-		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
-		GitHubToken:        getenv("GITHUB_TOKEN"),
-		GoogleClientID:     getenv("GOOGLE_CLIENT_ID"),
-		GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:      getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:        getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:         getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys:    map[string]string{},
-		MCPBearerTokens:    map[string]string{},
-	}
+	secrets := SecretsFromEnv(getenv)
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
 	}

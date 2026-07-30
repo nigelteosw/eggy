@@ -70,6 +70,25 @@ const (
 	webError   = "error"
 )
 
+// The two shapes the HTTP surface can take. The web app asks for this before
+// anything else, because in safe mode every other route it would call is
+// either absent or reporting the startup failure -- it needs to know which
+// screen to render, not to discover it one failed request at a time. The probe
+// is unauthenticated: it says whether Eggy started, which is already visible
+// from /readyz, and nothing about why.
+const (
+	modeNormal = "normal"
+	modeSafe   = "safe"
+)
+
+func writeMode(mode string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(`{"mode":"` + mode + `"}`))
+	}
+}
+
 // NewWebHandler serves Eggy's embedded web configuration UI and its small
 // JSON API. Config routes call internal/config directly: the authenticated
 // web panel is the runtime administration surface, while Telegram commands
@@ -83,6 +102,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	throttle := webui.NewLoginThrottle(now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
+	mux.HandleFunc("GET /api/mode", writeMode(modeNormal))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
 	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {

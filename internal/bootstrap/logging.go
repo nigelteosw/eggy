@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -25,7 +26,12 @@ const maxLogBytes = 8 << 20
 //
 // Every writer is wrapped in a redactor, so a secret that reaches a log line
 // through an error string or a URL never lands on disk in the clear.
-func NewLogger(layout home.Layout, secrets config.Secrets) (*slog.Logger, io.Closer, error) {
+// The logger is opened before the config is read, because a config that fails
+// to load is itself something to log. At that point only the secrets with
+// fixed variable names are known, so Logs.Redact takes the rest -- provider
+// API keys and MCP bearer tokens, whose variable names config.yaml chooses --
+// once the file parses.
+func NewLogger(layout home.Layout, secrets config.Secrets) (*slog.Logger, *Logs, error) {
 	if err := layout.Ensure(); err != nil {
 		return nil, nil, err
 	}
@@ -40,11 +46,37 @@ func NewLogger(layout home.Layout, secrets config.Secrets) (*slog.Logger, io.Clo
 		return nil, nil, err
 	}
 	everything := newRedactor(io.MultiWriter(os.Stderr, gateway), values)
+	errorsOnly := newRedactor(errorsFile, values)
 	handler := newTeeHandler(
 		slog.NewTextHandler(everything, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		slog.NewTextHandler(newRedactor(errorsFile, values), &slog.HandlerOptions{Level: slog.LevelError}),
+		slog.NewTextHandler(errorsOnly, &slog.HandlerOptions{Level: slog.LevelError}),
 	)
-	return slog.New(handler), closers{gateway, errorsFile}, nil
+	return slog.New(handler), &Logs{files: closers{gateway, errorsFile}, redactors: []*redactor{everything, errorsOnly}}, nil
+}
+
+// Logs owns the open log files and the redaction each one applies.
+type Logs struct {
+	files     closers
+	redactors []*redactor
+}
+
+// Redact adds secrets discovered after the logger was opened. Every write from
+// here on replaces them, including writes already in flight on other
+// goroutines -- a redactor takes its lock per line.
+func (l *Logs) Redact(values ...string) {
+	if l == nil {
+		return
+	}
+	for _, target := range l.redactors {
+		target.add(values)
+	}
+}
+
+func (l *Logs) Close() error {
+	if l == nil {
+		return nil
+	}
+	return l.files.Close()
 }
 
 func openLogFile(path string) (*rollingFile, error) {
@@ -110,27 +142,41 @@ func (r *rollingFile) Close() error {
 // through.
 type redactor struct {
 	target  io.Writer
+	mu      sync.Mutex
 	secrets []string
 }
 
-func newRedactor(target io.Writer, secrets []string) io.Writer {
-	if len(secrets) == 0 {
-		return target
-	}
-	// Longest first, so a secret that contains another is redacted whole
-	// rather than leaving a suffix behind.
-	ordered := append([]string(nil), secrets...)
-	for i := 1; i < len(ordered); i++ {
-		for j := i; j > 0 && len(ordered[j]) > len(ordered[j-1]); j-- {
-			ordered[j], ordered[j-1] = ordered[j-1], ordered[j]
+func newRedactor(target io.Writer, secrets []string) *redactor {
+	r := &redactor{target: target}
+	r.add(secrets)
+	return r
+}
+
+// add merges more secrets in, keeping the list longest first so a secret that
+// contains another is redacted whole rather than leaving a suffix behind.
+func (r *redactor) add(secrets []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// A fresh slice rather than an append-and-sort in place: Write holds only
+	// the slice header, and sorting the array underneath it could let a secret
+	// through on a line being written right now.
+	merged := make([]string, 0, len(r.secrets)+len(secrets))
+	merged = append(merged, r.secrets...)
+	for _, secret := range secrets {
+		if strings.TrimSpace(secret) != "" {
+			merged = append(merged, secret)
 		}
 	}
-	return &redactor{target: target, secrets: ordered}
+	sort.SliceStable(merged, func(i, j int) bool { return len(merged[i]) > len(merged[j]) })
+	r.secrets = merged
 }
 
 func (r *redactor) Write(data []byte) (int, error) {
+	r.mu.Lock()
+	secrets := r.secrets
+	r.mu.Unlock()
 	line := string(data)
-	for _, secret := range r.secrets {
+	for _, secret := range secrets {
 		line = strings.ReplaceAll(line, secret, "[redacted]")
 	}
 	if _, err := io.WriteString(r.target, line); err != nil {

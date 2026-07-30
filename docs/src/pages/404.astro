@@ -1,0 +1,15 @@
+---
+import DocsLayout from "../layouts/DocsLayout.astro";
+import { docUrl } from "../lib/urls";
+---
+
+<DocsLayout
+  title="Page not found"
+  description="The documentation page you requested does not exist."
+  eyebrow="404"
+  pathname="/404"
+  headings={[]}
+>
+  <p>The link may be outdated, or the page may have moved.</p>
+  <p><a class="button-link" href={docUrl("/")}>Return to the introduction</a></p>
+</DocsLayout>

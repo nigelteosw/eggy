@@ -1,0 +1,73 @@
+---
+import type { MarkdownHeading } from "astro";
+import Header from "../components/Header.astro";
+import Sidebar from "../components/Sidebar.astro";
+import PageOutline from "../components/PageOutline.astro";
+import ArticleFooter from "../components/ArticleFooter.astro";
+import SearchDialog from "../components/SearchDialog.astro";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  pathname: string;
+  headings: MarkdownHeading[];
+  eyebrow?: string;
+}
+
+const { title, description, pathname, headings, eyebrow } = Astro.props;
+const pageTitle = pathname === "/" ? "Eggy Docs" : `${title} · Eggy Docs`;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f7f5ef" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} type="image/svg+xml" />
+    <title>{pageTitle}</title>
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+  </head>
+  <body data-docs-path={pathname}>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <Header />
+    <div class="docs-shell">
+      <aside class="sidebar">
+        <Sidebar currentPath={pathname} />
+      </aside>
+      <main id="main-content" class="article-column">
+        <div class="article-heading">
+          {eyebrow && <p class="eyebrow">{eyebrow}</p>}
+          <h1>{title}</h1>
+          <p class="lede">{description}</p>
+        </div>
+        <article class="prose">
+          <slot />
+        </article>
+        <ArticleFooter currentPath={pathname} />
+      </main>
+      <PageOutline {headings} />
+    </div>
+
+    <div class="drawer-backdrop" data-drawer-backdrop hidden>
+      <aside class="mobile-drawer" data-drawer aria-label="Documentation menu">
+        <div class="drawer-heading">
+          <span>Documentation</span>
+          <button type="button" data-drawer-close aria-label="Close documentation menu">×</button>
+        </div>
+        <Sidebar currentPath={pathname} mobile />
+      </aside>
+    </div>
+    <SearchDialog />
+    <script>
+      import "../scripts/docs-ui";
+    </script>
+  </body>
+</html>

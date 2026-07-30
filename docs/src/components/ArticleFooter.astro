@@ -1,0 +1,25 @@
+---
+import { getAdjacentItems } from "../data/navigation";
+import { docUrl } from "../lib/urls";
+
+interface Props {
+  currentPath: string;
+}
+
+const { previous, next } = getAdjacentItems(Astro.props.currentPath);
+---
+
+<nav class="article-footer" aria-label="Adjacent documentation pages">
+  {previous ? (
+    <a class="previous" href={docUrl(previous.path)}>
+      <span>Previous</span>
+      <strong>← {previous.title}</strong>
+    </a>
+  ) : <span></span>}
+  {next && (
+    <a class="next" href={docUrl(next.path)}>
+      <span>Next</span>
+      <strong>{next.title} →</strong>
+    </a>
+  )}
+</nav>

@@ -1,0 +1,33 @@
+---
+import { navigation } from "../data/navigation";
+import { docUrl } from "../lib/urls";
+
+interface Props {
+  currentPath: string;
+  mobile?: boolean;
+}
+
+const { currentPath, mobile = false } = Astro.props;
+const normalized = currentPath === "/" ? "/" : `/${currentPath.replace(/^\/|\/$/g, "")}`;
+---
+
+<nav class:list={["sidebar-nav", { "sidebar-nav-mobile": mobile }]} aria-label="Documentation">
+  {navigation.map((group) => (
+    <section class="nav-group">
+      <h2>{group.label}</h2>
+      <ul>
+        {group.items.map((item) => (
+          <li>
+            <a
+              href={docUrl(item.path)}
+              class:list={{ active: normalized === item.path }}
+              aria-current={normalized === item.path ? "page" : undefined}
+            >
+              {item.title}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</nav>

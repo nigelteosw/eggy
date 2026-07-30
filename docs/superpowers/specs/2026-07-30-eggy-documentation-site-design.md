@@ -92,12 +92,15 @@ their disabled behavior must be explained.
 The design takes structural inspiration from Coral's documentation without
 copying its brand:
 
-- warm off-white background and white reading surfaces;
-- dark charcoal typography with an Eggy-yellow accent;
-- compact top bar with Eggy identity, docs label, search, and GitHub link;
-- fixed grouped navigation on the left;
+- near-black dark mode by default, with a persistent light-mode toggle;
+- soft white typography, muted gray secondary text, and a mint-green accent;
+- compact top bar with Eggy identity, docs label, search, GitHub link, and
+  theme control;
+- fixed grouped navigation on the left with generously spaced, sentence-case
+  labels and a mint chevron for the current page;
 - a central article column around 720 to 760 pixels wide;
-- a sticky "On this page" outline on large screens;
+- a sticky, unboxed "On this page" outline with indented nested headings and a
+  mint chevron for the active section on large screens;
 - a mobile navigation drawer and no right outline on narrow screens;
 - crisp borders, restrained radii, and minimal shadows;
 - high-contrast code blocks with copy controls;

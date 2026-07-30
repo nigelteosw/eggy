@@ -11,6 +11,29 @@ const searchInput = document.querySelector<HTMLInputElement>("[data-search-input
 const searchResults = document.querySelector<HTMLElement>("[data-search-results]");
 let searchItems: SearchItem[] | null = null;
 
+const themeToggle = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
+const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+
+function applyTheme(theme: "dark" | "light") {
+  document.documentElement.dataset.theme = theme;
+  themeToggle?.setAttribute(
+    "aria-label",
+    theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+  );
+  if (themeMeta) themeMeta.content = theme === "dark" ? "#0d0f0e" : "#f7f5ef";
+}
+
+applyTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+themeToggle?.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  try {
+    localStorage.setItem("eggy-docs-theme", next);
+  } catch {
+    // The selected theme still applies for the current page.
+  }
+});
+
 async function openSearch() {
   if (!dialog) return;
   dialog.showModal();

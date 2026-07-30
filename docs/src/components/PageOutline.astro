@@ -16,11 +16,20 @@ const visibleHeadings = Astro.props.headings.filter(
 
 {visibleHeadings.length > 0 && (
   <aside class="page-outline" aria-label="On this page">
-    <p>On this page</p>
+    <p>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8M4 12h12M4 17h7"></path></svg>
+      On this page
+    </p>
     <ol>
-      {visibleHeadings.map((heading: Heading) => (
+      {visibleHeadings.map((heading: Heading, index: number) => (
         <li class:list={{ nested: heading.depth === 3 }}>
-          <a href={`#${heading.slug}`} data-outline-link={heading.slug}>{heading.text}</a>
+          <a
+            href={`#${heading.slug}`}
+            data-outline-link={heading.slug}
+            class:list={{ active: index === 0 }}
+          >
+            {heading.text}
+          </a>
         </li>
       ))}
     </ol>

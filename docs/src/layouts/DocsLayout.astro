@@ -21,12 +21,20 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
+    <script is:inline>
+      try {
+        const stored = localStorage.getItem("eggy-docs-theme");
+        document.documentElement.dataset.theme = stored === "light" ? "light" : "dark";
+      } catch {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#f7f5ef" />
+    <meta name="theme-color" content="#0d0f0e" />
     <link rel="canonical" href={canonical} />
     <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} type="image/svg+xml" />
     <title>{pageTitle}</title>

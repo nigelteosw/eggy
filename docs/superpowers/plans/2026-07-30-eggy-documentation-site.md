@@ -16,7 +16,8 @@
 - Keep the site fully static with no server runtime, database, CMS, or dependency on a running Eggy instance.
 - Keep the documentation application entirely under `docs/`, except for its workflow under `.github/workflows/`.
 - Do not change Eggy runtime behavior or the embedded application under `website/`.
-- Preserve the warm off-white, charcoal, Eggy-yellow, typography-led visual direction with restrained radii and minimal shadows.
+- Use a near-black default theme with mint active states, a persistent light-mode
+  toggle, typography-led sidebars, restrained radii, and minimal shadows.
 - Keep navigation and search keyboard accessible, provide visible focus states, and respect reduced-motion preferences.
 - Derive commands, configuration, routes, capabilities, and security claims from current repository source.
 

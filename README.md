@@ -104,5 +104,24 @@ The home directory (normally `/data` on Railway) contains:
 - `runs/` for bounded, read-only repository checkouts;
 - `logs/` for runtime logs.
 
+A `config.yaml` written by an older build is upgraded in place on load:
+settings whose behaviour has been removed are dropped, and `calendar.timezone`
+is carried over to `agent.timezone`. Each drop is logged. A config with nothing
+retired in it is left exactly as written.
+
+## Safe mode
+
+When startup fails — usually a `config.yaml` that does not parse or does not
+validate — `eggyd` does not exit. It serves the web UI in safe mode instead:
+`/healthz` stays healthy so the deployment keeps receiving traffic, `/readyz`
+reports the failure, and the authenticated owner gets the startup error plus an
+editor for `config.yaml`. A saved config is only written once it loads, so a
+second bad config cannot lock the owner out; once one does load, Eggy retries
+startup in the same process, with no redeploy.
+
+Safe mode needs `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD`, and
+`EGGY_ENCRYPTION_KEY` to be signed into. It serves nothing else: no chat, no
+agent, no memory.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and
 [TODO.md](TODO.md) for unfinished simplification work.

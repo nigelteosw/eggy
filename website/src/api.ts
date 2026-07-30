@@ -33,6 +33,51 @@ export function checkSession(): Promise<CommandResult> {
   return request("/api/session");
 }
 
+// "safe" means eggyd could not start -- almost always a config.yaml it cannot
+// load -- and is serving only the repair surface. Asked before anything else,
+// because in safe mode every other route is absent or reporting the failure.
+export type Mode = "normal" | "safe";
+
+export function getMode(): Promise<Mode> {
+  return request<{ mode: Mode }>("/api/mode").then((result) => result.mode);
+}
+
+export function getStartupFailure(): Promise<CommandResult> {
+  return request("/api/safemode");
+}
+
+// The raw config is text, not JSON: it is the owner's file, comments and all,
+// handed back exactly as stored so what they edit is what they wrote.
+export async function getRawConfig(): Promise<string> {
+  const response = await fetch("/api/config/raw", { credentials: "same-origin" });
+  if (response.status === 401) {
+    throw new SessionExpiredError("Not authenticated");
+  }
+  if (!response.ok) {
+    throw new Error("Could not read config.yaml");
+  }
+  return response.text();
+}
+
+export async function saveRawConfig(body: string): Promise<CommandResult> {
+  const response = await fetch("/api/config/raw", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "text/yaml" },
+    body,
+  });
+  const result = (await response.json()) as CommandResult;
+  if (response.status === 401) {
+    throw new SessionExpiredError(result.title ?? "Not authenticated");
+  }
+  if (!response.ok) {
+    // The rejection reason is the whole point here: it is why the config
+    // would not have started, and it is what the owner edits against.
+    throw new Error(result.title ?? "Eggy refused the config");
+  }
+  return result;
+}
+
 export function login(email: string, password: string): Promise<CommandResult> {
   return request("/api/login", { method: "POST", body: JSON.stringify({ email, password }) });
 }

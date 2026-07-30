@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { checkSession } from "./api";
+import { checkSession, getMode, type Mode } from "./api";
 import { LoginPage } from "./LoginPage";
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
+import { SafeModePage } from "./SafeModePage";
 import { ThreadSidebar } from "./ThreadSidebar";
 
 type Status = "checking" | "authenticated" | "unauthenticated";
@@ -10,6 +11,7 @@ type View = "chat" | "config";
 
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
+  const [mode, setMode] = useState<Mode>("normal");
   const [view, setView] = useState<View>("chat");
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
@@ -20,9 +22,19 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    checkSession()
-      .then(() => setStatus("authenticated"))
-      .catch(() => setStatus("unauthenticated"));
+    // The mode probe decides which app this is before the session decides
+    // which screen: in safe mode chat and settings do not exist, so rendering
+    // them and letting each request fail would be noise around the one thing
+    // the owner can act on. A probe that itself fails is treated as normal --
+    // an old server that predates the route still runs the agent.
+    getMode()
+      .then(setMode)
+      .catch(() => setMode("normal"))
+      .finally(() => {
+        checkSession()
+          .then(() => setStatus("authenticated"))
+          .catch(() => setStatus("unauthenticated"));
+      });
   }, []);
 
   if (status === "checking") {
@@ -38,6 +50,10 @@ export function App() {
   }
 
   const onSessionExpired = () => setStatus("unauthenticated");
+
+  if (mode === "safe") {
+    return <SafeModePage onSessionExpired={onSessionExpired} />;
+  }
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background">

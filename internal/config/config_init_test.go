@@ -75,6 +75,111 @@ func TestLoadOrCreateConfigMigratesLegacyTemporaryRunnerRoot(t *testing.T) {
 	}
 }
 
+// A config left by an older build carries settings whose fields are gone.
+// Strict decoding would refuse it outright, so the retired keys are dropped on
+// load and everything the owner still relies on survives, comments included.
+func TestLoadOrCreateConfigDropsRetiredFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	legacy := validConfig() + `implementation_sessions:
+  context_budget_chars: 96000
+scheduler:
+  heartbeat_cadence: 3h
+  quiet_hours:
+    start: '22:00'
+calendar:
+  enabled: true
+  # Mutations without a calendar_id write here.
+  default_calendar: primary
+  timezone: Asia/Singapore
+`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatalf("LoadOrCreateConfig() error = %v", err)
+	}
+	if cfg.Calendar.DefaultCalendar != "primary" {
+		t.Fatalf("calendar = %#v, want the surviving default_calendar", cfg.Calendar)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, retired := range []string{"implementation_sessions", "scheduler", "heartbeat_cadence", "enabled: true", "Asia/Singapore"} {
+		if strings.Contains(string(body), retired) {
+			t.Fatalf("retired %q survived:\n%s", retired, body)
+		}
+	}
+	for _, kept := range []string{"default_calendar: primary", "# Mutations without a calendar_id write here.", "owner_id: 42", "clone_url: https://github.com/acme/repo.git"} {
+		if !strings.Contains(string(body), kept) {
+			t.Fatalf("pruning lost %q:\n%s", kept, body)
+		}
+	}
+}
+
+// calendar.timezone moved to agent.timezone rather than disappearing, so an
+// older config keeps its clock instead of being dropped onto the UTC default.
+func TestLoadOrCreateConfigCarriesCalendarTimezoneToAgent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	legacy := strings.Replace(validConfig(), "  timezone: UTC\n", "", 1) + `calendar:
+  default_calendar: primary
+  timezone: Asia/Singapore
+`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatalf("LoadOrCreateConfig() error = %v", err)
+	}
+	if cfg.Agent.Timezone != "Asia/Singapore" {
+		t.Fatalf("agent.timezone = %q, want the calendar's carried over", cfg.Agent.Timezone)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(body), "Asia/Singapore") != 1 {
+		t.Fatalf("timezone was copied rather than moved:\n%s", body)
+	}
+}
+
+// An agent.timezone already in the file is the current setting and wins.
+func TestLoadOrCreateConfigKeepsExistingAgentTimezone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	legacy := validConfig() + "calendar:\n  default_calendar: primary\n  timezone: Asia/Singapore\n"
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.Timezone != "UTC" {
+		t.Fatalf("agent.timezone = %q, want the config's own UTC", cfg.Agent.Timezone)
+	}
+}
+
+// Pruning must not rewrite a config that has nothing retired in it: an
+// untouched file keeps its formatting and its modification time.
+func TestLoadOrCreateConfigLeavesCurrentConfigByteIdentical(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets())); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != validConfig() {
+		t.Fatalf("current config was rewritten:\n%s", body)
+	}
+}
+
 func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 	tests := []struct {
 		name   string

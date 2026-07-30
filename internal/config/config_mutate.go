@@ -41,6 +41,13 @@ func writeConfigUnlocked(path string, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
+	return writeFileAtomic(path, body)
+}
+
+// writeFileAtomic replaces path with body through a same-directory temporary
+// file, so a crash mid-write leaves the previous config intact rather than a
+// truncated one the next start cannot parse.
+func writeFileAtomic(path string, body []byte) error {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
 	if err != nil {
 		return fmt.Errorf("persist config: %w", err)
@@ -63,6 +70,41 @@ func writeConfigUnlocked(path string, cfg Config) error {
 		return fmt.Errorf("persist config: %w", err)
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+// ReplaceConfig writes body over the config file, but only once body has been
+// proved loadable. Validation runs against a temporary file through LoadConfig
+// itself rather than a reimplementation of it, so what is accepted here is
+// exactly what the next start accepts -- including the environment overrides
+// and required secrets, which a plain decode would not catch.
+//
+// The owner's bytes are written verbatim: this is the repair path for a config
+// the daemon could not parse, and re-marshalling would throw away the comments
+// and ordering of the file they are trying to fix.
+func ReplaceConfig(path string, body []byte, getenv func(string) string) error {
+	return filelock.With(path, func() error {
+		candidate, err := os.CreateTemp(filepath.Dir(path), ".config-candidate-*.tmp")
+		if err != nil {
+			return fmt.Errorf("stage config: %w", err)
+		}
+		candidatePath := candidate.Name()
+		defer os.Remove(candidatePath)
+		if err := candidate.Chmod(0o600); err != nil {
+			candidate.Close()
+			return fmt.Errorf("stage config: %w", err)
+		}
+		if _, err := candidate.Write(body); err != nil {
+			candidate.Close()
+			return fmt.Errorf("stage config: %w", err)
+		}
+		if err := candidate.Close(); err != nil {
+			return fmt.Errorf("stage config: %w", err)
+		}
+		if _, _, err := LoadConfig(candidatePath, getenv); err != nil {
+			return err
+		}
+		return writeFileAtomic(path, body)
+	})
 }
 
 func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
@@ -245,6 +287,17 @@ func GetModelAliasesConfigText(path string) (string, error) {
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// ReadConfigText returns the config file exactly as stored, comments and all.
+// Safe to expose to the authenticated owner for the same reason ShowConfigText
+// is: config.yaml holds environment-variable names, never secret values.
+func ReadConfigText(path string) (string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("open config: %w", err)
+	}
+	return string(body), nil
 }
 
 // ShowConfigText re-marshals the whole config as YAML. Safe to expose in

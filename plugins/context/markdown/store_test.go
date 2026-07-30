@@ -24,13 +24,13 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") || !strings.HasPrefix(loaded.Heartbeat, "# Eggy Heartbeat") {
+	if !strings.HasPrefix(loaded.Soul, "# Eggy Soul") || !strings.HasPrefix(loaded.User, "# Eggy User") || !strings.HasPrefix(loaded.Memory, "# Eggy Memory") {
 		t.Fatalf("context=%#v", loaded)
 	}
 	if loaded.UserMaxBytes != DefaultUserMaxBytes || loaded.MemoryMaxBytes != DefaultMemoryMaxBytes {
 		t.Fatalf("budgets user=%d memory=%d", loaded.UserMaxBytes, loaded.MemoryMaxBytes)
 	}
-	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"} {
+	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode=%v err=%v", name, info.Mode().Perm(), err)
@@ -183,36 +183,22 @@ func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 	}
 }
 
-// TestContextStoreSoulAndHeartbeatAreOwnerEditableOnly proves the two
-// owner-owned documents load like the rest but have no agent-writable path.
-func TestContextStoreSoulAndHeartbeatAreOwnerEditableOnly(t *testing.T) {
+func TestContextStoreSoulIsOwnerEditableOnly(t *testing.T) {
 	store, dir := testStore(t)
 	ctx := context.Background()
-	for _, document := range []ports.ContextDocument{ports.ContextSoul, ports.ContextHeartbeat} {
-		if err := store.AddEntry(ctx, document, "check something"); err == nil {
-			t.Fatalf("expected %s to reject an add", document)
-		}
-		if err := store.ReplaceEntry(ctx, document, "old", "new"); err == nil {
-			t.Fatalf("expected %s to reject a replace", document)
-		}
-		if err := store.RemoveEntry(ctx, document, "old"); err == nil {
-			t.Fatalf("expected %s to reject a remove", document)
-		}
+	if err := store.AddEntry(ctx, ports.ContextSoul, "check something"); err == nil {
+		t.Fatal("expected soul to reject an add")
 	}
 	if _, err := store.Load(ctx); err != nil {
 		t.Fatal(err)
 	}
 	soul := "# Eggy Soul\n\nCustom identity the owner wrote.\n"
-	heartbeat := "# Eggy Heartbeat\n\n## Check\n\nSomething the owner cares about.\n"
 	if err := os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte(soul), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "HEARTBEAT.md"), []byte(heartbeat), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	loaded, err := store.Load(ctx)
-	if err != nil || loaded.Soul != soul || loaded.Heartbeat != heartbeat {
-		t.Fatalf("soul=%q heartbeat=%q err=%v", loaded.Soul, loaded.Heartbeat, err)
+	if err != nil || loaded.Soul != soul {
+		t.Fatalf("soul=%q err=%v", loaded.Soul, err)
 	}
 }
 

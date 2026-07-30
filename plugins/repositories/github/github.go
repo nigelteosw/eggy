@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,14 +26,8 @@ type Adapter struct {
 	http    *http.Client
 }
 
-var _ ports.CodingRepository = (*Adapter)(nil)
-var _ ports.RepositoryCommitter = (*Adapter)(nil)
-var _ ports.RepositoryPusher = (*Adapter)(nil)
-var _ ports.PullRequestProvider = (*Adapter)(nil)
-var _ ports.RepositoryCapabilityProvider = (*Adapter)(nil)
+var _ ports.RepositoryCheckout = (*Adapter)(nil)
 var _ ports.RepositoryReader = (*Adapter)(nil)
-
-var ErrDiffTooLarge = errors.New("repository diff exceeds configured output limit")
 
 var errStopWalk = errors.New("stop walk")
 
@@ -48,9 +43,32 @@ func New(runner ports.Runner, token, apiBase string, client *http.Client) *Adapt
 	return &Adapter{runner: runner, token: token, apiBase: strings.TrimRight(apiBase, "/"), http: client}
 }
 
-func (a *Adapter) RepositoryCapabilities() ports.RepositoryCapabilities {
-	writeReady := strings.TrimSpace(a.token) != ""
-	return ports.RepositoryCapabilities{Commit: true, Push: writeReady, PullRequest: writeReady}
+// ValidateCloneAccess verifies that the configured remote and base branch can
+// be read without downloading a checkout.
+func (a *Adapter) ValidateCloneAccess(ctx context.Context, repository ports.Repository) error {
+	if a.runner == nil {
+		return errors.New("repository runner is unavailable")
+	}
+	random := make([]byte, 8)
+	if _, err := rand.Read(random); err != nil {
+		return fmt.Errorf("create validation workspace ID: %w", err)
+	}
+	workspace, err := a.runner.Create(ctx, fmt.Sprintf("validate-%x", random))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = a.runner.Destroy(context.Background(), workspace) }()
+	cleanup, environment, err := a.askpass(workspace)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	_, err = a.runner.Execute(ctx, ports.Command{
+		Argv: []string{"git", "ls-remote", "--exit-code", "--heads", "--", repository.CloneURL, "refs/heads/" + repository.BaseBranch},
+		Dir:  workspace,
+		Env:  environment,
+	})
+	return err
 }
 
 func (a *Adapter) Clone(ctx context.Context, repository ports.Repository, workspace string) error {
@@ -67,113 +85,6 @@ func (a *Adapter) Clone(ctx context.Context, repository ports.Repository, worksp
 		Dir:  filepath.Dir(workspace), Env: environment,
 	})
 	return err
-}
-
-func (a *Adapter) Inspect(ctx context.Context, workspace string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(workspace, "AGENTS.md"))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func (a *Adapter) CreateBranch(ctx context.Context, workspace, branch string) error {
-	if !validBranch(branch) {
-		return errors.New("invalid branch")
-	}
-	_, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "checkout", "-b", branch}, Dir: workspace})
-	return err
-}
-
-func (a *Adapter) Head(ctx context.Context, workspace string) (string, error) {
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "rev-parse", "HEAD"}, Dir: workspace})
-	if err != nil {
-		return "", err
-	}
-	if result.OutputTruncated {
-		return "", errors.New("git head output was truncated")
-	}
-	return strings.TrimSpace(result.Stdout), nil
-}
-
-func (a *Adapter) WorkspaceRevision(ctx context.Context, workspace string) (ports.WorkspaceRevision, error) {
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "symbolic-ref", "--quiet", "--short", "HEAD"}, Dir: workspace})
-	if err != nil {
-		return ports.WorkspaceRevision{}, fmt.Errorf("read current branch: %w", err)
-	}
-	if result.OutputTruncated {
-		return ports.WorkspaceRevision{}, errors.New("git branch output was truncated")
-	}
-	head, err := a.Head(ctx, workspace)
-	if err != nil {
-		return ports.WorkspaceRevision{}, err
-	}
-	return ports.WorkspaceRevision{Branch: strings.TrimSpace(result.Stdout), Head: head}, nil
-}
-
-func (a *Adapter) RemoteHead(ctx context.Context, workspace, branch string) (string, error) {
-	if !validBranch(branch) {
-		return "", errors.New("invalid remote branch")
-	}
-	cleanup, environment, err := a.askpass(filepath.Dir(workspace))
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "ls-remote", "origin", "refs/heads/" + branch}, Dir: workspace, Env: environment})
-	if err != nil {
-		return "", err
-	}
-	if result.OutputTruncated {
-		return "", errors.New("remote head output was truncated")
-	}
-	fields := strings.Fields(result.Stdout)
-	if len(fields) == 0 {
-		return "", errors.New("remote branch does not exist")
-	}
-	return fields[0], nil
-}
-
-func (a *Adapter) CheckRemote(ctx context.Context, repository ports.Repository, workspace string) error {
-	if a.runner == nil {
-		return errors.New("repository runner is unavailable")
-	}
-	if !validBranch(repository.BaseBranch) {
-		return errors.New("invalid base branch")
-	}
-	cleanup, environment, err := a.askpass(filepath.Dir(workspace))
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	result, err := a.runner.Execute(ctx, ports.Command{
-		Argv: []string{"git", "ls-remote", "--exit-code", "--heads", repository.CloneURL, repository.BaseBranch},
-		Dir:  workspace, Env: environment,
-	})
-	if err != nil {
-		return fmt.Errorf("repository is not reachable: %w", err)
-	}
-	if strings.TrimSpace(result.Stdout) == "" {
-		return fmt.Errorf("base branch %q not found in %q", repository.BaseBranch, repository.Name)
-	}
-	return nil
-}
-
-func (a *Adapter) Diff(ctx context.Context, workspace string) (string, error) {
-	if _, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "add", "-A"}, Dir: workspace}); err != nil {
-		return "", err
-	}
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "diff", "--cached", "--no-ext-diff", "--binary", "HEAD"}, Dir: workspace})
-	if err != nil {
-		return "", err
-	}
-	if result.OutputTruncated {
-		return "", ErrDiffTooLarge
-	}
-	return result.Stdout, nil
 }
 
 func (a *Adapter) Status(ctx context.Context, workspace string) (string, error) {
@@ -384,94 +295,6 @@ func truncateText(text string, limit int) string {
 	return text[:limit] + "...(truncated)"
 }
 
-func (a *Adapter) Commit(ctx context.Context, workspace, message string) (string, error) {
-	if strings.TrimSpace(message) == "" {
-		return "", errors.New("commit message is empty")
-	}
-	if _, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "add", "-A"}, Dir: workspace}); err != nil {
-		return "", err
-	}
-	if _, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "-c", "user.name=Eggy", "-c", "user.email=eggy@localhost", "commit", "-m", message}, Dir: workspace}); err != nil {
-		return "", err
-	}
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "rev-parse", "HEAD"}, Dir: workspace})
-	return strings.TrimSpace(result.Stdout), err
-}
-
-func (a *Adapter) Push(ctx context.Context, workspace, branch string) error {
-	if !validBranch(branch) {
-		return errors.New("invalid push branch")
-	}
-	cleanup, environment, err := a.askpass(filepath.Dir(workspace))
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	_, err = a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "push", "origin", "HEAD:refs/heads/" + branch}, Dir: workspace, Env: environment})
-	return err
-}
-
-func (a *Adapter) CreatePullRequest(ctx context.Context, repository ports.Repository, branch, title, body string, draft bool) (ports.PullRequest, error) {
-	_, base, err := a.repoBase(repository)
-	if err != nil {
-		return ports.PullRequest{}, err
-	}
-	payload := map[string]any{"head": branch, "base": repository.BaseBranch, "title": title, "body": body, "draft": draft}
-	var result struct {
-		URL    string `json:"html_url"`
-		Number int    `json:"number"`
-	}
-	if err := a.githubRequest(ctx, http.MethodPost, base+"/pulls", payload, &result, http.StatusCreated); err != nil {
-		return ports.PullRequest{}, err
-	}
-	return ports.PullRequest{URL: result.URL, Number: result.Number}, nil
-}
-
-// FindOpenPullRequest looks up an already-open pull request for branch so a
-// repeated shipping round reuses it instead of attempting to open a
-// duplicate (GitHub already shows newly pushed commits on the existing pull
-// request automatically; this just prevents a second POST /pulls call).
-func (a *Adapter) FindOpenPullRequest(ctx context.Context, repository ports.Repository, branch string) (ports.PullRequest, bool, error) {
-	owner, base, err := a.repoBase(repository)
-	if err != nil {
-		return ports.PullRequest{}, false, err
-	}
-	var payload []struct {
-		Number  int    `json:"number"`
-		HTMLURL string `json:"html_url"`
-	}
-	path := base + "/pulls?state=open&head=" + url.QueryEscape(owner+":"+branch)
-	if err := a.githubGet(ctx, path, &payload); err != nil {
-		return ports.PullRequest{}, false, err
-	}
-	if len(payload) == 0 {
-		return ports.PullRequest{}, false, nil
-	}
-	return ports.PullRequest{URL: payload[0].HTMLURL, Number: payload[0].Number}, true, nil
-}
-
-// UpdatePullRequestBody appends note to an already-open pull request's
-// description.
-func (a *Adapter) UpdatePullRequestBody(ctx context.Context, repository ports.Repository, number int, note string) error {
-	_, base, err := a.repoBase(repository)
-	if err != nil {
-		return err
-	}
-	path := fmt.Sprintf("%s/pulls/%d", base, number)
-	var current struct {
-		Body string `json:"body"`
-	}
-	if err := a.githubGet(ctx, path, &current); err != nil {
-		return err
-	}
-	body := current.Body
-	if body != "" {
-		body += "\n\n"
-	}
-	body += note
-	return a.githubRequest(ctx, http.MethodPatch, path, map[string]string{"body": body}, nil, http.StatusOK)
-}
-
 func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Repository) (ports.RepositorySummary, error) {
 	_, base, err := a.repoBase(repository)
 	if err != nil {
@@ -497,7 +320,7 @@ func (a *Adapter) Issue(ctx context.Context, repository ports.Repository, number
 	return a.issueLikeSummary(ctx, fmt.Sprintf("%s/issues/%d", base, number))
 }
 
-func (a *Adapter) PullRequestSummary(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
+func (a *Adapter) ReviewSummary(ctx context.Context, repository ports.Repository, number int) (ports.RepositorySummary, error) {
 	_, base, err := a.repoBase(repository)
 	if err != nil {
 		return ports.RepositorySummary{}, err
@@ -560,9 +383,7 @@ func (a *Adapter) githubGet(ctx context.Context, path string, out any) error {
 	return a.githubRequest(ctx, http.MethodGet, path, nil, out, http.StatusOK)
 }
 
-// githubRequest issues one GitHub REST call, marshaling payload as the
-// request body when non-nil and decoding into out when non-nil, the shared
-// shape behind every read and write call in this adapter.
+// githubRequest issues one GitHub REST call and decodes its response.
 func (a *Adapter) githubRequest(ctx context.Context, method, path string, payload, out any, expectedStatus int) error {
 	var body io.Reader
 	if payload != nil {

@@ -18,7 +18,7 @@ import (
 // CurrentSchemaVersion is 5 because State dropped three fields that only
 // existed to be migrated out of: recent_messages (replaced by the SQLite
 // conversation window), schedules (replaced by one file per job under
-// <home>/cron), and calendar (replaced by auth.json). Their boot migrations
+// <home>/cron). Their boot migrations
 // are gone, so a state.json still carrying those keys simply has them
 // ignored on load and dropped on the next write.
 const CurrentSchemaVersion = 5

@@ -50,34 +50,6 @@ func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, 
 	return approval, err
 }
 
-// RequestAndApprove creates and immediately approves an approval in one
-// store.Update, standing in for a human Telegram tap so an automated caller
-// (ShippingService.Ship) can run a chain of authorized actions unattended.
-func (s *ApprovalService) RequestAndApprove(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
-	canonical, digest, err := canonicalPayload(payload)
-	if err != nil {
-		return approvals.Approval{}, err
-	}
-	now := s.now()
-	approval := approvals.Approval{
-		ID: randomID(), Action: action, PayloadDigest: digest, Payload: canonical, Summary: summary,
-		Status: approvals.Approved, CreatedAt: now, ExpiresAt: now.Add(s.ttl), DecidedAt: now,
-		Destination: destination.FromContext(ctx),
-	}
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return approvals.Approval{}, err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		if state.Approvals == nil {
-			state.Approvals = map[string]approvals.Approval{}
-		}
-		state.Approvals[approval.ID] = approval
-		return nil
-	})
-	return approval, err
-}
-
 func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) error {
 	state, err := s.store.Load(ctx)
 	if err != nil {
@@ -124,43 +96,7 @@ func (s *ApprovalService) Invalidate(ctx context.Context, id string) error {
 	return err
 }
 
-// InvalidatePendingCommitForRun invalidates any unconsumed commit approval
-// for a run before a resumed implementation can produce a fresh diff.
-func (s *ApprovalService) InvalidatePendingCommitForRun(ctx context.Context, runID string) error {
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		for id, approval := range state.Approvals {
-			if approval.Action != approvals.Commit || approval.Status != approvals.Pending {
-				continue
-			}
-			var payload struct {
-				RunID      string `json:"RunID"`
-				RunIDSnake string `json:"run_id"`
-			}
-			if json.Unmarshal(approval.Payload, &payload) != nil || (payload.RunID != runID && payload.RunIDSnake != runID) {
-				continue
-			}
-			approval.Status, approval.DecidedAt = approvals.Invalidated, s.now()
-			state.Approvals[id] = approval
-		}
-		return nil
-	})
-	return err
-}
-
 func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action, payload any, approvalID string) error {
-	if action == approvals.Push {
-		state, err := s.store.Load(ctx)
-		if err != nil {
-			return err
-		}
-		if branch := payloadBranch(payload); branch != "" && isProtectedBranch(state.Repositories, branch) {
-			return approvals.ErrProtectedBranch
-		}
-	}
 	_, digest, err := canonicalPayload(payload)
 	if err != nil {
 		return err
@@ -180,7 +116,7 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 			return approvals.ErrExpired
 		}
 		if approval.PayloadDigest != digest {
-			return approvals.ErrPayloadChanged
+			return approvals.ErrPayloadMismatch
 		}
 		approval.Status = approvals.Used
 		state.Approvals[approvalID] = approval
@@ -204,31 +140,6 @@ func canonicalPayload(payload any) (json.RawMessage, string, error) {
 	}
 	sum := sha256.Sum256(canonical)
 	return canonical, hex.EncodeToString(sum[:]), nil
-}
-
-func payloadBranch(payload any) string {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	var value struct {
-		Branch string `json:"branch"`
-	}
-	if json.Unmarshal(data, &value) != nil {
-		return ""
-	}
-	return value.Branch
-}
-
-func isProtectedBranch(repositories map[string]ports.Repository, branch string) bool {
-	for _, repository := range repositories {
-		for _, protected := range repository.ProtectedBranches {
-			if protected == branch {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func randomID() string {

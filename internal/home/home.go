@@ -3,24 +3,20 @@
 // has to know a path literal.
 //
 //	<home>/
-//	  config.yaml   settings (server, providers, models, scheduler, MCP, ...)
+//	  config.yaml   startup settings
 //	  .env          API keys and secrets, never read through the web API
-//	  auth.json     OAuth provider credentials (MCP servers, Google Calendar)
+//	  auth.json     OAuth provider credentials for MCP servers
 //	  SOUL.md       durable agent identity, first slot in the system prompt
-//	  HEARTBEAT.md  plain checklist consulted on a heartbeat turn
 //	  memories/     MEMORY.md, USER.md
-//	  skills/       agent-created skills
+//	  skills/       reviewed procedural skills
 //	  cron/         scheduled jobs, one file per job
-//	  sessions/     gateway sessions
-//	  changes/      transcripts of the agent's editing runs
 //	  logs/         gateway.log, errors.log (secrets redacted)
 //	  state.json    internal runtime state
 //	  eggy.db       conversation memory
-//	  runs/         repository workspaces
+//	  runs/         read-only repository checkouts
 //
-// Everything above `state.json` is owner-facing: inspectable and, apart from
-// the two secret files, editable through the web UI. Everything below it is
-// Eggy's own bookkeeping and is deliberately not exposed for editing.
+// Owner-facing Markdown is edited outside Eggy. Machine-managed files are not
+// exposed through the web API.
 package home
 
 import (
@@ -52,34 +48,29 @@ func At(dir string) Layout {
 	return Layout{Root: filepath.Clean(dir)}
 }
 
-// Log file names inside <home>/logs. They live here with the rest of the
-// layout's names because two packages need them: the logger that writes the
-// files, and the files API that lists them.
+// Log file names inside <home>/logs.
 const (
 	GatewayLogName = "gateway.log"
 	ErrorsLogName  = "errors.log"
 )
 
-func (l Layout) Config() string    { return filepath.Join(l.Root, "config.yaml") }
-func (l Layout) Env() string       { return filepath.Join(l.Root, ".env") }
-func (l Layout) Auth() string      { return filepath.Join(l.Root, "auth.json") }
-func (l Layout) Soul() string      { return filepath.Join(l.Root, "SOUL.md") }
-func (l Layout) Heartbeat() string { return filepath.Join(l.Root, "HEARTBEAT.md") }
-func (l Layout) Memories() string  { return filepath.Join(l.Root, "memories") }
-func (l Layout) Memory() string    { return filepath.Join(l.Memories(), "MEMORY.md") }
-func (l Layout) User() string      { return filepath.Join(l.Memories(), "USER.md") }
-func (l Layout) Skills() string    { return filepath.Join(l.Root, "skills") }
-func (l Layout) Cron() string      { return filepath.Join(l.Root, "cron") }
-func (l Layout) Sessions() string  { return filepath.Join(l.Root, "sessions") }
-func (l Layout) Changes() string   { return filepath.Join(l.Root, "changes") }
-func (l Layout) Logs() string      { return filepath.Join(l.Root, "logs") }
-func (l Layout) State() string     { return filepath.Join(l.Root, "state.json") }
-func (l Layout) Database() string  { return filepath.Join(l.Root, "eggy.db") }
-func (l Layout) Runs() string      { return filepath.Join(l.Root, "runs") }
+func (l Layout) Config() string   { return filepath.Join(l.Root, "config.yaml") }
+func (l Layout) Env() string      { return filepath.Join(l.Root, ".env") }
+func (l Layout) Auth() string     { return filepath.Join(l.Root, "auth.json") }
+func (l Layout) Soul() string     { return filepath.Join(l.Root, "SOUL.md") }
+func (l Layout) Memories() string { return filepath.Join(l.Root, "memories") }
+func (l Layout) Memory() string   { return filepath.Join(l.Memories(), "MEMORY.md") }
+func (l Layout) User() string     { return filepath.Join(l.Memories(), "USER.md") }
+func (l Layout) Skills() string   { return filepath.Join(l.Root, "skills") }
+func (l Layout) Cron() string     { return filepath.Join(l.Root, "cron") }
+func (l Layout) Logs() string     { return filepath.Join(l.Root, "logs") }
+func (l Layout) State() string    { return filepath.Join(l.Root, "state.json") }
+func (l Layout) Database() string { return filepath.Join(l.Root, "eggy.db") }
+func (l Layout) Runs() string     { return filepath.Join(l.Root, "runs") }
 
 // Directories lists every directory the layout owns, in creation order.
 func (l Layout) Directories() []string {
-	return []string{l.Root, l.Memories(), l.Skills(), l.Cron(), l.Sessions(), l.Changes(), l.Logs()}
+	return []string{l.Root, l.Memories(), l.Skills(), l.Cron(), l.Logs()}
 }
 
 // Ensure creates the home directory and its subdirectories.

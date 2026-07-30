@@ -27,7 +27,7 @@ type ContextPolicy struct {
 	// oldest are folded into the checkpoint summary.
 	RecentSteps int
 	// OutputExcerptChars bounds a single message's contribution to the
-	// durable transcript and the summary.
+	// summary.
 	OutputExcerptChars int
 	// MaxSteps is the runaway guard. Zero means the default; a negative
 	// value means no guard at all.
@@ -53,7 +53,7 @@ func (p ContextPolicy) normalized() ContextPolicy {
 // step is one contiguous assistant-with-tool-calls message plus the tool
 // results that answered it. Compaction drops whole steps, never a lone tool
 // result: a provider rejects a tool message whose originating tool call is
-// no longer in the transcript.
+// no longer in the live context.
 type step struct {
 	messages []ports.Message
 	chars    int
@@ -61,7 +61,7 @@ type step struct {
 
 // splitSteps groups messages into steps. A leading run of messages that is
 // not introduced by an assistant message (only possible if a caller hands
-// the loop a partial transcript) forms its own first group.
+// the loop a partial exchange) forms its own first group.
 func splitSteps(messages []ports.Message) []step {
 	steps := make([]step, 0, len(messages))
 	for _, message := range messages {
@@ -106,7 +106,7 @@ func (p ContextPolicy) compact(tail []ports.Message, summary string) ([]ports.Me
 func CheckpointMessage(summary string) ports.Message {
 	return ports.Message{
 		Role:    ports.RoleSystem,
-		Content: "Checkpoint of earlier work in this turn (the full transcript is recorded durably; only this summary is still in context):\n" + summary,
+		Content: "Checkpoint of earlier work in this turn (only this summary remains in live context):\n" + summary,
 	}
 }
 
@@ -152,7 +152,7 @@ func SummarizeMessage(message ports.Message) string {
 	return "Recorded activity"
 }
 
-// TruncateMessage bounds a message's content for a transcript or summary.
+// TruncateMessage bounds a message's content for a summary.
 func TruncateMessage(message ports.Message, limit int) ports.Message {
 	message.Content = TruncateRunes(message.Content, limit)
 	return message

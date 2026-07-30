@@ -131,14 +131,13 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		DataDir:  "/data",
 		Owner:    OwnerConfig{ID: ownerValue},
 		Telegram: telegram,
-		Agent:    AgentConfig{DefaultModel: "deepseek-pro"},
+		Agent:    AgentConfig{DefaultModel: "deepseek-pro", Timezone: "Asia/Singapore"},
 		Providers: map[string]ProviderConfig{
 			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},
 		},
 		ModelAliases: map[string]ModelAliasConfig{
 			"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"},
 		},
-		Embeddings:   EmbeddingsConfig{},
 		Repositories: []RepositoryConfig{},
 		Runner: RunnerConfig{
 			Root:           "/data/runs",
@@ -147,22 +146,6 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			MaxOutputBytes: 1 << 20,
 			AllowedEnv:     []string{"PATH", "LANG", "LC_ALL", "TERM"},
 		},
-		ImplementationSessions: ImplementationSessionConfig{
-			ContextBudgetChars: 96000,
-			RecentMessages:     16,
-			OutputExcerptChars: 8192,
-		},
-		Scheduler: SchedulerConfig{
-			HeartbeatCadence: Duration(3 * time.Hour),
-			QuietHours: QuietHoursConfig{
-				Start:    "22:00",
-				End:      "07:00",
-				Timezone: "Asia/Singapore",
-			},
-			MinimumProactiveInterval: Duration(2 * time.Hour),
-			WeeklyProactiveLimit:     5,
-		},
-		Calendar: CalendarConfig{Enabled: false, DefaultCalendar: "primary", Timezone: "Asia/Singapore"},
 	}
 	if repositoryURL := strings.TrimSpace(getenv("EGGY_REPOSITORY_URL")); repositoryURL != "" {
 		name := strings.TrimSpace(getenv("EGGY_REPOSITORY_NAME"))

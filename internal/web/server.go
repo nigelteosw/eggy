@@ -18,9 +18,9 @@ type Routes struct {
 	Ready          func() error
 	TelegramPath   string
 	Telegram       http.Handler
+	MCPCallback    http.Handler
 	GoogleStart    http.Handler
 	GoogleCallback http.Handler
-	MCPCallback    http.Handler
 	Web            http.Handler
 }
 
@@ -33,7 +33,7 @@ func NewHTTPHandler(routes Routes) http.Handler {
 		telegramPath = DefaultTelegramWebhookPath
 	}
 	ready, telegram := routes.Ready, routes.Telegram
-	googleStart, googleCallback, web := routes.GoogleStart, routes.GoogleCallback, routes.Web
+	web := routes.Web
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -56,14 +56,14 @@ func NewHTTPHandler(routes Routes) http.Handler {
 	} else {
 		mux.HandleFunc(telegramPath, unavailable)
 	}
-	if googleStart != nil {
-		mux.Handle("GET /auth/google", googleStart)
-	}
-	if googleCallback != nil {
-		mux.Handle("GET /auth/google/callback", googleCallback)
-	}
 	if routes.MCPCallback != nil {
 		mux.Handle("GET /auth/mcp/{server}/callback", routes.MCPCallback)
+	}
+	if routes.GoogleStart != nil {
+		mux.Handle("GET /auth/google", routes.GoogleStart)
+	}
+	if routes.GoogleCallback != nil {
+		mux.Handle("GET /auth/google/callback", routes.GoogleCallback)
 	}
 	if web != nil {
 		mux.Handle("/", web)

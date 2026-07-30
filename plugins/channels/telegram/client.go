@@ -77,6 +77,24 @@ func (c *Client) DeliverApproval(ctx context.Context, approval approvals.Approva
 	return err
 }
 
+func (c *Client) DeliverSelection(ctx context.Context, prompt, selectionID string, options []SelectOption) error {
+	rows := make([][]map[string]string, 0, len(options))
+	for index, option := range options {
+		callbackData := "select:" + selectionID + ":" + strconv.Itoa(index)
+		if len(callbackData) > 64 {
+			return errors.New("Telegram selection callback exceeds 64 bytes")
+		}
+		rows = append(rows, []map[string]string{{
+			"text":          option.Label,
+			"callback_data": callbackData,
+		}})
+	}
+	_, err := c.deliver(ctx, prompt, map[string]any{
+		"reply_markup": map[string]any{"inline_keyboard": rows},
+	})
+	return err
+}
+
 func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 	build := func(html bool) map[string]any {
 		payload := map[string]any{"chat_id": c.chatID, "message_id": messageID}

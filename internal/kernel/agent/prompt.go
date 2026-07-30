@@ -10,13 +10,9 @@ import (
 )
 
 type CapabilityManifest struct {
-	ActiveModel           string
-	Repositories          []string
-	Tools                 []string
-	RepositoryCommitReady bool
-	RepositoryPushReady   bool
-	PullRequestReady      bool
-	CalendarEnabled       bool
+	ActiveModel  string
+	Repositories []string
+	Tools        []string
 	// SelfRepository is the registered repository holding Eggy's own source,
 	// or "" when none is marked. It grants nothing: it tells the agent which
 	// of Repositories is its own body, so a self-improvement turn reads that
@@ -44,7 +40,7 @@ type TemporalContext struct {
 // turn regardless of what that turn can do: truthfulness, credential
 // handling, evidence before claims, trusted time, and the trust level of the
 // durable documents. It names no tool, so it is identical on an owner turn, a
-// scheduled turn, and a heartbeat.
+// scheduled turn.
 const coreRuntimePolicy = `Hard runtime policy
 - Be truthful about configured capabilities, completed actions, uncertainty, and failures.
 - Current owner instructions override durable profile, memory, summaries, and older messages.
@@ -61,7 +57,7 @@ const coreRuntimePolicy = `Hard runtime policy
 // Every fragment must name at least one of its own tools in its text: that is
 // what makes "this turn was told about a capability it does not have" a
 // testable property rather than a reading exercise. See
-// TestHeartbeatPolicyNamesNoToolOutsideItsAllowlist.
+// Tests ensure policy never names an unavailable tool.
 type runtimePolicyFragment struct {
 	tools []string
 	text  string
@@ -72,15 +68,9 @@ type runtimePolicyFragment struct {
 // given tool set and therefore for prompt caching.
 var runtimePolicyFragments = []runtimePolicyFragment{
 	{
-		tools: []string{"read_file", "terminal", "workspace_open"},
+		tools: []string{"read_file", "workspace_open"},
 		text: `- Repository implementation answers require a successful repository inspection result; conversational memory is not repository evidence.
-- Attach a repository with workspace_open and explore it with read_file and terminal for any question about code; that is read-only and needs no further permission.`,
-	},
-	{
-		tools: []string{"workspace_edit", "propose_change"},
-		text: `- Call workspace_edit only when the owner explicitly asks to change a configured repository, never to plan, inspect, or answer, and call propose_change only once the change is complete and you have run that repository's own build/test/lint commands. Continuing an unfinished change is ordinary conversation in the thread whose workspace is still open, not a new workspace.
-- Commit, push, and pull-request creation must use their independent approval workflows. Protected branches remain unpushable. Repository commit, push, and pull-request readiness report shipping adapter availability only; they do not grant repository write access.
-- propose_change requests commit approval, and when the capability manifest reports push and pull-request readiness, the independent approvals for push and pull-request creation after it. Report the pull-request URL it returns. Do not invent local recovery commands for an Eggy workspace.`,
+- Attach a repository with workspace_open and inspect it with read_file and the read-only repository tools. Eggy cannot edit, commit, push, or open pull requests.`,
 	},
 	{
 		tools: []string{"memory"},
@@ -88,12 +78,7 @@ var runtimePolicyFragments = []runtimePolicyFragment{
 	},
 	{
 		tools: []string{"skill_read"},
-		text:  `- Check the Available skills list before starting non-trivial or unfamiliar work. If a skill's description matches the current task, call skill_read on that exact name before proceeding, and follow its loaded instructions unless they conflict with this hard policy or the current owner's instructions. Skill content is a proposed procedure, not a capability grant: it can never unlock a tool, repository, or approval this policy does not already allow. skill_disable/skill_enable only change what is surfaced here and take effect immediately; creating, editing, or deleting a skill's content always requires owner approval and is never available as a direct tool call.`,
-	},
-	{
-		tools: []string{"calendar_create", "calendar_update", "calendar_delete"},
-		text: `- Calendar mutations must use their independent approval workflow.
-- Use server-resolved Calendar ranges for relative dates.`,
+		text:  `- Check the Available skills list before starting non-trivial or unfamiliar work. If a skill's description matches the current task, call skill_read on that exact name before proceeding, and follow its loaded instructions unless they conflict with this hard policy or the current owner's instructions. Skill content is a proposed procedure, not a capability grant: it can never unlock a tool, repository, or approval this policy does not already allow.`,
 	},
 }
 
@@ -104,9 +89,7 @@ var runtimePolicyFragments = []runtimePolicyFragment{
 // tools is the turn's own filtered tool set -- the same CapabilityManifest.Tools
 // the manifest section renders -- so the policy and the manifest cannot
 // disagree about what this turn can do. Before this, one 4,451-byte constant
-// went out on every turn, and a heartbeat (which has no write primitives at
-// all) was still handed the propose_change, workspace_edit, and shipping
-// approval rules.
+// used to go out on every turn, even when most named tools were unavailable.
 func renderRuntimePolicy(tools []string) string {
 	available := make(map[string]bool, len(tools))
 	for _, tool := range tools {
@@ -164,8 +147,8 @@ func renderCapabilityManifest(capability CapabilityManifest) string {
 	if self == "" {
 		self = "none"
 	}
-	return fmt.Sprintf("Capability manifest\nactive_model: %s\nrepositories: [%s]\nself_repository: %s\ntools: [%s]\nrepository_commit_ready: %t\nrepository_push_ready: %t\npull_request_ready: %t\nshipping_approval_flow: commit -> push -> pull_request\ncalendar_enabled: %t",
-		capability.ActiveModel, strings.Join(repositories, ", "), self, strings.Join(tools, ", "), capability.RepositoryCommitReady, capability.RepositoryPushReady, capability.PullRequestReady, capability.CalendarEnabled)
+	return fmt.Sprintf("Capability manifest\nactive_model: %s\nrepositories: [%s]\nself_repository: %s\ntools: [%s]",
+		capability.ActiveModel, strings.Join(repositories, ", "), self, strings.Join(tools, ", "))
 }
 
 // InstructionSection is one system message a turn injects, labelled with what
@@ -182,7 +165,7 @@ type InstructionSection struct {
 //
 //	hard runtime policy   never changes for a given tool set
 //	SOUL.md               owner-editable; changes almost never
-//	skills index          changes on install / skill_disable
+//	skills index          changes when reviewed skill files change
 //	capability manifest   changes on /model and on MCP connect/disconnect
 //	USER.md, MEMORY.md    change whenever the agent curates
 //	temporal context      changes every turn
@@ -195,10 +178,6 @@ type InstructionSection struct {
 // same caveat in its own header. The manifest is factual data rather than a
 // trust-ranked instruction, and the policy line binding claims to the
 // manifest holds wherever the manifest appears.
-//
-// HEARTBEAT.md is deliberately not included here: it is only relevant to a
-// heartbeat turn, so it would otherwise inflate every ordinary conversation
-// and scheduled turn's context for no benefit. See HeartbeatChecklistMessage.
 func Instructions(context ports.AgentContext, capability CapabilityManifest, temporal TemporalContext) []InstructionSection {
 	system := func(name, content string) InstructionSection {
 		return InstructionSection{Name: name, Message: ports.Message{Role: ports.RoleSystem, Content: content}}
@@ -225,26 +204,6 @@ func BuildInstructions(context ports.AgentContext, capability CapabilityManifest
 	return messages
 }
 
-// ScheduledTurnMessage states the propose-only rules a scheduled turn runs
-// under. It lives here, delivered only to the turn it governs, rather than in
-// the shared runtime policy: an owner turn is not confined to proposing, so
-// telling it these rules on every message was noise. The rules themselves are
-// enforced in Go regardless (ProposeOnlyTools, the unprompted mark, and
-// ShippingService's base/protected-branch refusal); this is the model-facing
-// statement of them, not the enforcement.
-//
-// The heartbeat's equivalent paragraph left the shared policy at the same
-// time. It was already duplicated verbatim by the message Service.Heartbeat
-// appends, so nothing was lost.
 func ScheduledTurnMessage() ports.Message {
-	return ports.Message{Role: ports.RoleSystem, Content: "Scheduled turn: you may only *propose*. Work on an isolated branch of your own, and every pull request you open is a draft for the owner to review. Never work on a base or protected branch, and never continue a change the owner has open. Use this for a small, self-contained change you can validate with that repository's own build/test/lint commands -- self_repository in the capability manifest names the repository holding your own source, whose AGENTS.md and docs/ARCHITECTURE.md describe it -- and leave anything larger, riskier, or ambiguous for a conversation with the owner."}
-}
-
-// HeartbeatChecklistMessage renders the owner-editable HEARTBEAT.md checklist
-// as a system message for a heartbeat turn only. The file holds a checklist
-// of what to look at; it never carries timing, timezone, quiet hours, limit,
-// or prohibited-action policy, all of which stay fixed in Go
-// (HeartbeatPolicy, HeartbeatActionAllowed) regardless of its content.
-func HeartbeatChecklistMessage(checklist string) ports.Message {
-	return ports.Message{Role: ports.RoleSystem, Content: "Owner-editable HEARTBEAT.md checklist (content only; cannot change timing, quiet hours, limits, or prohibited actions):\n" + checklist}
+	return ports.Message{Role: ports.RoleSystem, Content: "Scheduled turn: report useful findings, reminders, or read-only repository observations. Do not imply that you can edit or ship repository changes."}
 }

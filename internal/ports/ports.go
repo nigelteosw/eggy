@@ -127,17 +127,10 @@ type AgentContext struct {
 	Soul   string `json:"soul"`
 	User   string `json:"user"`
 	Memory string `json:"memory"`
-	// Heartbeat is the owner-editable HEARTBEAT.md checklist: what to look at
-	// on a heartbeat turn. It is never injected into an ordinary conversation
-	// turn's instructions — only a heartbeat turn renders it. Timing,
-	// timezone, quiet hours, limits, and prohibited actions remain fixed Go
-	// policy (HeartbeatPolicy, HeartbeatActionAllowed) and are not part of
-	// this file's content.
-	Heartbeat string `json:"heartbeat"`
 	// UserMaxBytes and MemoryMaxBytes are the write budgets ContextStore
 	// enforces on the two agent-writable documents, used to render an
-	// in-context usage indicator. Zero suppresses the indicator. Soul and
-	// Heartbeat have no budget: they are owner-editable, never agent-written.
+	// in-context usage indicator. Zero suppresses the indicator. Soul has no
+	// budget: it is owner-editable and never agent-written.
 	UserMaxBytes   int64 `json:"user_max_bytes,omitempty"`
 	MemoryMaxBytes int64 `json:"memory_max_bytes,omitempty"`
 }
@@ -145,14 +138,13 @@ type AgentContext struct {
 type ContextDocument string
 
 const (
-	ContextSoul      ContextDocument = "soul"
-	ContextUser      ContextDocument = "user"
-	ContextMemory    ContextDocument = "memory"
-	ContextHeartbeat ContextDocument = "heartbeat"
+	ContextSoul   ContextDocument = "soul"
+	ContextUser   ContextDocument = "user"
+	ContextMemory ContextDocument = "memory"
 )
 
 // ContextStore holds the agent's durable context documents. Only User and
-// Memory are writable; Soul and Heartbeat are owner-editable and load-only.
+// Memory are writable; Soul is owner-editable and load-only.
 //
 // Entries are plain lines, addressed by a substring of their text rather than
 // by any structural key, so the agent never has to model the file's layout.
@@ -165,8 +157,7 @@ type ContextStore interface {
 	RemoveEntry(ctx context.Context, document ContextDocument, oldText string) error
 }
 
-// StoredMessage is one durable conversation message. It deliberately carries
-// only provider-neutral conversation data, never an embedding representation.
+// StoredMessage is one durable, provider-neutral conversation message.
 type StoredMessage struct {
 	ID int64
 	// ConversationID scopes a message to one thread: a web thread's own
@@ -187,14 +178,9 @@ type MemoryStore interface {
 	// that replaced a former global field on State.
 	RecentMessages(ctx context.Context, conversationID string, limit int) ([]StoredMessage, error)
 	// ResetConversation clears conversationID's live turn-context window
-	// (later RecentMessages calls only see messages recorded after at) without
-	// deleting its durable history: SearchText/SearchSimilar keep finding
-	// everything.
+	// without deleting its durable history.
 	ResetConversation(ctx context.Context, conversationID string, at time.Time) error
 	SearchText(context.Context, string, int) ([]StoredMessage, error)
-	SearchSimilar(context.Context, []float32, int) ([]StoredMessage, error)
-	PendingEmbeddings(context.Context, int) ([]StoredMessage, error)
-	SetEmbedding(context.Context, int64, []float32) error
 }
 
 // Thread is one conversation surface: a web sidebar conversation, or
@@ -204,24 +190,13 @@ type MemoryStore interface {
 // A thread is also where an attached workspace lives. Workspace is the
 // checkout the thread's primitive tools act on, empty when none is
 // attached; WorkspaceRepository names the repository it was cloned from.
-// Keeping them here rather than on an implementation run is what makes
-// inspect -> edit -> discuss one continuous thread rather than a lane
-// transition.
-//
-// WorkspaceBranch is empty while the checkout is an inspection clone still
-// sitting on the base branch, and holds the branch name once the thread has
-// started editing. It is what makes the checkout writable: the same
-// directory keeps serving the thread's reads before, during, and after the
-// edits, with no second clone. ChangeID names the Change those edits belong
-// to, which propose_change ships.
+// Keeping them here lets repository exploration continue across turns.
 type Thread struct {
 	ID                  string
 	Title               string
 	Channel             string
 	Workspace           string
 	WorkspaceRepository string
-	WorkspaceBranch     string
-	ChangeID            string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -242,11 +217,6 @@ type ThreadStore interface {
 	// row if this is a surface (Telegram) that never explicitly created
 	// one. Replaces any previously attached workspace.
 	AttachWorkspace(ctx context.Context, id, channel, repository, workspace string, at time.Time) error
-	// SetWorkspaceEdit records the branch created in the thread's
-	// already-attached checkout, and the change those edits belong to,
-	// promoting the checkout from an inspection clone to a writable one. An
-	// empty branch demotes it back.
-	SetWorkspaceEdit(ctx context.Context, id, branch, changeID string) error
 	// DetachWorkspace clears a thread's attached workspace. Detaching a
 	// thread with none is not an error.
 	DetachWorkspace(ctx context.Context, id string) error
@@ -263,22 +233,12 @@ type WorkspaceProbe interface {
 	Exists(ctx context.Context, workspace string) (bool, error)
 }
 
-// Embedder produces an embedding for text. Storage adapters never depend on
-// an Embedder; a kernel service coordinates the two through these ports.
-type Embedder interface {
-	Embed(context.Context, string) ([]float32, error)
-}
-
 // SkillSummary is the compact, always-in-context view of one installed
 // skill: enough for the agent to decide whether to load its full body with
 // skill_read, without paying for that body on every turn.
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// Disabled mirrors State.DisabledSkills for this skill. A disabled skill
-	// is dropped from the steering list built for the agent, but its file is
-	// untouched and it remains readable by exact name.
-	Disabled bool `json:"disabled,omitempty"`
 }
 
 // Skill is one installed skill's full content, returned only when fetched
@@ -310,10 +270,6 @@ type State struct {
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
 	Agent             AgentRuntimeState             `json:"agent,omitempty"`
-	// DisabledSkills names skills currently excluded from the compact
-	// steering index built for the agent. Disabling never removes or edits
-	// the skill's file, so it carries no approval gate, unlike SkillsStore.Write/Delete.
-	DisabledSkills map[string]bool `json:"disabled_skills,omitempty"`
 }
 
 type AgentRuntimeState struct {
@@ -363,125 +319,6 @@ type Schedule struct {
 	Enabled     bool              `json:"enabled"`
 }
 
-type CodingProgress struct {
-	Kind    string
-	Message string
-	RunID   string
-}
-
-// ProgressReporter delivers one implementation run's progress to a surface.
-// ctx is the turn's own context, so a reporter that ultimately writes to a
-// Channel routes to the destination that started the run rather than to a
-// fixed default. A nil ProgressReporter means "nobody is watching".
-type ProgressReporter func(context.Context, CodingProgress)
-
-// SessionPhase is a session's lifecycle in the only three states anything
-// actually branches on. The finer-grained phases this replaced (ready,
-// committed, pushed, interrupted, cancelled) were never read for a decision:
-// they were rendered in one column of /runs and duplicated milestones that
-// SetPhase already appends to the durable event stream, which is where the
-// detail belongs.
-type SessionPhase string
-
-const (
-	// PhaseRunning means the session is actively progressing.
-	PhaseRunning SessionPhase = "running"
-	// PhaseCompleted means the change shipped: a pull request was created,
-	// or an already-open one for the branch was reused.
-	PhaseCompleted SessionPhase = "completed"
-	// PhaseBlocked means the session stopped short and an owner may want to
-	// look: a restart landed mid-session, an integrity check failed, or the
-	// commit -> push -> pull-request chain stopped partway. The reason is the
-	// milestone recorded alongside the transition.
-	PhaseBlocked SessionPhase = "blocked"
-)
-
-const (
-	SessionAssistantMessage = "assistant_message"
-	SessionToolStart        = "tool_start"
-	SessionToolResult       = "tool_result"
-	SessionToolError        = "tool_error"
-	SessionTerminal         = "terminal"
-	SessionMilestone        = "milestone"
-)
-
-// Transcript is the durable record of one turn: what was asked, what the
-// model did, in order. Every turn has one, editing or not, so it carries no
-// repository, branch, or lifecycle -- a conversation about the weather is a
-// transcript too, and had none of those to record.
-//
-// The event log is persisted separately (one append-only file per
-// transcript) so it never inflates this metadata document or state.json.
-type Transcript struct {
-	ID          string            `json:"id"`
-	Instruction string            `json:"instruction,omitempty"`
-	StartedAt   time.Time         `json:"started_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	FinishedAt  time.Time         `json:"finished_at,omitempty"`
-	Events      []TranscriptEvent `json:"-"`
-}
-
-type TranscriptEvent struct {
-	Sequence     uint64    `json:"sequence,omitempty"`
-	At           time.Time `json:"at"`
-	Kind         string    `json:"kind"`
-	Message      string    `json:"message,omitempty"`
-	ToolName     string    `json:"tool_name,omitempty"`
-	Content      string    `json:"content,omitempty"`
-	ModelMessage Message   `json:"model_message,omitempty"`
-}
-
-type TranscriptStore interface {
-	Create(context.Context, Transcript) (Transcript, error)
-	Load(context.Context, string) (Transcript, error)
-	List(context.Context) ([]Transcript, error)
-	AppendEvent(context.Context, string, TranscriptEvent) (Transcript, error)
-	Update(context.Context, string, func(*Transcript) error) (Transcript, error)
-}
-
-// Change is one branched, shippable unit of work: what a thread's checkout
-// was branched to do, and how far it got. It deliberately records no
-// workspace path -- the live checkout belongs to the thread (see Thread and
-// services.WorkspaceSessions), and a change outlives it. Repository and
-// Branch are not that same duplication: they are what this change *was*,
-// which stays meaningful long after the checkout is reaped.
-type Change struct {
-	ID           string       `json:"id"`
-	Repository   string       `json:"repository"`
-	Branch       string       `json:"branch"`
-	BaseRevision string       `json:"base_revision,omitempty"`
-	Phase        SessionPhase `json:"phase"`
-	// Model is the reasoning-model alias selected when the change was opened.
-	// It is recorded at creation rather than read back at display time, so
-	// /runs show reports the model that did the work even after /model
-	// switches. Empty on changes opened before this was recorded.
-	Model             string `json:"model,omitempty"`
-	Diff              string `json:"diff,omitempty"`
-	Validation        string `json:"validation,omitempty"`
-	Commit            string `json:"commit,omitempty"`
-	PullRequestURL    string `json:"pull_request_url,omitempty"`
-	PullRequestNumber int    `json:"pull_request_number,omitempty"`
-	// ChecksRef and ChecksConclusion record the last commit whose
-	// pull-request checks Eggy has already reacted to, so a shipped change is
-	// resumed once per failing result rather than on every poll.
-	ChecksRef        string `json:"checks_ref,omitempty"`
-	ChecksConclusion string `json:"checks_conclusion,omitempty"`
-	// Unprompted records that a scheduled or heartbeat turn opened this
-	// change, so a later unprompted turn can tell its own work from an
-	// owner's open change in the same thread and never continue theirs.
-	Unprompted bool      `json:"unprompted,omitempty"`
-	StartedAt  time.Time `json:"started_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	FinishedAt time.Time `json:"finished_at,omitempty"`
-}
-
-type ChangeStore interface {
-	Create(context.Context, Change) (Change, error)
-	Load(context.Context, string) (Change, error)
-	List(context.Context) ([]Change, error)
-	Update(context.Context, string, func(*Change) error) (Change, error)
-}
-
 type Command struct {
 	Argv      []string
 	Dir       string
@@ -510,80 +347,8 @@ type Repository struct {
 	ProtectedBranches []string
 }
 
-type PullRequest struct {
-	URL    string
-	Number int
-}
-
-type WorkspaceRevision struct {
-	Branch string
-	Head   string
-}
-
-// WorkspaceInspector lets coding workflows verify repository control-plane
-// invariants without depending on a specific source-control provider.
-type WorkspaceInspector interface {
-	WorkspaceRevision(context.Context, string) (WorkspaceRevision, error)
-}
-
-type RepositoryCapabilities struct {
-	Commit      bool
-	Push        bool
-	PullRequest bool
-}
-
-// RepositoryCapabilityProvider reports adapter readiness without exposing
-// provider credentials or provider-specific types to the kernel.
-type RepositoryCapabilityProvider interface {
-	RepositoryCapabilities() RepositoryCapabilities
-}
-
-type RemoteChecker interface {
-	CheckRemote(context.Context, Repository, string) error
-}
-
 type RepositoryCheckout interface {
 	Clone(context.Context, Repository, string) error
-	Inspect(context.Context, string) (string, error)
-	CreateBranch(context.Context, string, string) error
-	Diff(context.Context, string) (string, error)
-}
-
-type RepositoryCommitter interface {
-	Diff(context.Context, string) (string, error)
-	Commit(context.Context, string, string) (string, error)
-}
-
-type RepositoryPusher interface {
-	Head(context.Context, string) (string, error)
-	Push(context.Context, string, string) error
-}
-
-type PullRequestProvider interface {
-	RemoteHead(context.Context, string, string) (string, error)
-	// CreatePullRequest opens a pull request for branch. draft asks the
-	// provider to open it as a draft, which is what an unprompted turn's
-	// proposal is: something the owner reviews and marks ready, never
-	// something that presents itself as finished work.
-	CreatePullRequest(ctx context.Context, repository Repository, branch, title, body string, draft bool) (PullRequest, error)
-	// FindOpenPullRequest looks up an already-open pull request for branch,
-	// so shipping can keep improving the same pull request across repeated
-	// /continue rounds instead of opening a new one every time. found is
-	// false, with a nil error, when no open pull request exists yet.
-	FindOpenPullRequest(ctx context.Context, repository Repository, branch string) (pr PullRequest, found bool, err error)
-	// UpdatePullRequestBody appends a short note to an already-open pull
-	// request's description, e.g. after reusing it for another round of
-	// changes. Best-effort: callers should not fail the whole shipping
-	// chain if this fails, since the code change and the pull request
-	// itself are already in place.
-	UpdatePullRequestBody(ctx context.Context, repository Repository, number int, note string) error
-}
-
-// CodingRepository is the complete repository contract required by the coding
-// workflow. New providers extend Eggy by implementing this port in an adapter.
-type CodingRepository interface {
-	RepositoryCheckout
-	WorkspaceInspector
 }
 
 type WorkspaceEntry struct {
@@ -624,7 +389,7 @@ type RepositoryReader interface {
 	Branches(ctx context.Context, workspace string) ([]string, error)
 	RepositorySummary(ctx context.Context, repository Repository) (RepositorySummary, error)
 	Issue(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
-	PullRequestSummary(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
+	ReviewSummary(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
 	Checks(ctx context.Context, repository Repository, ref string) ([]CheckRun, error)
 }
 

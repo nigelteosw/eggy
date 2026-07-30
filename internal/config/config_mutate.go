@@ -1,12 +1,10 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +82,24 @@ func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	})
 }
 
+// SetCalendar sets the calendar Eggy writes to when a tool call omits
+// calendar_id. An empty defaultCalendar clears the section, which is how
+// Calendar is turned off: no default calendar means no tools and no OAuth
+// routes on the next start.
+func SetCalendar(path, defaultCalendar string) error {
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		cfg.Calendar.DefaultCalendar = strings.TrimSpace(defaultCalendar)
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
 // SetModelAlias configures alias. reasoningEfforts is a comma-separated list
 // of supported levels (e.g. "low,medium,high,max"); pass "" to leave the
 // alias without a reasoning-effort option.
@@ -101,38 +117,6 @@ func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) erro
 			efforts = strings.Split(reasoningEfforts, ",")
 		}
 		cfg.ModelAliases[alias] = ModelAliasConfig{Provider: provider, Model: modelID, ReasoningEfforts: efforts}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
-	})
-}
-
-// SetCalendar patches CalendarConfig field-by-field: an empty string for
-// enabled, defaultCalendar, or timezone means "leave that field unchanged."
-// At least one must be non-empty.
-func SetCalendar(path, enabled, defaultCalendar, timezone string) error {
-	if enabled == "" && defaultCalendar == "" && timezone == "" {
-		return errors.New("at least one of enabled, default_calendar, or timezone is required")
-	}
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
-		if enabled != "" {
-			parsed, err := strconv.ParseBool(enabled)
-			if err != nil {
-				return fmt.Errorf("enabled must be true or false: %w", err)
-			}
-			cfg.Calendar.Enabled = parsed
-		}
-		if defaultCalendar != "" {
-			cfg.Calendar.DefaultCalendar = defaultCalendar
-		}
-		if timezone != "" {
-			cfg.Calendar.Timezone = timezone
-		}
 		if err := cfg.Validate(); err != nil {
 			return err
 		}
@@ -188,10 +172,9 @@ func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) er
 	})
 }
 
-// RemoveMCPServer deletes one MCP server's config entry. It does not touch
-// any already-persisted OAuth credentials under
-// <data_dir>/mcp/<name>/oauth.json; use /mcp logout first if those should be
-// cleared too.
+// RemoveMCPServer deletes one MCP server's config entry. Persisted OAuth
+// credentials are retained so re-adding the server does not silently revoke
+// its authorization.
 func RemoveMCPServer(path, name string) error {
 	return filelock.With(path, func() error {
 		cfg, err := LoadDocument(path)
@@ -262,14 +245,6 @@ func GetModelAliasesConfigText(path string) (string, error) {
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n"), nil
-}
-
-func GetCalendarConfigText(path string) (string, error) {
-	cfg, err := LoadDocument(path)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("enabled=%t  default_calendar=%s  timezone=%s", cfg.Calendar.Enabled, cfg.Calendar.DefaultCalendar, cfg.Calendar.Timezone), nil
 }
 
 // ShowConfigText re-marshals the whole config as YAML. Safe to expose in

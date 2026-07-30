@@ -1,267 +1,108 @@
 # Eggy
 
-Eggy is a single-user personal agent that runs continuously on Railway and talks through Telegram, with an optional embedded web chat UI as a second, independent channel (see [Web UI](#web-ui)). A configurable OpenAI-compatible provider handles agent reasoning; DeepSeek Pro is the default. Read-only repository questions (browsing files, searching, checking status/branches, reading GitHub issue/PR/check metadata) are answered directly, without starting a repository-modifying run. The same configured reasoning model owns editing, testing, and debugging too, using its own `read_file`/`terminal`/`patch`/`write_file` tools inside an isolated branch — there is no separate coding agent or CLI to install. A validated implementation run is committed, pushed, and opened as a pull request automatically, with no Telegram approval in between; the owner reviews the resulting pull request on GitHub. Calendar writes still require a separate Telegram approval.
+Eggy is a single-owner personal agent written in Go. One daemon serves
+Telegram and an optional authenticated web chat, routes requests to configured
+model providers, keeps conversation/context memory, and exposes a small tool
+registry.
 
-Eggy is a Go ports-and-adapters modular monolith with file-backed state. It supports exactly one owner and one `eggyd` replica. This is the operator guide; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the current internal architecture.
+The repository boundary is intentionally read-only. Eggy can clone configured
+repositories, inspect files and GitHub metadata, and keep a checkout attached
+to a conversation. It cannot edit repository files, run an agent shell,
+commit, push, or create pull requests.
 
-## What is implemented
+## Owner surfaces
 
-- Telegram webhook authentication, owner allowlisting, update deduplication, messages, and approval callbacks.
-- Registered command suggestions, HTML-formatted replies with plain-text fallback, long-message splitting, typing indicators, and in-place message edits for approval outcomes and turn progress.
-- Named model aliases backed by configurable OpenAI-compatible providers, a bounded tool loop, persisted selection, and provider-reported usage totals.
-- Atomic versioned `state.json`, layered `SOUL.md`/`USER.md`/`MEMORY.md` context, controlled agent-curated updates, and bounded conversation history.
-- Exact and five-field cron schedules, quiet hours, heartbeat throttling, and weekly proactive limits.
-- Restricted local workspaces, sanitized child environments, command time/output limits, and process-group cancellation.
-- One kernel-owned primitive tool set (`read_file`, `write_file`, `patch`, `terminal`) on one loop. Each resolves its workspace from the calling thread rather than a `repository` argument, and the writes stay registered everywhere, failing with an explicit read-only error instead of vanishing from the tool list.
-- Thread-attached read-only checkouts (`workspace_open`/`workspace_close`) so repository exploration accumulates against one clone instead of paying a clone per call, and never creates a branch, diff, or approval. The binding is durable: it survives a restart, is reconciled against the disk at boot, and is reaped once its thread goes idle past the runner retention window.
-- A durable transcript for every turn, editing or not — separate from the record of branched work, so a conversation carries no branch, phase, or lifecycle it never had. With a context-budget checkpoint: a long turn compacts its oldest steps into a summary and keeps going instead of hitting a step cap.
-- A closed pull-request loop: when a proposed change's checks fail, Eggy resumes the same conversation and workspace with the failing checks as evidence, fixes them, and updates the same pull request.
-- One loop for every turn, ending only when the model stops calling tools. `workspace_edit` branches the thread's own checkout in place — no second clone, no lane transition — and `propose_change` ships it and returns the pull-request URL as an ordinary tool result, so the model reports it conversationally and can keep editing. Progress renders as the same semantic milestones on whichever channel started the turn.
-- Provider-neutral GitHub metadata reads (repository/issue/pull-request/check-run) that never clone.
-- PAT-backed Git clone/push through temporary askpass, diff/commit capture, and GitHub pull-request creation.
-- Google OAuth, AES-256-GCM refresh-token storage, Calendar reads, idempotent creates, and ETag-bound writes.
-- Generic remote MCP clients using the official Go SDK, with discovery, exact tool filters, namespaced tools, isolated per-tool failures, live reconnect and catalog reload without a restart, and encrypted durable OAuth.
-- Independent, expiring, payload-digest-bound approvals that can safely resume after restart.
-- `eggyd`, the companion `eggy` CLI, Docker, Railway, and a fake-adapter smoke mode.
-- An optional embedded web UI: session-authenticated multi-threaded chat with SSE streaming and inline approvals, plus a settings panel for providers/models/calendar/MCP — an independent channel into the same agent core as Telegram, not a mirror of it.
+Telegram is for conversation, protected-action approvals, and ordinary inline
+choices. Its command surface is deliberately limited to:
 
-## Local setup
+- `/help`
+- `/status`
+- `/stop`
+- `/clear`
+- `/model [alias]`
 
-Requirements: Go 1.26, Git, and Docker for the container smoke test.
+The agent can call `telegram_select` with its own prompt and 2–8 labelled
+options. A tap returns the selected value as the owner's next ordinary message.
+Selections are transient, expire after ten minutes, and never authorize a
+protected action.
+
+The authenticated web UI provides chat and the one runtime administration
+surface. Its settings panel edits providers, model aliases, the default
+calendar, and MCP servers directly in `config.yaml`; changes take effect after
+restarting `eggyd`.
+
+## Calendar
+
+Native Google Calendar is the one compiled-in product capability, because its
+mutations carry approvals a configured MCP server cannot express: creating,
+moving, or deleting an event requests an approval bound to that one event's
+payload, and approving it authorizes nothing else.
+
+Reads (`calendar_list`, `calendar_calendars`) run directly and cover every
+non-hidden readable calendar. Mutations (`calendar_create`, `calendar_update`,
+`calendar_delete`) only ever return `awaiting_owner`; the change happens after
+the owner approves. Relative ranges like `today` and `this_week` are resolved
+against `agent.timezone` on Eggy's own clock, not the model's.
+
+Set `calendar.default_calendar` in `config.yaml`, provide `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY`, then connect the account at
+`/auth/google`. Omit the `calendar` section and Calendar is entirely absent —
+no tools, no OAuth routes, no prompt bytes.
+
+## Repository inspection
+
+Repositories are declared under `repositories` in `config.yaml`. Eggy verifies
+that each configured remote and base branch is readable during startup, then
+synchronizes the active set from the file. Adding or removing one is a config
+edit plus restart.
+
+Available repository tools are read-only:
+
+- `repository_list`
+- `repository_github`
+- `workspace_open`
+- `read_file`
+- `workspace_close`
+
+Configured GitHub credentials remain inside the adapter. There is no
+agent-callable terminal through which they can leak.
+
+## Development
+
+Eggy requires Go 1.26 and Bun for the embedded web asset build.
 
 ```sh
-brew install go
-cp config.example.yaml config.yaml
+make fmt vet test race build
+```
+
+Run locally:
+
+```sh
 cp .env.example .env
-```
-
-Edit `config.yaml`: set the public URL, numeric Telegram owner ID, provider/model aliases, repository registry, quiet hours, and Calendar defaults. For local persistence, change `data_dir` to `./data`; keep `runner.root` below that directory (for example `./data/runs`) so coding sessions survive restarts.
-
-Provider keys are named indirectly. Each `providers.<name>.api_key_env` value identifies an environment-variable name; the secret itself must never appear in YAML or Telegram. To add another OpenAI-compatible model, add its provider and alias, then define the referenced environment variable outside the config:
-
-```yaml
-providers:
-  openrouter:
-    adapter: openai_compatible
-    base_url: https://openrouter.ai/api/v1
-    api_key_env: OPENROUTER_API_KEY
-models:
-  openrouter-pro:
-    provider: openrouter
-    model: your-provider-model-id
-```
-
-### The home directory
-
-Everything Eggy keeps lives under one home directory — `data_dir` in `config.yaml`, `/data` on Railway, and settable with `EGGY_HOME` or `--home`:
-
-```
-<home>/
-├── config.yaml     # Settings (server, providers, models, scheduler, MCP, ...)
-├── .env            # API keys and secrets
-├── auth.json       # OAuth provider credentials (MCP servers, Google Calendar)
-├── SOUL.md         # Agent identity, first in the system prompt
-├── HEARTBEAT.md    # Checklist consulted on a heartbeat turn
-├── memories/       # MEMORY.md, USER.md
-├── skills/         # Agent-created skills
-├── cron/           # Scheduled jobs, one editable YAML file each
-├── sessions/       # Gateway sessions
-├── changes/        # Transcripts of the agent's editing runs
-├── logs/           # gateway.log, errors.log (secrets redacted)
-├── state.json      # Internal runtime state
-├── eggy.db         # Conversation memory
-└── runs/           # Repository workspaces
-```
-
-Everything above `state.json` is owner-facing: inspect and edit it on the host, or in the web UI's **Files** tab, which serves the same raw text. `.env` and `auth.json` are listed there but their contents are never sent to a browser. `state.json`, `eggy.db`, `runs/`, `changes/`, and `sessions/` are Eggy's own bookkeeping and are not exposed for editing at all.
-
-A home written by an older Eggy is migrated in place on the next start: `MEMORY.md` and `USER.md` move into `memories/`, per-server MCP OAuth records fold into `auth.json`, and schedules move out of `state.json` into `cron/`. Nothing is overwritten, and a file already in its current place wins.
-
-Eggy creates four private context files and never overwrites existing content:
-
-- `SOUL.md` defines the agent's durable identity and is read-only to model tools.
-- `memories/USER.md` stores stable owner preferences and facts.
-- `memories/MEMORY.md` stores durable working knowledge selected by the agent.
-- `HEARTBEAT.md` is a plain checklist of what to look at on a heartbeat turn — edit it directly on disk. It has no agent tool and never carries timing, timezone, quiet-hours, limit, or prohibited-action policy; those stay fixed in config and code.
-
-The agent curates `USER.md` and `MEMORY.md` through a single `memory` tool with three actions — `add`, `replace`, and `remove`. Entries are plain lines, addressed by a substring of their own text (`old_text`), which must match exactly one entry. There is no read action: both files are already injected into every turn's context.
-
-Each file has a small byte budget (2 KiB for `USER.md`, 4 KiB for `MEMORY.md`). A write that would exceed it is refused rather than silently truncated, so the agent has to consolidate instead of accumulating. The budget is checked on write only — a file that predates it still loads.
-
-Secret-like content is rejected. Store tokens, passwords, OAuth credentials, and private keys only in the environment or the provider's credential store.
-
-Fill `.env`. Generate the 32-byte encryption key with:
-
-```sh
-openssl rand -base64 32
-```
-
-Run and verify:
-
-```sh
-make test
-make race
-make build
+cp config.example.yaml config.yaml
 EGGY_CONFIG="$PWD/config.yaml" ./bin/eggyd
-curl -fsS http://127.0.0.1:8080/healthz
-curl -fsS http://127.0.0.1:8080/readyz
 ```
 
-The local `.env` file is loaded automatically. Process environment values take precedence over `.env` values.
+`eggyd` creates missing first-boot files through the existing config
+initialization path. The separate administration CLI has been retired.
 
-## Telegram
+## Configuration and persistence
 
-Create a bot with BotFather, obtain your numeric Telegram user ID, and set both in configuration/secrets. Register the webhook after `eggyd` is publicly reachable:
+Secrets come from environment variables named by `config.yaml`; secret values
+must not be copied into the YAML file.
 
-```sh
-curl --fail --request POST \
-  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  --header 'Content-Type: application/json' \
-  --data "{\"url\":\"https://YOUR_HOST/webhooks/telegram\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\",\"callback_query\"]}"
-```
+The home directory (normally `/data` on Railway) contains:
 
-Operational shortcuts are `/status`, `/capabilities`, `/context`, `/repositories`, `/runs`, `/runs show <id>`, `/stop`, `/schedules`, `/memory`, `/skills`, `/skills show <name>`, `/skills add <name>`, `/skills edit <name>`, `/skills remove <name>` (add/edit/remove require owner approval), `/skills disable <name>`, `/skills enable <name>`, `/clear`, `/model`, `/model <alias>`, `/model default`, `/thinking`, `/thinking show`, `/thinking hide`, `/config get <providers|models|calendar|path>`, `/config set provider name=<name> adapter=openai_compatible base_url=<url> api_key_env=<ENV_NAME>`, `/config set model alias=<alias> provider=<provider> model=<model_id>`, `/config set calendar [enabled=<true|false>] [default_calendar=<id>] [timezone=<IANA timezone>]`, `/mcp`, `/mcp status <server>`, `/mcp probe <server>`, `/mcp login <server>`, `/mcp logout <server>`, `/mcp reload <server>`, `/usage`, `/usage reset`, and `/restart` (applies a config change picked up on the next restart). Natural language remains the main interface.
+- `config.yaml` for startup configuration;
+- `SOUL.md`, `memories/USER.md`, and `memories/MEMORY.md` for owner-readable
+  context;
+- `eggy.db` for conversation/thread memory;
+- `state.json`, `auth.json` (encrypted Calendar and MCP OAuth credentials), and
+  `cron/` for remaining operational records pending the SQLite consolidation
+  tracked in `TODO.md`;
+- `skills/` for reviewed procedural skill files;
+- `runs/` for bounded, read-only repository checkouts;
+- `logs/` for runtime logs.
 
-Procedural skills are Markdown files under `skills/` in the home directory, each with a `name`/`description` frontmatter pair and a body of instructions. Only the compact `name: description` index stays in context every turn; the agent loads one skill's full body with `skill_read` when its description matches the current task. Creating, editing, or deleting a skill always requires owner approval, the same digest-bound flow as Calendar mutations and adding a repository — a skill's body is instructions that steer later tool calls, not a stored fact. Disabling or re-enabling a skill takes effect immediately with no approval, since it only changes what is surfaced, never a skill's content.
-
-Continuing an unfinished change is ordinary conversation: the thread's workspace stays open and branched, so the owner just says what to do next. Eggy preserves a compacted tool transcript and shows concise milestones in Telegram, and every `propose_change` is committed, pushed, and opened (or updated) as a pull request automatically. `/stop` cancels the turn running in that conversation and leaves the checkout inspectable.
-
-`/status`, `/capabilities`, `/context`, and `/runs show <id>` are deterministic local reads and consume no model tokens. `/capabilities` reports the selected model and reasoning effort, the tools an owner-prompted turn actually carries, configured repositories, the integrations this process wired at boot, and commit/push/pull-request readiness. `/context` reports the bytes each injected section contributes (SOUL.md, USER.md, MEMORY.md, the capability manifest, the skills index, tool schemas, and this conversation's recent history), with estimated tokens and the limits that compact or truncate them. Neither ever shows a credential, an environment value, or a credential path. `/usage` reports locally accumulated provider-returned token counts; it is useful operational telemetry, not a substitute for the provider's billing dashboard. Model aliases and credentials are configured outside Telegram.
-
-For repository work, Eggy clones the configured base branch, creates `eggy/<run-id>`, finds root `AGENTS.md`, runs the bounded implementation loop with the selected model, captures the diff and validation, then commits, pushes, and opens a pull request in sequence with no owner tap in between. Protected branches are still denied at push time regardless of automation. Eggy never merges; the owner reviews and merges the pull request on GitHub.
-
-Scheduled turns can do repository work too, but only as a *proposal*: an unprompted turn works on a branch it created, opens its pull request as a **draft**, and can never target a base or protected branch or continue a change the owner already has open. Mark the repository holding Eggy's own source with `self: true` in `config.yaml` and the agent knows which repository is its own body — that name is what such a turn reads `AGENTS.md` and `docs/ARCHITECTURE.md` from. Unprompted turns still reach no MCP tools.
-
-Heartbeat turns are different on purpose. A heartbeat is a periodic check-in on *you* — it consults `HEARTBEAT.md`, decides whether anything is worth saying, and curates `USER.md`/`MEMORY.md`. It carries no repository write tools at all, so it never starts work you did not ask for. Cadence defaults to `3h`; quiet hours and the weekly proactive limit bound how often a check-in actually reaches you, independently of how often the turn runs.
-
-## Web UI
-
-Eggy also ships an embedded web UI — a React/TypeScript/Tailwind single-page app, built by `make build-web` and served directly by `eggyd` itself (no separate hosting, no separate process). It's optional and off by default: set `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD`, and `EGGY_ENCRYPTION_KEY` to enable it, then it's reachable at Eggy's public URL.
-
-Telegram and the web UI are independent channels into the same agent core — the same dispatcher, tool loop, and approval engine — not mirrors of one shared conversation. A message sent on one never appears on, or affects, the other. Telegram keeps writing to its own single, fixed, continuous thread exactly as described above. The web UI instead gives you a sidebar of multiple, independently-resumable conversation threads: switch between them, start a new one, and whatever the model does inside a thread — general chat, a coding run, a calendar action — is just tool calls within that thread's turn, the same as it already works for Telegram. New threads are auto-titled from their first message.
-
-Authentication is a single owner login (the `EGGY_UI_USER_EMAIL`/`EGGY_UI_PASSWORD` pair, submitted once at `/api/login`), backed by a signed session cookie (`EGGY_ENCRYPTION_KEY`, 12-hour TTL) rather than a per-request credential; after five failed logins from the same client address, further attempts from it are refused with `429` and a `Retry-After` for 15 minutes. Behind a reverse proxy every request arrives with the proxy's address, which would put all attempts in one bucket — barely slowing a guesser while letting them lock the owner out — so set `server.trusted_proxy_hops` to the number of proxies in front of Eggy (`1` on Railway). At its `0` default the throttle keys on the connecting address and ignores `X-Forwarded-For` entirely, since a spoofable header would otherwise hand an attacker a fresh bucket per attempt. There is no per-user account system — Eggy is still single-owner, the web UI is just a second door to the same owner.
-
-`EGGY_UI_PASSWORD` is compared as a **plaintext shared secret**, not a hash. It is held in the environment and in memory, never hashed or salted, and it is redacted from logs and config output like every other active secret. This is a deliberate choice for a single-owner deployment where the environment already holds the provider API keys, the GitHub token, and the encryption key — anything that can read the password can already read those. It is *not* appropriate if the deployment ever gains more than one user, or if the environment becomes readable by anyone who should not already be the owner; both would call for a real password hash and per-user accounts.
-
-Besides chat, the web UI has a settings panel that mirrors the same `/config` surface available via Telegram/CLI — providers, model aliases, the Calendar toggle, and MCP server definitions — and renders the same inline approve/reject buttons Telegram's callback buttons trigger, for an approval requested during a web-chat turn.
-
-The route surface: `POST /api/login`, `POST /api/logout`, and `GET /api/session` for auth; `GET /api/chat/threads` and `POST /api/chat/threads` to list/create threads; `GET .../history`, `GET .../stream` (SSE), and `POST .../send` under `/api/chat/threads/{id}/`; `POST /api/chat/approve` for approval decisions (shape-compatible with Telegram's callback flow); and `GET`/`POST` `/api/config/{providers,models,calendar,mcp}` plus `DELETE /api/config/mcp/{name}` for the settings panel. Everything except login is behind the session cookie.
-
-## Google Calendar
-
-Create an OAuth client in Google Cloud and add this exact redirect URI:
-
-```text
-https://YOUR_HOST/auth/google/callback
-```
-
-Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY`, deploy, then send Eggy this owner-only Telegram command:
-
-```text
-/calendar_auth
-```
-
-Open the short-lived, single-use enrollment URL Eggy returns. The bare `/auth/google` endpoint intentionally refuses unauthenticated enrollment attempts.
-
-Calendar reads run automatically. Eggy can list the IDs, names, access roles, and primary status of non-hidden calendars available to the authenticated user. A general Calendar question merges events from every non-hidden calendar with event-read access, not only the primary calendar. Reads can still target one calendar by ID. Calendar and event result pages are followed completely; hidden calendars and calendars that expose only free/busy information are not presented as detailed event sources.
-
-Creates use a deterministic event ID derived from the approved idempotency key. Updates and deletes bind the approval to the event ETag; a materially changed event requires a new approval.
-
-## MCP servers and Railway
-
-MCP servers are configured under `mcp.servers`, over either of two transports: `streamable-http` for a hosted server, given by `url`, and `stdio` for a local server Eggy spawns itself, given by `command` and `args`. The supplied example enables Railway's hosted server at `https://mcp.railway.com` with OAuth and an explicit curated tool list. `list-variables` is deliberately excluded because its results can place deployment secrets directly into model context; this is a Railway filter choice, not a hardcoded adapter rule.
-
-Set `EGGY_ENCRYPTION_KEY`, deploy or restart Eggy, then authorize Railway from the owner-only command surface:
-
-```text
-/mcp login railway
-/mcp probe railway
-/mcp status railway
-```
-
-Open the returned Railway authorization URL and approve the intended workspace and projects. The callback returns to `https://YOUR_HOST/auth/mcp/railway/callback`; Eggy stores the dynamic client information and tokens encrypted in `/data/auth.json`, connects, and discovers the filtered tool catalog — no restart. A successful probe should show tools such as `railway__list_projects` and `railway__get_logs`. `/mcp logout railway` removes only Railway's OAuth record and drops only its tools, while `/mcp reload railway` reconnects the server and rediscovers a changed catalog. Only adding or editing a server definition in `config.yaml` needs a restart.
-
-MCP tools are available only on direct owner turns. Scheduled turns, heartbeat turns, and repository implementation runs never receive them. One unavailable or unauthenticated server is non-fatal to readiness and does not hide another ready server, and it is not permanent: a server that was down at boot, or whose session died, is reconnected by the next call, a probe, or `/mcp reload`. A tool name that collides with another server's costs that one tool a warning, not the server. Repeated failures of one tool put that tool alone into a configured cooldown (`failure_threshold`, `cooldown`). Tool calls have configured time and output limits; binary content is reduced to metadata rather than copied into model context.
-
-Additional hosted servers use the same adapter. Add another named entry beneath `mcp.servers`, choose `auth: oauth`, `auth: bearer-env` with `bearer_token_env: SOME_ENV_NAME`, or `auth: none`, and set exact `tool_filter.include`/`exclude` names. Only tools are supported — not legacy SSE, resources, prompts, roots, sampling, elicitation, or MCP Apps.
-
-### stdio servers
-
-A `transport: stdio` server is a local subprocess. Set `command` and `args` instead of `url` and use `auth: none`: there is no HTTP authorization mode, because a stdio server's authorization is whatever its environment grants it. Two properties are deliberate:
-
-- **The environment is built, not inherited.** Only the variables named in `env_allowlist` are forwarded, plus `PATH` and `HOME`, without which no command can be located or run. Every other secret in Eggy's environment — provider keys, the GitHub token, the encryption key — stays outside the child. An allowlisted variable that is unset is simply absent rather than passed empty.
-- **The child leads its own process group,** and closing the session kills the group. An `npx` server that spawns `node` would otherwise leave the `node` behind on every reconnect.
-
-What stdio does **not** get is isolation. The child runs as the same user, with the same filesystem access, as Eggy itself — the same trusted-code assumption already made for configured repositories and the `terminal` tool. Configure a stdio server only from a source you would run yourself. Container-per-run isolation would cover both and is tracked separately in `TODO.md`.
-
-Everything else is shared with the HTTP transport: tool filters, namespacing, timeouts, output limits, per-tool cooldowns, `/mcp status`, `/mcp probe`, and `/mcp reload`. Stdio servers are not editable from the web settings panel — a command line and an environment allowlist belong in reviewed configuration — so `config.yaml` is the only place they are defined.
-
-## Railway deployment
-
-1. Create a Railway service from this repository.
-2. Generate a public Railway domain and add a persistent volume mounted at `/data`. Keep both `data_dir: /data` and `runner.root: /data/runs`: uncommitted coding workspaces and session transcripts live there and can be explicitly resumed after a restart.
-3. Set `EGGY_TELEGRAM_OWNER_ID`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `DEEPSEEK_API_KEY` as service variables. `EGGY_TELEGRAM_OWNER_ID` is your numeric Telegram user ID, not your `@handle`. Telegram is optional: for a web-only deployment set `EGGY_OWNER_ID` to any stable identifier instead, and omit all three Telegram variables. The generated config then carries no `telegram` block and the webhook route stays unavailable. A web-only deployment produces no unprompted output: heartbeat check-ins and scheduled messages are addressed to Telegram by design and are dropped rather than pushed into a web thread.
-4. Leave `EGGY_PUBLIC_BASE_URL` unset to use `https://$RAILWAY_PUBLIC_DOMAIN`, or set it explicitly when using a custom domain.
-5. For repository support on first boot, set `EGGY_REPOSITORY_URL`. `EGGY_REPOSITORY_NAME` defaults to `eggy`, `EGGY_REPOSITORY_BASE_BRANCH` defaults to `main`, and `EGGY_REPOSITORY_PROTECTED_BRANCHES` defaults to the base branch. A configured repository also requires `GITHUB_TOKEN`.
-6. Keep exactly one replica while `state.json` is the operational store, then deploy and verify `/healthz` and `/readyz`.
-7. On the first start, Eggy validates these values and creates `/data/config.yaml`, `SOUL.md`, `HEARTBEAT.md`, `memories/USER.md`, and `memories/MEMORY.md` with mode `0600`, alongside the rest of the home directory. Later starts use those files without overwriting them.
-
-Calendar is disabled in the generated first-boot configuration. Enable it deliberately in the persisted YAML and add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY` before running `/calendar_auth`.
-
-For Railway MCP, keep the `mcp.servers.railway` block from `config.example.yaml`, set `EGGY_ENCRYPTION_KEY`, restart, and run `/mcp login railway`. Existing persisted configs are not rewritten automatically; add the block deliberately. No Railway API token is needed in OAuth mode.
-
-`EGGY_PUBLIC_BASE_URL` and the `EGGY_REPOSITORY_*` variables are first-boot inputs. After `/data/config.yaml` exists, use `/config set provider`, `/config set model`, or `/config set calendar` (or the `eggy config set` CLI equivalents) to change those sections, then restart. Other fields — branches, server URLs — are edited as raw YAML, either on the host or in the web UI's Files tab, which validates the whole document before it lands. Run `eggy config show` to inspect the full file from a checkout with `-config` pointed at it. API keys remain Railway variables and must not be copied into that file.
-
-`EGGY_CONFIG_YAML` is not supported. Railway supplies `PORT` automatically, and Eggy validates and uses it without persisting it into `config.yaml`.
-
-Register the Telegram webhook and complete Google OAuth after the public Railway domain is assigned. `railway.toml` configures the Docker build, liveness check, restart policy, and single replica; the volume mount and secrets are configured in Railway.
-
-## CLI
-
-The companion CLI reads the same files:
-
-```sh
-EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy status
-./bin/eggy -config "$PWD/config.yaml" repositories
-./bin/eggy -config "$PWD/config.yaml" runs
-./bin/eggy -config "$PWD/config.yaml" schedules
-./bin/eggy -config "$PWD/config.yaml" memory
-
-./bin/eggy -config "$PWD/config.yaml" config get providers
-./bin/eggy -config "$PWD/config.yaml" config get models
-./bin/eggy -config "$PWD/config.yaml" config get calendar
-./bin/eggy -config "$PWD/config.yaml" config get path
-./bin/eggy -config "$PWD/config.yaml" config set provider --name=deepseek --adapter=openai_compatible --base-url=https://api.deepseek.com/v1 --api-key-env=DEEPSEEK_API_KEY
-./bin/eggy -config "$PWD/config.yaml" config set model --alias=deepseek-pro --provider=deepseek --model=deepseek-chat
-./bin/eggy -config "$PWD/config.yaml" config set calendar --enabled=true --default-calendar=primary --timezone=UTC
-EGGY_CONFIG="$PWD/config.yaml" ./bin/eggy config show
-
-./bin/eggy -config "$PWD/config.yaml" mcp
-./bin/eggy -config "$PWD/config.yaml" mcp status railway
-./bin/eggy -config "$PWD/config.yaml" mcp probe railway
-./bin/eggy -config "$PWD/config.yaml" mcp login railway
-```
-
-## Verification
-
-```sh
-make fmt
-make vet
-make test
-make race
-make build
-make smoke
-```
-
-`make smoke` builds the production image, starts `eggyd` with fake external adapters and a temporary `/data` volume, checks readiness and liveness from inside the container, and removes the container and temporary data.
-
-Live credential tests are intentionally outside the default suite. Verify Telegram delivery, the configured reasoning provider, a disposable repository branch/PR, a disposable Calendar event, and Railway MCP login/probe plus a bounded `railway__list_projects` or `railway__get_logs` call before relying on a production deployment. Do not use `list-variables` for that check.
-
-## Security boundary
-
-Eggy is for configured trusted repositories. Workspace roots, environment allowlists, timeouts, output caps, credential redaction, temporary askpass, and process-group termination reduce accidental exposure; same-container repository code is not a strong sandbox against a malicious repository. Provider credentials never enter model prompts, state snapshots, diffs, or structured errors.
-
-**Configured MCP servers are trusted the same way.** Repository commits, pushes, pull requests, and Calendar mutations each require a separate payload-bound approval. MCP tool calls do not, and that is a deliberate choice rather than a gap: a server can only enter the catalog through `mcp.servers` in `config.yaml` — edited on the host or in the owner-authenticated settings panel, effective on restart — and the agent has no tool that adds or enables one. Having reviewed a server, you have accepted its tools.
-
-What still limits an MCP tool: scheduled and heartbeat turns cannot reach one at all, each server's `tool_filter` decides which of its tools are exposed in the first place, and repeated failures of a single tool cool that tool down. What is not limited: during a turn you started, Eggy may call any exposed tool with any arguments without asking. Narrow a server's `tool_filter` — or disable it — for anything you would not want called unattended.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and
+[TODO.md](TODO.md) for unfinished simplification work.

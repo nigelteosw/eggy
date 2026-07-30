@@ -50,7 +50,7 @@ func With(ctx context.Context, d Destination) context.Context {
 
 // FromContext returns the destination carried on ctx, defaulting to
 // Telegram's fixed thread when none was set -- preserving existing behavior
-// for callers (tests, the CLI, scheduled/heartbeat turns) that never go
+// for callers (tests and scheduled turns) that never go
 // through a web request's per-turn destination stamping.
 func FromContext(ctx context.Context) Destination {
 	if d, ok := ctx.Value(contextKey{}).(Destination); ok {

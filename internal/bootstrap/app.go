@@ -2,16 +2,12 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,12 +22,11 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
+	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 	"github.com/nigelteosw/eggy/plugins/calendar/google"
-	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
-	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
 	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
 	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
@@ -42,8 +37,8 @@ import (
 // This file is the composition root: AppOptions/App's shape and NewApp's
 // wiring of every adapter into it, plus the handful of App methods thin
 // enough to be pure delegation. App's actual runtime behavior once
-// constructed -- the event loop, conversation turns, heartbeat, and
-// approvals -- lives in app_events.go.
+// constructed -- the event loop, conversation turns, and approvals -- lives
+// in app_events.go.
 
 type AppOptions struct {
 	HTTPClient       *http.Client
@@ -57,7 +52,6 @@ type AppOptions struct {
 	Now              func() time.Time
 	Logger           *slog.Logger
 	FakeAdapters     bool
-	RequestRestart   func()
 }
 
 // maxToolStepsPerTurn is no longer a work cap. A turn that outgrows its
@@ -67,48 +61,35 @@ type AppOptions struct {
 const maxToolStepsPerTurn = 500
 
 type App struct {
-	config                  config.Config
-	home                    home.Layout
-	store                   ports.StateStore
-	calendarAuth            ports.CalendarAuthStore
-	context                 ports.ContextStore
-	channel                 ports.Channel
-	chatHub                 *webchat.Hub
-	dispatcher              *services.Dispatcher
-	httpHandler             http.Handler
-	loop                    *agent.Loop
-	agentRuntime            *services.AgentRuntime
-	manifest                agent.CapabilityManifest
-	turnService             *turns.Service
-	commands                *commands.CommandService
-	scheduler               *schedulerlocal.Scheduler
-	heartbeat               *services.HeartbeatPolicy
-	approvals               *services.ApprovalService
-	approvalExecutors       map[approvals.Action]ApprovalExecutor
-	transcripts             *services.Transcripts
-	changes                 *repo.Changes
-	checks                  *repo.ChecksWatcher
-	progress                *channelutil.ProgressTracker
-	turns                   *services.ActiveTurns
-	workspaces              *repo.WorkspaceSessions
-	shipping                *repo.ShippingService
-	calendar                *services.CalendarService
-	mcp                     *mcpadapter.Manager
-	repositoriesService     *repo.RepositoriesService
-	skillsService           *services.SkillsService
-	conversation            *services.ConversationService
-	diagnostics             *services.Diagnostics
-	memory                  *memorysqlite.Store
-	embedder                ports.Embedder
-	memoryWorker            *services.MemoryEmbeddingWorker
-	memoryEmbeddingInterval time.Duration
-	now                     func() time.Time
-	eventQueue              chan events.Event
-	workers                 sync.WaitGroup
-	readyLog                sync.Once
-	logger                  *slog.Logger
-	timezone                string
-	location                *time.Location
+	config            config.Config
+	home              home.Layout
+	store             ports.StateStore
+	context           ports.ContextStore
+	channel           ports.Channel
+	chatHub           *webchat.Hub
+	dispatcher        *services.Dispatcher
+	httpHandler       http.Handler
+	loop              *agent.Loop
+	agentRuntime      *services.AgentRuntime
+	manifest          agent.CapabilityManifest
+	turnService       *turns.Service
+	commands          *commands.CommandService
+	scheduler         *schedulerlocal.Scheduler
+	approvals         *services.ApprovalService
+	approvalExecutors map[approvals.Action]ApprovalExecutor
+	turns             *services.ActiveTurns
+	workspaces        *repo.WorkspaceSessions
+	mcp               *mcpadapter.Manager
+	skillsService     *services.SkillsService
+	conversation      *services.ConversationService
+	memory            *memorysqlite.Store
+	now               func() time.Time
+	eventQueue        chan events.Event
+	workers           sync.WaitGroup
+	readyLog          sync.Once
+	logger            *slog.Logger
+	timezone          string
+	location          *time.Location
 }
 
 // ApprovalExecutor is an alias rather than its own interface so the executor
@@ -117,20 +98,16 @@ type ApprovalExecutor = turns.ApprovalExecutor
 
 func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*App, error) {
 	options.applyDefaults()
-	timezone := strings.TrimSpace(config.Calendar.Timezone)
-	if timezone == "" {
-		timezone = config.Scheduler.QuietHours.Timezone
-	}
+	timezone := config.Agent.Timezone
 	location, err := time.LoadLocation(timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load owner timezone: %w", err)
 	}
-	opened, err := openStores(config, options)
+	opened, err := openStores(config)
 	if err != nil {
 		return nil, err
 	}
 	layout, stateStore, contextStore, memoryStore := opened.layout, opened.state, opened.context, opened.memory
-	sessionStore, changeStore, authStore := opened.sessions, opened.changes, opened.auth
 	keepMemory := false
 	defer func() {
 		if !keepMemory {
@@ -138,25 +115,23 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 	}()
 	app := &App{
-		config: config, home: layout, store: stateStore, calendarAuth: authStore.Calendar(), context: contextStore, scheduler: schedulerlocal.New(opened.cron),
-		memory: memoryStore, memoryEmbeddingInterval: time.Minute,
-		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
+		config: config, home: layout, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
+		memory: memoryStore,
+		now:    options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
 	}
-	if opened.firstBoot && len(config.Repositories) > 0 {
-		seeded := map[string]ports.Repository{}
-		for _, configured := range config.Repositories {
-			seeded[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
-		}
-		initial, err := stateStore.Load(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		if _, err := stateStore.Update(context.Background(), initial.Version, func(state *ports.State) error {
-			state.Repositories = seeded
-			return nil
-		}); err != nil {
-			return nil, fmt.Errorf("seed first-boot repositories: %w", err)
-		}
+	configuredRepositories := map[string]ports.Repository{}
+	for _, configured := range config.Repositories {
+		configuredRepositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
+	}
+	initial, err := stateStore.Load(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := stateStore.Update(context.Background(), initial.Version, func(state *ports.State) error {
+		state.Repositories = configuredRepositories
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("sync configured repositories: %w", err)
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
@@ -164,15 +139,13 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// telegramChannel starts as a true nil ports.Channel (the zero value of
 	// an interface, never assigned) when FakeAdapters is set, not a nil
 	// *telegram.Client boxed into a non-nil interface -- assigning
-	// telegramClient directly here even when it's nil would produce exactly
-	// that trap (an interface value that compares != nil despite wrapping a
-	// nil pointer), which is what newRoutedChannel's own nil checks rely on
-	// NOT happening. See internal/bootstrap/mcp.go's ExecuteMCPCLI for the
-	// same bug, found and fixed earlier in this project's history.
+	// telegramClient directly here even when it's nil would produce an
+	// interface value that compares non-nil despite wrapping a nil pointer.
 	// telegramAcknowledger is kept as a separate interface variable for the
 	// same reason, so NewWebhookHandler's own nil check stays meaningful.
 	var telegramChannel ports.Channel
 	var telegramAcknowledger telegram.CallbackAcknowledger
+	var telegramSelector *telegram.Selector
 	// Telegram is optional: a web-only deployment omits the config block and
 	// gets no client, no channel, and no webhook route. newRoutedChannel
 	// already collapses to the web channel alone when telegramChannel is a
@@ -182,6 +155,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
 		telegramChannel = telegramClient
 		telegramAcknowledger = telegramClient
+		telegramSelector = telegram.NewSelector(telegramClient, options.Now, 10*time.Minute)
 	}
 	app.channel = newRoutedChannel(telegramChannel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
@@ -192,31 +166,23 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
-	repositoryCapabilities := repositoryAdapter.RepositoryCapabilities()
-	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey, secrets.UIPassword}
+	if !options.FakeAdapters {
+		for name, repository := range configuredRepositories {
+			if err := repositoryAdapter.ValidateCloneAccess(context.Background(), repository); err != nil {
+				return nil, fmt.Errorf("validate repository %q: %w", name, err)
+			}
+		}
+	}
+	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientSecret, secrets.EncryptionKey, secrets.UIPassword}
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
 	for _, secret := range secrets.MCPBearerTokens {
 		activeSecrets = append(activeSecrets, secret)
 	}
-	// The transcript bounds one event's excerpt; how much a turn can still
-	// see is agent.ContextPolicy's business alone (see NewSelectedLoop below).
-	transcripts := services.NewTranscripts(sessionStore, config.ImplementationSessions.OutputExcerptChars, options.Now, activeSecrets...)
-	changes := repo.NewChanges(changeStore, options.Now, activeSecrets...)
-	app.shipping = repo.NewShippingService(stateStore, changes, transcripts, app.approvals, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryAdapter, repositoryCapabilities)
-	app.repositoriesService = repo.NewRepositoriesService(stateStore, runner, repositoryAdapter, app.approvals, app.approvals, repositoryCapabilities, newRunID, changes)
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
-	app.skillsService = services.NewSkillsService(skillsStore, stateStore, app.approvals, app.approvals, services.NewSecretGuard(activeSecrets))
-	// Commit, push, and pull-request creation are no longer decided by an
-	// owner Telegram tap: ShippingService.Ship issues, decides, and
-	// authorizes that whole chain itself (see shipping.go). Registration and
-	// Calendar mutations still go through this human-tap callback path.
-	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{
-		approvals.AddRepository: app.repositoriesService,
-		approvals.SkillWrite:    app.skillsService,
-		approvals.SkillDelete:   app.skillsService,
-	}
+	app.skillsService = services.NewSkillsService(skillsStore)
+	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{}
 	app.conversation = services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
 
 	catalog, err := buildModelCatalog(config, secrets, options)
@@ -224,58 +190,36 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	aliases, targets := catalog.aliases, catalog.targets
-	if config.Embeddings.Provider != "" {
-		if options.FakeAdapters {
-			app.embedder = deterministicEmbedder{dimensions: config.Embeddings.Dimensions}
-		} else {
-			app.embedder = openaicompat.NewEmbedder(
-				providerBaseURL(config, options, config.Embeddings.Provider),
-				secrets.ProviderAPIKeys[config.Embeddings.Provider],
-				config.Embeddings.Model,
-				config.Embeddings.Dimensions,
-				options.HTTPClient,
-			)
-		}
-		app.memoryWorker = services.NewMemoryEmbeddingWorker(memoryStore, app.embedder, 0)
-	}
 	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
 	// One kernel-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
 	// it to mean something else in.
 	app.workspaces = repo.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
-	primitives := repo.NewPrimitiveTools(app.workspaces, runner, repositoryAdapter)
+	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
 	registry := services.NewToolRegistry()
-	app.transcripts, app.changes = transcripts, changes
-	// The checks loop reads through the same RepositoryReader that backs
-	// repository_github's "checks" kind, so there is one GitHub read path.
-	app.checks = repo.NewChecksWatcher(stateStore, changes, memoryStore, repositoryAdapter)
 	app.turns = services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
-		repo.NewStatusTool(stateStore, changes, app.scheduler),
+		repo.NewStatusTool(stateStore, app.scheduler),
 		currentTimeTool(options.Now, location, timezone),
-		services.NewRecallConversationTool(memoryStore, app.embedder, services.NewSecretGuard(activeSecrets)),
+		services.NewRecallConversationTool(memoryStore, services.NewSecretGuard(activeSecrets)),
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
-	baseTools = append(baseTools, skillProposeTool(app.skillsService, app.channel))
 	if err := registerAll(registry, baseTools...); err != nil {
 		return nil, err
 	}
-	progress := channelutil.NewProgressTracker(app.channel)
-	app.progress = progress
-	if err := registerAll(registry, repo.NewRepositoryTools(stateStore)...); err != nil {
-		return nil, err
-	}
-	if err := registerAll(registry, repo.NewChangeTools(stateStore, app.workspaces, changes, transcripts, repositoryAdapter, app.shipping, newRunID, progress.Deliver)...); err != nil {
-		return nil, err
-	}
-	if err := registerAll(registry, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
-		return nil, err
-	}
-	if err := registerAll(registry, app.workspaces.Tools()...); err != nil {
-		return nil, err
+	if len(config.Repositories) > 0 {
+		if err := registerAll(registry, repo.NewRepositoryTools(stateStore)...); err != nil {
+			return nil, err
+		}
+		if err := registerAll(registry, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+			return nil, err
+		}
+		if err := registerAll(registry, app.workspaces.Tools()...); err != nil {
+			return nil, err
+		}
 	}
 	// Registered after every other kernel tool: the registry rejects
 	// duplicates, so an adapter that tries to shadow a primitive fails
@@ -283,8 +227,15 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// here at all -- they arrive as a live provider on the same registry (see
 	// AddProvider below), where the same invariant holds because a registered
 	// tool always wins the name.
-	if err := registerAll(registry, primitives...); err != nil {
-		return nil, err
+	if len(config.Repositories) > 0 {
+		if err := registerAll(registry, primitives...); err != nil {
+			return nil, err
+		}
+	}
+	if telegramSelector != nil {
+		if err := registry.Register(telegramSelector.Tool()); err != nil {
+			return nil, err
+		}
 	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
 	if err != nil {
@@ -299,28 +250,48 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
+	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
+		return nil, err
+	}
+	// Calendar is the one native product adapter: its mutations carry
+	// payload-bound approvals, which a configured MCP server cannot express.
+	// An empty calendar config section is the off switch -- no tools, no OAuth
+	// routes, no prompt bytes.
 	var googleStart, googleCallback http.Handler
-	if config.Calendar.Enabled {
+	if config.Calendar.Configured() {
 		cipher, err := google.NewTokenCipher(secrets.EncryptionKey)
 		if err != nil {
 			return nil, err
 		}
-		googleAdapter := google.NewAdapter(google.AdapterConfig{ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret, RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback", AuthURL: options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase, Cipher: cipher, Auth: authStore.Calendar(), HTTPClient: options.HTTPClient})
-		app.calendar = services.NewCalendarService(googleAdapter, app.approvals, app.approvals)
-		app.approvalExecutors[approvals.CalendarCreate] = app.calendar
-		app.approvalExecutors[approvals.CalendarUpdate] = app.calendar
-		app.approvalExecutors[approvals.CalendarDelete] = app.calendar
+		// The refresh token lives in auth.json beside the MCP OAuth records,
+		// opened here rather than held on App: only these closures need it.
+		calendarAuth := authfile.Open(layout.Auth()).Calendar()
+		googleAdapter := google.NewAdapter(google.AdapterConfig{
+			ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret,
+			RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback",
+			AuthURL:     options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase,
+			Cipher: cipher, Auth: calendarAuth, HTTPClient: options.HTTPClient,
+		})
+		calendarService := services.NewCalendarService(googleAdapter, app.approvals, app.approvals)
+		// One executor per action: approving a create can never execute an
+		// update or a delete.
+		app.approvalExecutors[approvals.CalendarCreate] = calendarService
+		app.approvalExecutors[approvals.CalendarUpdate] = calendarService
+		app.approvalExecutors[approvals.CalendarDelete] = calendarService
 		key, err := base64.StdEncoding.DecodeString(secrets.EncryptionKey)
 		if err != nil {
 			return nil, err
 		}
-		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, authStore.Calendar(), key, options.Now)
-		if err := registerAll(registry, calendarTools(app.calendar, app.channel, config.Calendar.DefaultCalendar, options.Now, location, timezone)...); err != nil {
+		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, calendarAuth, key, options.Now)
+		if err := registerAll(registry, services.NewCalendarTools(calendarService, services.CalendarToolOptions{
+			DefaultCalendar: config.Calendar.DefaultCalendar,
+			Now:             options.Now,
+			Location:        location,
+			Timezone:        timezone,
+			DeliverApproval: app.channel.DeliverApproval,
+		})...); err != nil {
 			return nil, err
 		}
-	}
-	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
-		return nil, err
 	}
 	if app.mcp != nil {
 		// The catalog is read per turn rather than copied, so a reconnected
@@ -330,35 +301,15 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// it does not modify the agent.
 		registry.AddProvider(app.mcp.Tools)
 	}
-	// One context budget for one loop, shared with the session transcript's
-	// own excerpt bounds: a turn compacts at a checkpoint rather than ending
+	// One context budget for one loop: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
 	contextPolicy := agent.ContextPolicy{
-		BudgetChars:        config.ImplementationSessions.ContextBudgetChars,
-		RecentSteps:        config.ImplementationSessions.RecentMessages,
-		OutputExcerptChars: config.ImplementationSessions.OutputExcerptChars,
+		BudgetChars:        96000,
+		RecentSteps:        16,
+		OutputExcerptChars: 8192,
 		MaxSteps:           maxToolStepsPerTurn,
 	}
 	app.loop = agent.NewSelectedLoop(targets, registry, contextPolicy)
-	// integrations is what this process actually wired, in stable order, and
-	// is what /capabilities reports. Building it from the constructed adapters
-	// rather than from config is the point: a misconfigured integration can
-	// never report itself as enabled.
-	integrations := []string{"web"}
-	for _, wired := range []struct {
-		name  string
-		built bool
-	}{
-		{"telegram", telegramClient != nil},
-		{"github", repositoryAdapter != nil},
-		{"google_calendar", app.calendar != nil},
-		{"mcp", app.mcp != nil},
-		{"embeddings", app.embedder != nil},
-	} {
-		if wired.built {
-			integrations = append(integrations, wired.name)
-		}
-	}
 	// Taken from the loop rather than the registry so the manifest includes
 	// the live MCP catalog and stays "the tools actually available".
 	toolNames := app.loop.ToolNames(agent.RunOptions{})
@@ -369,49 +320,14 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			break
 		}
 	}
-	app.manifest = agent.CapabilityManifest{
-		Tools: toolNames, CalendarEnabled: config.Calendar.Enabled, SelfRepository: selfRepository,
-		RepositoryCommitReady: repositoryCapabilities.Commit,
-		RepositoryPushReady:   repositoryCapabilities.Push,
-		PullRequestReady:      repositoryCapabilities.PullRequest,
-	}
-	schedulerLocation, err := time.LoadLocation(config.Scheduler.QuietHours.Timezone)
-	if err != nil {
-		return nil, fmt.Errorf("load scheduler timezone: %w", err)
-	}
-	app.heartbeat, err = services.NewHeartbeatPolicy(config.Scheduler.QuietHours.Start, config.Scheduler.QuietHours.End, schedulerLocation, config.Scheduler.MinimumProactiveInterval.Value(), config.Scheduler.WeeklyProactiveLimit)
-	if err != nil {
-		return nil, err
-	}
-	// Diagnostics reports on what was just wired above. It is built here,
-	// after the loop and the manifest, so /capabilities and /context describe
-	// this process rather than what config asked for.
-	app.diagnostics = services.NewDiagnostics(services.DiagnosticsOptions{
-		Context: contextStore, Store: stateStore, Runtime: app.agentRuntime,
-		Skills: app.skillsService, Conversation: app.conversation, Loop: app.loop,
-		Manifest: app.manifest, Policy: contextPolicy, Integrations: integrations,
-	})
+	app.manifest = agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
 	app.commands = commands.New(commands.Options{
 		Turns:        app.turns,
-		Config:       config,
 		Store:        stateStore,
-		CalendarAuth: authStore.Calendar(),
-		Schedules:    app.scheduler,
-		Context:      contextStore,
 		Conversation: app.conversation,
-		Changes:      changes,
-		Repositories: app.repositoriesService,
-		Skills:       app.skillsService,
 		AgentRuntime: app.agentRuntime,
-		Channel:      app.channel,
 		DefaultModel: config.Agent.DefaultModel,
-		ConfigPath:   options.ConfigPath,
 		ModelAliases: aliases,
-		Timezone:     timezone,
-		Now:          options.Now,
-		Restart:      options.RequestRestart,
-		Diagnostics:  app.diagnostics,
-		MCP:          newMCPCommands(app.mcp),
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
@@ -420,34 +336,36 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Commands: app.commands, Registry: app.turns, Conversation: app.conversation,
 		Context: contextStore, Store: stateStore, Runtime: app.agentRuntime,
 		Skills: app.skillsService, Loop: app.loop, Channel: app.channel,
-		Transcripts: transcripts, Progress: progress, Workspaces: app.workspaces,
 		Threads: memoryStore, Approvals: app.approvals, Executors: app.approvalExecutors,
-		Heartbeat: app.heartbeat, Presenter: turnPresenter{channel: app.channel},
-		Manifest: app.manifest, Logger: app.logger, Now: app.now,
+		Presenter: turnPresenter{channel: app.channel},
+		Manifest:  app.manifest, Logger: app.logger, Now: app.now,
 		// The owner's timezone, not the scheduler's quiet-hours one: this is
 		// what renders the turn's trusted temporal context.
 		Location: app.location, Timezone: timezone,
 	})
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
-		events.TypeScheduledMessage: app.processEvent, events.TypeHeartbeat: app.processEvent,
-		events.TypeChecksCompleted: app.processEvent,
+		events.TypeScheduledMessage: app.processEvent,
 	})
 	var webhook http.Handler
 	if config.Telegram.Configured() {
-		webhook = telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
+		handler := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
+		if telegramSelector != nil {
+			handler.WithSelectionResolver(telegramSelector.Resolve)
+		}
+		webhook = handler
 	}
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
-		Files:            web.NewHomeFiles(layout),
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath, Telegram: webhook,
+		MCPCallback: mcpCallbackHandler(app.mcp),
 		GoogleStart: googleStart, GoogleCallback: googleCallback,
-		MCPCallback: mcpCallbackHandler(app.mcp), Web: webHandler,
+		Web: webHandler,
 	})
 	if telegramClient != nil {
 		autocomplete := commands.TelegramAutocomplete()
@@ -464,41 +382,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	return app, nil
 }
 
-func embeddingProfile(config config.Config, options AppOptions) string {
-	if config.Embeddings.Provider == "" {
-		return ""
-	}
-	provider := config.Providers[config.Embeddings.Provider]
-	baseURL := provider.BaseURL
-	if override := options.ProviderBaseURLs[config.Embeddings.Provider]; override != "" {
-		baseURL = override
-	}
-	encoded, _ := json.Marshal(struct {
-		Provider   string `json:"provider"`
-		Adapter    string `json:"adapter"`
-		BaseURL    string `json:"base_url"`
-		Model      string `json:"model"`
-		Dimensions int    `json:"dimensions"`
-	}{
-		Provider:   config.Embeddings.Provider,
-		Adapter:    provider.Adapter,
-		BaseURL:    strings.TrimRight(baseURL, "/"),
-		Model:      config.Embeddings.Model,
-		Dimensions: config.Embeddings.Dimensions,
-	})
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])
-}
-
 func (a *App) Handler() http.Handler { return a.httpHandler }
 func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool, error) {
 	return a.commands.Execute(ctx, command)
-}
-
-// ExecuteCLI parses and dispatches conventional CLI arguments (see
-// commands.CommandService.ExecuteCLI) through this App's full runtime.
-func (a *App) ExecuteCLI(ctx context.Context, args []string) (commands.CommandResult, bool, error) {
-	return a.commands.ExecuteCLI(ctx, args)
 }
 func (a *App) Ready() error {
 	state, err := a.store.Load(context.Background())
@@ -517,9 +403,6 @@ func (a *App) Ready() error {
 		if len(state.Repositories) > 0 {
 			integrations = append(integrations, "github")
 		}
-		if a.config.Calendar.Enabled {
-			integrations = append(integrations, "google_calendar")
-		}
 		sort.Strings(integrations)
 		a.logger.Info("agent runtime ready", "model_alias", alias, "provider", provider, "repositories", repositories, "integrations", integrations, "context_files", []string{"SOUL.md", "USER.md", "MEMORY.md"})
 	})
@@ -530,18 +413,6 @@ type staticModel struct{}
 
 func (staticModel) Generate(context.Context, ports.ModelRequest) (ports.ModelResponse, error) {
 	return ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, Content: "Eggy fake adapter ready."}}, nil
-}
-
-type deterministicEmbedder struct {
-	dimensions int
-}
-
-func (e deterministicEmbedder) Embed(_ context.Context, input string) ([]float32, error) {
-	embedding := make([]float32, e.dimensions)
-	for index, value := range []byte(input) {
-		embedding[(index+int(value))%e.dimensions]++
-	}
-	return embedding, nil
 }
 
 // noopChannel is the channel used when no surface is configured at all. It

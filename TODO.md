@@ -1,255 +1,268 @@
 # Eggy roadmap
 
-This file tracks **unfinished work and standing decisions only**. Completed
-work lives in git; current behavior lives in `README.md` and
-`docs/ARCHITECTURE.md`. Delete an item once it has landed — do not leave it
-here as a record.
+Unfinished work and standing constraints only. Completed work lives in git;
+current behavior lives in `README.md` and `docs/ARCHITECTURE.md`. Delete an item
+once it lands.
 
-Standing decisions are the exception: they are here so a settled question is
-not re-opened by accident, and each one names the condition that would justify
-re-opening it.
+## What Eggy is
+
+One owner's always-on agent daemon: a chat surface, a model, durable memory,
+and a small tool set. It is not a personal-assistant product, not a scheduler,
+and not a CI system.
+
+The design target is a **pi-shaped core**: a handful of tools, a small prompt,
+and everything beyond the core reached through *configuration* rather than
+through a compiled-in feature. When a capability is not configured, it must
+cost nothing at runtime — no tool schema, no goroutine, no store, no HTTP
+route, no prompt bytes.
+
+**Core (always present, not configurable away):**
+
+- one `eggyd` process, one owner, one replica;
+- model routing over configured providers and aliases;
+- conversation memory in SQLite with full-text recall;
+- owner-facing Markdown context (`SOUL.md`, `USER.md`, `MEMORY.md`);
+- one tool registry with exactly one tool source;
+- at least one chat surface.
+
+**Configurable (absent unless configured):** Telegram channel, web chat and
+settings, read-only repository inspection, MCP servers, schedules, native
+Calendar.
+
+**Extension mechanism:** MCP for capabilities, Markdown skills for procedure.
+A native adapter is otherwise only justified when a port must stay
+provider-neutral (models, channels, storage), or when a capability needs
+per-call authorization that MCP structurally cannot give it. New product
+features do not get compiled in.
+
+**Calendar is the one deliberate native product adapter.** It is in daily use,
+and its mutations carry independent payload-bound approvals — an MCP calendar
+server would be trusted wholesale at configuration time, with no prompt when
+the agent moves or deletes a real event. That safety difference, not
+convenience, is what earns it a place in the binary. Anything else asking for
+the same exemption must make the same argument.
+
+## Measured post-P0 baseline (2026-07-30)
+
+- 12,299 production Go lines and 10,788 test lines;
+- largest remaining packages: `internal/kernel/services` 1,682,
+  `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,276, `internal/config`
+  1,107, and `internal/web` 692;
+- 7 kernel tools without Telegram, repositories, or MCP; 12 with repositories,
+  and 13 with Telegram too, before the configured MCP catalog;
+- 64 YAML-tagged config fields and 21 HTTP route registrations;
+- machine-managed persistence still spans `state.json`, `auth.json`, `cron/`,
+  and `eggy.db`; Markdown context and skills remain files by design.
+
+These figures were taken with Calendar deleted. Restoring it (below) adds back
+roughly 1,100 production lines and its config section; every other number in
+this file already accounts for that.
+
+## Targets for this pass
+
+- **≤ 12,500 production Go lines** excluding generated web assets — the
+  post-P0 figure above plus the restored Calendar adapter and no more;
+- **≤ 6 tools** in the default core; **≤ 13** with Telegram and repositories
+  configured; **≤ 4** additional Calendar tools; MCP counted separately;
+- **three durable forms**: YAML for startup config, Markdown for owner-facing
+  documents, SQLite for everything machine-managed;
+- **≤ 50 config fields**;
+- **one** runtime administration surface.
 
 ---
 
-## Where things stand
+## P0: Consolidate the Calendar tool surface
 
-20,512 lines of production Go, 16,992 of test. 678 tests. 20 tools on an
-ordinary owner turn (25 with Calendar, more with MCP). 17 top-level slash
-commands. 10 config sections. `internal/kernel/services` holds 18 source files,
-`internal/kernel/services/repo` another 12.
+Calendar is restored and wired (five tools, payload-bound approvals, tools
+beside `CalendarService`, absence as the off switch). One reduction remains.
 
-Per-turn context floor is **12,416 bytes (~3.1K tokens)** with empty durable
-docs, no skills, Calendar and MCP off — tool schemas 7,855, runtime policy
-3,360, manifest 542, SOUL/USER/MEMORY 495, temporal 132, skills index 32.
-Tool schemas are the largest section by a wide margin; that is where the
-ceiling is, not the prompt.
-
-For scale, measured July 2026: Pi ships 4 tools and a sub-1K-token prompt;
-OpenClaw's framework layers alone run 40–90KB and inject every skill's full
-body. Eggy's context assembly is in good shape. **Do not optimize bytes.**
+- [ ] Consolidate the five `calendar_*` tools into at most three.
+      `calendar_calendars` is a lookup that belongs inside `calendar_list`'s
+      response; create/update/delete can be one mutation tool with an explicit
+      operation. Each mutation keeps its own `approvals.Action`, its own
+      executor, and its own payload-bound approval — one tool must not become
+      one blanket authorization.
 
 ---
 
-## P2: Verify the prompt-caching win empirically
+## P1: Make the config surface the product surface
 
-The section reorder (stable prefix first) is correct by construction:
-`openaicompat.Generate` maps each message 1:1 preserving order, so the stable
-prefix reaches the wire intact. It has not been *measured*.
+"Configurable" is the whole design claim, so the config must be small, flat,
+and validated in one place.
 
-- [ ] Surface `ModelUsage.CachedPromptTokens` in `/usage`. It already decodes
-      `prompt_tokens_details.cached_tokens`, so the hit rate is recorded today
-      and simply not shown. Cheap, and it turns a construction argument into
-      evidence.
+- [ ] Collapse `internal/config` (now 1,107 lines, 64 YAML-tagged fields) to
+      the sections that survive: `server`, `data_dir`, `agent`, `providers`,
+      `models`, `telegram`, `repositories`, `runner`, `calendar`, `mcp`. Delete
+      `commonConfigDocument`/`configDocument` duality once no legacy shape
+      needs reading.
+- [ ] Reject unknown keys with a message naming the key and the nearest valid
+      one. A silently-ignored key is how a "configurable" system becomes a
+      guessing game.
+- [ ] Make every optional section's absence the off switch. No `enabled: true`
+      field where an empty section already means "not configured".
+- [ ] `config.example.yaml` documents every surviving field exactly once and is
+      asserted against the parsed shape in a test.
 
-## P2: Trim duplicated prose between policy and tool descriptions
+---
 
-- [ ] The runtime policy fragments and the tool descriptions say some of the
-      same things twice. `memory` has a 551-byte description and the memory
-      fragment re-explains the byte budget on top of it; `propose_change` has a
-      414-byte description plus a fragment paragraph. Pick one home per fact.
+## P1: Consolidate durable state in SQLite
 
-## P2: Make MCP schema weight observable
+- [ ] Write the schema-versioned migration design first: it must cover
+      `state.json`, `cron/`, and `auth.json`, preserve encrypted payloads, and
+      be safe to retry after interruption.
+- [ ] Move approvals, processed event IDs, selected model, and schedules into
+      SQLite tables behind the existing provider-neutral ports. Give the
+      scheduler a narrow `ScheduleStore` interface instead of importing
+      `cronfile`.
+- [ ] Keep `SOUL.md`, `USER.md`, `MEMORY.md`, and skill Markdown as files.
+- [ ] After one production deployment has imported and verified the old
+      records, delete the legacy JSON/YAML stores and the migration reader.
+      Document the last release that can import the old layout.
+- [ ] Backup set becomes exactly `eggy.db`, `config.yaml`, `.env`, and the
+      Markdown files. Readiness checks verify those and nothing historical.
 
-- [ ] Add a `/context` line reporting MCP tool schema bytes separately from
-      kernel tool schema bytes. This exists to make the deferral threshold
-      below observable, not to reduce anything today.
+Success criteria: `openStores` opens one database; one transaction can update
+related approval and conversation state; `/data/state.json` compatibility is an
+explicit migration, never a silent break.
 
-## P2: Documentation weight
+---
 
-`README.md` (~300 lines) and `docs/ARCHITECTURE.md` (~490 lines) overlap
-substantially, and code comments carry a third narrative — `loop.go` is heavy
-on prose that litigates rejected alternatives.
+## P1: Bootstrap composes, nothing more
 
-- [ ] Rewrite `README.md` as a short operator's guide and let
-      `docs/ARCHITECTURE.md` be the only narrative.
-- [ ] Audit the rest of `AGENTS.md`'s port list. One entry referenced
-      `services.Implementer` and a file that does not exist; others may be
-      equally stale.
-- [ ] When a comment explains *why an alternative was rejected*, move it to the
-      commit message or `docs/ARCHITECTURE.md`. Trim on touch — do not do a
-      documentation-only sweep.
+- [ ] Move surviving tool definitions and input decoding next to the service
+      that owns them, `internal/bootstrap/assistant_tools.go` included. The
+      restored Calendar tools go beside `CalendarService`, not back into
+      bootstrap.
+- [ ] Make model adapter construction one selector function keyed by
+      `ProviderConfig.Adapter`. A new provider adds one plugin package and one
+      case.
+- [ ] Stop retaining construction-only collaborators on `App`. Keep only what
+      `Run`, `Ready`, `Close`, event handling, and HTTP handling use. Tests
+      assert public behavior or use a fixture; they do not force production
+      fields to stay reachable.
+- [ ] Replace positional constructors with small dependency structs only where
+      one already takes six or more collaborators. No containers, no service
+      locators, no lifecycle interfaces whose only caller is bootstrap.
 
-## P2: Run recovery and rollback
+Success criteria: `internal/bootstrap` holds composition, event-loop
+ownership, and surface routing only; adding an adapter changes no kernel
+behavior and no other adapter.
 
-- [ ] Continue an existing pull request on its own branch rather than branching
-      from trunk and opening a duplicate.
-- [ ] Resolve the pull request a continuation belongs to from the thread alone.
-- [ ] Save a bounded patch and validation artifact before workspace cleanup.
-- [ ] Cleanup and retention diagnostics for abandoned workspaces.
-- [ ] An explicit discard operation that cannot affect the owner's checkout.
+---
 
-## P2: Other open work
+## P2: Keep the prompt and tool budget honest
 
-- [ ] `/skills browse <repo-url>` and `/skills clone <repo-url> <path>`,
-      read-only, no bulk importer.
+- [ ] Re-measure the per-turn context floor after the P0 cuts and record it
+      once here. Tool schemas were the largest section by a wide margin; that
+      is the number that matters, not prose bytes.
+- [ ] One home per policy fact: tool descriptions explain invocation, runtime
+      policy explains cross-tool constraints. Delete the duplicate.
+- [ ] Report MCP schema bytes separately from kernel schema bytes. Do not
+      build deferred tool loading until MCP schemas alone exceed ~10K tokens.
 - [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
       invisible-Unicode content before durable context writes.
-- [ ] Evaluate container-per-run isolation. Three subprocess surfaces
-      (`terminal`, repository runs, stdio MCP children) execute as Eggy's own
-      user with Eggy's own filesystem access. Each constructs a minimal
-      environment; none is isolated. This is also the only real fix for the
-      workspace path containment documented in `repo/workspace_path.go`.
+- [ ] Do not describe lexical workspace containment as a sandbox. If isolation
+      is needed for repository or stdio-MCP subprocesses, it is a container.
+- [ ] Evaluate **approval-gated MCP tools**: a per-server
+      `require_approval: [tool names]` list that routes a matching call through
+      the existing approval flow, rendering the tool's arguments as the bound
+      payload. This is the only thing that would let Calendar — or any future
+      product capability — leave the binary without losing per-call
+      authorization. Cost is a payload presenter for arbitrary MCP arguments
+      and the loss of typed handling (timezones, relative ranges) the native
+      service does today. Do not attempt it in the same pass as the Calendar
+      restore.
+
+---
+
+## P2: Documentation and test weight
+
+- [ ] `README.md` becomes a short operator guide: install, configure, run.
+      `docs/ARCHITECTURE.md` is the only architectural narrative; ADRs hold
+      durable trade-offs.
+- [ ] Delete comments that narrate removed implementations or rejected
+      alternatives. Keep comments stating a non-obvious invariant, an exported
+      contract, or a security reason.
+- [ ] Delete tests for removed behavior in the same change as the behavior. Do
+      not chase a test-line target; keep focused safety and adapter contract
+      tests even when they exceed the implementation.
+- [ ] Audit `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, and
+      `config.example.yaml` after every phase.
+
+---
+
+## Open decision: does Eggy write code?
+
+Eggy is becoming a read-only code *reader*: `workspace_open`, `read_file`,
+repository search and metadata, `workspace_close`. A pi-shaped *coding* agent
+would instead ship a bounded edit tool and a bounded shell, and still never
+commit, push, or open a pull request.
+
+Both are defensible; they are not compatible. Until this is decided, do not
+reintroduce write tools opportunistically. If write capability returns, it
+arrives with all of: workspace root containment, timeouts, output bounds,
+process-group cancellation, an environment allowlist that excludes repository
+credentials, and no git remote-write path — and the owner ships the result by
+hand.
+
+---
 
 ## Operational follow-ups
 
-Manual deployment steps, not code changes.
-
-- [ ] Set `server.trusted_proxy_hops: 1` in Railway's `/data/config.yaml`. It
-      defaults to 0, which behind Railway's proxy keys the web login throttle
-      on the proxy's address for every request.
-- [ ] Reset Railway's `/data/config.yaml` so the next boot generates the
-      current config shape.
-
----
-
-## Standing decisions
-
-Settled. Each names what would justify re-opening it.
-
-**MCP servers are trusted; MCP calls are ungated by design.** (2026-07-28)
-Resolved the former "MCP authorization gap" by stating the trust rather than
-building an approval classification. A server enters the catalog only through
-`mcp.servers` in `config.yaml` — edited on the host or in the
-owner-authenticated settings panel, effective on restart — and the agent has
-no tool that adds or enables one, so reviewing the server *is* the approval.
-Gating was the other defensible answer but needs a mutation signal the
-protocol does not provide; it would have decayed into a hand-maintained list.
-What still bounds a call: unprompted turns cannot reach one (enforced twice),
-`tool_filter` decides what is exposed at all, and per-tool failure cooldowns
-apply. Written up in `docs/ARCHITECTURE.md` ("Trust model"), `README.md`, and
-`config.example.yaml`. *Re-open if Eggy gains more than one owner, or if
-servers start being added by someone other than the person accepting the
-risk.*
-
-**Scope: almost everything stays.** (2026-07-28) The owner reviewed every
-capability cluster against actual use. Web search was the only cut. Slash
-commands (both grammars), MCP, web UI, Calendar, memory + embeddings,
-shipping/changes/checks, scheduler/heartbeat, and skills all stay. The
-complexity is therefore intrinsic to what Eggy is meant to do, not accidental,
-and reduction cannot come from deletion — the work is containment. *Re-open if
-a capability stops being used.*
-
-**Calendar stays native.** The reason is availability: there is no widely
-available Google Calendar MCP server, so native is the only option that
-exists, not a preference. Two things matter if one appears. First, the line
-count overstates the saving — of ~1,170 lines only ~535 are fungible Google
-plumbing; the other ~240 in `services/calendar.go` are the safety envelope
-(payload-bound approval, idempotency keys, ETag binding). Second — and this
-sharpened rather than dissolved when MCP trust was stated above — MCP calls
-are ungated *by design*, so moving Calendar there means calendar creates and
-deletes stop asking before they happen. That is not a gap to wait out; it is a
-trade the owner would have to accept deliberately. *Re-open only for a server
-that has proven itself, and only with that trade named explicitly.*
-
-**Do not build deferred MCP tool schemas yet.** Anthropic's guidance is to
-defer when tool definitions exceed ~10K tokens and to skip deferral below ~10
-tools, where search latency costs more than it saves. Eggy's 20 tools cost ~2K
-tokens — a fifth of the threshold. *Re-open when MCP schemas alone exceed ~10K
-tokens; the `/context` item above makes that observable.* The failure mode is
-real once reached: 50+ MCP tools run 55–72K tokens upfront and deferral cuts
-~85%.
-
-**Do not split `internal/kernel/services` further.** The two-package split
-(`services` + `services/repo`) followed the one seam that exists. A four-way
-split was attempted on paper and abandoned after measurement: `decodeStrict`
-was used by 9 files spanning three would-be packages, and `tools.go`'s status
-tool created a genuine import cycle. `SecretGuard` is shared by context,
-memory, skills, and transcripts today and would hit the same wall. *Do not
-export internals to make a directory boundary possible — that trades
-encapsulation for tidiness.* Measure cross-references before any further
-attempt.
-
-**Test fakes are duplicated across the two kernel packages** (`memoryStore`,
-`memoryTranscriptStore`, `fakeShippingGateway`, `mustMarshal`, `webThread`). A
-fake is not API, and an exported `kerneltest` package for forty-line stubs is
-the worse trade. *Revisit if a third package needs them.*
-
-**`internal/web`'s MCP config routes stay as a special case.** They are not a
-boundary violation — `internal/web` imports `internal/config`, not the
-adapter — and they back a real settings panel. *Genericize only when a second
-config section needs the same treatment, at which point the generic route pays
-for itself.*
-
-**The runtime policy says nothing about MCP, deliberately.** The model is not
-told that MCP calls are ungated: that is operator information, and a generic
-"be careful with remote tools" line is exactly the unconditional prose the
-policy split removed. Server-supplied tool descriptions already say what each
-tool does, and the core policy already forbids claiming an action succeeded
-without its result. *Re-open only if a real incident traces to the model not
-knowing.*
-
-**The Pi four-tool test applies to new tools only.** Before adding a tool, ask
-whether the model could do it with `terminal` and a CLI. Applied retroactively
-it would delete capabilities whose value is an approval envelope or a
-credential Eggy holds rather than the API call itself.
-
-**Migrations are gone and `/data` cannot be restored from before them.**
-The boot migrations for legacy coding runs, Calendar credentials, schedules,
-and per-server MCP OAuth files were removed once the deployment had been
-through them. Restoring a `/data` backup predating any of them would strand
-that data; recovery means checking out a commit before their removal, booting
-once, then upgrading.
+- [ ] Set `server.trusted_proxy_hops: 1` in Railway's `/data/config.yaml`.
+- [ ] Reset Railway's `/data/config.yaml` to the current shape **before the
+      next deploy**. The sweep removed the `scheduler`, `embeddings`, and
+      `implementation_sessions` sections, and `calendar` is now
+      `default_calendar` only — no `enabled`, no `timezone`. The loader uses
+      `KnownFields(true)`, so a stale key fails startup rather than being
+      ignored.
 
 ---
 
 ## Standing constraints
 
-Properties every change must preserve.
+### Architecture
 
-**Architecture**
-- `internal/kernel` and `internal/ports` stay provider-neutral. Adapters live
-  under `plugins/` and are wired only in `internal/bootstrap`. No `internal/`
-  package outside `internal/bootstrap` imports a plugin type.
-- `services/repo` may import `services`; never the reverse.
-- The primitive tool surface (`read_file`, `terminal`, `patch`, `write_file`)
-  is kernel-owned and defined exactly once. Nothing shadows a primitive — the
-  registry drops a provider tool that collides with a registered name.
-- The loop has exactly one tool source. An adapter with a changing catalog is a
-  provider on the registry, never a second source on the loop.
-- Operational state is file-backed, so production runs exactly one `eggyd`.
+- `internal/kernel` and `internal/ports` remain provider-neutral.
+- Adapters live under `plugins/<category>/<provider>` and are wired only in
+  `internal/bootstrap`.
+- `internal/kernel/services/repo` may import `internal/kernel/services`; never
+  the reverse.
+- The loop has exactly one tool source. Dynamic adapter catalogs are providers
+  on the kernel registry, never a second loop or registry.
+- Production remains a single `eggyd` process and one replica.
 
-**Safety**
-- Nothing lands in a repository without payload-bound authorization and a
-  human-reviewed pull request. Protected branches stay unpushable. Eggy never
-  merges.
-- Unprompted turns (scheduled, heartbeat) may only *propose*: isolated branch,
-  draft PR, never a change the owner has open.
-- A heartbeat is a check-in, not a work tick: read-only plus memory curation.
-- A turn is never told about a capability it does not have. The runtime policy
-  is assembled from `CapabilityManifest.Tools`, the same field the manifest
-  renders.
-- Calendar mutations, commits, pushes, and PR creation each require their own
-  payload-bound approval. MCP calls deliberately require none: a configured
-  server is trusted code, reviewed when it was added to `mcp.servers`. Keep
-  that surface config-only — no runtime tool may add or enable a server.
-- Unprompted output is Telegram-only, stamped explicitly via
-  `proactiveDestination()`, so quiet-hours and weekly-limit accounting stays
-  meaningful.
-- Durable context retains active-secret filtering. SOUL/USER/MEMORY are
-  context, never capability grants.
-- Config, state, context, and session stores keep file locking and atomic
-  writes. `/data/state.json` stays loadable or gets a schema-version change.
-- Repository and stdio-MCP subprocesses keep root restrictions, environment
-  allowlisting, timeouts, output limits, and process-group cancellation.
+### Do not introduce
+
+- a runtime-loaded native plugin system;
+- a DI, agent, web, or ORM framework;
+- build tags for ordinary feature selection;
+- package splits that export internals only to satisfy directory boundaries;
+- generic feature/module lifecycle interfaces whose only caller is bootstrap;
+- a second way to do a job that already has one.
+
+### Safety
+
 - Telegram keeps webhook authentication, owner allowlisting, and update
   deduplication.
-- Workspace path containment is lexical and stops mistakes, not attackers.
-  Configured repositories are trusted code running as Eggy's own user.
+- Calendar mutations retain independent payload-bound approvals. Consolidating
+  the calendar tools never consolidates their approvals.
+- Generic Telegram selections can never satisfy an approval, authorize a
+  mutation, or be read as approve/reject.
+- Eggy has no repository commit, push, pull-request, or merge capability. If
+  any returns, independent payload-bound approvals and protected-branch denial
+  are mandatory.
+- Unprompted turns cannot use MCP or mutate anything.
+- Durable context retains active-secret filtering.
+- Config and owner-facing files retain locking and atomic writes.
+- Configured repositories and stdio MCP servers are trusted code running as
+  Eggy's user; timeouts and environment allowlists are not a sandbox.
 
-**Process**
-- Changes are developed test-first and verified with focused tests followed by
-  `make fmt vet test race build`; `make smoke` when Docker is available.
+### Process
 
----
-
-## Sources
-
-Comparative figures were checked in July 2026, not recalled.
-
-- [OpenClaw issue #39945 — Progressive Disclosure for Skills](https://github.com/openclaw/openclaw/issues/39945) — 83 skills, 41 visible, closed without maintainer action
-- [OpenClaw 9-layer system prompt breakdown](https://youmind.com/landing/x-viral-articles/openclaw-agent-system-prompt-architecture) — layer sizes
-- [openclaw/openclaw](https://github.com/openclaw/openclaw)
-- [Anatomy of Pi, the minimal coding agent](https://shivamagarwal7.medium.com/agentic-ai-pi-anatomy-of-a-minimal-coding-agent-powering-openclaw-5ecd4dd6b440) — 4 tools, <1K-token prompt
-- [Hermes Agent — Prompt Assembly](https://hermes-agent.nousresearch.com/docs/developer-guide/prompt-assembly/) — stable/context/volatile tiers, cache rationale
-- [Anthropic — Advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use) — Tool Search Tool, deferral thresholds
-- [Claude Code — MCP docs](https://code.claude.com/docs/en/mcp)
+- Change behavior test-first and run the focused test before the full suite.
+- Run `make fmt vet test race build` before completing each phase.
+- Run `make smoke` when Docker is available; report an unavailable Docker
+  daemon as an environment blocker, not a passing smoke test.
+- Every feature proposal states its deletion budget: production lines, config
+  keys, tools, durable records, background loops.

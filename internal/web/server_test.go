@@ -38,22 +38,6 @@ func TestHTTPHandlerHealthAndReadiness(t *testing.T) {
 	}
 }
 
-func TestHTTPHandlerOptionalGoogleRoutes(t *testing.T) {
-	start := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTemporaryRedirect) })
-	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	handler := NewHTTPHandler(Routes{Ready: func() error { return nil }, GoogleStart: start, GoogleCallback: callback})
-	for _, tc := range []struct {
-		path string
-		want int
-	}{{"/auth/google", 307}, {"/auth/google/callback", 204}, {"/webhooks/telegram", 503}} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
-		if response.Code != tc.want {
-			t.Fatalf("%s status=%d", tc.path, response.Code)
-		}
-	}
-}
-
 func TestHTTPHandlerOptionalMCPCallbackRoute(t *testing.T) {
 	callback := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.PathValue("server") != "railway" {

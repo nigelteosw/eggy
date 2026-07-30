@@ -16,6 +16,7 @@ telegram:
   owner_id: 42
 agent:
   default_model: deepseek-pro
+  timezone: UTC
 providers:
   deepseek:
     adapter: openai_compatible
@@ -36,17 +37,5 @@ runner:
   retention: 15m
   max_output_bytes: 1048576
   allowed_env: [PATH]
-scheduler:
-  heartbeat_cadence: 30m
-  quiet_hours:
-    start: '22:00'
-    end: '07:00'
-    timezone: UTC
-  minimum_proactive_interval: 2h
-  weekly_proactive_limit: 3
-calendar:
-  enabled: true
-  default_calendar: primary
-  timezone: UTC
 `
 }

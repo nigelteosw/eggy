@@ -90,61 +90,6 @@ func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 	}
 }
 
-func TestSetCalendarPatchesOnlyGivenFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// validConfigV2 already has calendar.enabled=true, default_calendar=primary, timezone=UTC.
-	if err := SetCalendar(path, "", "", "Asia/Singapore"); err != nil {
-		t.Fatal(err)
-	}
-	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reloaded.Calendar.Enabled || reloaded.Calendar.DefaultCalendar != "primary" || reloaded.Calendar.Timezone != "Asia/Singapore" {
-		t.Fatalf("calendar = %#v", reloaded.Calendar)
-	}
-
-	if err := SetCalendar(path, "false", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	reloaded, _, err = LoadConfig(path, mapEnv(testSecrets()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reloaded.Calendar.Enabled || reloaded.Calendar.DefaultCalendar != "primary" || reloaded.Calendar.Timezone != "Asia/Singapore" {
-		t.Fatalf("calendar after disabling = %#v", reloaded.Calendar)
-	}
-}
-
-func TestSetCalendarRequiresAtLeastOneField(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	before := []byte(validConfig())
-	if err := os.WriteFile(path, before, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	err := SetCalendar(path, "", "", "")
-	if err == nil || !strings.Contains(err.Error(), "at least one") {
-		t.Fatalf("error = %v", err)
-	}
-	assertFileBytes(t, path, before)
-}
-
-func TestSetCalendarRejectsInvalidBool(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yaml")
-	before := []byte(validConfig())
-	if err := os.WriteFile(path, before, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	err := SetCalendar(path, "not-a-bool", "", "")
-	if err == nil || !strings.Contains(err.Error(), "enabled must be true or false") {
-		t.Fatalf("error = %v", err)
-	}
-	assertFileBytes(t, path, before)
-}
-
 func TestSetMCPServerAddsNewServerWithSaneDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
@@ -306,10 +251,6 @@ func TestGetConfigTextFormatsEachSection(t *testing.T) {
 	if err != nil || models != "deepseek-pro  provider=deepseek  model=deepseek-v4-pro" {
 		t.Fatalf("models text = %q, err=%v", models, err)
 	}
-	calendar, err := GetCalendarConfigText(path)
-	if err != nil || calendar != "enabled=true  default_calendar=primary  timezone=UTC" {
-		t.Fatalf("calendar text = %q, err=%v", calendar, err)
-	}
 }
 
 func TestShowConfigTextDumpsWholeFile(t *testing.T) {
@@ -321,7 +262,7 @@ func TestShowConfigTextDumpsWholeFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"deepseek", "public_base_url", "calendar"} {
+	for _, want := range []string{"deepseek", "public_base_url"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("show text missing %q: %s", want, text)
 		}

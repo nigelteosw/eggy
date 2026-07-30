@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -71,15 +70,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var restartRequested atomic.Bool
-	requestRestart := func() {
-		go func() {
-			time.Sleep(1500 * time.Millisecond)
-			restartRequested.Store(true)
-			stop()
-		}()
-	}
-	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: *configPath, RequestRestart: requestRestart, Logger: logger})
+	app, err := bootstrap.NewApp(config, secrets, bootstrap.AppOptions{FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: *configPath, Logger: logger})
 	if err != nil {
 		return err
 	}
@@ -105,14 +96,6 @@ func run() error {
 		defer cancel()
 		if err := server.Shutdown(shutdownContext); err != nil {
 			return err
-		}
-		if restartRequested.Load() {
-			exePath, err := os.Executable()
-			if err != nil {
-				return fmt.Errorf("resolve executable path for restart: %w", err)
-			}
-			slog.Info("eggyd restarting")
-			return syscall.Exec(exePath, os.Args, os.Environ())
 		}
 		return nil
 	}

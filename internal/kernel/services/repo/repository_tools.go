@@ -9,13 +9,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// Shipper runs the commit -> push -> pull-request chain unattended and
-// returns the resulting pull request, or a non-empty note when the chain
-// stopped short (an unavailable capability or a protected branch).
-type Shipper interface {
-	Ship(ctx context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error)
-}
-
 type repositoryTool struct {
 	definition ports.ToolDefinition
 	execute    func(context.Context, json.RawMessage) (json.RawMessage, error)
@@ -27,9 +20,7 @@ func (t repositoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.
 }
 
 // NewRepositoryTools returns the repository tools that are not about one
-// checkout: today that is repository_list alone. Changing a repository is no
-// longer a tool that drives a run to completion -- it is workspace_open,
-// workspace_edit, the primitives, and propose_change, in ordinary turns.
+// checkout: today that is repository_list alone.
 func NewRepositoryTools(store ports.StateStore) []ports.Tool {
 	list := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),

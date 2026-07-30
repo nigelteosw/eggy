@@ -20,10 +20,9 @@ build-web:
 build: build-web
 	mkdir -p bin
 	$(GO) build -trimpath -o bin/eggyd ./cmd/eggyd
-	$(GO) build -trimpath -o bin/eggy ./cmd/eggy
 
 smoke:
 	./scripts/docker-smoke.sh
 
 clean:
-	rm -f bin/eggyd bin/eggy
+	rm -f bin/eggyd

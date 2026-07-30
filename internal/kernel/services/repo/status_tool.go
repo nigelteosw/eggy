@@ -19,12 +19,11 @@ type ScheduleCounter interface {
 
 type statusTool struct {
 	store     ports.StateStore
-	changes   *Changes
 	schedules ScheduleCounter
 }
 
-func NewStatusTool(store ports.StateStore, changes *Changes, schedules ScheduleCounter) ports.Tool {
-	return statusTool{store: store, changes: changes, schedules: schedules}
+func NewStatusTool(store ports.StateStore, schedules ScheduleCounter) ports.Tool {
+	return statusTool{store: store, schedules: schedules}
 }
 func (t statusTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{Name: "status", Description: "Read bounded Eggy operational status", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
@@ -48,16 +47,11 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		repositories = append(repositories, name)
 	}
 	sort.Strings(repositories)
-	active, err := activeRuns(ctx, t.changes)
-	if err != nil {
-		return nil, err
-	}
 	return json.Marshal(struct {
 		Repositories     []string `json:"repositories,omitempty"`
-		ActiveRuns       int      `json:"active_runs"`
 		PendingApprovals int      `json:"pending_approvals"`
 		Schedules        int      `json:"schedules"`
-	}{Repositories: repositories, ActiveRuns: active, PendingApprovals: pending, Schedules: scheduleCount(ctx, t.schedules)})
+	}{Repositories: repositories, PendingApprovals: pending, Schedules: scheduleCount(ctx, t.schedules)})
 }
 
 // scheduleCount treats an unreadable cron directory as zero rather than
@@ -72,21 +66,4 @@ func scheduleCount(ctx context.Context, schedules ScheduleCounter) int {
 		return 0
 	}
 	return len(all)
-}
-
-func activeRuns(ctx context.Context, changes *Changes) (int, error) {
-	if changes == nil {
-		return 0, nil
-	}
-	all, err := changes.List(ctx)
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, change := range all {
-		if change.Phase == ports.PhaseRunning {
-			count++
-		}
-	}
-	return count, nil
 }

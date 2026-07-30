@@ -16,7 +16,8 @@ type CapabilityManifest struct {
 	// SelfRepository is the registered repository holding Eggy's own source,
 	// or "" when none is marked. It grants nothing: it tells the agent which
 	// of Repositories is its own body, so a self-improvement turn reads that
-	// repository's AGENTS.md and docs/ARCHITECTURE.md rather than guessing.
+	// repository's AGENTS.md and published architecture guide rather than
+	// guessing.
 	SelfRepository string
 	// Skills is the compact, always-in-context index of currently enabled
 	// procedural skills (disabled skills are pre-filtered by the caller).

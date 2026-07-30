@@ -113,8 +113,8 @@ type RepositoryConfig struct {
 	// Self marks the repository that holds Eggy's own source. It grants no
 	// capability of its own -- it only tells the agent which registered
 	// repository is its own body, so a self-improvement turn knows where
-	// AGENTS.md and docs/ARCHITECTURE.md describing it live. At most one
-	// repository may set it.
+	// AGENTS.md and the published architecture guide describing it live. At
+	// most one repository may set it.
 	Self bool `yaml:"self,omitempty"`
 }
 

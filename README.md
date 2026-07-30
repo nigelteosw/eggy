@@ -123,5 +123,5 @@ Safe mode needs `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD`, and
 `EGGY_ENCRYPTION_KEY` to be signed into. It serves nothing else: no chat, no
 agent, no memory.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for dependency rules and
-[TODO.md](TODO.md) for unfinished simplification work.
+See the [architecture guide](docs/src/content/docs/project/architecture.md) for
+dependency rules and [TODO.md](TODO.md) for unfinished simplification work.

@@ -15,7 +15,7 @@ func TestReadmeReferencesExistingFiles(t *testing.T) {
 		"../../Makefile",
 		"../../Dockerfile",
 		"../../AGENTS.md",
-		"../../docs/ARCHITECTURE.md",
+		"../../docs/src/content/docs/project/architecture.md",
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("README.md references %q, but it does not exist: %v", path, err)

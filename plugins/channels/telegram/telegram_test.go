@@ -92,6 +92,82 @@ func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	}
 }
 
+func TestWebhookRoutesSelectionCallbackAsOwnerMessage(t *testing.T) {
+	var got events.Event
+	var resolved []string
+	acknowledger := &recordingAcknowledger{}
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error {
+		got = event
+		return nil
+	}, acknowledger).WithSelectionResolver(func(callbackData string) (string, bool) {
+		resolved = append(resolved, callbackData)
+		return "staging", true
+	})
+	body := `{"update_id":10,"callback_query":{"id":"cb-select","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent || got.Type != events.TypeMessage || got.Owner != "42" {
+		t.Fatalf("status=%d event=%#v", response.Code, got)
+	}
+	var message events.Message
+	if err := json.Unmarshal(got.Payload, &message); err != nil || message.Text != "staging" {
+		t.Fatalf("payload=%s err=%v", got.Payload, err)
+	}
+	if len(resolved) != 1 || resolved[0] != "select:opaque:1" {
+		t.Fatalf("resolved=%v", resolved)
+	}
+	if len(acknowledger.acked) != 1 || acknowledger.acked[0] != "cb-select" {
+		t.Fatalf("acked=%v", acknowledger.acked)
+	}
+}
+
+func TestWebhookRejectsNonOwnerSelectionWithoutConsumingIt(t *testing.T) {
+	called := false
+	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { return nil }, nil).
+		WithSelectionResolver(func(string) (string, bool) {
+			called = true
+			return "staging", true
+		})
+	body := `{"update_id":11,"callback_query":{"id":"cb-select","from":{"id":43},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if called {
+		t.Fatal("non-owner callback consumed the pending selection")
+	}
+}
+
+func TestWebhookAcknowledgesConsumedSelectionWithoutEnqueuingAnEvent(t *testing.T) {
+	acknowledger := &recordingAcknowledger{}
+	enqueued := false
+	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error {
+		enqueued = true
+		return nil
+	}, acknowledger).WithSelectionResolver(func(string) (string, bool) {
+		return "", false
+	})
+	body := `{"update_id":12,"callback_query":{"id":"duplicate","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent || enqueued {
+		t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+	}
+	if len(acknowledger.acked) != 1 || acknowledger.acked[0] != "duplicate" {
+		t.Fatalf("acked=%v", acknowledger.acked)
+	}
+}
+
 // An unauthorized or malformed update must never be acked: acking is only
 // for a tap Eggy has actually accepted.
 func TestWebhookDoesNotAcknowledgeARejectedCallback(t *testing.T) {
@@ -122,7 +198,7 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 	if err := client.Deliver(context.Background(), `<ready> & "safe"`); err != nil {
 		t.Fatal(err)
 	}
-	approval := approvals.Approval{ID: "id-1", Action: approvals.Commit, Summary: "Commit changes"}
+	approval := approvals.Approval{ID: "id-1", Action: approvals.Action("test_action"), Summary: "Run protected action"}
 	if err := client.DeliverApproval(context.Background(), approval); err != nil {
 		t.Fatal(err)
 	}

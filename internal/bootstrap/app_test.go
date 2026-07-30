@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,12 +21,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"gopkg.in/yaml.v3"
 )
 
 func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
@@ -58,38 +53,9 @@ func toolDefinitionNames(tools []ports.Tool) []string {
 	return names
 }
 
-func TestAppConfigSetWritesToConfiguredPath(t *testing.T) {
-	dataDir := t.TempDir()
-	configPath := filepath.Join(dataDir, "config.yaml")
-	cfg := appTestConfig(dataDir)
-	body, err := yaml.Marshal(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(configPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{FakeAdapters: true, ConfigPath: configPath})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, handled, err := app.ExecuteCommand(context.Background(), "/config set provider name=openrouter adapter=openai_compatible base_url=https://openrouter.ai/api/v1 api_key_env=OPENROUTER_API_KEY")
-	if err != nil || !handled || !strings.Contains(output, "Set provider openrouter.") || !strings.Contains(output, "Restart Eggy for this to take effect.") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-	env := map[string]string{"TELEGRAM_BOT_TOKEN": "bot", "TELEGRAM_WEBHOOK_SECRET": "webhook", "DEEPSEEK_API_KEY": "key"}
-	reloaded, _, err := config.LoadConfig(configPath, func(key string) string { return env[key] })
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := reloaded.Providers["openrouter"]; !ok {
-		t.Fatalf("providers = %#v", reloaded.Providers)
-	}
-}
-
-func TestDirectOwnerMessagesAndSchedulesBothExposeRepositoryTools(t *testing.T) {
+func TestDirectOwnerMessagesAndSchedulesExposeOnlyReadOnlyRepositoryTools(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}, Self: true}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: createLocalGitRemote(t), BaseBranch: "main", ProtectedBranches: []string{"main"}, Self: true}}
 	var modelBodies [][]byte
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Host == "deepseek.test" {
@@ -114,15 +80,18 @@ func TestDirectOwnerMessagesAndSchedulesBothExposeRepositoryTools(t *testing.T) 
 		t.Fatalf("model requests=%d, want 2", len(modelBodies))
 	}
 	directTools := requestedToolNames(t, modelBodies[0])
-	if !directTools["workspace_edit"] || !directTools["propose_change"] {
-		t.Fatalf("direct owner message did not advertise repository tools: %s", modelBodies[0])
+	for _, name := range []string{"repository_list", "repository_github", "workspace_open", "read_file", "workspace_close"} {
+		if !directTools[name] {
+			t.Fatalf("direct owner message did not advertise read-only tool %q: %s", name, modelBodies[0])
+		}
 	}
-	// A scheduled turn now carries the same propose path: the invariant it
-	// must hold is that it can only propose (draft pull request, own branch),
-	// not that it cannot write at all.
 	scheduledTools := requestedToolNames(t, modelBodies[1])
-	if !scheduledTools["workspace_edit"] || !scheduledTools["propose_change"] {
-		t.Fatalf("scheduled turn did not advertise the propose path: %s", modelBodies[1])
+	for _, tools := range []map[string]bool{directTools, scheduledTools} {
+		for _, gone := range []string{"terminal", "workspace_edit", "patch", "write_file", "propose_change"} {
+			if tools[gone] {
+				t.Fatalf("repository mutation or shell tool %q was advertised: direct=%v scheduled=%v", gone, directTools, scheduledTools)
+			}
+		}
 	}
 	if !strings.Contains(string(modelBodies[1]), "self_repository: eggy") {
 		t.Fatalf("scheduled turn did not learn which repository is its own body: %s", modelBodies[1])
@@ -156,7 +125,7 @@ func requestedToolNames(t *testing.T, body []byte) map[string]bool {
 func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T) {
 	dataDir := t.TempDir()
 	cfg := appTestConfig(dataDir)
-	cfg.Calendar.Timezone = "Asia/Singapore"
+	cfg.Agent.Timezone = "Asia/Singapore"
 	secrets := appTestSecrets("provider-secret")
 	var mu sync.Mutex
 	var telegramBodies [][]byte
@@ -239,9 +208,6 @@ func TestNewAppOpensDurableMemoryAndRegistersTextRecallWithoutEmbeddings(t *test
 	if app.memory == nil {
 		t.Fatal("durable memory store is nil")
 	}
-	if app.embedder != nil || app.memoryWorker != nil {
-		t.Fatalf("embeddings unexpectedly enabled: embedder=%T worker=%T", app.embedder, app.memoryWorker)
-	}
 	if !slices.Contains(app.loop.ToolNames(agent.RunOptions{}), "recall_conversation") {
 		t.Fatalf("registered tools=%v", app.loop.ToolNames(agent.RunOptions{}))
 	}
@@ -272,15 +238,15 @@ func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t
 		t.Fatal(err)
 	}
 
-	messages, err := app.memory.PendingEmbeddings(context.Background(), 10)
+	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(messages) != 2 {
 		t.Fatalf("durable messages=%#v", messages)
 	}
-	if messages[1].Role != ports.RoleUser || messages[1].Content != "durable owner prompt" ||
-		messages[0].Role != ports.RoleAssistant || messages[0].Content != "durable assistant reply" {
+	if messages[0].Role != ports.RoleUser || messages[0].Content != "durable owner prompt" ||
+		messages[1].Role != ports.RoleAssistant || messages[1].Content != "durable assistant reply" {
 		t.Fatalf("durable messages=%#v", messages)
 	}
 	for _, message := range messages {
@@ -324,7 +290,7 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 		t.Fatal("missing approval returned nil error")
 	}
 
-	messages, err := app.memory.PendingEmbeddings(context.Background(), 10)
+	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,96 +346,6 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	}
 }
 
-func TestConfiguredEmbeddingsUseProviderOverrideAndMakePendingMemorySearchable(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
-	var embeddingCalls atomic.Int32
-	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Host == "embedding-override.test" && request.URL.Path == "/embeddings" {
-			embeddingCalls.Add(1)
-			if request.Header.Get("Authorization") != "Bearer provider-secret" {
-				t.Fatalf("authorization=%q", request.Header.Get("Authorization"))
-			}
-			body, _ := io.ReadAll(request.Body)
-			if !strings.Contains(string(body), `"model":"embed-v1"`) || !strings.Contains(string(body), `"dimensions":3`) {
-				t.Fatalf("embedding body=%s", body)
-			}
-			return appJSON(200, `{"data":[{"embedding":[1,0,0]}]}`), nil
-		}
-		return appJSON(200, `{"ok":true,"result":true}`), nil
-	})}
-	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
-		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
-		ProviderBaseURLs: map[string]string{"deepseek": "https://embedding-override.test"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if app.embedder == nil || app.memoryWorker == nil {
-		t.Fatalf("embedding wiring missing: embedder=%T worker=%T", app.embedder, app.memoryWorker)
-	}
-	if embeddingCalls.Load() != 0 {
-		t.Fatalf("embedding calls during NewApp=%d", embeddingCalls.Load())
-	}
-	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
-		Role: ports.RoleUser, Content: "semantic memory", Source: "telegram", CreatedAt: time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.memoryWorker.RunOnce(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	query, err := app.embedder.Embed(context.Background(), "semantic memory")
-	if err != nil {
-		t.Fatal(err)
-	}
-	matches, err := app.memory.SearchSimilar(context.Background(), query, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 1 || matches[0].Content != "semantic memory" || embeddingCalls.Load() != 2 {
-		t.Fatalf("matches=%#v calls=%d", matches, embeddingCalls.Load())
-	}
-}
-
-func TestEmbeddingProfileChangesWithEffectiveConfiguration(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 3, CandidateLimit: 50}
-	base := embeddingProfile(cfg, AppOptions{})
-	if base == "" {
-		t.Fatal("configured embedding profile is empty")
-	}
-
-	tests := []struct {
-		name   string
-		mutate func(*config.Config, *AppOptions)
-	}{
-		{name: "provider identity", mutate: func(cfg *config.Config, _ *AppOptions) {
-			cfg.Providers["other"] = cfg.Providers["deepseek"]
-			cfg.Embeddings.Provider = "other"
-		}},
-		{name: "effective base URL", mutate: func(_ *config.Config, options *AppOptions) {
-			options.ProviderBaseURLs = map[string]string{"deepseek": "https://override.test/v1"}
-		}},
-		{name: "model", mutate: func(cfg *config.Config, _ *AppOptions) { cfg.Embeddings.Model = "embed-v2" }},
-		{name: "dimensions", mutate: func(cfg *config.Config, _ *AppOptions) { cfg.Embeddings.Dimensions = 4 }},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			changed := cfg
-			changed.Providers = maps.Clone(cfg.Providers)
-			options := AppOptions{}
-			tt.mutate(&changed, &options)
-			if got := embeddingProfile(changed, options); got == "" || got == base {
-				t.Fatalf("changed profile = %q, base = %q", got, base)
-			}
-		})
-	}
-	if got := embeddingProfile(appTestConfig(t.TempDir()), AppOptions{}); got != "" {
-		t.Fatalf("unconfigured embedding profile = %q, want empty", got)
-	}
-}
-
 func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	secrets := appTestSecrets("provider-secret")
@@ -503,74 +379,6 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 	}
 	if strings.Contains(string(secondBody), "bare-ui-password") || !strings.Contains(string(secondBody), "[redacted]") {
 		t.Fatalf("second model request did not redact UI password: %s", secondBody)
-	}
-}
-
-func TestFakeAdaptersUseDeterministicConfiguredDimensionEmbedder(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 4, CandidateLimit: 50}
-	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{FakeAdapters: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := app.embedder.Embed(context.Background(), "same input")
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := app.embedder.Embed(context.Background(), "same input")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(first) != 4 || !slices.Equal(first, second) {
-		t.Fatalf("first=%v second=%v", first, second)
-	}
-}
-
-func TestAppRunLogsEmbeddingFailureAndRetriesOnNextInterval(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Embeddings = config.EmbeddingsConfig{Provider: "deepseek", Model: "embed-v1", Dimensions: 2, CandidateLimit: 50}
-	var attempts atomic.Int32
-	var logs bytes.Buffer
-	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Host == "embedding.test" && request.URL.Path == "/embeddings" {
-			if attempts.Add(1) <= 3 {
-				return appJSON(500, `{"error":"temporary"}`), nil
-			}
-			return appJSON(200, `{"data":[{"embedding":[1,0]}]}`), nil
-		}
-		return appJSON(200, `{"ok":true,"result":true}`), nil
-	})}
-	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
-		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
-		ProviderBaseURLs: map[string]string{"deepseek": "https://embedding.test"},
-		Logger:           slog.New(slog.NewJSONHandler(&logs, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	app.memoryEmbeddingInterval = 5 * time.Millisecond
-	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
-		Role: ports.RoleUser, Content: "retry me", Source: "telegram", CreatedAt: time.Now(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	runDone := make(chan error, 1)
-	go func() { runDone <- app.Run(ctx) }()
-	deadline := time.Now().Add(time.Second)
-	for attempts.Load() < 4 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	cancel()
-	if err := <-runDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("Run error=%v", err)
-	}
-	if attempts.Load() < 4 {
-		t.Fatalf("embedding attempts=%d", attempts.Load())
-	}
-	logOutput := logs.String()
-	if !strings.Contains(logOutput, "memory embedding worker failed") || strings.Contains(logOutput, "context canceled") {
-		t.Fatalf("logs=%s", logOutput)
 	}
 }
 
@@ -653,7 +461,10 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	for _, want := range []string{"status", "repositories", "runs", "stop", "schedules", "memory", "model", "usage", "clear", "calendar_auth"} {
+	if len(names) != 5 {
+		t.Fatalf("registered %d commands, want 5: %v", len(names), names)
+	}
+	for _, want := range []string{"help", "status", "stop", "clear", "model"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -662,7 +473,7 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 
 func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main", ProtectedBranches: []string{"main"}}}
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: createLocalGitRemote(t), BaseBranch: "main", ProtectedBranches: []string{"main"}}}
 	secrets := appTestSecrets("provider-secret")
 	secrets.GitHubToken = "github-secret"
 	var modelBodies [][]byte
@@ -710,129 +521,13 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	}
 }
 
-// TestOneLoopEditsAndShipsWithinASingleTurn proves the collapsed path end to
-// end with no second loop and no real model call: one turn branches a real
-// local git remote's checkout, reads a file, patches it, calls
-// propose_change, reads the result, and replies -- every step an ordinary
-// tool call in the same loop. Pull-request creation is exercised against a
-// local, non-GitHub-shaped remote, so it fails on the owner/repository slug
-// rather than succeeding; the test only asserts on the parts that don't
-// depend on a real GitHub API (commit, push, no pending approval).
-func TestOneLoopEditsAndShipsWithinASingleTurn(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	remote := createLocalGitRemote(t)
-	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: remote, BaseBranch: "main", ProtectedBranches: []string{"main"}}}
-	secrets := appTestSecrets("provider-secret")
-	secrets.GitHubToken = "github-secret"
-	var modelBodies [][]byte
-	var delivered [][]byte
-	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
-		switch {
-		case request.URL.Host == "deepseek.test":
-			body, _ := io.ReadAll(request.Body)
-			modelBodies = append(modelBodies, body)
-			switch len(modelBodies) {
-			case 1:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"workspace_edit","arguments":"{\"repository\":\"eggy\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
-			case 2:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-2","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
-			case 3:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-3","type":"function","function":{"name":"patch","arguments":"{\"path\":\"README.md\",\"old_string\":\"initial\",\"new_string\":\"initial\\nreviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
-			case 4:
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-4","type":"function","function":{"name":"propose_change","arguments":"{\"summary\":\"Reviewed the README.\",\"validation\":\"go build ./... passed\",\"commit_message\":\"docs: note reviewed\"}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
-			default:
-				// The outer loop asks once more for a final reply after
-				// seeing the repository_modify tool result; this is that
-				// wrap-up turn, not part of the implementation loop.
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"Implemented and shipped."}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
-			}
-		case strings.Contains(request.URL.Path, "sendMessage"):
-			body, _ := io.ReadAll(request.Body)
-			delivered = append(delivered, body)
-			return appJSON(200, `{"ok":true,"result":{}}`), nil
-		case strings.Contains(request.URL.Path, "setMyCommands"):
-			return appJSON(200, `{"ok":true,"result":true}`), nil
-		default:
-			return appJSON(404, `{}`), nil
-		}
-	})}
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, _ := json.Marshal(events.Message{Text: "implement a note that the repo was reviewed"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "implement-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
-		t.Fatal(err)
-	}
-	if len(modelBodies) != 5 {
-		t.Fatalf("model requests=%d, want 5 (workspace_edit, read_file, patch, propose_change, wrap-up reply): %q", len(modelBodies), modelBodies)
-	}
-	// Every step saw the same tool surface: there was only ever one loop.
-	for i, body := range modelBodies {
-		names := requestedToolNames(t, body)
-		if !names["workspace_edit"] || !names["propose_change"] || !names["patch"] || !names["read_file"] {
-			t.Fatalf("step %d saw a different tool surface: %s", i, body)
-		}
-	}
-	runs, err := app.changes.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("coding runs=%#v", runs)
-	}
-	run := runs[0]
-	// Pull-request creation fails on the owner/repository slug against this
-	// local, non-GitHub-shaped remote, so the run never reaches
-	// PhaseCompleted. How far it did get is evidence on the transcript rather
-	// than a phase of its own: commit and push both recorded a milestone.
-	if run.Phase == ports.PhaseCompleted || run.Branch == "" || !strings.HasPrefix(run.Branch, "eggy/") || run.Commit == "" {
-		t.Fatalf("run=%#v", run)
-	}
-	// The milestones live on the turn's transcript, not on the change: a
-	// change records what it is and how far it got, a transcript records what
-	// happened in order.
-	transcripts, err := app.transcripts.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	milestones := map[string]bool{}
-	for _, transcript := range transcripts {
-		for _, event := range transcript.Events {
-			if event.Kind == ports.SessionMilestone {
-				milestones[event.Message] = true
-			}
-		}
-	}
-	if !milestones["Commit created"] || !milestones["Branch pushed"] {
-		t.Fatalf("milestones=%v, want commit and push recorded on the transcript", milestones)
-	}
-	state, err := app.store.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for id, approval := range state.Approvals {
-		if approval.Status == approvals.Pending {
-			t.Fatalf("expected no pending approvals once shipping is automatic, found %q: %#v", id, approval)
-		}
-	}
-	if len(delivered) == 0 {
-		t.Fatalf("expected a delivered Telegram reply")
-	}
-	for _, message := range delivered {
-		if strings.Contains(string(message), "approval:") {
-			t.Fatalf("did not expect an approval prompt once shipping is automatic: %q", message)
-		}
-	}
-}
-
-func TestCommandServiceSupportsOperationalShortcuts(t *testing.T) {
+func TestCommandServiceSupportsFiveConversationalCommands(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"/status", "/repositories", "/runs", "/schedules", "/memory", "/clear"} {
+	for _, command := range []string{"/help", "/status", "/stop", "/clear", "/model"} {
 		output, handled, err := app.commands.Execute(context.Background(), command)
 		if err != nil || !handled || output == "" {
 			t.Fatalf("%s output=%q handled=%v err=%v", command, output, handled, err)
@@ -854,63 +549,13 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 		if command.Description == "" {
 			t.Fatalf("command %q has no description", command.Name)
 		}
-		if commands.HelpText(command.Name) == fmt.Sprintf("Unknown command %q. Type /help for a list of commands.", command.Name) {
-			t.Fatalf("command %q has no eggy help text", command.Name)
-		}
 		_, handled, err := app.commands.Execute(context.Background(), "/"+command.Name)
 		if err != nil || !handled {
 			t.Fatalf("registered command %q was not handled by commands.CommandService: handled=%v err=%v", command.Name, handled, err)
 		}
 	}
-	if _, handled, _ := app.commands.Execute(context.Background(), "/unknown"); handled {
-		t.Fatal("unknown command handled")
-	}
-}
-
-// TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler dispatches every
-// catalog entry (including subcommands, not just top-level ones) through its
-// own canonical Telegram example, proving the catalog and its handlers never
-// drift out of sync. Some canonical examples reference IDs that don't exist
-// in this fresh app (e.g. "/stop run-1"), which legitimately surfaces as an
-// error result or a Go error from the underlying service -- this test only
-// proves dispatch reaches a real handler without panicking, not that every
-// example succeeds.
-func TestCatalogCoverageEveryEntryDispatchesToAWorkingHandler(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range commands.Catalog() {
-		if len(entry.Examples) == 0 {
-			t.Fatalf("catalog entry %q has no example", entry.Path)
-		}
-		// Dispatch must reach a real handler without panicking; a returned
-		// Go error is fine here (e.g. "/stop run-1" against a run that was
-		// never created), it just means the example ID doesn't exist yet.
-		if _, handled, _ := app.commands.Execute(context.Background(), entry.Examples[0].Telegram); !handled {
-			t.Fatalf("catalog entry %q was not handled via its own example %q", entry.Path, entry.Examples[0].Telegram)
-		}
-	}
-}
-
-func TestCalendarAuthCommandCreatesShortLivedOwnerEnrollment(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	cfg.Calendar = config.CalendarConfig{Enabled: true, DefaultCalendar: "primary", Timezone: "UTC"}
-	secrets := appTestSecrets("deepseek")
-	secrets.GoogleClientID, secrets.GoogleClientSecret, secrets.EncryptionKey = "client", "secret", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-	now := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
-	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true, Now: func() time.Time { return now }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, handled, err := app.ExecuteCommand(context.Background(), "/calendar_auth")
-	if err != nil || !handled || !strings.Contains(output, "/auth/google?enrollment=") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-	auth, _ := app.calendarAuth.Load(context.Background())
-	if auth.EnrollmentDigest == "" || !auth.EnrollmentExpires.Equal(now.Add(10*time.Minute)) {
-		t.Fatalf("calendar auth=%#v", auth)
+	if output, handled, _ := app.commands.Execute(context.Background(), "/unknown"); !handled || !strings.Contains(output, "/help") {
+		t.Fatalf("unknown command output=%q handled=%v", output, handled)
 	}
 }
 
@@ -1163,41 +808,29 @@ func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) 
 	<-done
 }
 
-func TestRepositoriesAddApprovalFlowReachesLiveState(t *testing.T) {
+func TestNewAppRejectsAnInaccessibleConfiguredRepository(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
-	secrets := appTestSecrets("provider-secret")
-	secrets.GitHubToken = "github-secret"
-	remote := createLocalGitRemote(t)
-	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
-		return appJSON(200, `{"ok":true,"result":{}}`), nil
-	})}
-	app, err := NewApp(cfg, secrets, AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
-	if err != nil {
-		t.Fatal(err)
+	cfg.Repositories = []config.RepositoryConfig{{
+		Name:       "missing",
+		CloneURL:   filepath.Join(t.TempDir(), "missing.git"),
+		BaseBranch: "main",
+	}}
+	_, err := NewApp(cfg, appTestSecrets("key"), AppOptions{})
+	if err == nil || !strings.Contains(err.Error(), `validate repository "missing"`) {
+		t.Fatalf("NewApp error=%v, want configured repository validation failure", err)
 	}
+}
 
-	output, handled, err := app.commands.Execute(context.Background(), "/repositories add eggy "+remote)
-	if err != nil || !handled || !strings.Contains(output, "awaiting approval") {
-		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
-	}
-
-	state, err := app.store.Load(context.Background())
-	if err != nil || len(state.Approvals) != 1 {
-		t.Fatalf("approvals=%#v err=%v", state.Approvals, err)
-	}
-	var approvalID string
-	for id := range state.Approvals {
-		approvalID = id
-	}
-
-	decisionPayload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approvalID, Approved: true})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "decide-1", Type: events.TypeApproval, Owner: "42", Payload: decisionPayload}); err != nil {
-		t.Fatal(err)
-	}
-
-	state, err = app.store.Load(context.Background())
-	if err != nil || state.Repositories["eggy"].CloneURL != remote {
-		t.Fatalf("repositories=%#v err=%v", state.Repositories, err)
+func appTestConfig(dataDir string) config.Config {
+	return config.Config{
+		DataDir:      dataDir,
+		Server:       config.ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
+		Owner:        config.OwnerConfig{ID: "42"},
+		Telegram:     config.TelegramConfig{OwnerID: 42},
+		Agent:        config.AgentConfig{DefaultModel: "deepseek-pro", Timezone: "UTC"},
+		Providers:    map[string]config.ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
+		ModelAliases: map[string]config.ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"}},
+		Runner:       config.RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: config.Duration(time.Minute), Retention: config.Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
 	}
 }
 
@@ -1225,20 +858,6 @@ func runGit(t *testing.T, directory string, arguments ...string) {
 	}
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", arguments, err, output)
-	}
-}
-
-func appTestConfig(dataDir string) config.Config {
-	return config.Config{
-		DataDir:      dataDir,
-		Server:       config.ServerConfig{Listen: ":8080", PublicBaseURL: "https://eggy.test", TelegramWebhookPath: "/webhooks/telegram"},
-		Owner:        config.OwnerConfig{ID: "42"},
-		Telegram:     config.TelegramConfig{OwnerID: 42},
-		Agent:        config.AgentConfig{DefaultModel: "deepseek-pro"},
-		Providers:    map[string]config.ProviderConfig{"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"}},
-		ModelAliases: map[string]config.ModelAliasConfig{"deepseek-pro": {Provider: "deepseek", Model: "deepseek-v4-pro"}},
-		Runner:       config.RunnerConfig{Root: filepath.Join(dataDir, "runs"), Timeout: config.Duration(time.Minute), Retention: config.Duration(time.Minute), MaxOutputBytes: 1 << 20, AllowedEnv: []string{"PATH"}},
-		Scheduler:    config.SchedulerConfig{HeartbeatCadence: config.Duration(30 * time.Minute), QuietHours: config.QuietHoursConfig{Start: "22:00", End: "07:00", Timezone: "UTC"}, MinimumProactiveInterval: config.Duration(time.Hour), WeeklyProactiveLimit: 3},
 	}
 }
 
@@ -1327,60 +946,5 @@ func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
 	}
 	if len(webChannel.delivered) != 0 {
 		t.Fatalf("web delivered=%v, want unprompted output kept off the web channel", webChannel.delivered)
-	}
-}
-
-// Every turn gets a durable transcript, not only a turn that happens to be
-// editing a repository: the loop writes it, so a thread with no workspace is
-// recorded exactly like one with a branch. It stays out of /runs, which lists
-// coding sessions.
-func TestEveryTurnGetsADurableTranscript(t *testing.T) {
-	cfg := appTestConfig(t.TempDir())
-	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Host == "deepseek.test" {
-			body, _ := io.ReadAll(request.Body)
-			if !strings.Contains(string(body), `"tool_call_id"`) {
-				return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"status","arguments":"{}"}}]}}]}`), nil
-			}
-			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"all good"}}]}`), nil
-		}
-		return appJSON(200, `{"ok":true,"result":{"message_id":1}}`), nil
-	})}
-	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "chat-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
-		t.Fatal(err)
-	}
-
-	sessions, err := app.transcripts.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sessions) != 1 {
-		t.Fatalf("sessions=%#v, want one transcript for the turn", sessions)
-	}
-	transcript := sessions[0]
-	// A transcript has no phase to settle: it is finished, or it is not.
-	if transcript.Instruction != "what's the status?" || transcript.FinishedAt.IsZero() {
-		t.Fatalf("transcript=%#v", transcript)
-	}
-	// The transcript records what actually happened, not just that a turn ran.
-	recorded := false
-	for _, event := range transcript.Events {
-		if event.ToolName == "status" {
-			recorded = true
-		}
-	}
-	if !recorded {
-		t.Fatalf("events=%#v, want the status tool call recorded", transcript.Events)
-	}
-	// A conversation turn creates no change at all now -- there is no
-	// "is this really a coding run?" question left to ask.
-	runs, err := app.changes.List(context.Background())
-	if err != nil || len(runs) != 0 {
-		t.Fatalf("runs=%#v err=%v, want a conversation turn to create no change", runs, err)
 	}
 }

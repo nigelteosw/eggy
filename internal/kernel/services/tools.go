@@ -46,7 +46,7 @@ func (r *ToolRegistry) Register(tool ports.Tool) error {
 //
 // A provider can never shadow a registered tool: a registered name wins every
 // collision, which is what keeps the kernel primitives (read_file, terminal,
-// patch, write_file) defined exactly once no matter what an MCP server
+// read_file) defined exactly once no matter what an MCP server
 // advertises. Unlike Register, this reports no error for a collision -- a
 // remote catalog is not under our control, so one badly named remote tool
 // drops out rather than failing the process.

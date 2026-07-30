@@ -5,7 +5,7 @@ import "context"
 type selectedModelKey struct{}
 
 // WithSelectedModel stamps the reasoning-model alias a turn resolved onto its
-// ctx, alongside the destination, the transcript, and the unprompted-turn
+// ctx alongside the destination and other per-turn state.
 // flag. A tool that needs to record which model did the work reads it from
 // here rather than taking a model reader in its constructor and asking again:
 // the turn has already resolved the alias it is actually running on, and a

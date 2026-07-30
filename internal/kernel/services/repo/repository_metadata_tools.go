@@ -5,16 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
 
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // NewRepositoryMetadataTools registers the ordinary, non-primitive
 // repository tools that read GitHub's control plane rather than a
-// checkout. Repository *contents* are reached only through the primitive
-// set (read_file, terminal) acting on the session's workspace, so there is
-// no second, clone-per-call read path here.
+// checkout. Repository contents are reached through read_file against the
+// session's workspace, so there is no second, clone-per-call read path here.
 func NewRepositoryMetadataTools(store ports.StateStore, reader ports.RepositoryReader) []ports.Tool {
 	metadata := repositoryTool{definition: ports.ToolDefinition{
 		Name:        "repository_github",
@@ -58,7 +57,7 @@ func NewRepositoryMetadataTools(store ports.StateStore, reader ports.RepositoryR
 			if input.Number <= 0 {
 				return nil, errors.New(`number is required for kind "pull_request"`)
 			}
-			summary, err := reader.PullRequestSummary(ctx, repository, input.Number)
+			summary, err := reader.ReviewSummary(ctx, repository, input.Number)
 			if err != nil {
 				return nil, err
 			}

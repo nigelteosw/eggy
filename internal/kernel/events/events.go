@@ -13,7 +13,6 @@ const (
 	TypeMessage       Type = "message"
 	TypeApproval      Type = "approval"
 	TypeSchedule      Type = "schedule"
-	TypeHeartbeat     Type = "heartbeat"
 	TypeOAuthCallback Type = "oauth_callback"
 	TypeRunnerUpdate  Type = "runner_update"
 	// TypeScheduledMessage delivers a pre-rendered notification verbatim with
@@ -22,12 +21,6 @@ const (
 	// notification), as distinct from TypeSchedule which starts a
 	// self-contained read-only agent turn.
 	TypeScheduledMessage Type = "scheduled_message"
-	// TypeChecksCompleted resumes the thread whose still-open workspace holds
-	// the branch of a pull request whose checks have finished failing. It
-	// carries no instruction text of its own: the handler renders one from
-	// the check evidence and runs an ordinary turn, which is what makes
-	// self-improvement a loop rather than one shot.
-	TypeChecksCompleted Type = "checks_completed"
 )
 
 type Event struct {
@@ -38,9 +31,7 @@ type Event struct {
 	Timestamp     time.Time `json:"timestamp"`
 	CorrelationID string    `json:"correlation_id"`
 	// Destination is the surface this event's turn should reply to,
-	// constructed by whichever surface produced the event (Telegram's
-	// webhook handler, the web thread-send handler, or a schedule/heartbeat
-	// tick, all of which are fixed to Telegram) -- never inferred from
+	// constructed by whichever surface produced the event -- never inferred from
 	// Source or from message content.
 	Destination destination.Destination `json:"destination"`
 	Payload     json.RawMessage         `json:"payload"`
@@ -48,17 +39,6 @@ type Event struct {
 
 type Message struct {
 	Text string `json:"text"`
-}
-
-// ChecksCompleted is the payload of TypeChecksCompleted: which change's
-// pull request failed, and the instruction rendered from its check evidence.
-type ChecksCompleted struct {
-	Change            string `json:"change"`
-	Repository        string `json:"repository"`
-	PullRequestNumber int    `json:"pull_request_number"`
-	Ref               string `json:"ref"`
-	Conclusion        string `json:"conclusion"`
-	Instruction       string `json:"instruction"`
 }
 
 type ApprovalDecision struct {

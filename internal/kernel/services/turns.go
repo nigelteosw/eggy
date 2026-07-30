@@ -13,13 +13,12 @@ import (
 // owner can stop it or steer it. With one loop there is no separate "run" to
 // interrupt or redirect: a long editing turn *is* the turn.
 //
-// Cancellation only stops the loop from taking further steps. The thread's
-// workspace and its recorded session survive, so a stopped turn leaves the
-// checkout inspectable and the change resumable by simply saying so.
+// Cancellation only stops the loop from taking further steps. A thread's
+// read-only checkout survives, so later inspection can continue.
 //
 // Steering is the other half: a message that arrives while a turn is running
 // joins that turn at its next step boundary instead of starting a competing
-// one. Only turns marked steerable accept it -- a heartbeat or scheduled turn
+// one. Only turns marked steerable accept it -- a scheduled turn
 // is deliberately self-contained, and an owner message must never be folded
 // into one.
 type ActiveTurns struct {
@@ -115,8 +114,7 @@ func (t *ActiveTurns) Stop(ctx context.Context) bool {
 	return true
 }
 
-// Active reports whether any conversation currently has a turn running. The
-// heartbeat uses it to stay out of the way of live work.
+// Active reports whether any conversation currently has a turn running.
 func (t *ActiveTurns) Active() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -89,7 +89,7 @@ func TestLogFilesAreOwnerOnly(t *testing.T) {
 // TestSecretValuesSkipsEmptyStrings guards the redactor's worst failure
 // mode: an empty secret would match between every byte of every line.
 func TestSecretValuesSkipsEmptyStrings(t *testing.T) {
-	values := config.Secrets{GitHubToken: "real", GoogleClientID: "", ProviderAPIKeys: map[string]string{"a": " "}}.Values()
+	values := config.Secrets{GitHubToken: "real", ProviderAPIKeys: map[string]string{"a": " "}}.Values()
 	if len(values) != 1 || values[0] != "real" {
 		t.Fatalf("values=%#v", values)
 	}

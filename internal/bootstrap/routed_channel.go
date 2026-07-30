@@ -38,7 +38,7 @@ type routedChannel struct {
 //
 // A web-only deployment deliberately gets a routedChannel over a *noop*
 // Telegram rather than the web channel unwrapped. Unprompted output
-// (heartbeat check-ins, scheduled messages) is addressed to Telegram by
+// (scheduled messages) is addressed to Telegram by
 // decision -- see proactiveDestination -- so unwrapping to web here would
 // quietly redirect it into a web thread the owner never asked to be pushed
 // to. Dropping it instead keeps "no Telegram configured" meaning "no

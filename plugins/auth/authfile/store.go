@@ -1,16 +1,4 @@
-// Package authfile owns <home>/auth.json: the one file holding every
-// provider credential Eggy obtains at runtime rather than from the
-// environment -- MCP server OAuth records and the Google Calendar refresh
-// token today.
-//
-// The document is a map of sections to named records:
-//
-//	{"version":1,"mcp":{"railway":{...}},"calendar":{"google":{...}}}
-//
-// Records are opaque here. Whatever secret they carry is encrypted by the
-// adapter that owns it before it ever reaches this store, so auth.json is
-// never a plaintext secret file -- but it is still owner-only on disk and is
-// never readable through the web API.
+// Package authfile owns the encrypted-provider-record container at auth.json.
 package authfile
 
 import (
@@ -25,7 +13,6 @@ import (
 	"github.com/nigelteosw/eggy/plugins/filelock"
 )
 
-// ErrNotFound reports a section/key pair that auth.json does not carry.
 var ErrNotFound = errors.New("auth record not found")
 
 const currentVersion = 1
@@ -43,11 +30,8 @@ type Store struct {
 }
 
 func Open(path string) *Store { return &Store{path: path} }
-
 func (s *Store) Path() string { return s.path }
 
-// Read returns the raw record, or ErrNotFound when the section or key is
-// absent.
 func (s *Store) Read(section, key string) (json.RawMessage, error) {
 	if err := validate(section, key); err != nil {
 		return nil, err
@@ -70,14 +54,10 @@ func (s *Store) Read(section, key string) (json.RawMessage, error) {
 	return record, err
 }
 
-// Write replaces one record, leaving every other section and key untouched.
 func (s *Store) Write(section, key string, record json.RawMessage) error {
 	return s.Update(section, key, func(json.RawMessage) (json.RawMessage, error) { return record, nil })
 }
 
-// Update applies mutate to the current record -- nil when absent -- and
-// persists the result under the file lock, so two adapters writing different
-// sections never lose each other's write. Returning a nil record deletes it.
 func (s *Store) Update(section, key string, mutate func(json.RawMessage) (json.RawMessage, error)) error {
 	if err := validate(section, key); err != nil {
 		return err
@@ -99,9 +79,6 @@ func (s *Store) Update(section, key string, mutate func(json.RawMessage) (json.R
 				delete(doc.Sections, section)
 			}
 		} else {
-			if doc.Sections == nil {
-				doc.Sections = map[string]map[string]json.RawMessage{}
-			}
 			if doc.Sections[section] == nil {
 				doc.Sections[section] = map[string]json.RawMessage{}
 			}
@@ -111,7 +88,6 @@ func (s *Store) Update(section, key string, mutate func(json.RawMessage) (json.R
 	})
 }
 
-// Delete removes one record. A record that is already absent is not an error.
 func (s *Store) Delete(section, key string) error {
 	return s.Update(section, key, func(json.RawMessage) (json.RawMessage, error) { return nil, nil })
 }
@@ -138,7 +114,6 @@ func (s *Store) loadUnlocked() (document, error) {
 }
 
 func (s *Store) saveUnlocked(doc document) error {
-	doc.Version = currentVersion
 	body, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return err
@@ -147,10 +122,7 @@ func (s *Store) saveUnlocked(doc document) error {
 }
 
 func validate(section, key string) error {
-	if !namePattern.MatchString(section) {
-		return errors.New("invalid auth section name")
-	}
-	if !namePattern.MatchString(key) {
+	if !namePattern.MatchString(section) || !namePattern.MatchString(key) {
 		return errors.New("invalid auth record name")
 	}
 	return nil

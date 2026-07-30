@@ -13,8 +13,7 @@ RUN go mod download
 COPY . .
 COPY --from=web-builder /src/plugins/webui/dist ./plugins/webui/dist
 RUN CGO_ENABLED=0 go test ./... \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggyd ./cmd/eggyd \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggy ./cmd/eggy
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggyd ./cmd/eggyd
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -23,7 +22,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/go /usr/local/go
 COPY --from=builder /out/eggyd /usr/local/bin/eggyd
-COPY --from=builder /out/eggy /usr/local/bin/eggy
 RUN mkdir -p /tmp/runs
 ENV EGGY_HOME=/data \
     PATH="/usr/local/go/bin:${PATH}"

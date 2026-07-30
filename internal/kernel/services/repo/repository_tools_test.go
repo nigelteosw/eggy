@@ -29,24 +29,3 @@ func TestRepositoryListReportsNotConfigured(t *testing.T) {
 		t.Fatalf("result=%s err=%v", result, err)
 	}
 }
-
-type fakeShipper struct {
-	pr            ports.PullRequest
-	note          string
-	target        ShipTarget
-	branch        string
-	commitMessage string
-	calls         int
-	// onShip stands in for what a real ship does to the checkout: it
-	// commits, which moves HEAD.
-	onShip func()
-}
-
-func (s *fakeShipper) Ship(_ context.Context, target ShipTarget, branch, commitMessage string) (ports.PullRequest, string, error) {
-	s.calls++
-	s.target, s.branch, s.commitMessage = target, branch, commitMessage
-	if s.onShip != nil {
-		s.onShip()
-	}
-	return s.pr, s.note, nil
-}

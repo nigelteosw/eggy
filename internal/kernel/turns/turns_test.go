@@ -8,7 +8,6 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -97,52 +96,14 @@ func newTestService(loop *fakeLoop, channel *fakeChannel) *Service {
 	return New(Options{
 		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
-		Channel: channel, Heartbeat: allowSending{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
 }
 
-type allowSending struct{}
-
-func (allowSending) CanSend(ports.State, time.Time) bool { return true }
-func (allowSending) Record(context.Context, ports.StateStore, time.Time) error {
-	return nil
-}
-
-// The heart of the narrowed invariant: a turn nobody asked for is marked as
-// such, and an owner's message is not. Everything the kernel does to confine
-// an unprompted turn -- draft pull requests, the base-branch refusal, the
-// owner's-change refusal -- keys off this mark, so if the wrong turns carry
-// it the rest is decoration.
-func TestScheduledAndHeartbeatTurnsAreMarkedUnpromptedAndOwnerMessagesAreNot(t *testing.T) {
-	for _, testCase := range []struct {
-		name       string
-		call       func(*Service) error
-		unprompted bool
-	}{
-		{"owner message", func(s *Service) error { return s.OwnerMessage(context.Background(), "hi", "telegram") }, false},
-		{"checks turn", func(s *Service) error { return s.ChecksTurn(context.Background(), "fix it") }, false},
-		{"scheduled turn", func(s *Service) error { return s.ScheduledTurn(context.Background(), "check things") }, true},
-		{"heartbeat", func(s *Service) error { return s.Heartbeat(context.Background()) }, true},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			loop := &fakeLoop{reply: services.HeartbeatNoReportSentinel}
-			if err := testCase.call(newTestService(loop, &fakeChannel{})); err != nil {
-				t.Fatal(err)
-			}
-			if loop.ctx == nil {
-				t.Fatal("the loop was never reached")
-			}
-			if got := services.IsUnpromptedTurn(loop.ctx); got != testCase.unprompted {
-				t.Fatalf("IsUnpromptedTurn=%v, want %v", got, testCase.unprompted)
-			}
-		})
-	}
-}
-
-// An unprompted turn reaches the propose path or nothing, never the whole
-// tool set an owner-prompted turn carries.
+// Every unprompted turn is read-only. Repository mutation and shell tools are
+// absent from Eggy entirely, not merely hidden from one kind of turn.
 func TestUnpromptedTurnsRunWithARestrictedAllowlist(t *testing.T) {
-	t.Run("scheduled turns may propose", func(t *testing.T) {
+	t.Run("scheduled turns are read-only", func(t *testing.T) {
 		loop := &fakeLoop{}
 		if err := newTestService(loop, &fakeChannel{}).ScheduledTurn(context.Background(), "improve something"); err != nil {
 			t.Fatal(err)
@@ -150,24 +111,9 @@ func TestUnpromptedTurnsRunWithARestrictedAllowlist(t *testing.T) {
 		if loop.options.AllowedTools == nil {
 			t.Fatal("a scheduled turn ran with the unrestricted tool set")
 		}
-		for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
-			if !loop.options.AllowedTools[tool] {
-				t.Fatalf("scheduled turn cannot reach %q", tool)
-			}
-		}
-	})
-
-	t.Run("heartbeats may not write to a repository", func(t *testing.T) {
-		loop := &fakeLoop{reply: services.HeartbeatNoReportSentinel}
-		if err := newTestService(loop, &fakeChannel{}).Heartbeat(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		if !loop.options.AllowedTools["memory"] {
-			t.Fatal("a heartbeat cannot curate durable context")
-		}
-		for _, tool := range []string{"workspace_edit", "propose_change", "patch", "write_file"} {
+		for _, tool := range []string{"terminal", "workspace_edit", "propose_change", "patch", "write_file"} {
 			if loop.options.AllowedTools[tool] {
-				t.Fatalf("heartbeat reached repository write tool %q", tool)
+				t.Fatalf("scheduled turn reached repository mutation or shell tool %q", tool)
 			}
 		}
 	})
@@ -187,26 +133,12 @@ func TestUnpromptedTurnsRunWithARestrictedAllowlist(t *testing.T) {
 // many servers are configured. The name shape is guaranteed by
 // normalizeToolName, so the prefix test is the whole class.
 func TestNoUnpromptedAllowlistNamesAnMCPTool(t *testing.T) {
-	for name, options := range map[string]agent.RunOptions{
-		"read-only": ReadOnlyTools(), "propose-only": ProposeOnlyTools(), "heartbeat": HeartbeatTools(),
-	} {
+	for name, options := range map[string]agent.RunOptions{"read-only": ReadOnlyTools()} {
 		for tool := range options.AllowedTools {
 			if strings.Contains(tool, "__") {
 				t.Fatalf("%s allowlist names MCP tool %q", name, tool)
 			}
 		}
-	}
-}
-
-func TestCapabilityManifestSeparatesRepositoryAndShippingReadiness(t *testing.T) {
-	service := New(Options{Manifest: agent.CapabilityManifest{RepositoryCommitReady: true}})
-	withoutRepository := service.capabilityManifest(ports.State{}, "deepseek-pro", nil)
-	if withoutRepository.RepositoryCommitReady || withoutRepository.RepositoryPushReady || withoutRepository.PullRequestReady {
-		t.Fatalf("without repository=%#v", withoutRepository)
-	}
-	withRepository := service.capabilityManifest(ports.State{Repositories: map[string]ports.Repository{"eggy": {Name: "eggy"}}}, "deepseek-pro", nil)
-	if !withRepository.RepositoryCommitReady || withRepository.RepositoryPushReady || withRepository.PullRequestReady {
-		t.Fatalf("with repository=%#v", withRepository)
 	}
 }
 

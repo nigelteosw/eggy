@@ -1,11 +1,9 @@
 package bootstrap
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"time"
 
@@ -14,12 +12,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/auth/authfile"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
 	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
 	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
-	sessionjson "github.com/nigelteosw/eggy/plugins/sessions/jsonfile"
 	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
 )
 
@@ -57,20 +53,16 @@ func (o *AppOptions) applyDefaults() {
 
 // stores is every durable artifact NewApp opens, already migrated.
 type stores struct {
-	layout    home.Layout
-	state     ports.StateStore
-	sessions  *sessionjson.Store
-	changes   *sessionjson.ChangeStore
-	auth      *authfile.Store
-	cron      *cronfile.Store
-	context   ports.ContextStore
-	memory    *memorysqlite.Store
-	firstBoot bool
+	layout  home.Layout
+	state   ports.StateStore
+	cron    *cronfile.Store
+	context ports.ContextStore
+	memory  *memorysqlite.Store
 }
 
 // openStores resolves the home layout and opens every store off it. The caller
 // owns closing stores.memory: this returns it open on success.
-func openStores(config config.Config, options AppOptions) (stores, error) {
+func openStores(config config.Config) (stores, error) {
 	// config.DataDir is the home root: every durable artifact resolves off
 	// this one layout instead of a path literal spread across the wiring.
 	// Migrate first, so a home written by an older Eggy is current before
@@ -79,28 +71,15 @@ func openStores(config config.Config, options AppOptions) (stores, error) {
 	if err := layout.Migrate(); err != nil {
 		return stores{}, err
 	}
-	statePath := layout.State()
-	_, statErr := os.Stat(statePath)
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return stores{}, fmt.Errorf("stat state: %w", statErr)
-	}
 	opened := stores{
-		layout:    layout,
-		sessions:  sessionjson.Open(layout.Sessions()),
-		changes:   sessionjson.OpenChanges(layout.Changes()),
-		auth:      authfile.Open(layout.Auth()),
-		cron:      cronfile.Open(layout.Cron()),
-		firstBoot: errors.Is(statErr, os.ErrNotExist),
+		layout: layout,
+		cron:   cronfile.Open(layout.Cron()),
 	}
-	opened.state = jsonfile.Open(statePath)
+	opened.state = jsonfile.Open(layout.State())
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
-		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Heartbeat: layout.Heartbeat(),
+		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(),
 	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
-	memoryStore, err := memorysqlite.OpenWithProfile(
-		layout.Database(),
-		config.Embeddings.CandidateLimit,
-		embeddingProfile(config, options),
-	)
+	memoryStore, err := memorysqlite.Open(layout.Database())
 	if err != nil {
 		return stores{}, fmt.Errorf("open conversation memory: %w", err)
 	}

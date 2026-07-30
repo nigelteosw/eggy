@@ -31,24 +31,33 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 
 type Config struct {
-	Server                 ServerConfig                `yaml:"server"`
-	DataDir                string                      `yaml:"data_dir"`
-	Owner                  OwnerConfig                 `yaml:"owner"`
-	Telegram               TelegramConfig              `yaml:"telegram,omitempty"`
-	Agent                  AgentConfig                 `yaml:"-"`
-	Providers              map[string]ProviderConfig   `yaml:"-"`
-	ModelAliases           map[string]ModelAliasConfig `yaml:"-"`
-	Embeddings             EmbeddingsConfig            `yaml:"-"`
-	Repositories           []RepositoryConfig          `yaml:"repositories"`
-	Runner                 RunnerConfig                `yaml:"runner"`
-	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
-	Scheduler              SchedulerConfig             `yaml:"scheduler"`
-	Calendar               CalendarConfig              `yaml:"calendar"`
-	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
+	Server       ServerConfig                `yaml:"server"`
+	DataDir      string                      `yaml:"data_dir"`
+	Owner        OwnerConfig                 `yaml:"owner"`
+	Telegram     TelegramConfig              `yaml:"telegram,omitempty"`
+	Agent        AgentConfig                 `yaml:"-"`
+	Providers    map[string]ProviderConfig   `yaml:"-"`
+	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
+	Repositories []RepositoryConfig          `yaml:"repositories"`
+	Runner       RunnerConfig                `yaml:"runner"`
+	Calendar     CalendarConfig              `yaml:"calendar,omitempty"`
+	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
 }
+
+// CalendarConfig configures the native Google Calendar integration. An empty
+// section is the off switch: with no default_calendar there are no calendar
+// tools, no OAuth routes, and no prompt bytes. Event times are read and
+// written in agent.timezone.
+type CalendarConfig struct {
+	DefaultCalendar string `yaml:"default_calendar,omitempty"`
+}
+
+// Configured reports whether Calendar should be wired at all.
+func (c CalendarConfig) Configured() bool { return strings.TrimSpace(c.DefaultCalendar) != "" }
 
 type AgentConfig struct {
 	DefaultModel string `yaml:"default_model"`
+	Timezone     string `yaml:"timezone,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -61,13 +70,6 @@ type ModelAliasConfig struct {
 	Provider         string   `yaml:"provider"`
 	Model            string   `yaml:"model"`
 	ReasoningEfforts []string `yaml:"reasoning_efforts,omitempty"`
-}
-
-type EmbeddingsConfig struct {
-	Provider       string `yaml:"provider"`
-	Model          string `yaml:"model"`
-	Dimensions     int    `yaml:"dimensions"`
-	CandidateLimit int    `yaml:"candidate_limit,omitempty"`
 }
 
 type ServerConfig struct {
@@ -85,7 +87,7 @@ type ServerConfig struct {
 }
 
 // OwnerConfig is Eggy's system-wide identity: the one owner every surface
-// (Telegram, web, schedules, heartbeats) authorizes against, independent of
+// (Telegram, web, schedules) authorizes against, independent of
 // how any one surface authenticates that owner. See TelegramConfig.OwnerID
 // for Telegram's own surface-specific numeric chat ID, which the Telegram
 // adapter maps onto this ID rather than the reverse.
@@ -122,31 +124,6 @@ type RunnerConfig struct {
 	Retention      Duration `yaml:"retention"`
 	MaxOutputBytes int64    `yaml:"max_output_bytes"`
 	AllowedEnv     []string `yaml:"allowed_env"`
-}
-
-type ImplementationSessionConfig struct {
-	ContextBudgetChars int `yaml:"context_budget_chars"`
-	RecentMessages     int `yaml:"recent_messages"`
-	OutputExcerptChars int `yaml:"output_excerpt_chars"`
-}
-
-type QuietHoursConfig struct {
-	Start    string `yaml:"start"`
-	End      string `yaml:"end"`
-	Timezone string `yaml:"timezone"`
-}
-
-type SchedulerConfig struct {
-	HeartbeatCadence         Duration         `yaml:"heartbeat_cadence"`
-	QuietHours               QuietHoursConfig `yaml:"quiet_hours"`
-	MinimumProactiveInterval Duration         `yaml:"minimum_proactive_interval"`
-	WeeklyProactiveLimit     int              `yaml:"weekly_proactive_limit"`
-}
-
-type CalendarConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	DefaultCalendar string `yaml:"default_calendar"`
-	Timezone        string `yaml:"timezone"`
 }
 
 type MCPConfig struct {
@@ -225,23 +202,20 @@ func (s Secrets) Values() []string {
 }
 
 type commonConfigDocument struct {
-	Server                 ServerConfig                `yaml:"server"`
-	DataDir                string                      `yaml:"data_dir"`
-	Owner                  OwnerConfig                 `yaml:"owner"`
-	Telegram               TelegramConfig              `yaml:"telegram,omitempty"`
-	Repositories           []RepositoryConfig          `yaml:"repositories"`
-	Runner                 RunnerConfig                `yaml:"runner"`
-	ImplementationSessions ImplementationSessionConfig `yaml:"implementation_sessions"`
-	Scheduler              SchedulerConfig             `yaml:"scheduler"`
-	Calendar               CalendarConfig              `yaml:"calendar"`
-	MCP                    MCPConfig                   `yaml:"mcp,omitempty"`
+	Server       ServerConfig       `yaml:"server"`
+	DataDir      string             `yaml:"data_dir"`
+	Owner        OwnerConfig        `yaml:"owner"`
+	Telegram     TelegramConfig     `yaml:"telegram,omitempty"`
+	Repositories []RepositoryConfig `yaml:"repositories"`
+	Runner       RunnerConfig       `yaml:"runner"`
+	Calendar     CalendarConfig     `yaml:"calendar,omitempty"`
+	MCP          MCPConfig          `yaml:"mcp,omitempty"`
 }
 
 type configDocument struct {
 	Agent                AgentConfig                 `yaml:"agent"`
 	Providers            map[string]ProviderConfig   `yaml:"providers"`
 	Models               map[string]ModelAliasConfig `yaml:"models"`
-	Embeddings           EmbeddingsConfig            `yaml:"embeddings,omitempty"`
 	commonConfigDocument `yaml:",inline"`
 }
 
@@ -267,13 +241,14 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	}
 	secrets := Secrets{
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
-		GitHubToken:    getenv("GITHUB_TOKEN"),
-		GoogleClientID: getenv("GOOGLE_CLIENT_ID"), GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:      getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys: map[string]string{},
-		MCPBearerTokens: map[string]string{},
+		GitHubToken:        getenv("GITHUB_TOKEN"),
+		GoogleClientID:     getenv("GOOGLE_CLIENT_ID"),
+		GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
+		EncryptionKey:      getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:        getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:         getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys:    map[string]string{},
+		MCPBearerTokens:    map[string]string{},
 	}
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
@@ -289,49 +264,6 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	return cfg, secrets, nil
 }
 
-// LoadMCPConfig loads the shared strict config document but resolves and
-// validates only MCP credentials. It lets `eggy mcp` operate without starting
-// Telegram, model, repository, scheduler, calendar, or coding adapters.
-func LoadMCPConfig(path string, getenv func(string) string) (Config, Secrets, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, Secrets{}, fmt.Errorf("open config: %w", err)
-	}
-	var document configDocument
-	if err := decodeKnownYAML(data, &document); err != nil {
-		return Config{}, Secrets{}, fmt.Errorf("decode config: %w", err)
-	}
-	cfg := normalizeConfig(document)
-	if err := cfg.applyDefaults(); err != nil {
-		return Config{}, Secrets{}, err
-	}
-	if err := cfg.validateMCP(); err != nil {
-		return Config{}, Secrets{}, err
-	}
-	publicURL, err := url.Parse(cfg.Server.PublicBaseURL)
-	if err != nil || (publicURL.Scheme != "https" && publicURL.Scheme != "http") || publicURL.Host == "" {
-		return Config{}, Secrets{}, errors.New("server.public_base_url must be an HTTP(S) URL")
-	}
-	secrets := Secrets{EncryptionKey: getenv("EGGY_ENCRYPTION_KEY"), MCPBearerTokens: map[string]string{}}
-	for name, server := range cfg.MCP.Servers {
-		if server.Auth == "bearer-env" {
-			secrets.MCPBearerTokens[name] = getenv(server.BearerTokenEnv)
-		}
-	}
-	for name, server := range cfg.MCP.Servers {
-		if !server.Enabled {
-			continue
-		}
-		if server.Auth == "oauth" && strings.TrimSpace(secrets.EncryptionKey) == "" {
-			return Config{}, Secrets{}, errors.New("required environment variable EGGY_ENCRYPTION_KEY is missing")
-		}
-		if server.Auth == "bearer-env" && strings.TrimSpace(secrets.MCPBearerTokens[name]) == "" {
-			return Config{}, Secrets{}, fmt.Errorf("required environment variable %s is missing", server.BearerTokenEnv)
-		}
-	}
-	return cfg, secrets, nil
-}
-
 func decodeKnownYAML(data []byte, destination any) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -342,17 +274,17 @@ func normalizeConfig(document configDocument) Config {
 	common := document.commonConfigDocument
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
-		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models, Embeddings: document.Embeddings,
-		Repositories: common.Repositories, Runner: common.Runner, ImplementationSessions: common.ImplementationSessions, Scheduler: common.Scheduler, Calendar: common.Calendar, MCP: common.MCP,
+		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
+		Repositories: common.Repositories, Runner: common.Runner, Calendar: common.Calendar, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, ImplementationSessions: c.ImplementationSessions, Scheduler: c.Scheduler, Calendar: c.Calendar, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, Calendar: c.Calendar, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
-	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, Embeddings: c.Embeddings, commonConfigDocument: c.commonDocument()}, nil
+	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -378,6 +310,9 @@ func (c *Config) applyDefaults() error {
 	if c.DataDir == "" {
 		c.DataDir = "/data"
 	}
+	if c.Agent.Timezone == "" {
+		c.Agent.Timezone = "UTC"
+	}
 	// A config written before owner.id existed only carries
 	// telegram.owner_id; derive the canonical identity from it so existing
 	// deployments keep working unchanged. A config that sets owner.id
@@ -397,18 +332,6 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Runner.MaxOutputBytes == 0 {
 		c.Runner.MaxOutputBytes = 1 << 20
-	}
-	if c.ImplementationSessions.ContextBudgetChars == 0 {
-		c.ImplementationSessions.ContextBudgetChars = 96000
-	}
-	if c.ImplementationSessions.RecentMessages == 0 {
-		c.ImplementationSessions.RecentMessages = 16
-	}
-	if c.ImplementationSessions.OutputExcerptChars == 0 {
-		c.ImplementationSessions.OutputExcerptChars = 8192
-	}
-	if c.embeddingsConfigured() && c.Embeddings.CandidateLimit == 0 {
-		c.Embeddings.CandidateLimit = 5000
 	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
@@ -482,9 +405,6 @@ func (c Config) Validate() error {
 	if err := c.validateProviders(); err != nil {
 		return err
 	}
-	if err := c.validateEmbeddings(); err != nil {
-		return err
-	}
 	if c.Runner.Timeout.Value() <= 0 {
 		return errors.New("runner.timeout must be positive")
 	}
@@ -497,8 +417,8 @@ func (c Config) Validate() error {
 	if c.Runner.Root != "" && c.DataDir != "" && !pathWithin(c.DataDir, c.Runner.Root) {
 		return errors.New("runner.root must be within data_dir for resumable implementation sessions")
 	}
-	if c.ImplementationSessions.ContextBudgetChars <= 0 || c.ImplementationSessions.RecentMessages <= 0 || c.ImplementationSessions.OutputExcerptChars <= 0 {
-		return errors.New("implementation_sessions context_budget_chars, recent_messages, and output_excerpt_chars must be positive")
+	if _, err := time.LoadLocation(c.Agent.Timezone); err != nil {
+		return errors.New("agent.timezone must be a valid IANA timezone")
 	}
 	names := map[string]bool{}
 	self := ""
@@ -524,9 +444,6 @@ func (c Config) Validate() error {
 				return fmt.Errorf("repository %q has invalid protected branch %q", repo.Name, branch)
 			}
 		}
-	}
-	if c.Calendar.Enabled && c.Calendar.DefaultCalendar == "" {
-		return errors.New("calendar.default_calendar is required")
 	}
 	if err := c.validateMCP(); err != nil {
 		return err
@@ -671,33 +588,6 @@ func (c Config) validateProviders() error {
 	return nil
 }
 
-func (c Config) embeddingsConfigured() bool {
-	return c.Embeddings.Provider != "" || c.Embeddings.Model != "" || c.Embeddings.Dimensions != 0 || c.Embeddings.CandidateLimit != 0
-}
-
-func (c Config) validateEmbeddings() error {
-	if !c.embeddingsConfigured() {
-		return nil
-	}
-	provider, ok := c.Providers[c.Embeddings.Provider]
-	if !ok {
-		return fmt.Errorf("embeddings.provider references unknown provider %q", c.Embeddings.Provider)
-	}
-	if provider.Adapter != "openai_compatible" {
-		return fmt.Errorf("embeddings.provider %q must use openai_compatible", c.Embeddings.Provider)
-	}
-	if strings.TrimSpace(c.Embeddings.Model) == "" {
-		return errors.New("embeddings.model is required")
-	}
-	if c.Embeddings.Dimensions <= 0 {
-		return errors.New("embeddings.dimensions must be positive")
-	}
-	if c.Embeddings.CandidateLimit <= 0 {
-		return errors.New("embeddings.candidate_limit must be positive")
-	}
-	return nil
-}
-
 func (c Config) ActiveModel(alias string) (ProviderConfig, ModelAliasConfig, error) {
 	model, ok := c.ModelAliases[alias]
 	if !ok {
@@ -723,9 +613,6 @@ func (c Config) validateSecrets(s Secrets) error {
 	for _, model := range c.ModelAliases {
 		usedProviders[model.Provider] = true
 	}
-	if c.embeddingsConfigured() {
-		usedProviders[c.Embeddings.Provider] = true
-	}
 	for providerName := range usedProviders {
 		provider := c.Providers[providerName]
 		required = append(required, struct{ name, value string }{provider.APIKeyEnv, s.ProviderAPIKeys[providerName]})
@@ -733,9 +620,10 @@ func (c Config) validateSecrets(s Secrets) error {
 	if len(c.Repositories) > 0 {
 		required = append(required, struct{ name, value string }{"GITHUB_TOKEN", s.GitHubToken})
 	}
-	if c.Calendar.Enabled {
+	if c.Calendar.Configured() {
 		required = append(required,
-			struct{ name, value string }{"GOOGLE_CLIENT_ID", s.GoogleClientID}, struct{ name, value string }{"GOOGLE_CLIENT_SECRET", s.GoogleClientSecret},
+			struct{ name, value string }{"GOOGLE_CLIENT_ID", s.GoogleClientID},
+			struct{ name, value string }{"GOOGLE_CLIENT_SECRET", s.GoogleClientSecret},
 			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
 	}
 	for name, server := range c.MCP.Servers {

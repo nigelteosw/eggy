@@ -19,7 +19,7 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
 		t.Fatalf("generated config = %#v", cfg)
 	}
-	if cfg.DataDir != "/data" || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || cfg.Calendar.Enabled || len(cfg.Repositories) != 0 {
+	if cfg.DataDir != "/data" || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || len(cfg.Repositories) != 0 {
 		t.Fatalf("unsafe generated defaults = %#v", cfg)
 	}
 	provider, model, err := cfg.ActiveModel("deepseek-pro")
@@ -40,7 +40,7 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "timeout: 45m0s") || !strings.Contains(string(body), "heartbeat_cadence: 3h0m0s") {
+	if !strings.Contains(string(body), "timeout: 45m0s") {
 		t.Fatalf("durations were not encoded as strings:\n%s", body)
 	}
 	for _, secret := range testSecrets() {

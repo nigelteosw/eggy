@@ -21,9 +21,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT    NOT NULL,
     content         TEXT    NOT NULL,
     source          TEXT    NOT NULL,
-    created_at      INTEGER NOT NULL,
-    embedding       BLOB,
-    embedding_profile TEXT
+    created_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id, id);
@@ -54,36 +52,14 @@ CREATE TABLE IF NOT EXISTS conversation_resets (
 );
 `
 
-const similarityProfileIndex = `
-CREATE INDEX IF NOT EXISTS idx_messages_embedding_profile_created_at
-ON messages(embedding_profile, created_at DESC, id DESC)
-WHERE embedding IS NOT NULL
-`
-
-const defaultCandidateLimit = 5000
-
 // Store is a SQLite-backed durable message store.
 type Store struct {
-	db             *sql.DB
-	path           string
-	candidateLimit int
-	profile        string
+	db   *sql.DB
+	path string
 }
 
 // Open creates a Store at path and initializes its schema.
-func Open(path string, candidateLimit int) (*Store, error) {
-	return OpenWithProfile(path, candidateLimit, "")
-}
-
-// OpenWithProfile creates a Store whose embeddings are associated with the
-// supplied opaque profile.
-func OpenWithProfile(path string, candidateLimit int, profile string) (*Store, error) {
-	if candidateLimit < 0 {
-		return nil, errors.New("candidate limit must not be negative")
-	}
-	if candidateLimit == 0 {
-		candidateLimit = defaultCandidateLimit
-	}
+func Open(path string, _ ...int) (*Store, error) {
 	if err := prepareDatabaseFile(path); err != nil {
 		return nil, err
 	}
@@ -106,20 +82,11 @@ func OpenWithProfile(path string, candidateLimit int, profile string) (*Store, e
 		_ = db.Close()
 		return nil, err
 	}
-	if err := ensureEmbeddingProfileColumn(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	if err := ensureThreadWorkspaceColumns(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(similarityProfileIndex); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	store := &Store{db: db, path: path, candidateLimit: candidateLimit, profile: profile}
+	store := &Store{db: db, path: path}
 	if err := store.tightenPrivateFiles(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -146,10 +113,6 @@ func (s *Store) tightenPrivateFiles() error {
 		}
 	}
 	return nil
-}
-
-func ensureEmbeddingProfileColumn(db *sql.DB) error {
-	return ensureColumn(db, "messages", "embedding_profile", "TEXT")
 }
 
 // ensureThreadWorkspaceColumns migrates a threads table created before
@@ -269,7 +232,7 @@ func (s *Store) RecentMessages(ctx context.Context, conversationID string, limit
 
 // ResetConversation clears conversationID's live turn-context window as of
 // at: later RecentMessages calls only see messages recorded after this
-// point. Durable history is untouched -- SearchText/SearchSimilar keep
+// point. Durable history is untouched -- SearchText keeps
 // finding everything.
 func (s *Store) ResetConversation(ctx context.Context, conversationID string, at time.Time) error {
 	_, err := s.db.ExecContext(ctx, `
@@ -371,22 +334,6 @@ func (s *Store) DetachWorkspace(ctx context.Context, id string) error {
 	return err
 }
 
-// SetWorkspaceEdit records the branch created in the thread's checkout and
-// the change its edits belong to, which together make the checkout
-// writable. An empty branch demotes it back to an inspection clone.
-//
-// The column is still named workspace_session: renaming it would need a data
-// migration that buys nothing, so the storage name stays and the domain name
-// moved on.
-func (s *Store) SetWorkspaceEdit(ctx context.Context, id, branch, changeID string) error {
-	var branchValue, changeValue any
-	if branch != "" {
-		branchValue, changeValue = branch, changeID
-	}
-	_, err := s.db.ExecContext(ctx, `UPDATE threads SET workspace_branch = ?, workspace_session = ? WHERE id = ?`, branchValue, changeValue, id)
-	return err
-}
-
 // SetThreadTitle auto-titles a thread from its first exchange: a no-op
 // once the thread already has a title, so a later call never overwrites an
 // owner's or a previous exchange's title.
@@ -409,8 +356,6 @@ func scanThread(row rowScanner) (ports.Thread, error) {
 	thread.Title = title.String
 	thread.Workspace = workspace.String
 	thread.WorkspaceRepository = workspaceRepository.String
-	thread.WorkspaceBranch = workspaceBranch.String
-	thread.ChangeID = workspaceSession.String
 	thread.CreatedAt = time.Unix(0, createdAt).UTC()
 	thread.UpdatedAt = time.Unix(0, updatedAt).UTC()
 	return thread, nil

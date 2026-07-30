@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 )
@@ -264,7 +263,7 @@ func TestWebConfigRoutesRoundTripThroughCommandService(t *testing.T) {
 	if getResponse.Code != http.StatusOK {
 		t.Fatalf("get status=%d body=%s", getResponse.Code, getResponse.Body.String())
 	}
-	var decoded commands.CommandResult
+	var decoded webResult
 	if err := json.Unmarshal(getResponse.Body.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +297,7 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 func TestWebConfigRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	handler := NewWebHandler("", testWebConfig(now))
-	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/calendar"} {
+	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusUnauthorized {
@@ -330,7 +329,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	if listResponse.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", listResponse.Code, listResponse.Body.String())
 	}
-	var listed commands.CommandResult
+	var listed webResult
 	if err := json.Unmarshal(listResponse.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +355,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	afterRemoveRequest.AddCookie(cookie)
 	afterRemoveResponse := httptest.NewRecorder()
 	handler.ServeHTTP(afterRemoveResponse, afterRemoveRequest)
-	var afterRemove commands.CommandResult
+	var afterRemove webResult
 	if err := json.Unmarshal(afterRemoveResponse.Body.Bytes(), &afterRemove); err != nil {
 		t.Fatal(err)
 	}
@@ -456,6 +455,15 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 
 	if response.Code != http.StatusAccepted || !enqueued {
 		t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+	}
+}
+
+func TestWebHandlerDoesNotExposeTheRemovedFileAPI(t *testing.T) {
+	handler := NewWebHandler("", WebUIConfig{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/files/MEMORY.md", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("removed file API status=%d, want 404", response.Code)
 	}
 }
 

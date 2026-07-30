@@ -17,6 +17,20 @@ type plainChannel struct {
 	delivered []string
 }
 
+type recordingChannel struct {
+	nextID int
+}
+
+func (c *recordingChannel) DeliverTrackable(context.Context, string) (string, error) {
+	c.nextID++
+	return "message", nil
+}
+func (c *recordingChannel) EditText(context.Context, string, string) error { return nil }
+func (c *recordingChannel) Deliver(context.Context, string) error          { return nil }
+func (c *recordingChannel) DeliverApproval(context.Context, approvals.Approval) error {
+	return nil
+}
+
 func (c *plainChannel) Deliver(_ context.Context, text string) error {
 	c.delivered = append(c.delivered, text)
 	return nil
@@ -66,18 +80,6 @@ func TestDeliverOutcomeSendsAFreshMessageOnAChannelWithoutEdits(t *testing.T) {
 	}
 	if len(channel.delivered) != 1 || channel.delivered[0] != "Approved action completed." {
 		t.Fatalf("delivered=%#v, want the outcome sent as a new message", channel.delivered)
-	}
-}
-
-func TestProgressTrackerFallsBackToAMessagePerStepOnAChannelWithoutEdits(t *testing.T) {
-	channel := &plainChannel{}
-	tracker := NewProgressTracker(channel)
-
-	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Message: "cloning"})
-	tracker.Deliver(context.Background(), ports.CodingProgress{RunID: "run-1", Message: "building"})
-
-	if len(channel.delivered) != 2 {
-		t.Fatalf("delivered=%#v, want both steps to still reach the user", channel.delivered)
 	}
 }
 

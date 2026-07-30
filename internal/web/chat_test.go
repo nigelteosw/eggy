@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -52,7 +51,7 @@ func TestThreadListReturnsOnlyWebThreadsMostRecentlyActiveFirst(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler(response, request)
 
-	var decoded commands.CommandResult
+	var decoded webResult
 	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +114,7 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	var decoded commands.CommandResult
+	var decoded webResult
 	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}

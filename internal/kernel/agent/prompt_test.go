@@ -11,15 +11,13 @@ import (
 // ownerTools is the tool set a direct owner turn carries, which is what makes
 // every conditional policy fragment eligible.
 var ownerTools = []string{
-	"status", "repository_list", "read_file", "terminal", "workspace_open",
-	"workspace_edit", "propose_change", "memory", "skill_read",
-	"calendar_create",
+	"status", "repository_list", "read_file", "workspace_open",
+	"memory", "skill_read",
 }
 
 func TestBuildInstructionsUsesCacheStableOrderAndCapabilities(t *testing.T) {
 	messages := BuildInstructions(ports.AgentContext{Soul: "SOUL-CONTENT", User: "USER-CONTENT", Memory: "MEMORY-CONTENT"}, CapabilityManifest{
 		ActiveModel: "deepseek-pro", Repositories: []string{"zeta", "eggy"}, Tools: ownerTools,
-		RepositoryCommitReady: true, RepositoryPushReady: true, PullRequestReady: true, CalendarEnabled: false,
 	}, TemporalContext{Now: time.Date(2026, 7, 19, 12, 34, 56, 0, time.FixedZone("SGT", 8*60*60)), Timezone: "Asia/Singapore"})
 	if len(messages) != 7 {
 		t.Fatalf("messages=%#v", messages)
@@ -36,17 +34,17 @@ func TestBuildInstructionsUsesCacheStableOrderAndCapabilities(t *testing.T) {
 		t.Fatalf("temporal context=%s", temporal)
 	}
 	manifest := messages[3].Content
-	if !strings.Contains(manifest, "deepseek-pro") || strings.Index(manifest, "eggy") > strings.Index(manifest, "zeta") || !strings.Contains(manifest, "repository_commit_ready: true") || !strings.Contains(manifest, "repository_push_ready: true") || !strings.Contains(manifest, "pull_request_ready: true") || !strings.Contains(manifest, "calendar_enabled: false") {
+	if !strings.Contains(manifest, "deepseek-pro") || strings.Index(manifest, "eggy") > strings.Index(manifest, "zeta") || strings.Contains(manifest, "calendar") || strings.Contains(manifest, "shipping") {
 		t.Fatalf("manifest=%s", manifest)
 	}
 	policy := messages[0].Content
-	if !strings.Contains(strings.ToLower(policy), "operator-configured credentials") || !strings.Contains(policy, "capability manifest reports push and pull-request readiness") || !strings.Contains(policy, "the independent approvals for push and pull-request creation") || !strings.Contains(policy, "Do not invent local recovery commands") {
+	if !strings.Contains(strings.ToLower(policy), "operator-configured credentials") || !strings.Contains(policy, "Eggy cannot edit, commit, push, or open pull requests") {
 		t.Fatalf("policy=%s", policy)
 	}
-	if !strings.Contains(policy, "workspace_open") || !strings.Contains(policy, "do not grant repository write access") {
+	if !strings.Contains(policy, "workspace_open") || !strings.Contains(policy, "read_file") {
 		t.Fatalf("repository tool policy=%s", policy)
 	}
-	if !strings.Contains(policy, "Check the Available skills list") || !strings.Contains(policy, "call skill_read on that exact name") || !strings.Contains(policy, "never available as a direct tool call") {
+	if !strings.Contains(policy, "Check the Available skills list") || !strings.Contains(policy, "call skill_read on that exact name") || !strings.Contains(policy, "never unlock a tool") {
 		t.Fatalf("skills steering policy=%s", policy)
 	}
 	for _, secret := range []string{"DEEPSEEK_API_KEY", "github_pat_", "Bearer "} {
@@ -100,7 +98,7 @@ func TestHeartbeatPolicyNamesNoToolOutsideItsAllowlist(t *testing.T) {
 	heartbeat := []string{
 		"status", "repository_list", "calendar_list", "read_file", "terminal",
 		"repository_github", "workspace_open", "workspace_close", "skill_read",
-		"memory", "skill_disable", "skill_enable",
+		"memory",
 	}
 	allowed := map[string]bool{}
 	for _, tool := range heartbeat {

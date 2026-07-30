@@ -11,10 +11,7 @@ import (
 )
 
 func TestLoadConfigResolvesWebUICredentialsAndRequiresEncryptionKeyWhenSet(t *testing.T) {
-	// validConfig() enables Calendar by default, which already requires
-	// EGGY_ENCRYPTION_KEY for an unrelated reason. Disable it here so this
-	// test isolates the new web UI credential check specifically.
-	body := strings.Replace(validConfig(), "enabled: true\n  default_calendar", "enabled: false\n  default_calendar", 1)
+	body := validConfig()
 	env := testSecrets()
 	delete(env, "EGGY_ENCRYPTION_KEY")
 
@@ -229,7 +226,7 @@ mcp:
 }
 
 func TestEnabledMCPOAuthRequiresEncryptionKey(t *testing.T) {
-	body := strings.Replace(validConfig(), "enabled: true\n  default_calendar", "enabled: false\n  default_calendar", 1) + `
+	body := validConfig() + `
 mcp:
   servers:
     example:
@@ -260,53 +257,6 @@ func TestLoadConfigNormalizesProvidersAndModels(t *testing.T) {
 	}
 	if secrets.ProviderAPIKeys["deepseek"] != "deepseek-key" {
 		t.Fatalf("provider secrets = %#v", secrets.ProviderAPIKeys)
-	}
-}
-
-func TestEmbeddingConfigIsOptionalAndDefaultsCandidateLimit(t *testing.T) {
-	cfg, _, err := loadText(t, validConfig(), testSecrets())
-	if err != nil {
-		t.Fatalf("config without embeddings: %v", err)
-	}
-	if cfg.Embeddings != (EmbeddingsConfig{}) {
-		t.Fatalf("absent embeddings=%#v", cfg.Embeddings)
-	}
-
-	cfg, _, err = loadText(t, validConfig()+`
-embeddings:
-  provider: deepseek
-  model: text-embedding-3-small
-  dimensions: 1536
-`, testSecrets())
-	if err != nil {
-		t.Fatalf("configured embeddings: %v", err)
-	}
-	if cfg.Embeddings != (EmbeddingsConfig{Provider: "deepseek", Model: "text-embedding-3-small", Dimensions: 1536, CandidateLimit: 5000}) {
-		t.Fatalf("embeddings=%#v", cfg.Embeddings)
-	}
-}
-
-func TestEmbeddingConfigValidation(t *testing.T) {
-	tests := []struct {
-		name, document, want string
-	}{
-		{"unknown provider", "provider: missing\n  model: text-embedding-3-small\n  dimensions: 1536", "unknown provider"},
-		{"unsupported provider adapter", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 1536", "unsupported provider adapter"},
-		{"missing model", "provider: deepseek\n  model: ''\n  dimensions: 1536", "embeddings.model"},
-		{"non-positive dimensions", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 0", "embeddings.dimensions"},
-		{"negative candidate limit", "provider: deepseek\n  model: text-embedding-3-small\n  dimensions: 1536\n  candidate_limit: -1", "embeddings.candidate_limit"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body := validConfig() + "\nembeddings:\n  " + tt.document + "\n"
-			if tt.name == "unsupported provider adapter" {
-				body = strings.Replace(body, "adapter: openai_compatible", "adapter: unsupported", 1)
-			}
-			_, _, err := loadText(t, body, testSecrets())
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("error=%v, want containing %q", err, tt.want)
-			}
-		})
 	}
 }
 
@@ -379,6 +329,48 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsRemovedFeatureSections(t *testing.T) {
+	for _, section := range []string{"heartbeat", "embeddings", "implementation_sessions", "scheduler"} {
+		t.Run(section, func(t *testing.T) {
+			_, _, err := loadText(t, validConfig()+section+": {}\n", testSecrets())
+			if err == nil || !strings.Contains(err.Error(), "field "+section) {
+				t.Fatalf("removed section %q error=%v", section, err)
+			}
+		})
+	}
+}
+
+// The calendar section is default_calendar only. The pre-simplification shape
+// carried enabled and timezone; a deployment still holding those keys must fail
+// loudly at startup rather than silently loading Calendar as unconfigured.
+func TestLoadConfigCalendarSectionShape(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n", testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Calendar.DefaultCalendar != "primary" || !cfg.Calendar.Configured() {
+		t.Fatalf("calendar not loaded: %+v", cfg.Calendar)
+	}
+
+	if _, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n  enabled: true\n", testSecrets()); err == nil {
+		t.Fatal("stale calendar.enabled key was accepted")
+	}
+	if _, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n  timezone: Asia/Singapore\n", testSecrets()); err == nil {
+		t.Fatal("stale calendar.timezone key was accepted")
+	}
+
+	// A configured Calendar needs its OAuth client and the encryption key that
+	// protects the stored refresh token.
+	for _, missing := range []string{"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "EGGY_ENCRYPTION_KEY"} {
+		env := testSecrets()
+		delete(env, missing)
+		_, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n", env)
+		if err == nil || !strings.Contains(err.Error(), missing) {
+			t.Fatalf("configured calendar without %s: err=%v", missing, err)
+		}
+	}
+}
+
 func TestLoadConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -414,16 +406,6 @@ func TestConfigRejectsRunnerRootOutsideDataDir(t *testing.T) {
 	}
 }
 
-func TestLoadConfigDefaultsImplementationSessionPolicy(t *testing.T) {
-	cfg, _, err := loadText(t, validConfig(), testSecrets())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ImplementationSessions.ContextBudgetChars != 96000 || cfg.ImplementationSessions.RecentMessages != 16 || cfg.ImplementationSessions.OutputExcerptChars != 8192 {
-		t.Fatalf("implementation sessions=%#v", cfg.ImplementationSessions)
-	}
-}
-
 func TestLoadConfigRequiresSecretsForEnabledCapabilities(t *testing.T) {
 	tests := []struct {
 		key  string
@@ -433,9 +415,6 @@ func TestLoadConfigRequiresSecretsForEnabledCapabilities(t *testing.T) {
 		{"TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_SECRET"},
 		{"DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"},
 		{"GITHUB_TOKEN", "GITHUB_TOKEN"},
-		{"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"},
-		{"GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"},
-		{"EGGY_ENCRYPTION_KEY", "EGGY_ENCRYPTION_KEY"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
@@ -507,6 +486,7 @@ telegram:
   owner_id: 42
 agent:
   default_model: deepseek-pro
+  timezone: UTC
 providers:
   deepseek:
     adapter: openai_compatible
@@ -527,18 +507,6 @@ runner:
   retention: 15m
   max_output_bytes: 1048576
   allowed_env: [PATH]
-scheduler:
-  heartbeat_cadence: 30m
-  quiet_hours:
-    start: '22:00'
-    end: '07:00'
-    timezone: UTC
-  minimum_proactive_interval: 2h
-  weekly_proactive_limit: 3
-calendar:
-  enabled: true
-  default_calendar: primary
-  timezone: UTC
 `
 }
 

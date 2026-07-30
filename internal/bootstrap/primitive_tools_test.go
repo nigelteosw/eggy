@@ -1,19 +1,22 @@
 package bootstrap
 
 import (
+	"net/http"
 	"slices"
 	"testing"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
 )
 
-// TestPrimitiveToolsHaveExactlyOneDefinition is the guard on the unified
-// tool surface. It used to say "across both loops"; there is one loop now,
-// so the invariant is simply that a primitive name resolves once, and no
-// adapter can reintroduce a shadowing read_file or terminal.
+// TestPrimitiveToolsHaveExactlyOneDefinition is the guard on the unified,
+// read-only repository surface.
 func TestPrimitiveToolsHaveExactlyOneDefinition(t *testing.T) {
-	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	cfg := appTestConfig(t.TempDir())
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,44 +28,130 @@ func TestPrimitiveToolsHaveExactlyOneDefinition(t *testing.T) {
 	}
 }
 
-// TestWritePrimitivesAreRegisteredForEveryTurn pins the "gate by result, not
-// by registry membership" rule: patch and write_file are always in the tool
-// list and refuse at execution time when the thread's workspace has no
-// branch.
-func TestWritePrimitivesAreRegisteredForEveryTurn(t *testing.T) {
-	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+func TestRepositoryToolSurfaceIsReadOnly(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Repositories = []config.RepositoryConfig{{Name: "eggy", CloneURL: "https://github.com/nigelteosw/eggy.git", BaseBranch: "main"}}
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	names := app.loop.ToolNames(agent.RunOptions{})
-	for _, name := range []string{"patch", "write_file"} {
+	for _, name := range []string{"repository_list", "repository_github", "workspace_open", "read_file", "workspace_close"} {
 		if !slices.Contains(names, name) {
-			t.Fatalf("%q must stay registered; write gating is a result, not an absence. names=%v", name, names)
+			t.Fatalf("read-only repository tool %q is missing. names=%v", name, names)
+		}
+	}
+	for _, gone := range []string{
+		"terminal", "workspace_edit", "patch", "write_file", "propose_change",
+		"skill_propose", "usage", "capabilities", "context",
+	} {
+		if slices.Contains(names, gone) {
+			t.Fatalf("removed tool %q is still registered. names=%v", gone, names)
 		}
 	}
 }
 
-// The terminal tool is gone with the second loop: shipping is an action
-// whose result the model reads, so nothing ends a turn but the model
-// choosing to stop calling tools.
-func TestShippingIsAnOrdinaryToolAndNoTerminalToolSurvives(t *testing.T) {
+// TestCalendarToolsFollowTheConfigSection is the boundary check on Calendar
+// being configurable rather than compiled in: an empty calendar section must
+// cost nothing at all, and a configured one must expose the full set.
+func TestCalendarToolsFollowTheConfigSection(t *testing.T) {
+	calendarTools := []string{"calendar_list", "calendar_calendars", "calendar_create", "calendar_update", "calendar_delete"}
+
+	unconfigured, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := unconfigured.loop.ToolNames(agent.RunOptions{})
+	for _, name := range calendarTools {
+		if slices.Contains(names, name) {
+			t.Fatalf("unconfigured calendar registered %q. names=%v", name, names)
+		}
+	}
+
+	cfg := appTestConfig(t.TempDir())
+	cfg.Calendar = config.CalendarConfig{DefaultCalendar: "primary"}
+	secrets := appTestSecrets("deepseek")
+	secrets.GoogleClientID = "client-id"
+	secrets.GoogleClientSecret = "client-secret"
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	configured, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	names = configured.loop.ToolNames(agent.RunOptions{})
+	for _, name := range calendarTools {
+		if !slices.Contains(names, name) {
+			t.Fatalf("configured calendar did not register %q. names=%v", name, names)
+		}
+	}
+}
+
+// TestCalendarMutationsKeepSeparateApprovalExecutors is the safety property
+// that justifies Calendar being native at all: one approved action can never
+// execute a different one.
+func TestCalendarMutationsKeepSeparateApprovalExecutors(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.Calendar = config.CalendarConfig{DefaultCalendar: "primary"}
+	secrets := appTestSecrets("deepseek")
+	secrets.GoogleClientID = "client-id"
+	secrets.GoogleClientSecret = "client-secret"
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []approvals.Action{approvals.CalendarCreate, approvals.CalendarUpdate, approvals.CalendarDelete} {
+		if app.approvalExecutors[action] == nil {
+			t.Fatalf("calendar action %q has no approval executor", action)
+		}
+	}
+}
+
+func TestRepositoryToolsAreAbsentWithoutConfiguredRepositories(t *testing.T) {
 	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	names := app.loop.ToolNames(agent.RunOptions{})
-	if slices.Contains(names, "finish_implementation") {
-		t.Fatal("finish_implementation must not exist: no tool terminates a turn")
-	}
-	for _, gone := range []string{"repository_modify", "repository_continue"} {
-		if slices.Contains(names, gone) {
-			t.Fatalf("%q must not exist: changing a repository is ordinary turns, not a nested run", gone)
+	for _, name := range []string{"repository_list", "repository_github", "workspace_open", "read_file", "workspace_close"} {
+		if slices.Contains(names, name) {
+			t.Fatalf("unconfigured repository tool %q is registered. names=%v", name, names)
 		}
 	}
-	for _, name := range []string{"workspace_open", "workspace_edit", "propose_change", "workspace_close"} {
-		if !slices.Contains(names, name) {
-			t.Fatalf("%q must be registered. names=%v", name, names)
-		}
+}
+
+func TestTelegramSelectToolOnlyExistsForARealConfiguredTelegramAdapter(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	secrets := appTestSecrets("deepseek")
+
+	fakeApp, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(fakeApp.loop.ToolNames(agent.RunOptions{}), "telegram_select") {
+		t.Fatal("fake-adapter mode registered telegram_select")
+	}
+
+	webOnly := appTestConfig(t.TempDir())
+	webOnly.Owner.ID = "owner"
+	webOnly.Telegram = config.TelegramConfig{}
+	webApp, err := NewApp(webOnly, config.Secrets{ProviderAPIKeys: secrets.ProviderAPIKeys}, AppOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(webApp.loop.ToolNames(agent.RunOptions{}), "telegram_select") {
+		t.Fatal("web-only mode registered telegram_select")
+	}
+
+	httpClient := &http.Client{Transport: appRoundTrip(func(*http.Request) (*http.Response, error) {
+		return appJSON(http.StatusOK, `{"ok":true,"result":true}`), nil
+	})}
+	telegramApp, err := NewApp(appTestConfig(t.TempDir()), secrets, AppOptions{HTTPClient: httpClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(telegramApp.loop.ToolNames(agent.RunOptions{}), "telegram_select") {
+		t.Fatal("configured Telegram adapter did not register telegram_select")
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -21,12 +20,11 @@ import (
 // ThreadDirectory and HistoryReader are what the chat routes need from the
 // thread and memory stores, declared here rather than taken as the full
 // ports.ThreadStore and ports.MemoryStore. The narrowing is not cosmetic:
-// ports.ThreadStore also carries AttachWorkspace, SetWorkspaceEdit, and
-// DetachWorkspace, and ports.MemoryStore carries WriteMessage, SetEmbedding,
-// and the search methods. Workspace lifecycle belongs to the turn path and
-// embedding maintenance to the memory worker; an HTTP handler holding the
-// whole interface could reach either by accident. The concrete stores
-// satisfy these structurally, so nothing outside this package changed.
+// ports.ThreadStore also carries workspace lifecycle methods, and
+// ports.MemoryStore also carries writing and search methods. Workspace
+// lifecycle belongs to the turn path; an HTTP handler holding either whole
+// interface could reach unrelated operations by accident. The concrete
+// stores satisfy these narrower interfaces structurally.
 type ThreadDirectory interface {
 	CreateThread(ctx context.Context, id, channel string, at time.Time) (ports.Thread, error)
 	ListThreads(ctx context.Context, channel string) ([]ports.Thread, error)
@@ -100,8 +98,8 @@ func newThreadListHandler(threads ThreadDirectory) http.HandlerFunc {
 		for _, thread := range threads {
 			rows = append(rows, []string{thread.ID, thread.Title, thread.UpdatedAt.Format(time.RFC3339)})
 		}
-		writeWebResult(w, commands.CommandResult{
-			State:        commands.ResultSuccess,
+		writeWebResult(w, webResult{
+			State:        webSuccess,
 			TableHeaders: []string{"id", "title", "updated_at"},
 			TableRows:    rows,
 		})
@@ -139,8 +137,8 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 		for _, message := range messages {
 			rows = append(rows, []string{string(message.Role), message.Content})
 		}
-		writeWebResult(w, commands.CommandResult{
-			State:        commands.ResultSuccess,
+		writeWebResult(w, webResult{
+			State:        webSuccess,
 			TableHeaders: []string{"role", "content"},
 			TableRows:    rows,
 		})
@@ -176,7 +174,7 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, own
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusAccepted)
-		body, _ := (commands.CommandResult{State: commands.ResultSuccess, Title: "Message received."}).RenderJSON()
+		body, _ := json.Marshal(webResult{State: webSuccess, Title: "Message received."})
 		_, _ = w.Write(body)
 	}
 }
@@ -207,7 +205,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusAccepted)
-		body, _ := (commands.CommandResult{State: commands.ResultSuccess, Title: "Decision received."}).RenderJSON()
+		body, _ := json.Marshal(webResult{State: webSuccess, Title: "Decision received."})
 		_, _ = w.Write(body)
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/plugins/webui"
@@ -42,10 +41,6 @@ type WebUIConfig struct {
 	// the real hop count -- 1 behind Railway -- and the throttle keys on the
 	// address that proxy observed instead of on the proxy itself.
 	TrustedProxyHops int
-	// Files exposes the owner-facing part of the home directory. Nil in
-	// tests that only exercise login/config routes; the /api/files routes
-	// then report the home as unavailable rather than panicking.
-	Files *HomeFiles
 }
 
 const (
@@ -53,10 +48,32 @@ const (
 	webSessionTTL    = 12 * time.Hour
 )
 
+type webResult struct {
+	State        string     `json:"state"`
+	Title        string     `json:"title,omitempty"`
+	Detail       string     `json:"detail,omitempty"`
+	Fields       []webField `json:"fields,omitempty"`
+	TableHeaders []string   `json:"table_headers,omitempty"`
+	TableRows    [][]string `json:"table_rows,omitempty"`
+	Lines        []string   `json:"lines,omitempty"`
+	Next         []string   `json:"next,omitempty"`
+}
+
+type webField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+const (
+	webSuccess = "success"
+	webInfo    = "info"
+	webError   = "error"
+)
+
 // NewWebHandler serves Eggy's embedded web configuration UI and its small
-// JSON API. Every /api/config/* route is a thin translation into the same
-// commands.CommandRequest/commands.CommandResult shape Telegram and the CLI already use, so
-// there is exactly one place config validation and mutation logic lives.
+// JSON API. Config routes call internal/config directly: the authenticated
+// web panel is the runtime administration surface, while Telegram commands
+// remain conversational.
 // configPath may be empty in tests that only exercise login/session/logout.
 func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	now := webConfig.Now
@@ -64,26 +81,19 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		now = time.Now
 	}
 	throttle := webui.NewLoginThrottle(now)
-	service := commands.New(commands.Options{ConfigPath: configPath})
-
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
 	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {
-		writeWebResult(w, commands.CommandResult{State: commands.ResultSuccess, Title: "Session is valid."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []struct {
-		path     string
-		get, set []string
-	}{
-		{"providers", []string{"config", "get", "providers"}, []string{"config", "set", "provider"}},
-		{"models", []string{"config", "get", "models"}, []string{"config", "set", "model"}},
-		{"calendar", []string{"config", "get", "calendar"}, []string{"config", "set", "calendar"}},
+	for _, section := range []string{
+		"providers", "models", "calendar",
 	} {
-		mux.Handle("GET /api/config/"+section.path, requireWebSession(webConfig, now, webConfigGetRoute(service, section.get)))
-		mux.Handle("POST /api/config/"+section.path, requireWebSession(webConfig, now, webConfigSetRoute(service, section.set)))
+		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
+		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
 
 	// MCP server definitions are file-owned by deliberate design (see
@@ -94,13 +104,6 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
-
-	// The home directory as raw text: config.yaml, SOUL.md, memories,
-	// skills, cron jobs, and logs. See home_files.go for what each path is
-	// allowed to do.
-	mux.Handle("GET /api/files", requireWebSession(webConfig, now, webFilesListRoute(webConfig.Files)))
-	mux.Handle("GET /api/files/{path...}", requireWebSession(webConfig, now, webFileReadRoute(webConfig.Files)))
-	mux.Handle("PUT /api/files/{path...}", requireWebSession(webConfig, now, webFileWriteRoute(webConfig.Files)))
 
 	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Threads, now)))
@@ -129,8 +132,8 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 			server := servers[name]
 			rows = append(rows, []string{name, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv})
 		}
-		writeWebResult(w, commands.CommandResult{
-			State:        commands.ResultSuccess,
+		writeWebResult(w, webResult{
+			State:        webSuccess,
 			TableHeaders: []string{"Name", "URL", "Auth", "Enabled", "Bearer token env"},
 			TableRows:    rows,
 		})
@@ -158,7 +161,7 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, commands.CommandResult{State: commands.ResultSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: "Restart Eggy for this to take effect."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: "Restart Eggy for this to take effect."})
 	}
 }
 
@@ -173,34 +176,73 @@ func webMCPRemoveRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, commands.CommandResult{State: commands.ResultSuccess, Title: "Removed MCP server " + name + ".", Detail: "Restart Eggy for this to take effect."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Removed MCP server " + name + ".", Detail: "Restart Eggy for this to take effect."})
 	}
 }
 
-func webConfigGetRoute(service *commands.CommandService, path []string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		result, err := service.Dispatch(r.Context(), commands.CommandRequest{Path: path})
+func webConfigGetRoute(configPath, section string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		cfg, err := config.LoadDocument(configPath)
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		result := webResult{State: webSuccess}
+		switch section {
+		case "providers":
+			names := make([]string, 0, len(cfg.Providers))
+			for name := range cfg.Providers {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			result.TableHeaders = []string{"Provider", "Adapter", "Base URL", "API key env"}
+			for _, name := range names {
+				provider := cfg.Providers[name]
+				result.TableRows = append(result.TableRows, []string{name, provider.Adapter, provider.BaseURL, provider.APIKeyEnv})
+			}
+		case "models":
+			aliases := make([]string, 0, len(cfg.ModelAliases))
+			for alias := range cfg.ModelAliases {
+				aliases = append(aliases, alias)
+			}
+			sort.Strings(aliases)
+			result.TableHeaders = []string{"Alias", "Provider", "Model", "Reasoning efforts"}
+			for _, alias := range aliases {
+				model := cfg.ModelAliases[alias]
+				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", ")})
+			}
+		case "calendar":
+			result.Fields = []webField{{Label: "Default calendar", Value: cfg.Calendar.DefaultCalendar}}
 		}
 		writeWebResult(w, result)
 	}
 }
 
-func webConfigSetRoute(service *commands.CommandService, path []string) http.HandlerFunc {
+func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var named map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&named); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		result, err := service.Dispatch(r.Context(), commands.CommandRequest{Path: path, Named: named})
+		var err error
+		var title string
+		switch section {
+		case "providers":
+			err = config.SetProvider(configPath, named["name"], named["adapter"], named["base_url"], named["api_key_env"])
+			title = "Set provider " + named["name"] + "."
+		case "models":
+			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
+			title = "Set model " + named["alias"] + "."
+		case "calendar":
+			err = config.SetCalendar(configPath, named["default_calendar"])
+			title = "Set calendar."
+		}
 		if err != nil {
-			writeWebError(w, http.StatusInternalServerError, err.Error())
+			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, result)
+		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: "Restart Eggy for this to take effect."})
 	}
 }
 
@@ -238,7 +280,7 @@ func handleWebLogin(webConfig WebUIConfig, throttle *webui.LoginThrottle, now fu
 			Name: webSessionCookie, Value: webui.SignSession(webConfig.SigningKey, expiresAt),
 			Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, Expires: expiresAt,
 		})
-		writeWebResult(w, commands.CommandResult{State: commands.ResultSuccess, Title: "Logged in."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Logged in."})
 	}
 }
 
@@ -248,7 +290,7 @@ func handleWebLogout() http.HandlerFunc {
 			Name: webSessionCookie, Value: "", Path: "/",
 			HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1,
 		})
-		writeWebResult(w, commands.CommandResult{State: commands.ResultSuccess, Title: "Logged out."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Logged out."})
 	}
 }
 
@@ -299,8 +341,8 @@ func constantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func writeWebResult(w http.ResponseWriter, result commands.CommandResult) {
-	body, err := result.RenderJSON()
+func writeWebResult(w http.ResponseWriter, result webResult) {
+	body, err := json.Marshal(result)
 	if err != nil {
 		writeWebError(w, http.StatusInternalServerError, "failed to render response")
 		return
@@ -311,17 +353,15 @@ func writeWebResult(w http.ResponseWriter, result commands.CommandResult) {
 }
 
 func writeWebError(w http.ResponseWriter, status int, message string) {
-	body, _ := json.Marshal(commands.CommandResult{State: commands.ResultError, Title: message})
+	body, _ := json.Marshal(webResult{State: webError, Title: message})
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
 
-// httpStatusForState maps a commands.CommandResult's classification to the HTTP
-// status the web API returns.
-func httpStatusForState(state commands.ResultState) int {
+func httpStatusForState(state string) int {
 	switch state {
-	case commands.ResultError, commands.ResultHelp:
+	case webError:
 		return http.StatusBadRequest
 	default:
 		return http.StatusOK

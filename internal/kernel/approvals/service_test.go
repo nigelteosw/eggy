@@ -15,70 +15,43 @@ import (
 func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 19, 1, 0, 0, 0, time.UTC)
 	store := newMemoryStateStore()
-	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main"}}}
 	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute)
-	approval, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-1", "diff": "abc"}, "Commit abc")
+	writeAction := approvalspkg.Action("write")
+	deleteAction := approvalspkg.Action("delete")
+	approval, err := service.Request(context.Background(), writeAction, map[string]any{"name": "test", "body": "abc"}, "Write skill")
 	if err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := store.Load(context.Background())
-	if string(stored.Approvals[approval.ID].Payload) != `{"diff":"abc","run_id":"run-1"}` {
+	if string(stored.Approvals[approval.ID].Payload) != `{"body":"abc","name":"test"}` {
 		t.Fatalf("approval payload not durably canonicalized: %s", stored.Approvals[approval.ID].Payload)
 	}
 	if err := service.Decide(context.Background(), approval.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Authorize(context.Background(), approvalspkg.Commit, map[string]any{"diff": "abc", "run_id": "run-1"}, approval.ID); err != nil {
+	if err := service.Authorize(context.Background(), writeAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); err != nil {
 		t.Fatalf("equivalent canonical payload rejected: %v", err)
 	}
-	if err := service.Authorize(context.Background(), approvalspkg.Push, map[string]any{"diff": "abc", "run_id": "run-1"}, approval.ID); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
+	if err := service.Authorize(context.Background(), deleteAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
 		t.Fatalf("reused/wrong action should fail, got %v", err)
 	}
 
-	expiring, _ := service.Request(context.Background(), approvalspkg.CalendarCreate, map[string]any{"title": "Lunch"}, "Create Lunch")
+	expiring, _ := service.Request(context.Background(), writeAction, map[string]any{"title": "Lunch"}, "Create Lunch")
 	_ = service.Decide(context.Background(), expiring.ID, true)
 	now = now.Add(11 * time.Minute)
-	if err := service.Authorize(context.Background(), approvalspkg.CalendarCreate, map[string]any{"title": "Lunch"}, expiring.ID); !errors.Is(err, approvalspkg.ErrExpired) {
+	if err := service.Authorize(context.Background(), writeAction, map[string]any{"title": "Lunch"}, expiring.ID); !errors.Is(err, approvalspkg.ErrExpired) {
 		t.Fatalf("expected expiry, got %v", err)
 	}
 }
 
-func TestApprovalRejectsChangedPayloadAndProtectedPush(t *testing.T) {
+func TestApprovalRejectsChangedPayload(t *testing.T) {
 	store := newMemoryStateStore()
-	store.state.Repositories = map[string]ports.Repository{"eggy": {Name: "eggy", ProtectedBranches: []string{"main", "production"}}}
 	service := services.NewApprovalService(store, time.Now, time.Hour)
-	approval, _ := service.Request(context.Background(), approvalspkg.Push, map[string]any{"branch": "feature", "commit": "abc"}, "Push feature")
+	action := approvalspkg.Action("write")
+	approval, _ := service.Request(context.Background(), action, map[string]any{"name": "test", "body": "abc"}, "Write skill")
 	_ = service.Decide(context.Background(), approval.ID, true)
-	if err := service.Authorize(context.Background(), approvalspkg.Push, map[string]any{"branch": "feature", "commit": "changed"}, approval.ID); !errors.Is(err, approvalspkg.ErrPayloadChanged) {
+	if err := service.Authorize(context.Background(), action, map[string]any{"name": "test", "body": "changed"}, approval.ID); !errors.Is(err, approvalspkg.ErrPayloadMismatch) {
 		t.Fatalf("expected changed payload, got %v", err)
-	}
-	protected, _ := service.Request(context.Background(), approvalspkg.Push, map[string]any{"branch": "main", "commit": "abc"}, "Push main")
-	_ = service.Decide(context.Background(), protected.ID, true)
-	if err := service.Authorize(context.Background(), approvalspkg.Push, map[string]any{"branch": "main", "commit": "abc"}, protected.ID); !errors.Is(err, approvalspkg.ErrProtectedBranch) {
-		t.Fatalf("expected protected branch denial, got %v", err)
-	}
-}
-
-func TestApprovalInvalidatesOnlyPendingCommitForResumedRun(t *testing.T) {
-	store := newMemoryStateStore()
-	service := services.NewApprovalService(store, time.Now, time.Hour)
-	pending, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-1"}, "Commit run-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := service.Request(context.Background(), approvalspkg.Commit, map[string]any{"run_id": "run-2"}, "Commit run-2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := service.InvalidatePendingCommitForRun(context.Background(), "run-1"); err != nil {
-		t.Fatal(err)
-	}
-	state, _ := store.Load(context.Background())
-	if state.Approvals[pending.ID].Status != approvalspkg.Invalidated || state.Approvals[other.ID].Status != approvalspkg.Pending {
-		t.Fatalf("approvals=%#v", state.Approvals)
-	}
-	if err := service.Decide(context.Background(), pending.ID, true); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
-		t.Fatalf("invalidated approval was decidable: %v", err)
 	}
 }
 

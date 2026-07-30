@@ -111,7 +111,7 @@ func (r *fakeRepositoryReader) RepositorySummary(context.Context, ports.Reposito
 func (r *fakeRepositoryReader) Issue(context.Context, ports.Repository, int) (ports.RepositorySummary, error) {
 	return r.summary, nil
 }
-func (r *fakeRepositoryReader) PullRequestSummary(context.Context, ports.Repository, int) (ports.RepositorySummary, error) {
+func (r *fakeRepositoryReader) ReviewSummary(context.Context, ports.Repository, int) (ports.RepositorySummary, error) {
 	return r.summary, nil
 }
 func (r *fakeRepositoryReader) Checks(context.Context, ports.Repository, string) ([]ports.CheckRun, error) {

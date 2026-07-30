@@ -8,9 +8,8 @@ server:
   # apart -- at the wrong value every attempt shares one bucket, so guessing is
   # barely slowed and an attacker can lock the owner out.
   trusted_proxy_hops: 0
-# Eggy's home directory. config.yaml, .env, auth.json, SOUL.md, memories/,
-# skills/, cron/, sessions/, changes/, logs/, state.json, eggy.db, and runs/
-# all live under it. EGGY_HOME or --home selects it before this file is read.
+# Eggy's home directory. Config, Markdown context, SQLite memory, schedules,
+# OAuth records, logs, state, and read-only repository checkouts live here.
 data_dir: "/data"
 telegram:
   owner_id: 123456789
@@ -18,6 +17,7 @@ agent:
   # Telegram: /model changes the active alias; /model default restores this one.
   # /model effort <low|medium|high|max> sets reasoning effort for aliases that support it.
   default_model: "deepseek-pro"
+  timezone: "Asia/Singapore"
 providers:
   deepseek:
     adapter: "openai_compatible"
@@ -31,21 +31,13 @@ models:
     # Optional: exposes /model effort <level> for this alias. Omit for
     # models that don't accept a reasoning_effort request parameter.
     reasoning_efforts: ["low", "medium", "high", "max"]
-# Optional conversation-memory embeddings. Configure a matching provider first.
-# embeddings:
-#   provider: "openrouter"
-#   model: "text-embedding-3-small"
-#   dimensions: 1536
-#   candidate_limit: 5000
 repositories:
   - name: "eggy"
     clone_url: "https://github.com/nigelteosw/eggy.git"
     base_branch: "main"
     protected_branches: ["main"]
     # Marks the repository holding Eggy's own source. It grants nothing: it
-    # only tells the agent which repository is its own body, so an unprompted
-    # self-improvement turn knows where AGENTS.md and docs/ARCHITECTURE.md
-    # live. At most one repository may set it.
+    # only tells the agent where its own AGENTS.md and architecture docs live.
     self: true
 runner:
   root: "/data/runs"
@@ -53,27 +45,21 @@ runner:
   retention: "30m"
   max_output_bytes: 1048576
   allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
-implementation_sessions:
-  context_budget_chars: 96000
-  recent_messages: 16
-  output_excerpt_chars: 8192
-scheduler:
-  heartbeat_cadence: "3h"
-  quiet_hours:
-    start: "22:00"
-    end: "07:00"
-    timezone: "Asia/Singapore"
-  minimum_proactive_interval: "2h"
-  weekly_proactive_limit: 5
+# Native Google Calendar. Omit this section entirely to turn Calendar off:
+# with no default_calendar there are no calendar tools, no OAuth routes, and
+# no prompt bytes. Requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and
+# EGGY_ENCRYPTION_KEY; connect the account at /auth/google after first start.
+#
+# Unlike an MCP server, every calendar mutation is gated by an approval bound
+# to that one event's payload -- approving a deletion authorizes that deletion
+# and nothing else. Event times use agent.timezone.
 calendar:
-  enabled: true
-  # Default for mutations when no calendar ID is supplied; general reads cover all non-hidden readable calendars.
+  # The calendar a mutation writes to when the tool call omits calendar_id.
+  # Reads still cover every non-hidden readable calendar.
   default_calendar: "primary"
-  timezone: "Asia/Singapore"
 mcp:
   # Anything listed here is trusted. An MCP tool call carries no per-call
-  # approval -- unlike a commit, push, pull request, or Calendar mutation --
-  # because a server can only get here by you putting it here. Reviewing the
+  # approval because a server can only get here by you putting it here. Reviewing the
   # server IS the approval. Use tool_filter to narrow what a server exposes
   # rather than expecting a prompt at call time. See "Trust model" in
   # docs/ARCHITECTURE.md.

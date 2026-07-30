@@ -5,33 +5,31 @@ Eggy is a Go 1.26 ports-and-adapters modular monolith.
 ## Boundaries
 
 - `internal/kernel/services` is the base kernel-service package;
-  `internal/kernel/services/repo` holds everything about repositories,
-  workspaces, changes, and shipping. The dependency is one-way — `repo` may
+  `internal/kernel/services/repo` holds read-only repository and workspace
+  inspection. The dependency is one-way — `repo` may
   import `services`, never the reverse — so anything `repo` needs from the base
   package must be exported there (see `services.DecodeToolInput`). Test fakes
   are duplicated across the two rather than shared through an exported
   package: a fake is not API.
 - Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, Google, YAML, JSON-file persistence, Docker, or Railway packages.
 - Provider request/response types and credentials stay inside their adapter packages.
-- Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the command catalog in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `commands` <- `web` <- `bootstrap` — so none of those three may import `internal/bootstrap`.
+- Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the five direct Telegram commands in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `web` <- `bootstrap` — so neither config nor web may import `internal/bootstrap`.
 - Treat configured repositories as trusted, but keep path, environment, timeout, output, and process-group restrictions intact.
-- Never weaken independent approval checks for commit, push, pull-request creation, or Calendar mutations. Protected branches remain unpushable even with approval.
+- Never reintroduce repository mutation or shipping through a generic tool or Telegram selection. Any future protected mutation must use an independent approval check.
+- Calendar mutations keep independent, payload-bound approvals with one `approvals.Action` and one executor each. Consolidating the calendar tools is fine; consolidating their approvals is not. Do not replace native Calendar with an MCP server unless per-call approval gating for MCP tools exists first — an MCP server is trusted wholesale at configuration time.
 
 ## Adding a new adapter (open for extension, closed for modification)
 
-A new provider (model backend, chat channel, repository host, coding-agent
-runner, calendar backend, etc.) should only ever add a new package under
+A new provider (model backend, chat channel, repository host, runner, etc.)
+should only ever add a new package under
 `plugins/<category>/<provider>/` plus a wiring change in
 `internal/bootstrap`. It should never require changing `internal/kernel`,
 `internal/ports`, or an existing adapter package.
 
 1. Find the port(s) your provider must satisfy in `internal/ports/ports.go`
-   (`Model`, `Channel`, `ContextStore`, `StateStore`, `Scheduler`, `Runner` /
-   `StreamingRunner`, `CodingRepository`, `RepositoryCommitter`,
-   `RepositoryPusher`, `PullRequestProvider`, `RepositoryReader`,
-   `RepositoryCapabilityProvider`, `CalendarProvider`, `Tool`, ...), or a
-   service-level interface such as `repo.Shipper`
-   (`internal/kernel/services/repo/repository_tools.go`). Do not change the
+   (`Model`, `Channel`, `ContextStore`, `StateStore`, `Scheduler`, `Runner`,
+   `RepositoryCheckout`, `RepositoryReader`, `Tool`, ...).
+   Do not change the
    interface's method signatures to fit one new provider — every existing
    adapter implements them and would break.
 2. If the capability is genuinely new (no existing port fits), add a small,

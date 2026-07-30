@@ -15,10 +15,9 @@ import (
 )
 
 const (
-	initialSoul      = "# Eggy Soul\n\nI'm Eggy: a small eggy buddy, happiest when quietly useful. Warm and a little playful, never sappy about it. Underneath the smile, still practical, truthful, concise, and evidence-led — say what's actually true, not what sounds nice.\n"
-	initialUser      = "# Eggy User\n"
-	initialMemory    = "# Eggy Memory\n"
-	initialHeartbeat = "# Eggy Heartbeat\n\nChecklist only. Timing, timezone, quiet hours, limits, and prohibited actions are fixed policy, not edited here.\n\n## Check on each heartbeat\n\n- Anything time-sensitive the owner would want flagged now.\n"
+	initialSoul   = "# Eggy Soul\n\nI'm Eggy: a small eggy buddy, happiest when quietly useful. Warm and a little playful, never sappy about it. Underneath the smile, still practical, truthful, concise, and evidence-led — say what's actually true, not what sounds nice.\n"
+	initialUser   = "# Eggy User\n"
+	initialMemory = "# Eggy Memory\n"
 )
 
 // Default write budgets. They are deliberately small: a bounded document that
@@ -30,14 +29,13 @@ const (
 )
 
 // Paths locates each context document explicitly, because they no longer
-// share one directory: SOUL.md and HEARTBEAT.md sit at the top of the home
-// where an owner edits them, while MEMORY.md and USER.md live under
+// share one directory: SOUL.md sits at the top of the home while MEMORY.md
+// and USER.md live under
 // memories/ (see internal/home).
 type Paths struct {
-	Soul      string
-	User      string
-	Memory    string
-	Heartbeat string
+	Soul   string
+	User   string
+	Memory string
 }
 
 type Store struct {
@@ -62,10 +60,9 @@ func Open(paths Paths, userMaxBytes, memoryMaxBytes int64) *Store {
 // needs a scratch home keep using it.
 func InDir(dir string, userMaxBytes, memoryMaxBytes int64) *Store {
 	return Open(Paths{
-		Soul:      filepath.Join(dir, "SOUL.md"),
-		User:      filepath.Join(dir, "USER.md"),
-		Memory:    filepath.Join(dir, "MEMORY.md"),
-		Heartbeat: filepath.Join(dir, "HEARTBEAT.md"),
+		Soul:   filepath.Join(dir, "SOUL.md"),
+		User:   filepath.Join(dir, "USER.md"),
+		Memory: filepath.Join(dir, "MEMORY.md"),
 	}, userMaxBytes, memoryMaxBytes)
 }
 
@@ -87,12 +84,8 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	heartbeat, err := s.loadDocument(s.paths.Heartbeat, initialHeartbeat)
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
 	return ports.AgentContext{
-		Soul: soul, User: user, Memory: memory, Heartbeat: heartbeat,
+		Soul: soul, User: user, Memory: memory,
 		UserMaxBytes: s.userMaxBytes, MemoryMaxBytes: s.memoryMaxBytes,
 	}, nil
 }

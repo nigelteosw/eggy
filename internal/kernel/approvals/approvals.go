@@ -11,22 +11,18 @@ import (
 var (
 	ErrNotAuthorized   = errors.New("action is not authorized")
 	ErrExpired         = errors.New("approval expired")
-	ErrPayloadChanged  = errors.New("approval payload changed")
-	ErrProtectedBranch = errors.New("protected branch push denied")
+	ErrPayloadMismatch = errors.New("approval payload changed")
 )
 
 type Action string
 
+// Each Action is one protected operation. An approval authorizes exactly one
+// of these against one payload digest: approving a calendar deletion never
+// authorizes a different deletion, and never authorizes a create or update.
 const (
-	Commit         Action = "commit"
-	Push           Action = "push"
-	CreatePR       Action = "create_pull_request"
 	CalendarCreate Action = "calendar_create"
 	CalendarUpdate Action = "calendar_update"
 	CalendarDelete Action = "calendar_delete"
-	AddRepository  Action = "add_repository"
-	SkillWrite     Action = "skill_write"
-	SkillDelete    Action = "skill_delete"
 )
 
 type Status string

@@ -12,9 +12,29 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+type memorySearchCall struct {
+	query string
+	limit int
+}
+
+type fakeMemoryStore struct {
+	searchText []ports.StoredMessage
+	textCalls  []memorySearchCall
+}
+
+func (s *fakeMemoryStore) WriteMessage(context.Context, ports.StoredMessage) error { return nil }
+func (s *fakeMemoryStore) RecentMessages(context.Context, string, int) ([]ports.StoredMessage, error) {
+	return nil, nil
+}
+func (s *fakeMemoryStore) ResetConversation(context.Context, string, time.Time) error { return nil }
+func (s *fakeMemoryStore) SearchText(_ context.Context, query string, limit int) ([]ports.StoredMessage, error) {
+	s.textCalls = append(s.textCalls, memorySearchCall{query: query, limit: limit})
+	return s.searchText, nil
+}
+
 func TestRecallConversationDefinitionIsStrictAndDoesNotReadHistory(t *testing.T) {
 	store := &fakeMemoryStore{}
-	tool := NewRecallConversationTool(store, nil, nil)
+	tool := NewRecallConversationTool(store, nil)
 
 	definition := tool.Definition()
 	if definition.Name != "recall_conversation" {
@@ -27,7 +47,7 @@ func TestRecallConversationDefinitionIsStrictAndDoesNotReadHistory(t *testing.T)
 	if schema["additionalProperties"] != false || !reflect.DeepEqual(schema["required"], []any{"query"}) {
 		t.Fatalf("schema = %#v", schema)
 	}
-	if len(store.textCalls) != 0 || len(store.similarCalls) != 0 || len(store.pendingLimits) != 0 {
+	if len(store.textCalls) != 0 {
 		t.Fatalf("definition changed history: store=%#v", store)
 	}
 }
@@ -39,7 +59,7 @@ func TestRecallConversationTextDefaultsBoundsAndRedactsResults(t *testing.T) {
 		results[i] = ports.StoredMessage{ID: int64(i + 1), Role: ports.RoleUser, Content: long, Source: "telegram", CreatedAt: time.Unix(int64(i), 0).UTC()}
 	}
 	store := &fakeMemoryStore{searchText: results}
-	tool := NewRecallConversationTool(store, nil, NewSecretGuard([]string{"active-secret"}))
+	tool := NewRecallConversationTool(store, NewSecretGuard([]string{"active-secret"}))
 
 	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"past work"}`))
 	if err != nil {
@@ -60,24 +80,8 @@ func TestRecallConversationTextDefaultsBoundsAndRedactsResults(t *testing.T) {
 	}
 }
 
-func TestRecallConversationSemanticEmbedsQueryAndRejectsMissingEmbedder(t *testing.T) {
-	store := &fakeMemoryStore{searchSimilar: []ports.StoredMessage{{ID: 7, Content: "matching"}}}
-	tool := NewRecallConversationTool(store, &fakeEmbedder{vectors: map[string][]float32{"semantic query": {1, 2}}}, nil)
-
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"semantic query","mode":"semantic","limit":10}`)); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := store.similarCalls, []memorySimilarCall{{embedding: []float32{1, 2}, limit: 10}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("similar calls = %#v, want %#v", got, want)
-	}
-	withoutEmbedder := NewRecallConversationTool(store, nil, nil)
-	if _, err := withoutEmbedder.Execute(context.Background(), json.RawMessage(`{"query":"semantic query","mode":"semantic"}`)); err == nil || !strings.Contains(err.Error(), "semantic recall unavailable") {
-		t.Fatalf("missing embedder error = %v", err)
-	}
-}
-
 func TestRecallConversationRejectsInvalidInput(t *testing.T) {
-	tool := NewRecallConversationTool(&fakeMemoryStore{}, nil, nil)
+	tool := NewRecallConversationTool(&fakeMemoryStore{}, nil)
 	for _, input := range []string{
 		`{}`, `{"query":""}`, `{"query":"x","mode":null}`, `{"query":"x","mode":"unknown"}`, `{"query":"x","limit":null}`, `{"query":"x","limit":0}`, `{"query":"x","limit":11}`, `{"query":"x","extra":true}`,
 	} {

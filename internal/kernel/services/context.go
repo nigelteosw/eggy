@@ -76,9 +76,8 @@ type memoryTool struct {
 }
 
 // NewContextTools returns the agent's durable-memory tool surface: one tool
-// over the two writable documents. SOUL.md and HEARTBEAT.md are deliberately
-// absent — they are owner-editable identity and policy, injected into the
-// prompt but never rewritten by the agent.
+// over the two writable documents. SOUL.md is owner-edited identity and is
+// injected into the prompt but never rewritten by the agent.
 func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool {
 	if guard == nil {
 		guard = NewSecretGuard(nil)

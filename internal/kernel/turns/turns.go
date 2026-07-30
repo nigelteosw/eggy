@@ -1,6 +1,5 @@
-// Package turns owns what happens during one turn: the tool allowlist a turn
-// runs with, the context it is built from, the transcript it records, and the
-// rules that separate an owner-prompted turn from an unprompted one.
+// Package turns owns what happens during one turn: its tools, context,
+// persistence, and surface delivery.
 //
 // It exists because that is core agentic behavior rather than wiring. It used
 // to live in internal/bootstrap, the composition root, where no kernel test
@@ -18,8 +17,6 @@ package turns
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,7 +28,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
-	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -78,26 +74,6 @@ type Loop interface {
 	ToolNames(options agent.RunOptions) []string
 }
 
-// Transcripts is the durable per-turn record. Load and List are absent: a
-// turn writes its transcript, it never reads another's.
-type Transcripts interface {
-	Open(ctx context.Context, id, instruction string) (ports.Transcript, error)
-	Append(ctx context.Context, id string, event ports.TranscriptEvent) error
-	Close(ctx context.Context, id string) error
-	RedactProgress(content string) string
-}
-
-// ProgressReporter delivers a milestone on the turn's destination.
-type ProgressReporter interface {
-	Deliver(ctx context.Context, progress ports.CodingProgress)
-}
-
-// WorkspaceResolver reports the checkout bound to the calling thread, so a
-// turn knows whether it is an editing turn.
-type WorkspaceResolver interface {
-	Resolve(ctx context.Context) (repo.WorkspaceBinding, error)
-}
-
 // ThreadTitler auto-titles a web thread from its first message.
 type ThreadTitler interface {
 	SetThreadTitle(ctx context.Context, id, title string) error
@@ -111,14 +87,6 @@ type ApprovalDecider interface {
 // ApprovalExecutor performs the action an approval authorized.
 type ApprovalExecutor interface {
 	ExecuteApproved(context.Context, approvals.Approval) (any, error)
-}
-
-// HeartbeatGate decides whether a heartbeat may send an owner-facing check-in
-// and records one against the weekly limit. It governs *sending* only: silent
-// context curation runs regardless.
-type HeartbeatGate interface {
-	CanSend(state ports.State, now time.Time) bool
-	Record(ctx context.Context, store ports.StateStore, now time.Time) error
 }
 
 // Presenter is the surface-side rendering a turn asks for. It lives outside
@@ -150,13 +118,9 @@ type Options struct {
 	Skills       SkillIndex
 	Loop         Loop
 	Channel      ports.Channel
-	Transcripts  Transcripts
-	Progress     ProgressReporter
-	Workspaces   WorkspaceResolver
 	Threads      ThreadTitler
 	Approvals    ApprovalDecider
 	Executors    map[approvals.Action]ApprovalExecutor
-	Heartbeat    HeartbeatGate
 	Presenter    Presenter
 	Manifest     agent.CapabilityManifest
 	Logger       *slog.Logger
@@ -177,13 +141,9 @@ type Service struct {
 	skills       SkillIndex
 	loop         Loop
 	channel      ports.Channel
-	transcripts  Transcripts
-	progress     ProgressReporter
-	workspaces   WorkspaceResolver
 	threads      ThreadTitler
 	approvals    ApprovalDecider
 	executors    map[approvals.Action]ApprovalExecutor
-	heartbeat    HeartbeatGate
 	presenter    Presenter
 	manifest     agent.CapabilityManifest
 	logger       *slog.Logger
@@ -209,9 +169,8 @@ func New(options Options) *Service {
 		commands: options.Commands, registry: options.Registry, conversation: options.Conversation,
 		context: options.Context, store: options.Store, runtime: options.Runtime,
 		skills: options.Skills, loop: options.Loop, channel: options.Channel,
-		transcripts: options.Transcripts, progress: options.Progress, workspaces: options.Workspaces,
 		threads: options.Threads, approvals: options.Approvals, executors: options.Executors,
-		heartbeat: options.Heartbeat, presenter: options.Presenter, manifest: options.Manifest,
+		presenter: options.Presenter, manifest: options.Manifest,
 		logger: logger, now: now, location: location, timezone: options.Timezone,
 	}
 }
@@ -238,51 +197,11 @@ type Policy struct {
 // primitives remain off this list.
 func ReadOnlyTools() agent.RunOptions {
 	return agent.RunOptions{AllowedTools: map[string]bool{
-		"status": true, "repository_list": true, "calendar_list": true,
-		"read_file": true, "terminal": true, "repository_github": true,
+		"status": true, "repository_list": true,
+		"read_file": true, "repository_github": true,
 		"workspace_open": true, "workspace_close": true,
 		"skill_read": true,
 	}}
-}
-
-// ProposeOnlyTools is what a scheduled turn runs with: readOnlyTools plus the
-// tools needed to make and propose a change.
-//
-// An older allowlist barred repository writes outright. That was a proxy for
-// the invariant that matters -- nothing lands without a payload-bound
-// authorization and a human-reviewed pull request -- and the proxy cost Eggy
-// the ability to improve itself between owner messages. The invariant is now
-// held where it belongs rather than by absence: ScheduledTurn marks the turn
-// unprompted, propose_change opens a draft pull request on a branch of its
-// own, ShippingService refuses a base or protected branch, and an unprompted
-// turn cannot touch a change the owner has open.
-//
-// What stays barred is unchanged: no MCP tool, so an unprompted turn still
-// reaches no arbitrary remote side effect.
-func ProposeOnlyTools() agent.RunOptions {
-	options := ReadOnlyTools()
-	for _, tool := range []string{"workspace_edit", "patch", "write_file", "propose_change"} {
-		options.AllowedTools[tool] = true
-	}
-	return options
-}
-
-// HeartbeatTools extends ReadOnlyTools -- deliberately not ProposeOnlyTools --
-// with the narrow memory-curation tools, so a heartbeat can write stable facts
-// to USER.md/MEMORY.md.
-//
-// A heartbeat is a check-in on the owner, not a work tick. Its job is to
-// notice what is worth telling them and to curate durable context; it is not
-// the place to start repository work nobody asked for. A scheduled turn is the
-// propose path, because the owner wrote the schedule that asks for it. Keeping
-// the write tools off a heartbeat also keeps its cost proportionate: every
-// tick is a model call, and one that cannot edit is a far cheaper one.
-func HeartbeatTools() agent.RunOptions {
-	options := ReadOnlyTools()
-	for _, tool := range []string{"memory", "skill_disable", "skill_enable"} {
-		options.AllowedTools[tool] = true
-	}
-	return options
 }
 
 // OwnerMessage runs a direct owner turn: the complete tool set, ambient
@@ -299,26 +218,13 @@ func (s *Service) OwnerMessage(ctx context.Context, text, source string) error {
 	})
 }
 
-// ChecksTurn resumes the thread that proposed a change whose pull-request
-// checks failed. It is an ordinary owner-facing turn on purpose: the
-// workspace is still open on that branch, so the agent fixes the failure with
-// the same tools and proposes again. Nothing about it is a separate mode --
-// that is what makes self-improvement a loop instead of one shot.
-func (s *Service) ChecksTurn(ctx context.Context, instruction string) error {
-	return s.run(ctx, instruction, agent.RunOptions{}, Policy{
-		IncludeRecentHistory: true,
-		RecordConversation:   true,
-		Source:               "checks",
-	})
-}
-
 // ScheduledTurn runs a turn the owner scheduled but is not present for. It is
 // self-contained: no ambient recent-conversation history, so an owner's
 // earlier chat cannot silently steer instructions they never reviewed at the
 // time this schedule fires. It is marked unprompted, which is what confines
 // it to proposing.
 func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
-	return s.run(services.WithUnpromptedTurn(ctx), text, ProposeOnlyTools(), Policy{
+	return s.run(ctx, text, ReadOnlyTools(), Policy{
 		Extra: []ports.Message{agent.ScheduledTurnMessage()},
 	})
 }
@@ -383,16 +289,6 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 		onToolCall, finishToolProgress = s.presenter.ShowToolCalls(ctx)
 	}
 	options.OnEvent = turnEvents(onToolCall)
-	// Every turn gets a durable transcript, editing or not.
-	transcript, closeTranscript := s.openTranscript(ctx, text)
-	defer closeTranscript()
-	if transcript != nil {
-		options.Transcript = transcript
-		// The transcript travels on ctx the same way the destination does, so
-		// a tool deep in the turn (propose_change -> Ship) records its
-		// milestones against this turn without every signature carrying it.
-		ctx = services.WithTranscript(ctx, transcript.session)
-	}
 	// Only a direct owner turn is steerable: a scheduled turn is deliberately
 	// self-contained, and folding an owner message into one would hand it the
 	// ambient instruction that isolation exists to prevent.
@@ -457,93 +353,8 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	return s.channel.Deliver(ctx, result.Message.Content)
 }
 
-// Active reports whether a turn is currently executing. A heartbeat tick is
-// skipped entirely while one is, rather than interleaving a curation/check-in
-// turn with live work. With one loop this is a property of the turn registry
-// rather than of any session's phase: an owner editing a repository is simply
-// a turn in progress.
+// Active reports whether a turn is currently executing.
 func (s *Service) Active() bool { return s.registry.Active() }
-
-// Heartbeat runs a small, self-contained check-in turn: no ambient
-// recent-conversation history, so instructions from an old chat cannot be
-// silently revived. Its context is the durable docs (SOUL/USER/MEMORY), the
-// owner-editable HEARTBEAT.md checklist, and the capability manifest -- never
-// the ambient conversation window.
-//
-// Silent context curation (USER.md/MEMORY.md) is never gated by quiet hours
-// or the weekly proactive-message limit; only the owner-facing check-in is.
-// HeartbeatGate.CanSend governs sending the check-in and recording it against
-// the weekly limit, not whether the turn runs at all.
-func (s *Service) Heartbeat(ctx context.Context) error {
-	if s.Active() {
-		return nil
-	}
-	// Marked unprompted for the same reason a scheduled turn is. A heartbeat
-	// carries no repository write tools today, so nothing reads the mark --
-	// but if it ever regains one it inherits the draft-only rules rather than
-	// silently gaining owner privileges.
-	ctx = services.WithUnpromptedTurn(ctx)
-	state, err := s.store.Load(ctx)
-	if err != nil {
-		return err
-	}
-	sendAllowed := s.heartbeat.CanSend(state, s.now())
-	agentContext, err := s.context.Load(ctx)
-	if err != nil {
-		return err
-	}
-	alias, err := s.runtime.SelectedModel(ctx)
-	if err != nil {
-		return err
-	}
-	effort, err := s.runtime.ReasoningEffort(ctx)
-	if err != nil {
-		return err
-	}
-	enabledSkills, err := s.skills.Enabled(ctx)
-	if err != nil {
-		return err
-	}
-	manifest := s.capabilityManifest(state, alias, enabledSkills)
-	options := HeartbeatTools()
-	// Registered but not steerable: /stop can cancel a heartbeat turn, and a
-	// second one cannot start while it runs, but an owner message never joins
-	// it.
-	heartbeatContext, endTurn := s.registry.Begin(ctx, false)
-	defer endTurn()
-	heartbeatContext = services.WithSelectedModel(heartbeatContext, alias)
-	transcript, closeTranscript := s.openTranscript(ctx, "heartbeat")
-	defer closeTranscript()
-	if transcript != nil {
-		options.Transcript = transcript
-		ctx = services.WithTranscript(ctx, transcript.session)
-	}
-	manifest.Tools = s.loop.ToolNames(options)
-	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: s.now().In(s.location), Timezone: s.timezone})
-	history = append(history, agent.HeartbeatChecklistMessage(agentContext.Heartbeat))
-	history = append(history, ports.Message{Role: ports.RoleSystem, Content: "Heartbeat context only: an isolated turn with no recent-conversation history. This is a check-in on the owner, not a work tick: decide whether anything is worth telling them, and curate durable context. You carry no repository write tools here, so do not plan or promise repository work -- if something needs changing, say so and let the owner ask."})
-	instruction := "Separately, review durable context for any stable fact, preference, or decision worth curating into USER.md or MEMORY.md: use the read tool to see the current document first, append or replace a section for new or changed facts, and remove a section outright once it is stale, superseded, or duplicated. Curation does not require sending a check-in."
-	if sendAllowed {
-		instruction = "Evaluate whether one concise proactive check-in is useful now, using the HEARTBEAT.md checklist as a starting point. " + instruction + fmt.Sprintf(" Reply with exactly %q and nothing else when no check-in is useful.", services.HeartbeatNoReportSentinel)
-	} else {
-		instruction = "A proactive check-in cannot be sent right now (quiet hours or the proactive-message limit). Do not attempt one. " + instruction + fmt.Sprintf(" Reply with exactly %q.", services.HeartbeatNoReportSentinel)
-	}
-	result, runErr := s.loop.Run(heartbeatContext, alias, effort, instruction, history, options)
-	usageErr := s.runtime.RecordUsage(ctx, alias, result.Usage)
-	if runErr != nil {
-		return runErr
-	}
-	if usageErr != nil {
-		return usageErr
-	}
-	if !sendAllowed || services.HeartbeatHasNothingToReport(result.Message.Content) {
-		return nil
-	}
-	if err := s.heartbeat.Record(ctx, s.store, s.now()); err != nil {
-		return err
-	}
-	return s.channel.Deliver(ctx, result.Message.Content)
-}
 
 // Approval executes what an owner's approve tap authorized, or reports the
 // rejection. The destination is taken from the approval itself, so the
@@ -589,9 +400,7 @@ func (s *Service) deliverApprovalFailure(ctx context.Context, messageID string, 
 }
 
 // turnEvents fans the loop's event stream out to the live "Calling <tool>..."
-// indicator. Everything durable goes through the loop's own Transcript
-// instead: a transcript belongs to a turn, not to whichever turns happened to
-// be editing a repository.
+// indicator.
 func turnEvents(onToolCall func(string)) func(agent.Event) {
 	return func(event agent.Event) {
 		if event.Kind == agent.EventToolStart {
@@ -600,10 +409,8 @@ func turnEvents(onToolCall func(string)) func(agent.Event) {
 	}
 }
 
-// capabilityManifest is the base manifest narrowed to what this turn can
-// actually do. Readiness flags report shipping-adapter availability, so they
-// are meaningless without a configured repository and are cleared when there
-// is none.
+// capabilityManifest is the base manifest populated with the active model,
+// configured repositories, and available skills for this turn.
 func (s *Service) capabilityManifest(state ports.State, activeModel string, skills []ports.SkillSummary) agent.CapabilityManifest {
 	manifest := s.manifest
 	manifest.ActiveModel = activeModel
@@ -611,10 +418,6 @@ func (s *Service) capabilityManifest(state ports.State, activeModel string, skil
 	for name := range state.Repositories {
 		manifest.Repositories = append(manifest.Repositories, name)
 	}
-	configured := len(manifest.Repositories) > 0
-	manifest.RepositoryCommitReady = configured && manifest.RepositoryCommitReady
-	manifest.RepositoryPushReady = configured && manifest.RepositoryPushReady
-	manifest.PullRequestReady = configured && manifest.PullRequestReady
 	manifest.Skills = make([]agent.SkillDescriptor, 0, len(skills))
 	for _, skill := range skills {
 		manifest.Skills = append(manifest.Skills, agent.SkillDescriptor{Name: skill.Name, Description: skill.Description})
@@ -632,10 +435,4 @@ func truncateThreadTitle(text string) string {
 		return text
 	}
 	return strings.TrimSpace(string(runes[:maxRunes])) + "…"
-}
-
-func newTranscriptID() string {
-	data := make([]byte, 6)
-	_, _ = rand.Read(data)
-	return "turn-" + hex.EncodeToString(data)
 }

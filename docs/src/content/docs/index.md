@@ -1,0 +1,87 @@
+---
+title: Introduction to Eggy
+description: A private, single-owner agent that runs where you deploy it and connects conversation, tools, memory, and trusted integrations.
+eyebrow: Get started
+---
+
+Eggy is a self-hosted personal agent written in Go. One `eggyd` daemon serves an authenticated web chat and, when configured, Telegram. It routes each turn to a configured model, keeps durable context, and exposes a deliberately bounded set of tools.
+
+> **Owner-first by design.** Eggy has one canonical owner. It is not a shared chatbot, a hosted multi-tenant service, or a general-purpose shell.
+
+## Get started
+
+### 1. Build Eggy
+
+Eggy requires Go 1.26 and Bun. Clone the repository, then build the embedded web application and daemon.
+
+```sh
+git clone https://github.com/nigelteosw/eggy.git
+cd eggy
+make build
+```
+
+### 2. Configure your instance
+
+Copy the example files, set a model provider key, and choose either a Telegram owner or a web-only owner.
+
+```sh
+cp config.example.yaml config.yaml
+cp .env.example .env
+```
+
+Secrets stay in environment variables or `.env`; `config.yaml` contains only names and non-secret settings.
+
+### 3. Start the daemon
+
+```sh
+EGGY_CONFIG="$PWD/config.yaml" ./bin/eggyd
+```
+
+For a persistent hosted instance, continue to [Deploy on Railway](/eggy/docs/get-started/deploy-railway/).
+
+## What Eggy can do
+
+- Hold direct conversations in web chat and Telegram.
+- Switch among configured model aliases.
+- Remember successful conversation turns in an embedded SQLite database.
+- Read owner-maintained identity and memory from Markdown.
+- Read Google Calendar and request narrow approvals for event mutations.
+- Inspect configured GitHub repositories without changing them.
+- Connect trusted MCP servers over Streamable HTTP or stdio.
+- Create exact and recurring schedules for agent turns or deterministic reminders.
+- Load reviewed procedural skills from local Markdown files.
+
+## How Eggy works
+
+```text
+Web chat / Telegram
+        │
+        ▼
+   HTTP + event queue
+        │
+        ▼
+  conversation service ──► model provider
+        │                       │
+        └──── bounded tools ◄───┘
+                  │
+        Calendar · MCP · repos
+                  │
+                  ▼
+          durable /data home
+```
+
+The kernel knows only provider-neutral ports. Concrete model, channel, Calendar, repository, scheduler, memory, and MCP implementations live in adapter packages and are composed at startup.
+
+## Deliberate boundaries
+
+Configured repositories are trusted inputs, but repository access is read-only. Eggy can clone, open, and inspect a checkout; it cannot edit files, run an agent shell, commit, push, or open a pull request.
+
+Calendar mutations are different. Creating, updating, and deleting an event are compiled-in capabilities with approvals bound to the exact action payload. Configured MCP servers do not receive that per-call approval layer; adding a server to configuration is the trust decision.
+
+## Quick links
+
+- [Run Eggy locally](/eggy/docs/get-started/quickstart/)
+- [Configure model providers](/eggy/docs/configure/model-providers/)
+- [Connect Google Calendar](/eggy/docs/configure/google-calendar/)
+- [Understand the security model](/eggy/docs/operate/security/)
+- [Read the architecture](/eggy/docs/project/architecture/)

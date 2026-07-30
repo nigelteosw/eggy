@@ -67,6 +67,27 @@ jobs:
         working-directory: website
         run: bun run build
 
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: docs
+        run: bun install --frozen-lockfile
+
+      - name: Check and build
+        working-directory: docs
+        run: |
+          bun test
+          bun run check
+          bun run build
+          bun run validate
+
   smoke:
     name: Docker smoke
     runs-on: ubuntu-latest

@@ -31,14 +31,18 @@ func (d Duration) Value() time.Duration { return time.Duration(d) }
 
 func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 
+// Config is both the parsed shape and the written shape. It carries its own
+// yaml tags rather than being projected through a separate document type:
+// ModelAliases is the only field whose Go name and YAML key differ, and a tag
+// says that in one line.
 type Config struct {
 	Server       ServerConfig                `yaml:"server"`
 	DataDir      string                      `yaml:"data_dir"`
 	Owner        OwnerConfig                 `yaml:"owner"`
 	Telegram     TelegramConfig              `yaml:"telegram,omitempty"`
-	Agent        AgentConfig                 `yaml:"-"`
-	Providers    map[string]ProviderConfig   `yaml:"-"`
-	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
+	Agent        AgentConfig                 `yaml:"agent"`
+	Providers    map[string]ProviderConfig   `yaml:"providers"`
+	ModelAliases map[string]ModelAliasConfig `yaml:"models"`
 	Repositories []RepositoryConfig          `yaml:"repositories"`
 	Runner       RunnerConfig                `yaml:"runner"`
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
@@ -227,24 +231,6 @@ func (s Secrets) Values() []string {
 	return kept
 }
 
-type commonConfigDocument struct {
-	Server       ServerConfig       `yaml:"server"`
-	DataDir      string             `yaml:"data_dir"`
-	Owner        OwnerConfig        `yaml:"owner"`
-	Telegram     TelegramConfig     `yaml:"telegram,omitempty"`
-	Repositories []RepositoryConfig `yaml:"repositories"`
-	Runner       RunnerConfig       `yaml:"runner"`
-	MCP          MCPConfig          `yaml:"mcp,omitempty"`
-	Google       GoogleConfig       `yaml:"google,omitempty"`
-}
-
-type configDocument struct {
-	Agent                AgentConfig                 `yaml:"agent"`
-	Providers            map[string]ProviderConfig   `yaml:"providers"`
-	Models               map[string]ModelAliasConfig `yaml:"models"`
-	commonConfigDocument `yaml:",inline"`
-}
-
 // SecretsFromEnv reads every secret whose environment variable name is fixed.
 // Provider API keys and MCP bearer tokens are not among them: their variable
 // names are chosen in config.yaml, so LoadConfig fills those in once the file
@@ -270,11 +256,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err != nil {
 		return cfg, Secrets{}, fmt.Errorf("open config: %w", err)
 	}
-	var document configDocument
-	if err := decodeKnownYAML(data, &document); err != nil {
+	if err := decodeKnownYAML(data, &cfg); err != nil {
 		return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
 	}
-	cfg = normalizeConfig(document)
 	if err := cfg.applyDefaults(); err != nil {
 		return cfg, Secrets{}, err
 	}
@@ -309,23 +293,6 @@ func decodeKnownYAML(data []byte, destination any) error {
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	return decoder.Decode(destination)
-}
-
-func normalizeConfig(document configDocument) Config {
-	common := document.commonConfigDocument
-	return Config{
-		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
-		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
-		Repositories: common.Repositories, Runner: common.Runner, MCP: common.MCP, Google: common.Google,
-	}
-}
-
-func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, MCP: c.MCP, Google: c.Google}
-}
-
-func (c Config) MarshalYAML() (any, error) {
-	return configDocument{Agent: c.Agent, Providers: c.Providers, Models: c.ModelAliases, commonConfigDocument: c.commonDocument()}, nil
 }
 
 func applyRuntimeOverrides(cfg *Config, getenv func(string) string) error {
@@ -414,11 +381,10 @@ var (
 // editing raw YAML may legitimately write settings this build does not read
 // yet, and this is the check an editor runs before saving, not a loader.
 func ValidateDocument(data []byte) error {
-	var document configDocument
-	if err := decodeKnownYAML(data, &document); err != nil {
+	var candidate Config
+	if err := decodeKnownYAML(data, &candidate); err != nil {
 		return fmt.Errorf("not valid YAML: %w", err)
 	}
-	candidate := normalizeConfig(document)
 	if err := candidate.applyDefaults(); err != nil {
 		return err
 	}

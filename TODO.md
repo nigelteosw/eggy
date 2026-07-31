@@ -23,27 +23,31 @@ refactor that failed.
   wired only in `internal/bootstrap`; the direction is
   `config <- web <- bootstrap`.
 
-## Baseline (re-measured 2026-07-31, after the Google adapter)
+## Baseline (re-measured 2026-07-31, after the bootstrap pass)
 
 Non-test `.go` outside `docs/` and `website/`:
 
-- **15,622 production lines**, 13,114 test lines;
-- largest packages: `plugins/tools/mcp` 1,634, `internal/config` 1,549,
-  `internal/bootstrap` 1,524, `internal/kernel/services` 1,097, `internal/web`
-  909, `internal/commands` 770;
+- **15,755 production lines**, 13,184 test lines;
+- largest packages: `plugins/tools/mcp` 1,634, `internal/config` 1,561,
+  `internal/bootstrap` 1,469, `internal/kernel/services` 1,260, `internal/web`
+  911, `internal/commands` 770;
 - **75 YAML-tagged fields** in `internal/config/config.go`;
 - machine-managed persistence spans `state.json`, `auth.json`, `cron/`, and
   `eggy.db`; Markdown context and skills remain files by design.
 
-The previous baseline recorded here (13,201 lines, 64 fields) was stale — it
-predated `plugins/tools/google` entirely. Re-measure before claiming progress
-against the targets, not from memory.
+Bootstrap fell 1,524 → 1,469 while `internal/kernel/services` rose 1,097 →
+1,260: the tools moved rather than vanished, which is what that pass was for.
+Production lines still rose overall (15,622 → 15,755), because every pass so
+far has traded scattered code for named code plus the comments explaining it.
+Re-measure before claiming progress against the targets, not from memory.
 
 ## Targets
 
 - **≤ 12,500 production lines** excluding generated web assets — currently
-  15,622, so this is ~3,100 lines away and will not be met by tidying alone;
-  decide whether the target or the scope moves.
+  15,755, and moving *away*. Three cleanup passes have each netted slightly
+  larger, because moving code to where it belongs costs the naming and the
+  comments. This target is not reachable by cleanup: it needs deleting a
+  capability. Decide whether the target or the scope moves.
 - **≤ 50 config fields** — currently 75.
 - **three durable forms**: YAML for startup config, Markdown for owner-facing
   documents, SQLite for everything machine-managed.
@@ -54,21 +58,20 @@ against the targets, not from memory.
 
 ## P1: Collapse the config surface
 
-75 YAML fields across a 1,549-line package, validated in more than one place.
+75 YAML fields across a 1,526-line package. The document duality is gone;
+what is left of this section is a *scope* question, not a cleanup one.
 
-- [ ] Collapse `internal/config` to the sections that survive: `server`,
-      `data_dir`, `agent`, `providers`, `models`, `telegram`, `repositories`,
-      `runner`, `mcp`, `google`. Delete the
-      `commonConfigDocument`/`configDocument` duality once no legacy shape needs
-      reading.
-- [ ] Make every optional section's absence the off switch. No `enabled: true`
-      where an empty section already means "not configured". The remaining
-      offenders are `mcp.servers.<name>.enabled` and `google.enabled`.
-- [ ] Reject an unknown key with a message naming the key and the nearest valid
-      one. `KnownFields(true)` already rejects it; the message is what makes it
-      a repair instead of a guess.
-- [ ] `config.example.yaml` documents every surviving field exactly once, and a
-      test asserts it against the parsed shape.
+- [ ] **The ≤ 50 field target needs a capability decision, not tidying.** The
+      75 fields are not redundant: 20+ are MCP server options (transport, auth,
+      OAuth client, timeouts, failure policy, tool filters), 7 are Google, and
+      the rest are server, runner, and repository settings that each do
+      something. Nothing here is a second way to do a job. Reaching 50 means
+      removing a capability or accepting fewer knobs on MCP — decide which,
+      then this becomes actionable.
+
+Three items from this section were investigated and **closed without work**;
+see "Decided" below for `enabled` flags, the unknown-key message, and
+`config.example.yaml` coverage.
 
 ---
 
@@ -140,6 +143,30 @@ adapter is earned by a genuinely different wire format: Anthropic's Messages
 API, with its top-level system prompt, content blocks, and required
 `max_tokens`, is the real example. That costs a plugin package, a name in
 `config.supportedModelAdapters`, and one case in `bootstrap.newModelAdapter`.
+
+**`enabled` flags stay on MCP servers and Google.** The rule "an empty section
+is the off switch" does not hold when the section carries state that is
+expensive to recreate. An MCP server entry holds a URL, auth mode, OAuth client
+id, timeouts, and tool filters; Google holds a client id and product list.
+`enabled: false` turns the capability off while keeping all of it, which
+deleting the section does not. The MCP manager also reads `Enabled` at runtime
+to gate reconnection, so the field is load-bearing rather than declarative.
+Removing it would break every existing config (`KnownFields(true)` rejects the
+now-unknown key) and cost migration code to fix.
+
+**The unknown-key message is already a repair.** `KnownFields(true)` reports
+the line, the key, and the section type: `line 34: field enabld not found in
+type config.GoogleConfig`. Adding a "did you mean" suggestion needs edit
+distance over yaml tags plus mapping a type name in an error string back to a
+`reflect.Type` — real machinery for a message that already names the file
+position and the exact key.
+
+**`config.example.yaml` stays a starter, not a reference.** Asserting it
+documents all 75 fields would force the advanced MCP options, tool filters, and
+failure policy into a file whose job is to get someone running. Field reference
+belongs on the docs site. `TestLoadConfigAcceptsExample` already pins that the
+example parses and produces the expected values, which is the property worth
+holding.
 
 **`knownGoogleProducts` stays duplicated in `internal/config`.** The boundary
 rule forces it: config may not import a plugin package. If a third copy

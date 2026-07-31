@@ -24,7 +24,7 @@ flowchart TB
   Stores --> Data[(Eggy home /data)]
 ```
 
-`internal/bootstrap` is the composition root and event-loop owner. It constructs adapters, registers tools, and hands provider-neutral interfaces to kernel services.
+`internal/bootstrap` is the composition root and event-loop owner. It constructs adapters, registers tools, and hands provider-neutral interfaces to kernel services. It composes and nothing else: tool definitions live with the service that owns them, and `App` retains only what a running daemon reads, not the collaborators used to assemble it.
 
 ## Package boundaries
 

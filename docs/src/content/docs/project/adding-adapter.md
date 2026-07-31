@@ -32,7 +32,7 @@ Put new non-secret fields and parsing in `internal/config`. Secrets should be na
 
 For model backends, add the adapter's name to `config.supportedModelAdapters` so configuration validates it, then add one case to `bootstrap.newModelAdapter` — the single place an adapter name becomes a running implementation. Do not hardcode another unconditional constructor.
 
-Check first that a new adapter is warranted at all. `adapter` names a wire format, so an OpenAI-compatible service is a `providers` entry with a different `base_url`, not a package. See [Model providers](/configure/model-providers/).
+Check first that a new adapter is warranted at all. `adapter` names a wire format, so an OpenAI-compatible service is a `providers` entry with a different `base_url`, not a package. See [Model providers](/eggy/configure/model-providers/).
 
 ## 4. Wire in bootstrap
 

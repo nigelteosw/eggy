@@ -45,9 +45,7 @@ jobs:
       # The full `make build` target depends on build-web; the website is
       # covered by its own job, so build the Go binaries directly here.
       - name: Build binaries
-        run: |
-          go build -trimpath -o bin/eggyd ./cmd/eggyd
-          go build -trimpath -o bin/eggy ./cmd/eggy
+        run: go build -trimpath -o bin/eggyd ./cmd/eggyd
 
   website:
     name: Website

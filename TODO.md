@@ -103,23 +103,6 @@ and surface routing only.
 
 ---
 
-## P2: Give owner authentication a home
-
-`plugins/webui` serves the JavaScript bundle *and* holds `SignSession`,
-`VerifySession`, and `LoginThrottle`, which `internal/web` reaches in for. An
-HTTP surface doing its own session crypto out of a package named for an asset
-bundle is the one auth boundary with no owner.
-
-- [ ] Move `cookie.go` and `throttle.go` to `plugins/auth/session`, beside the
-      `authfile` container already there. Their tests move with them, so
-      coverage is preserved without writing any. Two import sites change
-      (`internal/web/web.go`, `internal/web/safemode.go`) and `plugins/webui`
-      drops to `Assets()` plus the bundle, which is what its name claims.
-
-A move, not a rewrite: no new abstraction, no net new lines.
-
----
-
 ## P2: Mechanical cleanups
 
 - [ ] `plugins/webui/dist/index.html` is force-tracked out of an otherwise
@@ -164,6 +147,13 @@ delete eight lines.
 **`parseOAuthRedirect` stays in `internal/commands`.** Its header calls itself
 homeless, but both callers *are* the command surface, and moving it would have
 two plugin packages import a third.
+
+**Owner authentication stays separate from outbound authorization.**
+`plugins/auth/session` answers "who may talk to Eggy"; the OAuth grants under
+`plugins/tools/*` answer "what may Eggy do on the owner's behalf". They point
+in opposite directions of trust, and one "auth" package owning both is a
+security god-object. Telegram's webhook-secret and owner-allowlist checks are
+the only things that may later join `session`.
 
 **`knownGoogleProducts` stays duplicated in `internal/config`.** The boundary
 rule forces it: config may not import a plugin package. If a third copy

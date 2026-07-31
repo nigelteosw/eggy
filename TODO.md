@@ -231,12 +231,26 @@ APIs directly. Four properties do the work:
 4. **No inbound HTTP in the auth path.** The redirect is pasted back, so
    authorization never needs `server.public_base_url` to be right or reachable.
 
-**What it would cost Eggy.** A native Google adapter under
-`plugins/tools/google` — the shape just deleted for Calendar, now larger by
-five products, with its own tool schemas back in the per-turn budget and its
-own token store beside the MCP one. That is a second way to do a job that has
-one, which the standing constraints forbid. Do not start it to work around a
-single broken login.
+**What it would cost Eggy — and it is not a native adapter.** Hermes' skill
+compiles nothing in: it is a `SKILL.md`, a `setup.py`, and a `google_api.py`
+the model invokes over a shell as `$GAPI gmail search …`. It publishes *zero*
+tool schemas. Eggy already has both halves of that shape:
+
+- skills, as a compact always-in-context index plus `skill_read` for the body
+  (`internal/kernel/agent/prompt.go`), so a Google skill costs one line until
+  it is read;
+- a bounded process runner (`plugins/runner/localprocess`, `ports.Runner`)
+  with root containment, an environment allowlist, a timeout, and output
+  bounds, configured under `runner:` and already driving the GitHub adapter
+  and workspace sessions.
+
+The missing piece is one model-facing tool that calls `Runner.Execute` — which
+is exactly the bounded shell the coding decision above has not made, not a new
+subsystem. Note this inverts the budget argument rather than supporting it:
+MCP schemas are permanent per-turn bytes for every connected server, while the
+Hermes shape pays only on `skill_read`. What genuinely costs is a Python
+runtime and Google's client libraries in the image, and a credentials file
+outside `auth.json` — a second token store beside the encrypted MCP one.
 
 **Decide it on this, not on setup friction:**
 
@@ -248,9 +262,10 @@ single broken login.
 - [ ] Confirm the MCP path actually authorizes end to end once the readable
       exchange error is deployed. A path that has never once succeeded is not
       evidence against itself.
-- [ ] Only if it cannot: weigh a desktop-client Google adapter against the
-      per-product MCP servers, and record the reason here. Contacts is the
-      only capability MCP cannot reach at all.
+- [ ] Only if it cannot: decide the bounded shell first. A Hermes-shaped
+      Google skill is downstream of that tool existing, and it is not worth
+      deciding a shell on Google's behalf. Contacts is the only capability MCP
+      cannot reach at all.
 
 ---
 

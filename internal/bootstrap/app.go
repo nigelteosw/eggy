@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
@@ -129,29 +127,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
-	var telegramClient *telegram.Client
-	// telegramChannel starts as a true nil ports.Channel (the zero value of
-	// an interface, never assigned) when FakeAdapters is set, not a nil
-	// *telegram.Client boxed into a non-nil interface -- assigning
-	// telegramClient directly here even when it's nil would produce an
-	// interface value that compares non-nil despite wrapping a nil pointer.
-	// telegramAcknowledger is kept as a separate interface variable for the
-	// same reason, so NewWebhookHandler's own nil check stays meaningful.
-	var telegramChannel ports.Channel
-	var telegramAcknowledger telegram.CallbackAcknowledger
-	var telegramSelector *telegram.Selector
-	// Telegram is optional: a web-only deployment omits the config block and
-	// gets no client, no channel, and no webhook route. newRoutedChannel
-	// already collapses to the web channel alone when telegramChannel is a
-	// true nil, and web.NewHTTPHandler already serves the webhook path as
-	// unavailable when its handler is nil.
-	if !options.FakeAdapters && config.Telegram.Configured() {
-		telegramClient = telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(config.Telegram.OwnerID, 10), options.HTTPClient)
-		telegramChannel = telegramClient
-		telegramAcknowledger = telegramClient
-		telegramSelector = telegram.NewSelector(telegramClient, options.Now, 10*time.Minute)
-	}
-	app.channel = newRoutedChannel(telegramChannel, webChannel)
+	telegramSurface := newTelegramWiring(config, secrets, options)
+	app.channel = newRoutedChannel(telegramSurface.channel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
@@ -224,10 +201,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			return nil, err
 		}
 	}
-	if telegramSelector != nil {
-		if err := registry.Register(telegramSelector.Tool()); err != nil {
-			return nil, err
-		}
+	if err := registerAll(registry, telegramSurface.tools()...); err != nil {
+		return nil, err
 	}
 	// One grant, several products, registered like any other kernel tool.
 	// Unlike MCP these are not a live provider: the tool set is decided by
@@ -318,14 +293,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
-	var webhook http.Handler
-	if config.Telegram.Configured() {
-		handler := telegram.NewWebhookHandler(config.Telegram.OwnerID, secrets.TelegramWebhookSecret, app.Enqueue, telegramAcknowledger)
-		if telegramSelector != nil {
-			handler.WithSelectionResolver(telegramSelector.Resolve)
-		}
-		webhook = handler
-	}
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
@@ -334,20 +301,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{
-		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath, Telegram: webhook,
+		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath,
+		Telegram:    telegramSurface.webhook(config, secrets, app.Enqueue),
 		MCPCallback: mcpCallbackHandler(app.mcp),
 		Web:         webHandler,
 	})
-	if telegramClient != nil {
-		autocomplete := commands.TelegramAutocomplete()
-		commands := make([]telegram.BotCommand, 0, len(autocomplete))
-		for _, command := range autocomplete {
-			commands = append(commands, telegram.BotCommand{Name: command.Name, Description: command.Description})
-		}
-		if err := telegramClient.SetCommands(context.Background(), commands); err != nil {
-			app.logger.Warn("failed to register Telegram command suggestions", "error", err)
-		}
-	}
+	telegramSurface.registerCommands(context.Background(), app.logger)
 	keepMCP = true
 	keepMemory = true
 	return app, nil

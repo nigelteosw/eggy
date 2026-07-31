@@ -254,67 +254,60 @@ shell remains undecided above and this never needed it.
 
 ---
 
-## P1: One auth surface
+## P2: Give owner authentication a home
 
-The boundaries in `AGENTS.md` hold where they are checked: `internal/kernel`
-and `internal/ports` import no adapter, and the `config <- web <- bootstrap`
-direction is intact. Auth is where they are not checked, and it has spread
-into five packages with no owner:
+`plugins/webui` serves the JavaScript bundle *and* holds `SignSession`,
+`VerifySession`, and `LoginThrottle`, which `internal/web` reaches in for. An
+HTTP surface doing its own session crypto out of a package named for an asset
+bundle is the one auth boundary with no owner.
 
-- **outbound authorization** — `plugins/tools/google/oauth.go` and
-  `plugins/tools/mcp/oauth.go` are two implementations of authorization-code +
-  PKCE. Both generate a state and a verifier, both bound a pending login to a
-  ten-minute window, both send `access_type=offline` with `prompt=consent` for
-  the same documented reason, both exchange, both persist a refreshed token,
-  both record granted rather than requested scopes;
-- **the same interface, twice** — `commands.GoogleRuntime` and
-  `commands.MCPRuntime` are `BeginLogin`/`CompleteLogin`/`Logout`/status,
-  differing only in that MCP keys every call by server name;
-- **completion is already shared and already homeless** —
-  `internal/commands/oauth_paste.go` says so in its own header: it lives there
-  "because neither owns it";
-- **owner authentication is somewhere else again** — `plugins/webui` serves the
-  asset bundle *and* holds `SignSession`, `VerifySession`, and the login
-  throttle, and `internal/web` reaches in for them. An HTTP surface doing its
-  own session crypto out of a package named for a JavaScript bundle is the
-  clearest case of no owner at all;
-- **storage is the one part that is already right** — `plugins/auth/authfile`
-  owns the container, and the sealed-record envelope is now one implementation
-  there rather than one per provider.
+- [ ] Move `cookie.go` and `throttle.go` to `plugins/auth/session`, beside the
+      `authfile` container that is already there. Their tests move with them,
+      so coverage is preserved without writing any. Two import sites change
+      (`internal/web/web.go`, `internal/web/safemode.go`) and `plugins/webui`
+      drops to `Assets()` plus the bundle, which is what its name claims.
 
-### The shape to build
+This is a move, not a rewrite: no new abstraction, no net new lines.
 
-- [ ] Add one provider-neutral port for a grant — `BeginLogin`,
-      `CompleteLogin`, `Status`, `Logout` — and let `GoogleRuntime` and
-      `MCPRuntime` collapse into it. `internal/commands` and `internal/web`
-      then speak to grants by name (`google`, `mcp:railway`) instead of
-      carrying one interface and one command path per provider.
-- [ ] Move the authorization-code + PKCE flow into a single adapter under
-      `plugins/auth/`, and make Google and MCP *configuration* of it rather
-      than two implementations: fixed endpoints plus a loopback redirect for
-      Google, discovery plus optional dynamic registration for MCP. The
-      per-provider differences are real but they are parameters, not flows.
-- [ ] Move `parseOAuthRedirect` and `googleAuthError` out of
-      `internal/commands` into that adapter. Pasted-redirect completion is part
-      of the flow, not part of the command surface that happens to call it.
-- [ ] Keep **owner authentication separate from outbound authorization.** They
-      point in opposite directions of trust — who may talk to Eggy, versus what
-      Eggy may do on the owner's behalf — and merging them produces one
-      security god-object rather than one surface. What should move is the
-      session crypto: `SignSession`, `VerifySession`, and `LoginThrottle` leave
-      `plugins/webui` (which should serve assets and nothing else) for an owner
-      -authentication adapter that Telegram's webhook-secret and owner-allowlist
-      checks can also live behind.
-- [ ] Preserve every property the current code documents while moving it: forced
-      consent to guarantee a refresh token, granted-scope recording, the pending
-      window, the loopback redirect matching byte for byte, and per-record
-      associated data binding a grant to the server it was issued for. These are
-      the lessons the comments exist to keep; a rewrite that drops one is a
-      regression the tests will not all catch.
+### Decided: the two OAuth flows stay separate
 
-Success criteria: one flow implementation, one grant port, one place that
-knows what a pasted redirect is, and `plugins/webui` importable for assets
-alone. Adding the next OAuth provider is a config entry, not a third copy.
+Unifying `plugins/tools/google/oauth.go` and `plugins/tools/mcp/oauth.go`
+behind one parameterized adapter was considered and **rejected**. What they
+share is small — state and verifier generation, the pending-window check, the
+exchange, token persistence — call it 50-60 lines. What they do not share is
+structural and all on the MCP side: protected-resource discovery,
+authorization-server metadata with trailing-slash tolerance and synthesized
+fallback endpoints, RFC 7591 dynamic registration, a `resource` parameter
+threaded through every call, per-server keying, and conformance to the MCP
+SDK's `auth.OAuthHandler`. Google has fixed endpoints and one loopback
+constant.
+
+One adapter would carry all of that machinery past a provider that never uses
+it, adding branches and parameters to delete ~50 lines. Two straightforward
+flows are cheaper to maintain than one flow with six switches. Revisit only if
+a *third* OAuth provider appears and lands on the MCP side of the split.
+
+For the same reason, two smaller consolidations were also rejected:
+`commands.GoogleRuntime` and `commands.MCPRuntime` are four lines each, and
+collapsing them needs a server key Google ignores or a named-grant registry —
+machinery to delete eight lines. And `parseOAuthRedirect` stays in
+`internal/commands`: its header calls itself homeless, but both callers *are*
+the command surface, and moving it would have two plugin packages import a
+third.
+
+What must not regress in either flow, since no single test covers all of it:
+forced consent so a refresh token is actually issued, granted-scope recording,
+the pending window, the loopback redirect matching byte for byte, and the
+per-record associated data binding a grant to the server it was issued for.
+
+Coverage is uneven and that is the real gap: MCP pins these invariants across
+13 tests, while Google asserts nothing about `access_type=offline` +
+`prompt=consent` reaching the authorization URL, and nothing about
+state-mismatch rejection.
+
+- [ ] Add those two characterization tests to `plugins/tools/google`. Both
+      failures are silent — a grant that stops renewing weeks later — which is
+      exactly the kind the comments were written to prevent.
 
 ---
 

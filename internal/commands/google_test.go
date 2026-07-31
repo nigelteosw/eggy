@@ -134,7 +134,7 @@ func TestGoogleSetWritesThroughInternalConfig(t *testing.T) {
 	if !strings.Contains(output, "Restart") || !strings.Contains(output, "GOOGLE_CLIENT_SECRET") {
 		t.Fatalf("output=%q", output)
 	}
-	stored, err := config.GetGoogleConfig(path)
+	stored, err := storedGoogle(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,4 +206,9 @@ func TestGoogleLoginIgnoresAnUnreadableAuthError(t *testing.T) {
 	if !strings.Contains(output, "no code parameter") {
 		t.Fatalf("output=%q", output)
 	}
+}
+
+func storedGoogle(path string) (config.GoogleConfig, error) {
+	cfg, err := config.LoadDocument(path)
+	return cfg.Google, err
 }

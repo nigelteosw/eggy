@@ -421,7 +421,7 @@ func TestSetGoogleRejectsAnUnknownProduct(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unknown google product") {
 		t.Fatalf("error=%v", err)
 	}
-	stored, err := GetGoogleConfig(path)
+	stored, err := storedGoogle(path)
 	if err != nil || stored.Enabled {
 		t.Fatalf("a rejected write reached the file: %#v err=%v", stored, err)
 	}
@@ -440,11 +440,18 @@ func TestSetGoogleDisablesWithoutErasing(t *testing.T) {
 	if err := SetGoogle(path, GoogleInput{Enabled: false}); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := GetGoogleConfig(path)
+	stored, err := storedGoogle(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stored.Enabled || stored.ClientID != "x.apps.googleusercontent.com" || len(stored.Products) != 1 {
 		t.Fatalf("stored=%#v", stored)
 	}
+}
+
+// storedGoogle reads the section back through the loader production uses, so a
+// test cannot pass against a shape only the test knows how to read.
+func storedGoogle(path string) (GoogleConfig, error) {
+	cfg, err := LoadDocument(path)
+	return cfg.Google, err
 }

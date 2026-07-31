@@ -398,7 +398,11 @@ func TestToolsPointAtTheLoginCommand(t *testing.T) {
 		"google_sheets":   `{"action":"get","spreadsheet_id":"s1","range":"A1:B2"}`,
 		"google_contacts": `{}`,
 	}
-	tools := Tools(workspace, KnownProducts(), time.Now)
+	products := make([]string, 0, len(calls))
+	for name := range calls {
+		products = append(products, strings.TrimPrefix(name, "google_"))
+	}
+	tools := Tools(workspace, products, time.Now)
 	if len(tools) != len(calls) {
 		t.Fatalf("built %d tools for %d products", len(tools), len(calls))
 	}

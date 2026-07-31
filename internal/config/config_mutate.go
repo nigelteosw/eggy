@@ -337,17 +337,6 @@ func SetGoogle(path string, input GoogleInput) error {
 	})
 }
 
-// GetGoogleConfig returns the section as stored. It carries no token and no
-// secret -- client_secret_env is a variable name -- so it is safe to show the
-// authenticated owner on either surface.
-func GetGoogleConfig(path string) (GoogleConfig, error) {
-	cfg, err := LoadDocument(path)
-	if err != nil {
-		return GoogleConfig{}, err
-	}
-	return cfg.Google, nil
-}
-
 func GetProvidersConfigText(path string) (string, error) {
 	cfg, err := LoadDocument(path)
 	if err != nil {

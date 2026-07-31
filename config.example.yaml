@@ -94,18 +94,22 @@ mcp:
     #   max_output_bytes: 131072
     #   tool_filter:
     #     include: ["read_text_file", "list_directory"]
-    # An OAuth server that does not implement dynamic client registration
-    # (Google's, among others) needs a client you registered by hand. The
-    # client id is not a secret -- it travels in the authorization URL -- so it
-    # lives here; the secret is named here and read from the environment.
-    # Leave oauth_client_secret_env unset for a public client (PKCE only).
-    # calendar:
-    #   url: "https://calendarmcp.googleapis.com/mcp/v1"
+    # An OAuth server that does not implement dynamic client registration needs
+    # a client you registered by hand. The client id is not a secret -- it
+    # travels in the authorization URL -- so it lives here; the secret is named
+    # here and read from the environment. Leave oauth_client_secret_env unset
+    # for a public client (PKCE only).
+    #
+    # For Google, use the google: section above instead: one grant covers every
+    # product, it needs no public address, and it reaches Contacts, which
+    # Google hosts no MCP server for.
+    # tickets:
+    #   url: "https://mcp.example.com/v1"
     #   transport: "streamable-http"
     #   auth: "oauth"
-    #   oauth_client_id: "xxxx.apps.googleusercontent.com"
-    #   oauth_client_secret_env: "GOOGLE_CLIENT_SECRET"
-    #   oauth_scopes: ["https://www.googleapis.com/auth/calendar"]
+    #   oauth_client_id: "eggy-client"
+    #   oauth_client_secret_env: "TICKETS_CLIENT_SECRET"
+    #   oauth_scopes: ["tickets:read"]
     #   enabled: true
     railway:
       url: "https://mcp.railway.com"

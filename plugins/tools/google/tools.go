@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -41,14 +40,6 @@ func Tools(workspace *Workspace, products []string, now func() time.Time) []port
 		}
 	}
 	return tools
-}
-
-// KnownProducts is the set config may name. It is sorted so an error message
-// listing it reads the same every time.
-func KnownProducts() []string {
-	products := []string{"gmail", "calendar", "drive", "docs", "sheets", "contacts"}
-	sort.Strings(products)
-	return products
 }
 
 // result marshals a value for the model. Every tool returns JSON because a

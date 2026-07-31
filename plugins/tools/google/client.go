@@ -3,8 +3,6 @@ package google
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -155,12 +153,4 @@ func googleError(status int, raw []byte) error {
 		return ErrNotAuthorized
 	}
 	return fmt.Errorf("Google API returned HTTP %d", status)
-}
-
-func randomState() (string, error) {
-	value := make([]byte, 32)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(value), nil
 }

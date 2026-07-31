@@ -33,24 +33,26 @@ HTTP authentication may be `none`, `oauth`, or `bearer-env`. Bearer authenticati
 
 ## Servers without dynamic client registration
 
-Eggy registers an OAuth client automatically when the authorization server implements RFC 7591. Many do not — Google's among them — and `/mcp login` then reports that the server does not support dynamic client registration.
+> **For Google, use [Google Workspace](/eggy/configure/google-workspace) instead.** It authorizes with a Desktop client and a pasted redirect, needs no public address, and covers Gmail, Calendar, Drive, Docs, Sheets and Contacts on one grant. Google's remote MCP servers need a separate consent screen per product and cannot reach Contacts at all.
+
+Eggy registers an OAuth client automatically when the authorization server implements RFC 7591. Many do not, and `/mcp login` then reports that the server does not support dynamic client registration.
 
 Register the client by hand in the provider's console, with the redirect URI `https://<your public base url>/auth/mcp/{server}/callback`, then name it in config:
 
 ```yaml
 mcp:
   servers:
-    calendar:
-      url: "https://calendarmcp.googleapis.com/mcp/v1"
+    tickets:
+      url: "https://mcp.example.com/v1"
       transport: "streamable-http"
       auth: "oauth"
-      oauth_client_id: "xxxx.apps.googleusercontent.com"
-      oauth_client_secret_env: "GOOGLE_CLIENT_SECRET"
-      oauth_scopes: ["https://www.googleapis.com/auth/calendar"]
+      oauth_client_id: "eggy-client"
+      oauth_client_secret_env: "TICKETS_CLIENT_SECRET"
+      oauth_scopes: ["tickets:read"]
       enabled: true
 ```
 
-Or from Telegram: `/mcp add calendar url=… auth=oauth client_id=… client_secret_env=GOOGLE_CLIENT_SECRET`.
+Or from Telegram: `/mcp add tickets url=… auth=oauth client_id=… client_secret_env=TICKETS_CLIENT_SECRET`.
 
 The client id is not a secret — it travels in the authorization URL's query string — so it lives in YAML. The secret never does: `oauth_client_secret_env` names an environment variable, and startup fails if the named variable is empty. Omit it entirely for a public client authorized by PKCE alone. A configured client overrides any client Eggy previously registered for that server.
 
@@ -68,7 +70,7 @@ The start route is owner-gated in both cases. The callback deliberately is not �
 The callback finishes the login on its own whenever the browser can reach Eggy. When it cannot — Eggy is not on a public address, the browser is on a network that cannot see the deployment, or the callback itself failed while the code was still good — the redirect the browser landed on already carries everything the exchange needs. Paste it back:
 
 ```
-/mcp login calendar https://<base>/auth/mcp/calendar/callback?state=…&code=…
+/mcp login railway https://<base>/auth/mcp/railway/callback?state=…&code=…
 ```
 
 The bare `code` value works too. Either form is accepted only against a pending login the owner started within the last ten minutes, and the code is spent by the exchange; a second paste of the same one fails. The callback route itself still requires a matching `state`, since it is the one path an unauthenticated caller can reach.

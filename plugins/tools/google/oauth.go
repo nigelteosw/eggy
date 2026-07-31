@@ -2,6 +2,8 @@ package google
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -210,6 +212,14 @@ func applyToken(record *TokenRecord, token *oauth2.Token) {
 	if granted, ok := token.Extra("scope").(string); ok && strings.TrimSpace(granted) != "" {
 		record.Scopes = strings.Fields(granted)
 	}
+}
+
+func randomState() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
 }
 
 func oauthContext(ctx context.Context, client *http.Client) context.Context {

@@ -243,3 +243,17 @@ func calendarOrDefault(calendarID string) string {
 	}
 	return calendarID
 }
+
+// rfc3339 is the only time format these tools accept or emit. A bare datetime
+// is ambiguous and Google resolves it as UTC, which silently moves an event by
+// hours; Hermes documents the same rule as a warning rather than enforcing it.
+func rfc3339(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if _, err := time.Parse(time.RFC3339, trimmed); err != nil {
+		return "", fmt.Errorf("%q needs a timezone offset or Z (RFC 3339), otherwise it is read as UTC and lands hours away", value)
+	}
+	return trimmed, nil
+}

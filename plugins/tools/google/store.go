@@ -32,7 +32,6 @@ type TokenRecord struct {
 	TokenType    string    `json:"token_type,omitempty"`
 	Expiry       time.Time `json:"expiry,omitempty"`
 	Scopes       []string  `json:"scopes,omitempty"`
-	Account      string    `json:"account,omitempty"`
 	State        string    `json:"state,omitempty"`
 	CodeVerifier string    `json:"code_verifier,omitempty"`
 	StateExpires time.Time `json:"state_expires,omitempty"`

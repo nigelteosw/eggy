@@ -53,6 +53,12 @@ func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOp
 // googleScopes prefers what the owner wrote. Falling back to the scope each
 // configured product needs keeps the common case free of a scope list nobody
 // enjoys assembling, while leaving the narrow case reachable.
+//
+// Product names are matched exactly, against the canonical spelling
+// config.applyDefaults guarantees. It must stay that way: when this matched
+// exactly and the adapter matched case-insensitively, a config naming "Gmail"
+// got the tool registered and no scope requested, which reads as a broken API
+// rather than a misconfiguration.
 func googleScopes(cfg config.GoogleConfig) []string {
 	if len(cfg.Scopes) > 0 {
 		return append([]string(nil), cfg.Scopes...)

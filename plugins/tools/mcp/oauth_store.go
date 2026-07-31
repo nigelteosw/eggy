@@ -1,14 +1,8 @@
 package mcp
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"regexp"
 	"time"
 
@@ -47,35 +41,19 @@ type OAuthRecord struct {
 // and bound to its server name and URL, so a record cannot be replayed
 // against a different server even by an owner editing auth.json by hand.
 type OAuthStore struct {
-	file *authfile.Store
-	aead cipher.AEAD
+	file   *authfile.Store
+	sealer *authfile.Sealer
 }
 
 const oauthSection = "mcp"
 
-type encryptedOAuthRecord struct {
-	Version    int    `json:"version"`
-	Ciphertext string `json:"ciphertext"`
-}
-
 // OpenOAuthStore opens the store over an auth.json path.
 func OpenOAuthStore(authPath, encodedKey string) (*OAuthStore, error) {
-	key, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return nil, fmt.Errorf("decode MCP encryption key: %w", err)
-	}
-	if len(key) != 32 {
-		return nil, errors.New("MCP encryption key must decode to 32 bytes")
-	}
-	block, err := aes.NewCipher(key)
+	sealer, err := authfile.NewSealer("MCP OAuth", encodedKey)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &OAuthStore{file: authfile.Open(authPath), aead: aead}, nil
+	return &OAuthStore{file: authfile.Open(authPath), sealer: sealer}, nil
 }
 
 func (s *OAuthStore) Save(server, serverURL string, record OAuthRecord) error {
@@ -133,35 +111,19 @@ func (s *OAuthStore) Delete(server, serverURL string) error {
 func (s *OAuthStore) seal(server, serverURL string, record OAuthRecord) (json.RawMessage, error) {
 	record.Version = 1
 	record.ServerURL = serverURL
-	plain, err := json.Marshal(record)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	sealed := s.aead.Seal(nonce, nonce, plain, oauthAssociatedData(server, serverURL))
-	return json.Marshal(encryptedOAuthRecord{Version: 1, Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)})
+	return s.sealer.Seal(record, oauthAssociatedData(server, serverURL))
 }
 
 func (s *OAuthStore) open(body json.RawMessage, server, serverURL string) (OAuthRecord, error) {
-	var encrypted encryptedOAuthRecord
-	if err := json.Unmarshal(body, &encrypted); err != nil || encrypted.Version != 1 {
-		return OAuthRecord{}, errors.New("invalid MCP OAuth record")
-	}
-	sealed, err := base64.RawURLEncoding.DecodeString(encrypted.Ciphertext)
-	if err != nil || len(sealed) < s.aead.NonceSize() {
-		return OAuthRecord{}, errors.New("invalid MCP OAuth ciphertext")
-	}
-	nonce := sealed[:s.aead.NonceSize()]
-	plain, err := s.aead.Open(nil, nonce, sealed[s.aead.NonceSize():], oauthAssociatedData(server, serverURL))
-	if err != nil {
-		return OAuthRecord{}, errors.New("MCP OAuth record authentication failed")
-	}
 	var record OAuthRecord
-	if err := json.Unmarshal(plain, &record); err != nil || record.Version != 1 || record.ServerURL != serverURL {
-		return OAuthRecord{}, errors.New("invalid MCP OAuth record")
+	if err := s.sealer.Open(body, oauthAssociatedData(server, serverURL), &record); err != nil {
+		return OAuthRecord{}, err
+	}
+	// The URL is checked as well as bound: associated data already makes a
+	// record for another server fail to open, and this catches the same
+	// mismatch inside a record that opened cleanly.
+	if record.Version != 1 || record.ServerURL != serverURL {
+		return OAuthRecord{}, s.sealer.Invalid()
 	}
 	return record, nil
 }

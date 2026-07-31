@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +83,45 @@ func TestMarshaledConfigNeverLeaksAResolvedSecret(t *testing.T) {
 	// silently drop the binding rather than the value.
 	if !strings.Contains(string(body), "api_key_env: DEEPSEEK_API_KEY") {
 		t.Fatalf("marshaled config dropped the environment binding:\n%s", body)
+	}
+}
+
+// Values is the single list of live credentials, and both log redaction and
+// the durable-context secret guard read it. A field added to Secrets but not to
+// Values is therefore a credential that gets written to logs and to owner-facing
+// context unmasked, which is exactly how the Google client secret and the MCP
+// OAuth client secrets once escaped the guard. Reflection is used deliberately:
+// the point is to fail when a *new* field is added, which a hand-written list
+// cannot do.
+func TestValuesCoversEverySecretField(t *testing.T) {
+	var secrets Secrets
+	value := reflect.ValueOf(&secrets).Elem()
+	markers := map[string]string{}
+	for i := range value.NumField() {
+		name := value.Type().Field(i).Name
+		marker := "marker-for-" + name
+		markers[name] = marker
+		switch field := value.Field(i); field.Kind() {
+		case reflect.String:
+			field.SetString(marker)
+		case reflect.Map:
+			field.Set(reflect.ValueOf(map[string]string{"only": marker}))
+		default:
+			t.Fatalf("Secrets.%s has unhandled kind %s; teach this test how to fill it", name, field.Kind())
+		}
+	}
+	// UIUserEmail is an identity rather than a credential, so it is the one
+	// field Values legitimately omits.
+	delete(markers, "UIUserEmail")
+
+	present := map[string]bool{}
+	for _, resolved := range secrets.Values() {
+		present[resolved] = true
+	}
+	for name, marker := range markers {
+		if !present[marker] {
+			t.Errorf("Secrets.%s is missing from Values(), so it is redacted nowhere", name)
+		}
 	}
 }
 
@@ -579,6 +620,32 @@ google:
 	}
 	if !strings.Contains(string(marshalled), "x.apps.googleusercontent.com") {
 		t.Fatalf("google section dropped on write:\n%s", marshalled)
+	}
+}
+
+// Validation accepts a product name in any casing, so load must canonicalize
+// it rather than leave every downstream reader to lowercase it again. The two
+// readers disagreeing is not hypothetical: the adapter matched case-insensitively
+// and registered the tool, while scope selection matched exactly and requested
+// nothing, so a hand-written "Gmail" produced a tool that 403s on every call.
+func TestGoogleProductsAreCanonicalAfterLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+google:
+  enabled: true
+  client_id: "x.apps.googleusercontent.com"
+  products: ["Gmail", " Calendar "]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"gmail", "calendar"}
+	if !slices.Equal(cfg.Google.Products, want) {
+		t.Fatalf("products=%q, want %q", cfg.Google.Products, want)
 	}
 }
 

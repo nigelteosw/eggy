@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -373,6 +374,12 @@ func (c *Config) applyDefaults() error {
 	if c.Runner.MaxOutputBytes == 0 {
 		c.Runner.MaxOutputBytes = 1 << 20
 	}
+	// Product names are matched by two independent readers -- the adapter
+	// decides which tools exist, the wiring decides which scopes to request --
+	// and validation accepts any casing. Canonicalizing here is what keeps
+	// those readers from disagreeing: every load path runs applyDefaults, so
+	// nothing downstream has to lowercase a product name again.
+	c.Google.Products = normalizeProducts(c.Google.Products)
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)
@@ -512,8 +519,11 @@ func (c Config) validateGoogle() error {
 	if len(google.Products) == 0 {
 		return errors.New("google.products must name at least one of: " + strings.Join(knownGoogleProducts, ", "))
 	}
-	for _, product := range google.Products {
-		if !containsString(knownGoogleProducts, strings.ToLower(strings.TrimSpace(product))) {
+	// Normalized rather than compared as written: Validate is reachable without
+	// applyDefaults (SetGoogle validates a candidate it built itself), so this
+	// must not depend on canonicalization having already run.
+	for _, product := range normalizeProducts(google.Products) {
+		if !slices.Contains(knownGoogleProducts, product) {
 			return fmt.Errorf("unknown google product %q; known products are %s", product, strings.Join(knownGoogleProducts, ", "))
 		}
 	}
@@ -533,13 +543,19 @@ func (c Config) validateGoogle() error {
 // adapter's Tools function is the one place that pins the pairing.
 var knownGoogleProducts = []string{"calendar", "contacts", "docs", "drive", "gmail", "sheets"}
 
-func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
+// normalizeProducts is the one spelling rule for a product name: lowercase,
+// trimmed, and empties dropped. Order is the owner's and is preserved.
+func normalizeProducts(products []string) []string {
+	if len(products) == 0 {
+		return products
+	}
+	normalized := make([]string, 0, len(products))
+	for _, product := range products {
+		if trimmed := strings.ToLower(strings.TrimSpace(product)); trimmed != "" {
+			normalized = append(normalized, trimmed)
 		}
 	}
-	return false
+	return normalized
 }
 
 func (c Config) validateMCP() error {
@@ -700,58 +716,62 @@ func (c Config) ActiveModel(alias string) (ProviderConfig, ModelAliasConfig, err
 	return provider, model, nil
 }
 
+// validateSecrets fails boot on a credential a configured capability needs but
+// the environment does not hold. Each capability declares its own requirements
+// through require, so a capability that is switched off costs nothing and a new
+// one adds a line rather than a branch in a shared list.
 func (c Config) validateSecrets(s Secrets) error {
-	var required []struct{ name, value string }
+	var missing string
+	require := func(name, value string) {
+		if missing == "" && strings.TrimSpace(value) == "" {
+			missing = name
+		}
+	}
 	// Telegram credentials are required only when Telegram is a channel for
 	// this deployment; a web-only one must not have to invent them.
 	if c.Telegram.Configured() {
-		required = append(required,
-			struct{ name, value string }{"TELEGRAM_BOT_TOKEN", s.TelegramBotToken},
-			struct{ name, value string }{"TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret})
+		require("TELEGRAM_BOT_TOKEN", s.TelegramBotToken)
+		require("TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret)
 	}
 	usedProviders := map[string]bool{}
 	for _, model := range c.ModelAliases {
 		usedProviders[model.Provider] = true
 	}
 	for providerName := range usedProviders {
-		provider := c.Providers[providerName]
-		required = append(required, struct{ name, value string }{provider.APIKeyEnv, s.ProviderAPIKeys[providerName]})
+		require(c.Providers[providerName].APIKeyEnv, s.ProviderAPIKeys[providerName])
 	}
 	if len(c.Repositories) > 0 {
-		required = append(required, struct{ name, value string }{"GITHUB_TOKEN", s.GitHubToken})
+		require("GITHUB_TOKEN", s.GitHubToken)
 	}
 	for name, server := range c.MCP.Servers {
 		if !server.Enabled {
 			continue
 		}
 		if server.Auth == "oauth" {
-			required = append(required, struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+			require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
 		}
 		if server.Auth == "bearer-env" {
-			required = append(required, struct{ name, value string }{server.BearerTokenEnv, s.MCPBearerTokens[name]})
+			require(server.BearerTokenEnv, s.MCPBearerTokens[name])
 		}
 		if server.OAuthClientSecretEnv != "" {
-			required = append(required, struct{ name, value string }{server.OAuthClientSecretEnv, s.MCPOAuthClientSecrets[name]})
+			require(server.OAuthClientSecretEnv, s.MCPOAuthClientSecrets[name])
 		}
 	}
 	if c.Google.Enabled {
 		// The token lands in the same encrypted auth.json the MCP records use,
 		// so the key is required for the same reason.
-		required = append(required, struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
 		if c.Google.ClientSecretEnv != "" {
-			required = append(required, struct{ name, value string }{c.Google.ClientSecretEnv, s.GoogleClientSecret})
+			require(c.Google.ClientSecretEnv, s.GoogleClientSecret)
 		}
 	}
 	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {
-		required = append(required,
-			struct{ name, value string }{"EGGY_UI_USER_EMAIL", s.UIUserEmail},
-			struct{ name, value string }{"EGGY_UI_PASSWORD", s.UIPassword},
-			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+		require("EGGY_UI_USER_EMAIL", s.UIUserEmail)
+		require("EGGY_UI_PASSWORD", s.UIPassword)
+		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
 	}
-	for _, item := range required {
-		if strings.TrimSpace(item.value) == "" {
-			return fmt.Errorf("required environment variable %s is missing", item.name)
-		}
+	if missing != "" {
+		return fmt.Errorf("required environment variable %s is missing", missing)
 	}
 	return nil
 }

@@ -1,14 +1,8 @@
 package google
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"time"
 
 	"github.com/nigelteosw/eggy/plugins/auth/authfile"
@@ -48,8 +42,8 @@ func (r TokenRecord) Authorized() bool { return r.RefreshToken != "" || r.Access
 // the equivalent as plaintext JSON in the home directory; there is no reason
 // to give up the store Eggy already has.
 type TokenStore struct {
-	file *authfile.Store
-	aead cipher.AEAD
+	file   *authfile.Store
+	sealer *authfile.Sealer
 }
 
 const (
@@ -57,28 +51,12 @@ const (
 	tokenKey     = "workspace"
 )
 
-type encryptedRecord struct {
-	Version    int    `json:"version"`
-	Ciphertext string `json:"ciphertext"`
-}
-
 func OpenTokenStore(authPath, encodedKey string) (*TokenStore, error) {
-	key, err := base64.StdEncoding.DecodeString(encodedKey)
-	if err != nil {
-		return nil, fmt.Errorf("decode Google encryption key: %w", err)
-	}
-	if len(key) != 32 {
-		return nil, errors.New("Google encryption key must decode to 32 bytes")
-	}
-	block, err := aes.NewCipher(key)
+	sealer, err := authfile.NewSealer("Google", encodedKey)
 	if err != nil {
 		return nil, err
 	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &TokenStore{file: authfile.Open(authPath), aead: aead}, nil
+	return &TokenStore{file: authfile.Open(authPath), sealer: sealer}, nil
 }
 
 // Load returns a zero record rather than an error when nothing is stored: an
@@ -123,35 +101,16 @@ func (s *TokenStore) Delete() error { return s.file.Delete(tokenSection, tokenKe
 
 func (s *TokenStore) seal(record TokenRecord) (json.RawMessage, error) {
 	record.Version = 1
-	plain, err := json.Marshal(record)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	sealed := s.aead.Seal(nonce, nonce, plain, associatedData())
-	return json.Marshal(encryptedRecord{Version: 1, Ciphertext: base64.RawURLEncoding.EncodeToString(sealed)})
+	return s.sealer.Seal(record, associatedData())
 }
 
 func (s *TokenStore) open(body json.RawMessage) (TokenRecord, error) {
-	var encrypted encryptedRecord
-	if err := json.Unmarshal(body, &encrypted); err != nil || encrypted.Version != 1 {
-		return TokenRecord{}, errors.New("invalid Google token record")
-	}
-	sealed, err := base64.RawURLEncoding.DecodeString(encrypted.Ciphertext)
-	if err != nil || len(sealed) < s.aead.NonceSize() {
-		return TokenRecord{}, errors.New("invalid Google token ciphertext")
-	}
-	nonce := sealed[:s.aead.NonceSize()]
-	plain, err := s.aead.Open(nil, nonce, sealed[s.aead.NonceSize():], associatedData())
-	if err != nil {
-		return TokenRecord{}, errors.New("Google token record authentication failed")
-	}
 	var record TokenRecord
-	if err := json.Unmarshal(plain, &record); err != nil || record.Version != 1 {
-		return TokenRecord{}, errors.New("invalid Google token record")
+	if err := s.sealer.Open(body, associatedData(), &record); err != nil {
+		return TokenRecord{}, err
+	}
+	if record.Version != 1 {
+		return TokenRecord{}, s.sealer.Invalid()
 	}
 	return record, nil
 }

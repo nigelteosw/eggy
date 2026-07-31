@@ -133,6 +133,15 @@ explicit migration, never a silent break.
 - [ ] Replace positional constructors with small dependency structs only where
       one already takes six or more collaborators. No containers, no service
       locators, no lifecycle interfaces whose only caller is bootstrap.
+- [ ] `NewApp` is ~255 lines and is the last straight-line stretch left. The
+      obvious extraction — lifting tool registration into `buildToolRegistry` —
+      was tried and rejected: it needs eleven collaborators, so it trades a long
+      function for an eleven-parameter one. Do it only after the items above
+      shrink what a turn's tool set is assembled from; extracting it first just
+      moves the coupling somewhere it is harder to see. The Telegram wiring
+      (client, channel, selector, webhook, command registration) is the one
+      genuinely separable piece, and it is scattered across four points in the
+      function.
 
 Success criteria: `internal/bootstrap` holds composition, event-loop
 ownership, and surface routing only; adding an adapter changes no kernel
@@ -242,6 +251,109 @@ shell remains undecided above and this never needed it.
 - [ ] Decide whether `Endpoints` stays in-package. It is settable only by
       tests today and must not become config: an operator-settable API host is
       a credential exfiltration primitive, not a feature.
+
+---
+
+## P1: One auth surface
+
+The boundaries in `AGENTS.md` hold where they are checked: `internal/kernel`
+and `internal/ports` import no adapter, and the `config <- web <- bootstrap`
+direction is intact. Auth is where they are not checked, and it has spread
+into five packages with no owner:
+
+- **outbound authorization** — `plugins/tools/google/oauth.go` and
+  `plugins/tools/mcp/oauth.go` are two implementations of authorization-code +
+  PKCE. Both generate a state and a verifier, both bound a pending login to a
+  ten-minute window, both send `access_type=offline` with `prompt=consent` for
+  the same documented reason, both exchange, both persist a refreshed token,
+  both record granted rather than requested scopes;
+- **the same interface, twice** — `commands.GoogleRuntime` and
+  `commands.MCPRuntime` are `BeginLogin`/`CompleteLogin`/`Logout`/status,
+  differing only in that MCP keys every call by server name;
+- **completion is already shared and already homeless** —
+  `internal/commands/oauth_paste.go` says so in its own header: it lives there
+  "because neither owns it";
+- **owner authentication is somewhere else again** — `plugins/webui` serves the
+  asset bundle *and* holds `SignSession`, `VerifySession`, and the login
+  throttle, and `internal/web` reaches in for them. An HTTP surface doing its
+  own session crypto out of a package named for a JavaScript bundle is the
+  clearest case of no owner at all;
+- **storage is the one part that is already right** — `plugins/auth/authfile`
+  owns the container, and the sealed-record envelope is now one implementation
+  there rather than one per provider.
+
+### The shape to build
+
+- [ ] Add one provider-neutral port for a grant — `BeginLogin`,
+      `CompleteLogin`, `Status`, `Logout` — and let `GoogleRuntime` and
+      `MCPRuntime` collapse into it. `internal/commands` and `internal/web`
+      then speak to grants by name (`google`, `mcp:railway`) instead of
+      carrying one interface and one command path per provider.
+- [ ] Move the authorization-code + PKCE flow into a single adapter under
+      `plugins/auth/`, and make Google and MCP *configuration* of it rather
+      than two implementations: fixed endpoints plus a loopback redirect for
+      Google, discovery plus optional dynamic registration for MCP. The
+      per-provider differences are real but they are parameters, not flows.
+- [ ] Move `parseOAuthRedirect` and `googleAuthError` out of
+      `internal/commands` into that adapter. Pasted-redirect completion is part
+      of the flow, not part of the command surface that happens to call it.
+- [ ] Keep **owner authentication separate from outbound authorization.** They
+      point in opposite directions of trust — who may talk to Eggy, versus what
+      Eggy may do on the owner's behalf — and merging them produces one
+      security god-object rather than one surface. What should move is the
+      session crypto: `SignSession`, `VerifySession`, and `LoginThrottle` leave
+      `plugins/webui` (which should serve assets and nothing else) for an owner
+      -authentication adapter that Telegram's webhook-secret and owner-allowlist
+      checks can also live behind.
+- [ ] Preserve every property the current code documents while moving it: forced
+      consent to guarantee a refresh token, granted-scope recording, the pending
+      window, the loopback redirect matching byte for byte, and per-record
+      associated data binding a grant to the server it was issued for. These are
+      the lessons the comments exist to keep; a rewrite that drops one is a
+      regression the tests will not all catch.
+
+Success criteria: one flow implementation, one grant port, one place that
+knows what a pasted redirect is, and `plugins/webui` importable for assets
+alone. Adding the next OAuth provider is a config entry, not a third copy.
+
+---
+
+## Code-smell sweep (2026-07-31): what is left
+
+A read of the whole tree for duplication and drift. The fixes that landed are
+in git; these are the findings that did **not** get fixed, with the reason.
+
+- [ ] `plugins/webui/dist/index.html` is force-tracked out of an otherwise
+      ignored `dist/`, and it references content-hashed assets
+      (`/assets/index-<hash>.js`) that are **not** tracked. So a fresh clone
+      serves a page pointing at files that do not exist, and every `make build`
+      rewrites the hashes and dirties the tree. Decide one way: track the built
+      assets too, or track neither and build the UI as a release step. The
+      current half-measure gives the worst of both.
+- [ ] 23 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26
+      baseline and read as `slices.Sort`/`slices.SortFunc` now. Pure
+      modernization with no behavior change — worth doing in one pass when a
+      change already touches those files, not as its own churn commit.
+- [ ] `knownGoogleProducts` in `internal/config` duplicates the adapter's
+      product list, and the boundary rule is what forces it: `internal/config`
+      may not import a plugin package. Left as is and left commented. If a
+      third copy ever appears, that is the signal to invert it — let the
+      adapter validate its own product names at construction and have config
+      check only the shape.
+
+Two of the fixes that landed were defects rather than style, and are recorded
+here only so the invariants are not re-broken:
+
+- Google product names are canonicalized once, in `config.applyDefaults`.
+  Validation accepts any casing, so when scope selection matched exactly and
+  the adapter matched case-insensitively, `products: ["Gmail"]` registered the
+  tool and requested no scope — every call 403'd, reading as a broken API.
+- `Secrets.Values()` is the only list of live credentials. Bootstrap used to
+  build a second one for the durable-context secret guard, and it had drifted:
+  the Google client secret and the MCP OAuth client secrets were absent, so
+  those two alone could be written into `MEMORY.md` and recall unmasked. A
+  reflection test now fails when a field is added to `Secrets` but not to
+  `Values`.
 
 ---
 

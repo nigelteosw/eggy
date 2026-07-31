@@ -320,12 +320,9 @@ func SetGoogle(path string, input GoogleInput) error {
 			google.ClientSecretEnv = input.ClientSecretEnv
 		}
 		if len(input.Products) > 0 {
-			products := make([]string, 0, len(input.Products))
-			for _, product := range input.Products {
-				if trimmed := strings.ToLower(strings.TrimSpace(product)); trimmed != "" {
-					products = append(products, trimmed)
-				}
-			}
+			// Sorted on the way in so the written file has a stable order a
+			// surface can round-trip; the spelling rule itself is shared.
+			products := normalizeProducts(input.Products)
 			sort.Strings(products)
 			google.Products = products
 		}

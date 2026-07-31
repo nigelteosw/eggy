@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -70,7 +71,7 @@ func (r *AgentRuntime) ReasoningEffort(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !containsEffort(r.efforts[alias], state.Agent.ReasoningEffort) {
+	if !slices.Contains(r.efforts[alias], state.Agent.ReasoningEffort) {
 		return "", nil
 	}
 	return state.Agent.ReasoningEffort, nil
@@ -87,7 +88,7 @@ func (r *AgentRuntime) SelectReasoningEffort(ctx context.Context, effort string)
 	if len(allowed) == 0 {
 		return fmt.Errorf("model %q does not support a reasoning effort option", alias)
 	}
-	if !containsEffort(allowed, effort) {
+	if !slices.Contains(allowed, effort) {
 		return fmt.Errorf("model %q supports reasoning effort %s, not %q", alias, strings.Join(allowed, "|"), effort)
 	}
 	return r.update(ctx, func(state *ports.State) { state.Agent.ReasoningEffort = effort })
@@ -107,15 +108,6 @@ func (r *AgentRuntime) ShowThinking(ctx context.Context) (bool, error) {
 // delivered as a separate "Thinking:" message.
 func (r *AgentRuntime) SetShowThinking(ctx context.Context, show bool) error {
 	return r.update(ctx, func(state *ports.State) { state.Agent.HideThinking = !show })
-}
-
-func containsEffort(allowed []string, effort string) bool {
-	for _, candidate := range allowed {
-		if candidate == effort {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *AgentRuntime) RecordUsage(ctx context.Context, alias string, usage ports.ModelUsage) error {

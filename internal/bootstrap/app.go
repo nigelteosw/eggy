@@ -167,13 +167,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			}
 		}
 	}
-	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.EncryptionKey, secrets.UIPassword}
-	for _, secret := range secrets.ProviderAPIKeys {
-		activeSecrets = append(activeSecrets, secret)
-	}
-	for _, secret := range secrets.MCPBearerTokens {
-		activeSecrets = append(activeSecrets, secret)
-	}
+	// The same list log redaction uses, rather than a second one assembled
+	// here. When this was its own list it drifted: the Google client secret and
+	// the MCP OAuth client secrets were absent, so every other credential was
+	// kept out of durable context and recall while those two were not.
+	activeSecrets := secrets.Values()
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
 	app.skillsService = services.NewSkillsService(skillsStore)
 	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{}
@@ -279,10 +277,13 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// Taken from the loop rather than the registry so the manifest includes
 	// the live MCP catalog and stays "the tools actually available".
 	toolNames := app.loop.ToolNames(agent.RunOptions{})
+	// Not named repo: this function calls repo.NewWorkspaceSessions and
+	// repo.NewStatusTool, and shadowing an imported package inside the one
+	// function that uses it most is a trap for the next edit.
 	selfRepository := ""
-	for _, repo := range config.Repositories {
-		if repo.Self {
-			selfRepository = repo.Name
+	for _, configured := range config.Repositories {
+		if configured.Self {
+			selfRepository = configured.Name
 			break
 		}
 	}

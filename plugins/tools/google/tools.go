@@ -42,15 +42,16 @@ func Tools(workspace *Workspace, products []string, now func() time.Time) []port
 	return tools
 }
 
-// result marshals a value for the model. Every tool returns JSON because a
-// model reading a tool result wants fields it can quote identifiers out of,
-// not prose it has to parse.
-func result(value any) (json.RawMessage, error) {
-	encoded, err := json.Marshal(value)
+// respond shapes both outcomes of one product call for the model, and takes
+// them positionally so a case can forward a call directly:
+// respond(w.GmailLabels(ctx)). Every tool returns JSON because a model reading
+// a tool result wants fields it can quote identifiers out of, not prose it has
+// to parse.
+func respond[T any](value T, err error) (json.RawMessage, error) {
 	if err != nil {
-		return nil, err
+		return nil, unauthorized(err)
 	}
-	return encoded, nil
+	return json.Marshal(value)
 }
 
 // unauthorized turns the one recoverable failure into an instruction. Every
@@ -99,41 +100,17 @@ func (t gmailTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMe
 	}
 	switch input.Action {
 	case "search":
-		messages, err := t.workspace.GmailSearch(ctx, input.Query, input.Max)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(messages)
+		return respond(t.workspace.GmailSearch(ctx, input.Query, input.Max))
 	case "get":
-		message, err := t.workspace.GmailGet(ctx, input.ID)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(message)
+		return respond(t.workspace.GmailGet(ctx, input.ID))
 	case "send":
-		sent, err := t.workspace.GmailSend(ctx, Outgoing{To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body, HTML: input.HTML, From: input.From})
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(sent)
+		return respond(t.workspace.GmailSend(ctx, Outgoing{To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body, HTML: input.HTML, From: input.From}))
 	case "reply":
-		sent, err := t.workspace.GmailReply(ctx, input.ID, input.Body, input.From)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(sent)
+		return respond(t.workspace.GmailReply(ctx, input.ID, input.Body, input.From))
 	case "labels":
-		labels, err := t.workspace.GmailLabels(ctx)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(labels)
+		return respond(t.workspace.GmailLabels(ctx))
 	case "modify":
-		message, err := t.workspace.GmailModify(ctx, input.ID, input.AddLabels, input.RemoveLabels)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(message)
+		return respond(t.workspace.GmailModify(ctx, input.ID, input.AddLabels, input.RemoveLabels))
 	default:
 		return nil, fmt.Errorf("unknown gmail action %q", input.Action)
 	}
@@ -174,31 +151,19 @@ func (t calendarTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 	}
 	switch input.Action {
 	case "list":
-		events, err := t.workspace.CalendarList(ctx, input.CalendarID, input.Start, input.End, t.now())
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(events)
+		return respond(t.workspace.CalendarList(ctx, input.CalendarID, input.Start, input.End, t.now()))
 	case "calendars":
-		calendars, err := t.workspace.Calendars(ctx)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(calendars)
+		return respond(t.workspace.Calendars(ctx))
 	case "create":
-		event, err := t.workspace.CalendarCreate(ctx, NewEvent{
+		return respond(t.workspace.CalendarCreate(ctx, NewEvent{
 			CalendarID: input.CalendarID, Summary: input.Summary, Start: input.Start, End: input.End,
 			Location: input.Location, Description: input.Description, Attendees: input.Attendees,
-		})
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(event)
+		}))
 	case "delete":
-		if err := t.workspace.CalendarDelete(ctx, input.CalendarID, input.EventID); err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(map[string]string{"status": "deleted", "event_id": input.EventID})
+		// The only action with nothing to report back, so it states the
+		// outcome rather than returning an empty body the model has to guess at.
+		err := t.workspace.CalendarDelete(ctx, input.CalendarID, input.EventID)
+		return respond(map[string]string{"status": "deleted", "event_id": input.EventID}, err)
 	default:
 		return nil, fmt.Errorf("unknown calendar action %q", input.Action)
 	}
@@ -223,11 +188,7 @@ func (t driveTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMe
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, err
 	}
-	files, err := t.workspace.DriveSearch(ctx, input.Query, input.Max, input.RawQuery)
-	if err != nil {
-		return nil, unauthorized(err)
-	}
-	return result(files)
+	return respond(t.workspace.DriveSearch(ctx, input.Query, input.Max, input.RawQuery))
 }
 
 type docsTool struct{ workspace *Workspace }
@@ -247,11 +208,7 @@ func (t docsTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMes
 	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, err
 	}
-	document, err := t.workspace.DocsGet(ctx, input.DocumentID)
-	if err != nil {
-		return nil, unauthorized(err)
-	}
-	return result(document)
+	return respond(t.workspace.DocsGet(ctx, input.DocumentID))
 }
 
 type sheetsTool struct{ workspace *Workspace }
@@ -281,10 +238,7 @@ func (t sheetsTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	switch input.Action {
 	case "get":
 		values, err := t.workspace.SheetsGet(ctx, input.SpreadsheetID, input.Range)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(map[string]any{"values": values})
+		return respond(map[string]any{"values": values}, err)
 	case "update", "append":
 		if len(input.Values) == 0 {
 			return nil, errors.New("values are required")
@@ -294,10 +248,7 @@ func (t sheetsTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 			write = t.workspace.SheetsAppend
 		}
 		cells, err := write(ctx, input.SpreadsheetID, input.Range, input.Values)
-		if err != nil {
-			return nil, unauthorized(err)
-		}
-		return result(map[string]any{"status": "ok", "updated_cells": cells})
+		return respond(map[string]any{"status": "ok", "updated_cells": cells}, err)
 	default:
 		return nil, fmt.Errorf("unknown sheets action %q", input.Action)
 	}
@@ -322,9 +273,5 @@ func (t contactsTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 			return nil, err
 		}
 	}
-	contacts, err := t.workspace.ContactsList(ctx, input.Max)
-	if err != nil {
-		return nil, unauthorized(err)
-	}
-	return result(contacts)
+	return respond(t.workspace.ContactsList(ctx, input.Max))
 }

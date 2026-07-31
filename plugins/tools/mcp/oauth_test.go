@@ -177,3 +177,84 @@ func TestOAuthDiscoveryToleratesTrailingSlashIssuer(t *testing.T) {
 		t.Fatalf("resource=%q", record.Resource)
 	}
 }
+
+// TestOAuthUsesPreRegisteredClientWhenRegistrationIsUnsupported covers the
+// authorization servers that do not implement RFC 7591 -- Google's among them.
+// Discovery returns no registration endpoint, so without a configured client
+// there is nothing to authorize with and BeginLogin fails outright.
+func TestOAuthUsesPreRegisteredClientWhenRegistrationIsUnsupported(t *testing.T) {
+	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: &noRegistrationRoundTripper{}}
+	cfg := ServerConfig{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
+		RedirectURL: "https://eggy.example/auth/mcp/calendar/callback",
+	}
+
+	unregistered := newOAuthProvider(cfg, store, client)
+	_, err = unregistered.BeginLogin(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "oauth_client_id") {
+		t.Fatalf("error=%v, want one naming the fix", err)
+	}
+
+	cfg.OAuthClientID = "eggy.apps.googleusercontent.com"
+	cfg.OAuthClientSecret = "configured-secret"
+	provider := newOAuthProvider(cfg, store, client)
+	authorizationURL, err := provider.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Query().Get("client_id") != cfg.OAuthClientID {
+		t.Fatalf("authorization URL=%s", authorizationURL)
+	}
+	record, err := store.Load(cfg.Name, cfg.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ClientSecret != "configured-secret" || record.TokenEndpointAuthMethod != "client_secret_post" {
+		t.Fatalf("record=%#v", record)
+	}
+}
+
+// A client ID with no secret is a public client: PKCE alone authorizes it, and
+// no auth method may be asserted at the token endpoint.
+func TestOAuthPreRegisteredPublicClientHasNoSecret(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	cfg := ServerConfig{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
+		RedirectURL:   "https://eggy.example/auth/mcp/calendar/callback",
+		OAuthClientID: "public-client",
+	}
+	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &noRegistrationRoundTripper{}})
+	if _, err := provider.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	record, _ := store.Load(cfg.Name, cfg.URL)
+	if record.ClientSecret != "" || record.TokenEndpointAuthMethod != "" {
+		t.Fatalf("record=%#v", record)
+	}
+}
+
+// noRegistrationRoundTripper serves metadata with no registration_endpoint,
+// which is what an authorization server without dynamic client registration
+// publishes.
+type noRegistrationRoundTripper struct{}
+
+func (noRegistrationRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	header := make(http.Header)
+	header.Set("Content-Type", "application/json")
+	body := `{}`
+	switch {
+	case strings.Contains(request.URL.Path, "/.well-known/oauth-protected-resource"):
+		body = `{"resource":"https://calendarmcp.googleapis.com/mcp/v1","authorization_servers":["https://accounts.google.com"]}`
+	case strings.Contains(request.URL.Path, "/.well-known/"):
+		body = `{"issuer":"https://accounts.google.com","authorization_endpoint":"https://accounts.google.com/o/oauth2/v2/auth","token_endpoint":"https://oauth2.googleapis.com/token","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+}

@@ -54,9 +54,21 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+	// A configured client wins over anything stored: it is how the owner
+	// corrects a client registered against the wrong project, and it is the
+	// only path that works at all against an authorization server -- Google's
+	// among them -- that does not implement RFC 7591 registration.
+	if p.config.OAuthClientID != "" {
+		record.ClientID = p.config.OAuthClientID
+		record.ClientSecret = p.config.OAuthClientSecret
+		record.TokenEndpointAuthMethod = ""
+		if p.config.OAuthClientSecret != "" {
+			record.TokenEndpointAuthMethod = "client_secret_post"
+		}
+	}
 	if record.ClientID == "" {
 		if record.RegistrationEndpoint == "" {
-			return "", errors.New("MCP authorization server does not support dynamic client registration")
+			return "", errors.New("MCP authorization server does not support dynamic client registration; set oauth_client_id and oauth_client_secret_env for a client you registered by hand")
 		}
 		registration, err := oauthex.RegisterClient(ctx, record.RegistrationEndpoint, &oauthex.ClientRegistrationMetadata{
 			RedirectURIs: []string{p.config.RedirectURL}, TokenEndpointAuthMethod: "client_secret_post",

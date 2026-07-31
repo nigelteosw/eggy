@@ -175,7 +175,7 @@ const (
 // variable, it does not carry a token.
 func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	if len(args) == 0 {
-		return "Usage: /mcp add <name> url=<https url> [auth=none|oauth|bearer-env] [transport=streamable-http] [bearer_env=VAR] [enabled=true|false]", true, nil
+		return mcpAddUsage, true, nil
 	}
 	input := config.MCPServerInput{Name: args[0], Auth: "none", Enabled: true}
 	for _, argument := range args[1:] {
@@ -192,6 +192,10 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 			input.Auth = value
 		case "bearer_env":
 			input.BearerTokenEnv = value
+		case "client_id":
+			input.OAuthClientID = value
+		case "client_secret_env":
+			input.OAuthClientSecretEnv = value
 		case "enabled":
 			switch value {
 			case "true":
@@ -212,6 +216,12 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	switch input.Auth {
 	case "oauth":
 		message += "\nThen run /mcp login " + input.Name + " to authorize it."
+		if input.OAuthClientSecretEnv != "" {
+			// Same rule as bearer-env: the variable name is config, its value
+			// is not, and a client whose secret is unset fails at the token
+			// exchange with nothing to point at.
+			message += fmt.Sprintf("\nSet %s in the deployment's environment — Eggy reads the client secret from there, never from chat.", input.OAuthClientSecretEnv)
+		}
 	case "bearer-env":
 		// The name is config; the value is not. Setting one from chat cannot
 		// create the other, and a server whose variable is unset will fail to
@@ -221,11 +231,17 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	return message, true, nil
 }
 
+// mcpAddUsage is written once: the add form is the only command with enough
+// fields that a wrong guess is likely, so the same text answers a bare /mcp
+// add, an unknown field, and a malformed argument.
+const mcpAddUsage = "/mcp add <name> url=<https url> [auth=none|oauth|bearer-env] [transport=streamable-http] " +
+	"[bearer_env=VAR] [client_id=<oauth client id>] [client_secret_env=VAR] [enabled=true|false]"
+
 func mcpUsage() string {
 	return strings.Join([]string{
 		"Usage:",
 		"/mcp — list configured servers and their state",
-		"/mcp add <name> url=<https url> [auth=none|oauth|bearer-env] [transport=streamable-http] [bearer_env=VAR] [enabled=true|false]",
+		mcpAddUsage,
 		"/mcp remove|enable|disable|login|logout <name>",
 		"",
 		"stdio servers are edited in config.yaml: a subprocess command line is not a chat argument.",

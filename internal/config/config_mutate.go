@@ -154,12 +154,14 @@ func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) erro
 // positional string, and a run of same-typed positional strings is how a URL
 // ends up in the auth field.
 type MCPServerInput struct {
-	Name           string
-	URL            string
-	Transport      string
-	Auth           string
-	BearerTokenEnv string
-	Enabled        bool
+	Name                 string
+	URL                  string
+	Transport            string
+	Auth                 string
+	BearerTokenEnv       string
+	OAuthClientID        string
+	OAuthClientSecretEnv string
+	Enabled              bool
 }
 
 // SetMCPServer upserts one MCP server definition from the fields a surface can
@@ -196,6 +198,14 @@ func SetMCPServer(path string, input MCPServerInput) error {
 		}
 		server.Auth = input.Auth
 		server.BearerTokenEnv = input.BearerTokenEnv
+		// An omitted client id keeps whatever the server already had, so
+		// editing a URL does not silently drop a hand-registered client.
+		if input.OAuthClientID != "" {
+			server.OAuthClientID = input.OAuthClientID
+		}
+		if input.OAuthClientSecretEnv != "" {
+			server.OAuthClientSecretEnv = input.OAuthClientSecretEnv
+		}
 		server.Enabled = input.Enabled
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)

@@ -296,3 +296,20 @@ func TestStatusReportsMCPState(t *testing.T) {
 		t.Fatalf("status hid a server needing attention: %q", output)
 	}
 }
+
+// An authorization server without dynamic client registration needs a client
+// the owner registered by hand. The id travels in the authorization URL and is
+// not a secret; the secret is named, never carried through chat.
+func TestMCPAddAcceptsAPreRegisteredOAuthClient(t *testing.T) {
+	service, path := mcpService(t, nil)
+
+	output := run(t, service, "/mcp add calendar url=https://calendarmcp.googleapis.com/mcp/v1 auth=oauth client_id=eggy.apps.googleusercontent.com client_secret_env=GOOGLE_CLIENT_SECRET")
+	if !strings.Contains(output, "GOOGLE_CLIENT_SECRET") || !strings.Contains(output, "environment") {
+		t.Fatalf("output=%q", output)
+	}
+	servers, _ := config.GetMCPServersConfig(path)
+	server := servers["calendar"]
+	if server.OAuthClientID != "eggy.apps.googleusercontent.com" || server.OAuthClientSecretEnv != "GOOGLE_CLIENT_SECRET" {
+		t.Fatalf("server=%#v", server)
+	}
+}

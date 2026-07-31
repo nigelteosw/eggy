@@ -31,6 +31,29 @@ mcp:
 
 HTTP authentication may be `none`, `oauth`, or `bearer-env`. Bearer authentication names its token variable with `bearer_token_env`. OAuth uses PKCE, the callback `/auth/mcp/{server}/callback`, and encrypted records in `auth.json`.
 
+## Servers without dynamic client registration
+
+Eggy registers an OAuth client automatically when the authorization server implements RFC 7591. Many do not — Google's among them — and `/mcp login` then reports that the server does not support dynamic client registration.
+
+Register the client by hand in the provider's console, with the redirect URI `https://<your public base url>/auth/mcp/{server}/callback`, then name it in config:
+
+```yaml
+mcp:
+  servers:
+    calendar:
+      url: "https://calendarmcp.googleapis.com/mcp/v1"
+      transport: "streamable-http"
+      auth: "oauth"
+      oauth_client_id: "xxxx.apps.googleusercontent.com"
+      oauth_client_secret_env: "GOOGLE_CLIENT_SECRET"
+      oauth_scopes: ["https://www.googleapis.com/auth/calendar"]
+      enabled: true
+```
+
+Or from Telegram: `/mcp add calendar url=… auth=oauth client_id=… client_secret_env=GOOGLE_CLIENT_SECRET`.
+
+The client id is not a secret — it travels in the authorization URL's query string — so it lives in YAML. The secret never does: `oauth_client_secret_env` names an environment variable, and startup fails if the named variable is empty. Omit it entirely for a public client authorized by PKCE alone. A configured client overrides any client Eggy previously registered for that server.
+
 ## Authorizing an OAuth server
 
 Start the flow from either surface:

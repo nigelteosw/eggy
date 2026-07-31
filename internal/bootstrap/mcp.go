@@ -36,6 +36,7 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 			EnvAllowlist: append([]string(nil), configured.EnvAllowlist...),
 			RedirectURL:  strings.TrimRight(config.Server.PublicBaseURL, "/") + "/auth/mcp/" + name + "/callback",
 			Auth:         configured.Auth, BearerToken: secrets.MCPBearerTokens[name], OAuthScopes: append([]string(nil), configured.OAuthScopes...),
+			OAuthClientID: configured.OAuthClientID, OAuthClientSecret: secrets.MCPOAuthClientSecrets[name],
 			Enabled: configured.Enabled, ConnectTimeout: configured.ConnectTimeout.Value(), Timeout: configured.Timeout.Value(), MaxOutputBytes: configured.MaxOutputBytes,
 			SupportsParallelToolCalls: configured.SupportsParallelToolCalls,
 			FailureThreshold:          configured.FailureThreshold, Cooldown: configured.Cooldown.Value(),

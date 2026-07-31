@@ -268,3 +268,62 @@ func TestShowConfigTextDumpsWholeFile(t *testing.T) {
 		}
 	}
 }
+
+// A hand-registered OAuth client is the only way to authorize against a server
+// without dynamic client registration, so a surface must be able to set one --
+// and must not drop it when a later edit changes something else.
+func TestSetMCPServerKeepsPreRegisteredOAuthClientAcrossEdits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServer(path, MCPServerInput{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1", Auth: "oauth",
+		OAuthClientID: "eggy.apps.googleusercontent.com", OAuthClientSecretEnv: "GOOGLE_CLIENT_SECRET", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	servers, err := GetMCPServersConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servers["calendar"].OAuthClientID != "eggy.apps.googleusercontent.com" || servers["calendar"].OAuthClientSecretEnv != "GOOGLE_CLIENT_SECRET" {
+		t.Fatalf("server=%#v", servers["calendar"])
+	}
+
+	if err := SetMCPServer(path, MCPServerInput{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v2", Auth: "oauth", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ = GetMCPServersConfig(path)
+	if servers["calendar"].OAuthClientID == "" || servers["calendar"].OAuthClientSecretEnv == "" {
+		t.Fatalf("editing the url dropped the registered client: %#v", servers["calendar"])
+	}
+	if servers["calendar"].URL != "https://calendarmcp.googleapis.com/mcp/v2" {
+		t.Fatalf("server=%#v", servers["calendar"])
+	}
+}
+
+// The client secret is named, never stored: a secret value in config.yaml is
+// the one thing Eggy's configuration rules forbid outright.
+func TestSetMCPServerRejectsOAuthClientCredentialsWithoutOAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetMCPServer(path, MCPServerInput{
+		Name: "tickets", URL: "https://mcp.example.com", Auth: "none",
+		OAuthClientID: "some-client", Enabled: true,
+	})
+	if err == nil {
+		t.Fatal("oauth client credentials were accepted on a non-oauth server")
+	}
+	err = SetMCPServer(path, MCPServerInput{
+		Name: "tickets", URL: "https://mcp.example.com", Auth: "oauth",
+		OAuthClientSecretEnv: "not a variable name", OAuthClientID: "some-client", Enabled: true,
+	})
+	if err == nil {
+		t.Fatal("an invalid environment variable name was accepted")
+	}
+}

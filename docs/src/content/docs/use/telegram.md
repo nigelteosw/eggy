@@ -30,7 +30,7 @@ Unknown commands return the same command reference. Ordinary text continues to t
 | Command | Behavior |
 | --- | --- |
 | `/mcp` | List configured servers with live state, tool counts, and diagnostics |
-| `/mcp add <name> url=<https url> [auth=…] [transport=…] [bearer_env=VAR] [enabled=…]` | Add or edit a server |
+| `/mcp add <name> url=<https url> [auth=…] [transport=…] [bearer_env=VAR] [client_id=…] [client_secret_env=VAR] [enabled=…]` | Add or edit a server |
 | `/mcp remove <name>` | Delete the config entry; stored OAuth credentials are kept |
 | `/mcp enable <name>` / `/mcp disable <name>` | Flip one server's `enabled` flag |
 | `/mcp login <name>` | Start OAuth and return the provider authorization URL |
@@ -40,7 +40,7 @@ Edits go through the same `internal/config` helpers the web settings panel calls
 
 Three limits are deliberate:
 
-- **No secret value is ever accepted as a chat argument.** `bearer_env` names an environment variable; the token itself must exist in the deployment's environment.
+- **No secret value is ever accepted as a chat argument.** `bearer_env` and `client_secret_env` name environment variables; the token and client secret themselves must exist in the deployment's environment. An OAuth `client_id` is accepted directly because it is not a secret — it travels in the authorization URL.
 - **stdio servers are edited in `config.yaml`.** A subprocess command line and environment allowlist belong in reviewed configuration, not a chat message.
 - **A config write needs a restart.** Adapters are built once at startup, so a newly added server reads as `not running — restart eggy to apply.` until then. Every write says so.
 

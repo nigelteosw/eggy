@@ -22,10 +22,16 @@ type ServerConfig struct {
 	// EnvAllowlist names the environment variables a stdio child receives.
 	// Anything unnamed is withheld, so Eggy's credentials do not leak into a
 	// subprocess that has no business with them.
-	EnvAllowlist              []string
-	RedirectURL               string
-	Auth                      string
-	BearerToken               string
+	EnvAllowlist []string
+	RedirectURL  string
+	Auth         string
+	BearerToken  string
+	// OAuthClientID and OAuthClientSecret are a client the owner registered by
+	// hand, for an authorization server with no dynamic client registration.
+	// An empty client ID means registration is attempted instead; an empty
+	// secret with a set ID is a public client, authorized by PKCE alone.
+	OAuthClientID             string
+	OAuthClientSecret         string
 	OAuthScopes               []string
 	Enabled                   bool
 	ConnectTimeout            time.Duration

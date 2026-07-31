@@ -31,8 +31,9 @@ protected action.
 it edits lives on the Eggy runtime — an owner on a phone cannot shell into the
 deployment to add a server. It can list servers with their live state, add,
 remove, enable, disable, and start or discard an OAuth authorization. No secret
-value is ever accepted as a chat argument: `bearer_env` names an environment
-variable, and the token must already exist in the deployment's environment.
+value is ever accepted as a chat argument: `bearer_env` and `client_secret_env`
+name environment variables, and their values must already exist in the
+deployment's environment.
 stdio servers stay file-only, since a subprocess command line is not a chat
 argument.
 

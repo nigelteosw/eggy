@@ -131,9 +131,19 @@ type MCPServerConfig struct {
 	// child. Nothing else crosses over, so credentials Eggy holds for other
 	// capabilities stay outside the child unless a server asks for them by
 	// name.
-	EnvAllowlist              []string `yaml:"env_allowlist,omitempty"`
-	Auth                      string   `yaml:"auth"`
-	BearerTokenEnv            string   `yaml:"bearer_token_env,omitempty"`
+	EnvAllowlist   []string `yaml:"env_allowlist,omitempty"`
+	Auth           string   `yaml:"auth"`
+	BearerTokenEnv string   `yaml:"bearer_token_env,omitempty"`
+	// OAuthClientID and OAuthClientSecretEnv are for an authorization server
+	// that does not support dynamic client registration -- Google's, among
+	// others -- where the owner registers the client by hand and supplies its
+	// credentials. The client ID is not a secret (it travels in the
+	// authorization URL's query string, visible in the browser), so it lives
+	// in YAML; the secret never does, and is named here and read from the
+	// environment like every other secret. Leaving the secret env empty is a
+	// public client, authorized by PKCE alone.
+	OAuthClientID             string   `yaml:"oauth_client_id,omitempty"`
+	OAuthClientSecretEnv      string   `yaml:"oauth_client_secret_env,omitempty"`
 	OAuthScopes               []string `yaml:"oauth_scopes,omitempty"`
 	Enabled                   bool     `yaml:"enabled"`
 	ConnectTimeout            Duration `yaml:"connect_timeout"`
@@ -160,6 +170,7 @@ type Secrets struct {
 	GitHubToken           string
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
+	MCPOAuthClientSecrets map[string]string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -174,6 +185,9 @@ func (s Secrets) Values() []string {
 	}
 	for _, key := range s.ProviderAPIKeys {
 		values = append(values, key)
+	}
+	for _, secret := range s.MCPOAuthClientSecrets {
+		values = append(values, secret)
 	}
 	for _, token := range s.MCPBearerTokens {
 		values = append(values, token)
@@ -213,12 +227,13 @@ type configDocument struct {
 func SecretsFromEnv(getenv func(string) string) Secrets {
 	return Secrets{
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
-		GitHubToken:     getenv("GITHUB_TOKEN"),
-		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:      getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys: map[string]string{},
-		MCPBearerTokens: map[string]string{},
+		GitHubToken:           getenv("GITHUB_TOKEN"),
+		EncryptionKey:         getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:           getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:            getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys:       map[string]string{},
+		MCPBearerTokens:       map[string]string{},
+		MCPOAuthClientSecrets: map[string]string{},
 	}
 }
 
@@ -249,6 +264,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	for name, server := range cfg.MCP.Servers {
 		if server.Auth == "bearer-env" {
 			secrets.MCPBearerTokens[name] = getenv(server.BearerTokenEnv)
+		}
+		if server.OAuthClientSecretEnv != "" {
+			secrets.MCPOAuthClientSecrets[name] = getenv(server.OAuthClientSecretEnv)
 		}
 	}
 	if err := cfg.validateSecrets(secrets); err != nil {
@@ -474,6 +492,15 @@ func (c Config) validateMCP() error {
 		if server.Auth == "bearer-env" && !environmentNamePattern.MatchString(server.BearerTokenEnv) {
 			return fmt.Errorf("MCP server %q bearer_token_env is invalid", name)
 		}
+		if server.OAuthClientSecretEnv != "" && !environmentNamePattern.MatchString(server.OAuthClientSecretEnv) {
+			return fmt.Errorf("MCP server %q oauth_client_secret_env is invalid", name)
+		}
+		if (server.OAuthClientID != "" || server.OAuthClientSecretEnv != "") && server.Auth != "oauth" {
+			return fmt.Errorf("MCP server %q oauth client credentials apply only to auth oauth", name)
+		}
+		if server.OAuthClientSecretEnv != "" && server.OAuthClientID == "" {
+			return fmt.Errorf("MCP server %q sets oauth_client_secret_env without oauth_client_id", name)
+		}
 		if server.ConnectTimeout.Value() <= 0 || server.Timeout.Value() <= 0 || server.MaxOutputBytes <= 0 {
 			return fmt.Errorf("MCP server %q timeouts and max_output_bytes must be positive", name)
 		}
@@ -622,6 +649,9 @@ func (c Config) validateSecrets(s Secrets) error {
 		}
 		if server.Auth == "bearer-env" {
 			required = append(required, struct{ name, value string }{server.BearerTokenEnv, s.MCPBearerTokens[name]})
+		}
+		if server.OAuthClientSecretEnv != "" {
+			required = append(required, struct{ name, value string }{server.OAuthClientSecretEnv, s.MCPOAuthClientSecrets[name]})
 		}
 	}
 	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {

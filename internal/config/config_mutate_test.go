@@ -327,3 +327,49 @@ func TestSetMCPServerRejectsOAuthClientCredentialsWithoutOAuth(t *testing.T) {
 		t.Fatal("an invalid environment variable name was accepted")
 	}
 }
+
+// A stored oauth_client_secret_env that no longer validates must not make
+// every later edit fail: the owner cannot see or clear that field from any
+// surface, so an unusable value is dropped rather than carried forward.
+func TestSetMCPServerRecoversFromAnUnusableStoredSecretEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `mcp:
+  servers:
+    calendar:
+      url: "https://calendarmcp.googleapis.com/mcp/v1"
+      transport: "streamable-http"
+      auth: "oauth"
+      oauth_client_id: "eggy.apps.googleusercontent.com"
+      oauth_client_secret_env: "GOCSPX-not-a-variable-name"
+      enabled: true
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Editing something unrelated must succeed rather than fail on the stored
+	// field the owner never sees.
+	if err := SetMCPServer(path, MCPServerInput{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1", Auth: "oauth", Enabled: true,
+	}); err != nil {
+		t.Fatalf("edit blocked by an unusable stored value: %v", err)
+	}
+	servers, err := GetMCPServersConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servers["calendar"].OAuthClientSecretEnv != "" {
+		t.Fatalf("unusable value survived: %#v", servers["calendar"])
+	}
+
+	// And supplying a good one still works.
+	if err := SetMCPServer(path, MCPServerInput{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1", Auth: "oauth",
+		OAuthClientID: "eggy.apps.googleusercontent.com", OAuthClientSecretEnv: "GOOGLE_CLIENT_SECRET", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ = GetMCPServersConfig(path)
+	if servers["calendar"].OAuthClientSecretEnv != "GOOGLE_CLIENT_SECRET" {
+		t.Fatalf("server=%#v", servers["calendar"])
+	}
+}

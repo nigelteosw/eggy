@@ -313,3 +313,28 @@ func TestMCPAddAcceptsAPreRegisteredOAuthClient(t *testing.T) {
 		t.Fatalf("server=%#v", server)
 	}
 }
+
+// Pasting the secret where its variable name belongs is the likely mistake,
+// and the config layer's "is invalid" cannot explain it. The reply must name
+// the confusion, tell the owner to rotate, and never echo the value back into
+// the transcript.
+func TestMCPAddRefusesASecretPastedWhereAVariableNameBelongs(t *testing.T) {
+	service, path := mcpService(t, nil)
+	secret := "GOCSPX-0FZpoNPkIH1HZ" //nolint:gosec // not a real credential
+
+	output := run(t, service, "/mcp add calendar url=https://mcp.example.com auth=oauth client_id=some-client client_secret_env="+secret)
+	if strings.Contains(output, secret) {
+		t.Fatalf("the reply echoed the pasted secret: %q", output)
+	}
+	if !strings.Contains(output, "NAME of an environment variable") || !strings.Contains(output, "rotate") {
+		t.Fatalf("output=%q", output)
+	}
+	if servers, _ := config.GetMCPServersConfig(path); len(servers) != 0 {
+		t.Fatalf("a secret reached config.yaml: %#v", servers)
+	}
+
+	output = run(t, service, "/mcp add tickets url=https://mcp.example.com auth=bearer-env bearer_env=sk-live-1234")
+	if strings.Contains(output, "sk-live-1234") || !strings.Contains(output, "rotate") {
+		t.Fatalf("output=%q", output)
+	}
+}

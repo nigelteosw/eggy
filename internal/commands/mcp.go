@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -191,10 +192,16 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 		case "auth":
 			input.Auth = value
 		case "bearer_env":
+			if !environmentName.MatchString(value) {
+				return secretNameHint(key), true, nil
+			}
 			input.BearerTokenEnv = value
 		case "client_id":
 			input.OAuthClientID = value
 		case "client_secret_env":
+			if !environmentName.MatchString(value) {
+				return secretNameHint(key), true, nil
+			}
 			input.OAuthClientSecretEnv = value
 		case "enabled":
 			switch value {
@@ -229,6 +236,21 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 		message += fmt.Sprintf("\nSet %s in the deployment's environment — Eggy reads the token from there, never from chat.", input.BearerTokenEnv)
 	}
 	return message, true, nil
+}
+
+// environmentName is the shape internal/config accepts for a variable name.
+// It is checked here as well so the reply can say what went wrong: a value
+// pasted where a name belongs is almost always the secret itself, and the
+// config layer's "is invalid" cannot know that.
+var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+
+// secretNameHint never echoes the offending value. The whole reason to reach
+// this branch is that the owner pasted a credential into a chat message;
+// repeating it in the reply would put it in the transcript twice.
+func secretNameHint(field string) string {
+	return "The " + field + " field takes the NAME of an environment variable (e.g. GOOGLE_CLIENT_SECRET), not the secret itself.\n\n" +
+		"If you just pasted a real secret into this chat, rotate it with the provider — it is now in your message history.\n\n" +
+		"Set the value in the deployment's environment, then pass only the variable name here."
 }
 
 // mcpAddUsage is written once: the add form is the only command with enough

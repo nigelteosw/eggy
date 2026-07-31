@@ -199,12 +199,23 @@ func SetMCPServer(path string, input MCPServerInput) error {
 		server.Auth = input.Auth
 		server.BearerTokenEnv = input.BearerTokenEnv
 		// An omitted client id keeps whatever the server already had, so
-		// editing a URL does not silently drop a hand-registered client.
+		// editing a URL does not silently drop a hand-registered client. A
+		// stored value that no longer validates is the exception: keeping it
+		// would make every later edit fail on a field the owner cannot see or
+		// clear from any surface, so an unusable one is dropped instead.
 		if input.OAuthClientID != "" {
 			server.OAuthClientID = input.OAuthClientID
 		}
-		if input.OAuthClientSecretEnv != "" {
+		switch {
+		case input.OAuthClientSecretEnv != "":
 			server.OAuthClientSecretEnv = input.OAuthClientSecretEnv
+		case !environmentNamePattern.MatchString(server.OAuthClientSecretEnv):
+			server.OAuthClientSecretEnv = ""
+		}
+		if server.OAuthClientID == "" {
+			// The secret env is meaningless without the client it belongs to,
+			// and validation rejects the pair, so clearing one clears both.
+			server.OAuthClientSecretEnv = ""
 		}
 		server.Enabled = input.Enabled
 		if server.ConnectTimeout == 0 {

@@ -43,35 +43,28 @@ Re-measure before claiming progress against the targets, not from memory.
 
 ## Targets
 
-- **≤ 12,500 production lines** excluding generated web assets — currently
-  15,755, and moving *away*. Three cleanup passes have each netted slightly
-  larger, because moving code to where it belongs costs the naming and the
-  comments. This target is not reachable by cleanup: it needs deleting a
-  capability. Decide whether the target or the scope moves.
-- **≤ 50 config fields** — currently 75.
 - **three durable forms**: YAML for startup config, Markdown for owner-facing
   documents, SQLite for everything machine-managed.
 - **one runtime administration authority** — every config write goes through
   `internal/config` under one lock; Telegram and web are views onto it.
 
+The **≤ 12,500 production lines** and **≤ 50 config fields** targets are
+retired. Both counted the tree rather than what a turn costs to run, and both
+were moving away — three cleanup passes each netted slightly larger, because
+moving code where it belongs costs naming and comments. Neither was reachable
+without deleting a capability, which is a product decision to argue on its own
+merits rather than smuggle in as a line-count exercise.
+
 ---
 
-## P1: Collapse the config surface
+## Config surface: closed
 
-75 YAML fields across a 1,526-line package. The document duality is gone;
-what is left of this section is a *scope* question, not a cleanup one.
+The document duality is gone (`Config` carries its own YAML tags). The other
+four items in this section were investigated and **closed without work** — see
+"Decided" below for the field-count target, `enabled` flags, the unknown-key
+message, and `config.example.yaml` coverage.
 
-- [ ] **The ≤ 50 field target needs a capability decision, not tidying.** The
-      75 fields are not redundant: 20+ are MCP server options (transport, auth,
-      OAuth client, timeouts, failure policy, tool filters), 7 are Google, and
-      the rest are server, runner, and repository settings that each do
-      something. Nothing here is a second way to do a job. Reaching 50 means
-      removing a capability or accepting fewer knobs on MCP — decide which,
-      then this becomes actionable.
-
-Three items from this section were investigated and **closed without work**;
-see "Decided" below for `enabled` flags, the unknown-key message, and
-`config.example.yaml` coverage.
+Nothing in `internal/config` is currently a cleanup item.
 
 ---
 
@@ -143,6 +136,14 @@ adapter is earned by a genuinely different wire format: Anthropic's Messages
 API, with its top-level system prompt, content blocks, and required
 `max_tokens`, is the real example. That costs a plugin package, a name in
 `config.supportedModelAdapters`, and one case in `bootstrap.newModelAdapter`.
+
+**The 75 config fields are not a cleanup target.** They are not redundant: 20
+are MCP server options (transport, auth, OAuth client, timeouts, failure
+policy, tool filters), 7 are Google, and the rest are server, runner, and
+repository settings that each do something. None is a second way to do a job.
+Cutting to 50 means removing a capability or removing knobs from MCP — and
+MCP's knobs are what let capability arrive as configuration instead of code,
+which is the property the whole design is built on.
 
 **`enabled` flags stay on MCP servers and Google.** The rule "an empty section
 is the off switch" does not hold when the section carries state that is

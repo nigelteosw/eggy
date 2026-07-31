@@ -194,7 +194,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		repo.NewStatusTool(stateStore, app.scheduler),
-		currentTimeTool(options.Now, location, timezone),
+		services.NewCurrentTimeTool(options.Now, location, timezone),
 		services.NewRecallConversationTool(memoryStore, services.NewSecretGuard(activeSecrets)),
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
@@ -254,7 +254,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
-	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
+	if err := registerAll(registry, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
 		return nil, err
 	}
 	if app.mcp != nil {

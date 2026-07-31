@@ -13,6 +13,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
@@ -110,7 +111,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
-	throttle := webui.NewLoginThrottle(now)
+	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal))
@@ -333,7 +334,7 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 	}
 }
 
-func handleWebLogin(webConfig WebUIConfig, throttle *webui.LoginThrottle, now func() time.Time) http.HandlerFunc {
+func handleWebLogin(webConfig WebUIConfig, throttle *session.LoginThrottle, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r, webConfig.TrustedProxyHops)
 		// Refuse rather than sleep: sleeping inside the handler pins a
@@ -364,7 +365,7 @@ func handleWebLogin(webConfig WebUIConfig, throttle *webui.LoginThrottle, now fu
 		throttle.Reset(ip)
 		expiresAt := now().Add(webSessionTTL)
 		http.SetCookie(w, &http.Cookie{
-			Name: webSessionCookie, Value: webui.SignSession(webConfig.SigningKey, expiresAt),
+			Name: webSessionCookie, Value: session.SignSession(webConfig.SigningKey, expiresAt),
 			Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, Expires: expiresAt,
 		})
 		writeWebResult(w, webResult{State: webSuccess, Title: "Logged in."})
@@ -384,7 +385,7 @@ func handleWebLogout() http.HandlerFunc {
 func requireWebSession(webConfig WebUIConfig, now func() time.Time, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(webSessionCookie)
-		if err != nil || !webui.VerifySession(webConfig.SigningKey, cookie.Value, now()) {
+		if err != nil || !session.VerifySession(webConfig.SigningKey, cookie.Value, now()) {
 			writeWebError(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}

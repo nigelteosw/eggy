@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 type MCPRuntime interface {
 	Statuses() []MCPStatus
 	BeginLogin(ctx context.Context, server string) (string, error)
+	CompleteLogin(ctx context.Context, server, code, state string) error
 	Logout(server string) error
 }
 
@@ -65,16 +67,7 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 			return fmt.Sprintf("MCP server %s %sd. %s", name, action, restartNotice), nil
 		})
 	case "login":
-		return s.mcpNamed(rest, "login", func(name string) (string, error) {
-			if s.mcp == nil {
-				return "", fmt.Errorf("no MCP server is running")
-			}
-			authorizationURL, err := s.mcp.BeginLogin(ctx, name)
-			if err != nil {
-				return "", err
-			}
-			return "Authorize " + name + " here, then come back:\n" + authorizationURL, nil
-		})
+		return s.mcpLogin(ctx, rest)
 	case "logout":
 		return s.mcpNamed(rest, "logout", func(name string) (string, error) {
 			if s.mcp == nil {
@@ -88,6 +81,73 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 	default:
 		return mcpUsage(), true, nil
 	}
+}
+
+// mcpLogin starts an authorization, and finishes one the browser could not.
+//
+// The callback route completes a login on its own whenever the authorization
+// server can reach it, which is the ordinary case. It cannot when Eggy is not
+// on a public address, when the browser is on a network that cannot see the
+// deployment, or when the callback itself failed and the code is still good --
+// and in each of those the owner is looking at a redirect URL in an address
+// bar with everything the exchange needs sitting in the query string. Taking
+// that paste is the whole fallback; there is no second flow behind it.
+func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, bool, error) {
+	if len(args) == 0 || len(args) > 2 {
+		return "Usage: /mcp login <name> [pasted redirect URL or code]", true, nil
+	}
+	name := args[0]
+	if s.mcp == nil {
+		return "Could not login MCP server " + name + ": no MCP server is running", true, nil
+	}
+	if len(args) == 1 {
+		authorizationURL, err := s.mcp.BeginLogin(ctx, name)
+		if err != nil {
+			return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
+		}
+		return strings.Join([]string{
+			"Authorize " + name + " here:",
+			authorizationURL,
+			"",
+			"If the browser lands on a page from Eggy, you are done. If it cannot reach Eggy, copy the address bar and run:",
+			"/mcp login " + name + " <paste the whole URL>",
+		}, "\n"), true, nil
+	}
+	code, state, err := parseOAuthRedirect(args[1])
+	if err != nil {
+		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
+	}
+	if err := s.mcp.CompleteLogin(ctx, name, code, state); err != nil {
+		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
+	}
+	return "Authorized " + name + ". Its tools are available on the next turn.", true, nil
+}
+
+// parseOAuthRedirect accepts either the whole redirect URL or the bare code,
+// because both are things an owner plausibly has in hand: the address bar, or
+// the code copied out of it. A redirect carrying an error is reported with the
+// authorization server's own reason rather than as a missing code, which is
+// what a denied consent otherwise looks like from here.
+func parseOAuthRedirect(pasted string) (code, state string, err error) {
+	pasted = strings.TrimSpace(pasted)
+	if !strings.HasPrefix(pasted, "http://") && !strings.HasPrefix(pasted, "https://") {
+		return pasted, "", nil
+	}
+	redirect, parseErr := url.Parse(pasted)
+	if parseErr != nil {
+		return "", "", fmt.Errorf("that does not parse as a URL: %w", parseErr)
+	}
+	query := redirect.Query()
+	if failure := query.Get("error"); failure != "" {
+		if description := query.Get("error_description"); description != "" {
+			return "", "", fmt.Errorf("authorization was refused: %s (%s)", failure, description)
+		}
+		return "", "", fmt.Errorf("authorization was refused: %s", failure)
+	}
+	if query.Get("code") == "" {
+		return "", "", fmt.Errorf("that URL has no code parameter — paste the address the browser landed on after you approved")
+	}
+	return query.Get("code"), query.Get("state"), nil
 }
 
 // mcpNamed runs an action that takes exactly one server name, so the arity
@@ -264,7 +324,8 @@ func mcpUsage() string {
 		"Usage:",
 		"/mcp — list configured servers and their state",
 		mcpAddUsage,
-		"/mcp remove|enable|disable|login|logout <name>",
+		"/mcp remove|enable|disable|logout <name>",
+		"/mcp login <name> [pasted redirect URL or code] — the paste finishes a login the browser could not",
 		"",
 		"stdio servers are edited in config.yaml: a subprocess command line is not a chat argument.",
 	}, "\n")

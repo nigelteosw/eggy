@@ -63,6 +63,16 @@ Start the flow from either surface:
 
 The start route is owner-gated in both cases. The callback deliberately is not — it is the provider's redirect, authenticated by the `state` parameter it carries. Completing a login connects the server immediately, so its tools appear on the next turn without a restart. `/mcp logout <name>` discards the stored credentials.
 
+### When the browser cannot reach the callback
+
+The callback finishes the login on its own whenever the browser can reach Eggy. When it cannot — Eggy is not on a public address, the browser is on a network that cannot see the deployment, or the callback itself failed while the code was still good — the redirect the browser landed on already carries everything the exchange needs. Paste it back:
+
+```
+/mcp login calendar https://<base>/auth/mcp/calendar/callback?state=…&code=…
+```
+
+The bare `code` value works too. Either form is accepted only against a pending login the owner started within the last ten minutes, and the code is spent by the exchange; a second paste of the same one fails. The callback route itself still requires a matching `state`, since it is the one path an unauthenticated caller can reach.
+
 ## Editing servers without a file
 
 Both the web settings panel and Telegram's `/mcp` command write through the same `internal/config` helpers, under the same lock and validation. HTTP servers can be added, edited, enabled, disabled, and removed from either. stdio servers are file-only: a subprocess command line is not a chat argument or a web form field.

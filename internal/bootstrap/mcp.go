@@ -66,19 +66,26 @@ func mcpCallbackHandler(manager *mcpadapter.Manager) http.Handler {
 		return nil
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Query().Get("error") != "" {
-			http.Error(response, "MCP authorization was denied", http.StatusBadRequest)
+		if failure := request.URL.Query().Get("error"); failure != "" {
+			http.Error(response, "MCP authorization was denied: "+failure, http.StatusBadRequest)
 			return
 		}
 		server := request.PathValue("server")
 		code := request.URL.Query().Get("code")
 		state := request.URL.Query().Get("state")
+		// This route is unauthenticated -- it has to be, the authorization
+		// server redirects a browser here -- so the state must be present and
+		// match. Only the pasted form in /mcp login may omit it.
 		if code == "" || state == "" {
 			http.Error(response, "missing MCP authorization response", http.StatusBadRequest)
 			return
 		}
 		if err := manager.CompleteLogin(request.Context(), server, code, state); err != nil {
-			http.Error(response, "MCP authorization failed", http.StatusBadRequest)
+			// Reaching the exchange at all took a state this process issued
+			// minutes ago, so the reason is worth showing: the owner is the
+			// one holding the browser, and "authorization failed" alone has
+			// them guessing between the client, the redirect and the clock.
+			http.Error(response, "MCP authorization failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -116,6 +123,10 @@ func (a *mcpAdmin) Statuses() []commands.MCPStatus {
 
 func (a *mcpAdmin) BeginLogin(ctx context.Context, server string) (string, error) {
 	return a.manager.BeginLogin(ctx, server)
+}
+
+func (a *mcpAdmin) CompleteLogin(ctx context.Context, server, code, state string) error {
+	return a.manager.CompleteLogin(ctx, server, code, state)
 }
 
 func (a *mcpAdmin) Logout(server string) error { return a.manager.Logout(server) }

@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,8 +21,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/authfile"
-	"github.com/nigelteosw/eggy/plugins/calendar/google"
 	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
@@ -45,9 +42,6 @@ type AppOptions struct {
 	TelegramBaseURL  string
 	ProviderBaseURLs map[string]string
 	GitHubAPIBase    string
-	GoogleAuthURL    string
-	GoogleTokenURL   string
-	GoogleAPIBase    string
 	ConfigPath       string
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -173,7 +167,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			}
 		}
 	}
-	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.GoogleClientSecret, secrets.EncryptionKey, secrets.UIPassword}
+	activeSecrets := []string{secrets.TelegramBotToken, secrets.TelegramWebhookSecret, secrets.GitHubToken, secrets.EncryptionKey, secrets.UIPassword}
 	for _, secret := range secrets.ProviderAPIKeys {
 		activeSecrets = append(activeSecrets, secret)
 	}
@@ -253,46 +247,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerAll(registry, scheduleTools(app.scheduler, options.Now)...); err != nil {
 		return nil, err
 	}
-	// Calendar is the one native product adapter: its mutations carry
-	// payload-bound approvals, which a configured MCP server cannot express.
-	// An empty calendar config section is the off switch -- no tools, no OAuth
-	// routes, no prompt bytes.
-	var googleStart, googleCallback http.Handler
-	if config.Calendar.Configured() {
-		cipher, err := google.NewTokenCipher(secrets.EncryptionKey)
-		if err != nil {
-			return nil, err
-		}
-		// The refresh token lives in auth.json beside the MCP OAuth records,
-		// opened here rather than held on App: only these closures need it.
-		calendarAuth := authfile.Open(layout.Auth()).Calendar()
-		googleAdapter := google.NewAdapter(google.AdapterConfig{
-			ClientID: secrets.GoogleClientID, ClientSecret: secrets.GoogleClientSecret,
-			RedirectURL: config.Server.PublicBaseURL + "/auth/google/callback",
-			AuthURL:     options.GoogleAuthURL, TokenURL: options.GoogleTokenURL, APIBase: options.GoogleAPIBase,
-			Cipher: cipher, Auth: calendarAuth, HTTPClient: options.HTTPClient,
-		})
-		calendarService := services.NewCalendarService(googleAdapter, app.approvals, app.approvals)
-		// One executor per action: approving a create can never execute an
-		// update or a delete.
-		app.approvalExecutors[approvals.CalendarCreate] = calendarService
-		app.approvalExecutors[approvals.CalendarUpdate] = calendarService
-		app.approvalExecutors[approvals.CalendarDelete] = calendarService
-		key, err := base64.StdEncoding.DecodeString(secrets.EncryptionKey)
-		if err != nil {
-			return nil, err
-		}
-		googleStart, googleCallback = google.NewOAuthHandlers(googleAdapter, calendarAuth, key, options.Now)
-		if err := registerAll(registry, services.NewCalendarTools(calendarService, services.CalendarToolOptions{
-			DefaultCalendar: config.Calendar.DefaultCalendar,
-			Now:             options.Now,
-			Location:        location,
-			Timezone:        timezone,
-			DeliverApproval: app.channel.DeliverApproval,
-		})...); err != nil {
-			return nil, err
-		}
-	}
 	if app.mcp != nil {
 		// The catalog is read per turn rather than copied, so a reconnected
 		// server, a reloaded catalog, or a logout changes the tools the next
@@ -364,8 +318,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.httpHandler = web.NewHTTPHandler(web.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath, Telegram: webhook,
 		MCPCallback: mcpCallbackHandler(app.mcp),
-		GoogleStart: googleStart, GoogleCallback: googleCallback,
-		Web: webHandler,
+		Web:         webHandler,
 	})
 	if telegramClient != nil {
 		autocomplete := commands.TelegramAutocomplete()

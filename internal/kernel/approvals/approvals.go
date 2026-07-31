@@ -14,16 +14,12 @@ var (
 	ErrPayloadMismatch = errors.New("approval payload changed")
 )
 
+// Action names one protected operation. An approval authorizes exactly one
+// Action against one payload digest, so approving a deletion never authorizes
+// a different deletion and never authorizes a create or update. No action is
+// declared here today: the mechanism outlives any particular caller, and each
+// protected surface registers its own executor in bootstrap.
 type Action string
-
-// Each Action is one protected operation. An approval authorizes exactly one
-// of these against one payload digest: approving a calendar deletion never
-// authorizes a different deletion, and never authorizes a create or update.
-const (
-	CalendarCreate Action = "calendar_create"
-	CalendarUpdate Action = "calendar_update"
-	CalendarDelete Action = "calendar_delete"
-)
 
 type Status string
 

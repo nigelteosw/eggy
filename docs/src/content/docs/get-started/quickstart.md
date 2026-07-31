@@ -65,4 +65,4 @@ curl http://localhost:8080/readyz
 
 `healthz` proves the HTTP process is alive. `readyz` also checks adapter readiness.
 
-Open `http://localhost:8080/` for web chat when web credentials are configured. Calendar enrollment begins at `/auth/google`; MCP OAuth callbacks use `/auth/mcp/{server}/callback`.
+Open `http://localhost:8080/` for web chat when web credentials are configured. MCP OAuth callbacks use `/auth/mcp/{server}/callback`.

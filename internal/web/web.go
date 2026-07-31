@@ -109,9 +109,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{
-		"providers", "models", "calendar",
-	} {
+	for _, section := range []string{"providers", "models"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
@@ -231,8 +229,6 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 				model := cfg.ModelAliases[alias]
 				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", ")})
 			}
-		case "calendar":
-			result.Fields = []webField{{Label: "Default calendar", Value: cfg.Calendar.DefaultCalendar}}
 		}
 		writeWebResult(w, result)
 	}
@@ -254,9 +250,6 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 		case "models":
 			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
 			title = "Set model " + named["alias"] + "."
-		case "calendar":
-			err = config.SetCalendar(configPath, named["default_calendar"])
-			title = "Set calendar."
 		}
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())

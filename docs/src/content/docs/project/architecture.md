@@ -17,7 +17,6 @@ flowchart TB
   Turns --> Loop[Agent loop]
   Loop --> Model[Model port]
   Loop --> Tools[Tool registry]
-  Tools --> Calendar[Native Calendar]
   Tools --> MCP[MCP servers]
   Tools --> Repos[Read-only repositories]
   Turns --> Stores[State, context, memory, schedules]
@@ -42,7 +41,7 @@ The direction `config ← web ← bootstrap` is one-way. Config and web never im
 
 ## Runtime composition
 
-Optional capabilities are absent when unconfigured. No Calendar config means no Calendar tools or routes. No Telegram owner means a web-only channel. Disabled MCP servers expose no remote tools.
+Optional capabilities are absent when unconfigured. No Telegram owner means a web-only channel. Disabled MCP servers expose no remote tools.
 
 The agent loop validates tool input, bounds tool steps, and sends only the effective tool set for that turn. Direct owner turns and scheduled turns receive different authority.
 

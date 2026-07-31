@@ -15,13 +15,11 @@ import (
 // of handlers, silently ignores all but the first, and gives the reader no
 // name for what it carries.
 type Routes struct {
-	Ready          func() error
-	TelegramPath   string
-	Telegram       http.Handler
-	MCPCallback    http.Handler
-	GoogleStart    http.Handler
-	GoogleCallback http.Handler
-	Web            http.Handler
+	Ready        func() error
+	TelegramPath string
+	Telegram     http.Handler
+	MCPCallback  http.Handler
+	Web          http.Handler
 }
 
 // DefaultTelegramWebhookPath is used when Routes.TelegramPath is empty.
@@ -58,12 +56,6 @@ func NewHTTPHandler(routes Routes) http.Handler {
 	}
 	if routes.MCPCallback != nil {
 		mux.Handle("GET /auth/mcp/{server}/callback", routes.MCPCallback)
-	}
-	if routes.GoogleStart != nil {
-		mux.Handle("GET /auth/google", routes.GoogleStart)
-	}
-	if routes.GoogleCallback != nil {
-		mux.Handle("GET /auth/google/callback", routes.GoogleCallback)
 	}
 	if web != nil {
 		mux.Handle("/", web)

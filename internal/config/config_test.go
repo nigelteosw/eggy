@@ -340,34 +340,13 @@ func TestLoadConfigRejectsRemovedFeatureSections(t *testing.T) {
 	}
 }
 
-// The calendar section is default_calendar only. The pre-simplification shape
-// carried enabled and timezone; a deployment still holding those keys must fail
-// loudly at startup rather than silently loading Calendar as unconfigured.
-func TestLoadConfigCalendarSectionShape(t *testing.T) {
-	cfg, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n", testSecrets())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Calendar.DefaultCalendar != "primary" || !cfg.Calendar.Configured() {
-		t.Fatalf("calendar not loaded: %+v", cfg.Calendar)
-	}
-
-	if _, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n  enabled: true\n", testSecrets()); err == nil {
-		t.Fatal("stale calendar.enabled key was accepted")
-	}
-	if _, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n  timezone: Asia/Singapore\n", testSecrets()); err == nil {
-		t.Fatal("stale calendar.timezone key was accepted")
-	}
-
-	// A configured Calendar needs its OAuth client and the encryption key that
-	// protects the stored refresh token.
-	for _, missing := range []string{"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "EGGY_ENCRYPTION_KEY"} {
-		env := testSecrets()
-		delete(env, missing)
-		_, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n", env)
-		if err == nil || !strings.Contains(err.Error(), missing) {
-			t.Fatalf("configured calendar without %s: err=%v", missing, err)
-		}
+// Native Calendar is gone -- a calendar server is configured under mcp like
+// any other capability. A deployment still holding the section must fail
+// loudly here rather than load with a silently ignored key; LoadOrCreateConfig
+// prunes it as a retired field instead (see config_init_test.go).
+func TestLoadConfigRejectsRetiredCalendarSection(t *testing.T) {
+	if _, _, err := loadText(t, validConfig()+"calendar:\n  default_calendar: primary\n", testSecrets()); err == nil {
+		t.Fatal("retired calendar section was accepted")
 	}
 }
 
@@ -469,8 +448,6 @@ func testSecrets() map[string]string {
 		"TELEGRAM_WEBHOOK_SECRET": "webhook-secret",
 		"DEEPSEEK_API_KEY":        "deepseek-key",
 		"GITHUB_TOKEN":            "github-token",
-		"GOOGLE_CLIENT_ID":        "google-client",
-		"GOOGLE_CLIENT_SECRET":    "google-secret",
 		"EGGY_ENCRYPTION_KEY":     "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 	}
 }

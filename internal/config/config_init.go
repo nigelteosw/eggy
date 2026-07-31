@@ -46,15 +46,14 @@ var retiredConfigFields = [][]string{
 	{"embeddings"},              // semantic recall
 	{"implementation_sessions"}, // agent shell sessions
 	{"scheduler"},               // heartbeat and proactive messaging
-	{"calendar", "enabled"},     // a configured default_calendar is the switch
-	{"calendar", "timezone"},    // carried over to agent.timezone below
+	{"calendar"},                // native Calendar; use an MCP calendar server
 }
 
 // carryOverCalendarTimezone moves a retired calendar.timezone to agent.timezone
-// before the prune removes it. One clock now resolves every relative range, and
-// the calendar's was the only one an older config stated out loud: dropping it
-// would silently move an owner in Asia/Singapore onto the UTC default. An
-// agent.timezone already present wins -- it is the current setting.
+// before the prune removes the whole section. One clock resolves every relative
+// range, and the calendar's was the only one an older config stated out loud:
+// dropping it would silently move an owner in Asia/Singapore onto the UTC
+// default. An agent.timezone already present wins -- it is the current setting.
 func carryOverCalendarTimezone(root *yaml.Node) bool {
 	timezone := mappingValue(mappingValue(root, "calendar"), "timezone")
 	if timezone == nil || strings.TrimSpace(timezone.Value) == "" {

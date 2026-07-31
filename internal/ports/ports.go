@@ -393,56 +393,6 @@ type RepositoryReader interface {
 	Checks(ctx context.Context, repository Repository, ref string) ([]CheckRun, error)
 }
 
-// CalendarAuthStore persists the owner's Google Calendar OAuth credential.
-// It is deliberately separate from StateStore: the credential lives in
-// auth.json alongside every other provider credential, not in the runtime
-// state file (see plugins/auth/authfile).
-type CalendarAuthStore interface {
-	Load(context.Context) (CalendarAuth, error)
-	Update(context.Context, func(*CalendarAuth) error) error
-}
-
-type CalendarAuth struct {
-	EncryptedRefreshToken string    `json:"encrypted_refresh_token,omitempty"`
-	TokenExpiry           time.Time `json:"token_expiry,omitempty"`
-	EnrollmentDigest      string    `json:"enrollment_digest,omitempty"`
-	EnrollmentExpires     time.Time `json:"enrollment_expires,omitempty"`
-}
-
-type CalendarEvent struct {
-	ID             string    `json:"id,omitempty"`
-	CalendarID     string    `json:"calendar_id"`
-	Title          string    `json:"title"`
-	Description    string    `json:"description,omitempty"`
-	Start          time.Time `json:"start"`
-	End            time.Time `json:"end"`
-	Participants   []string  `json:"participants,omitempty"`
-	ETag           string    `json:"etag,omitempty"`
-	IdempotencyKey string    `json:"idempotency_key,omitempty"`
-	// URL is the provider's own web link for viewing this event (e.g.
-	// Google Calendar's htmlLink), populated by List/Create/Update -- never
-	// sent back on a mutation request, since it is provider-assigned.
-	URL string `json:"url,omitempty"`
-}
-
-type CalendarInfo struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	AccessRole string `json:"access_role"`
-	Primary    bool   `json:"primary"`
-	Hidden     bool   `json:"hidden"`
-}
-
-type CalendarProvider interface {
-	AuthorizationURL(string) string
-	ExchangeCode(context.Context, string) (CalendarAuth, error)
-	ListCalendars(context.Context) ([]CalendarInfo, error)
-	List(context.Context, string, time.Time, time.Time) ([]CalendarEvent, error)
-	Create(context.Context, CalendarEvent) (CalendarEvent, error)
-	Update(context.Context, CalendarEvent) (CalendarEvent, error)
-	Delete(context.Context, string, string, string) error
-}
-
 type ApprovalPolicy interface {
 	Authorize(context.Context, approvals.Action, any, string) error
 }

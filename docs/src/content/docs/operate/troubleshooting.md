@@ -15,7 +15,6 @@ Run the daemon in the foreground and read the first configuration error. Common 
 - a missing provider key named by `api_key_env`;
 - Telegram configured without both Telegram secrets;
 - web credentials set partially or without `EGGY_ENCRYPTION_KEY`;
-- Calendar enabled without Google credentials;
 - a configured repository that cannot be cloned or whose base branch is absent.
 
 ## Telegram returns 204 but no reply arrives
@@ -28,10 +27,6 @@ Run the daemon in the foreground and read the first configuration error. Common 
 4. `EGGY_FAKE_ADAPTERS` is not `1`;
 5. model-provider credentials and completion logs;
 6. outbound Telegram API errors.
-
-## Calendar tools are absent
-
-Confirm `calendar.default_calendar` is non-empty, all three Calendar secrets are set, the daemon restarted, and `/auth/google` completed successfully.
 
 ## MCP tools are absent
 

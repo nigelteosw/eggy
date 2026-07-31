@@ -26,7 +26,7 @@ After login you can:
 - load durable message history;
 - stream an in-progress assistant reply;
 - send a new owner message;
-- approve or reject a pending Calendar action.
+- approve or reject a pending protected action.
 
 Conversation threads are owner-scoped. Successful direct turns are stored in `eggy.db`.
 
@@ -36,7 +36,6 @@ The settings panel reads and updates:
 
 - providers;
 - model aliases and supported reasoning effort values;
-- the native Calendar default;
 - MCP server definitions.
 
 Changes are written to `config.yaml`. Restart `eggyd` to reconstruct adapters and apply them. Secrets are never returned through the configuration API.

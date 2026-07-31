@@ -26,8 +26,7 @@ route, no prompt bytes.
 - at least one chat surface.
 
 **Configurable (absent unless configured):** Telegram channel, web chat and
-settings, read-only repository inspection, MCP servers, schedules, native
-Calendar.
+settings, read-only repository inspection, MCP servers, schedules.
 
 **Extension mechanism:** MCP for capabilities, Markdown skills for procedure.
 A native adapter is otherwise only justified when a port must stay
@@ -35,53 +34,40 @@ provider-neutral (models, channels, storage), or when a capability needs
 per-call authorization that MCP structurally cannot give it. New product
 features do not get compiled in.
 
-**Calendar is the one deliberate native product adapter.** It is in daily use,
-and its mutations carry independent payload-bound approvals — an MCP calendar
-server would be trusted wholesale at configuration time, with no prompt when
-the agent moves or deletes a real event. That safety difference, not
-convenience, is what earns it a place in the binary. Anything else asking for
-the same exemption must make the same argument.
+**There is no native product adapter left.** Calendar was the one exemption,
+justified by payload-bound approvals an MCP server cannot express; it was
+deleted on 2026-07-31 in favour of a configured Google Calendar MCP server.
+The consequence is explicit: calendar mutations now carry no per-call
+approval, because a configured MCP server is trusted wholesale. Approval-gated
+MCP tools (P2 below) is what would close that gap. Anything asking to be
+compiled in again must make the argument Calendar no longer gets to make.
 
-## Measured post-P0 baseline (2026-07-30)
+## Measured baseline (2026-07-31, Calendar deleted)
 
-- 12,299 production Go lines and 10,788 test lines;
-- largest remaining packages: `internal/kernel/services` 1,682,
-  `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,276, `internal/config`
-  1,107, and `internal/web` 692;
-- 7 kernel tools without Telegram, repositories, or MCP; 12 with repositories,
-  and 13 with Telegram too, before the configured MCP catalog;
-- 64 YAML-tagged config fields and 21 HTTP route registrations;
+Counted as non-test `.go` outside `docs/` and `website/`:
+
+- 12,803 production Go lines and 11,216 test lines;
+- largest packages: `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,323,
+  `internal/config` 1,302, `internal/kernel/services` 1,105, and
+  `internal/web` 835;
+- 64 YAML-tagged fields in `internal/config/config.go`;
 - machine-managed persistence still spans `state.json`, `auth.json`, `cron/`,
   and `eggy.db`; Markdown context and skills remain files by design.
 
-These figures were taken with Calendar deleted. Restoring it (below) adds back
-roughly 1,100 production lines and its config section; every other number in
-this file already accounts for that.
+Tool counts and HTTP route registrations are not re-counted here; that is the
+P2 re-measurement below, and it should be done once rather than guessed at
+twice.
 
 ## Targets for this pass
 
-- **≤ 12,500 production Go lines** excluding generated web assets — the
-  post-P0 figure above plus the restored Calendar adapter and no more;
+- **≤ 12,500 production Go lines** excluding generated web assets — currently
+  over, at 12,803;
 - **≤ 6 tools** in the default core; **≤ 13** with Telegram and repositories
-  configured; **≤ 4** additional Calendar tools; MCP counted separately;
+  configured; MCP counted separately;
 - **three durable forms**: YAML for startup config, Markdown for owner-facing
   documents, SQLite for everything machine-managed;
 - **≤ 50 config fields**;
 - **one** runtime administration surface.
-
----
-
-## P0: Consolidate the Calendar tool surface
-
-Calendar is restored and wired (five tools, payload-bound approvals, tools
-beside `CalendarService`, absence as the off switch). One reduction remains.
-
-- [ ] Consolidate the five `calendar_*` tools into at most three.
-      `calendar_calendars` is a lookup that belongs inside `calendar_list`'s
-      response; create/update/delete can be one mutation tool with an explicit
-      operation. Each mutation keeps its own `approvals.Action`, its own
-      executor, and its own payload-bound approval — one tool must not become
-      one blanket authorization.
 
 ---
 
@@ -92,7 +78,7 @@ and validated in one place.
 
 - [ ] Collapse `internal/config` (now 1,107 lines, 64 YAML-tagged fields) to
       the sections that survive: `server`, `data_dir`, `agent`, `providers`,
-      `models`, `telegram`, `repositories`, `runner`, `calendar`, `mcp`. Delete
+      `models`, `telegram`, `repositories`, `runner`, `mcp`. Delete
       `commonConfigDocument`/`configDocument` duality once no legacy shape
       needs reading.
 - [ ] Reject unknown keys with a message naming the key and the nearest valid
@@ -130,9 +116,7 @@ explicit migration, never a silent break.
 ## P1: Bootstrap composes, nothing more
 
 - [ ] Move surviving tool definitions and input decoding next to the service
-      that owns them, `internal/bootstrap/assistant_tools.go` included. The
-      restored Calendar tools go beside `CalendarService`, not back into
-      bootstrap.
+      that owns them, `internal/bootstrap/assistant_tools.go` included.
 - [ ] Make model adapter construction one selector function keyed by
       `ProviderConfig.Adapter`. A new provider adds one plugin package and one
       case.
@@ -163,15 +147,14 @@ behavior and no other adapter.
       invisible-Unicode content before durable context writes.
 - [ ] Do not describe lexical workspace containment as a sandbox. If isolation
       is needed for repository or stdio-MCP subprocesses, it is a container.
-- [ ] Evaluate **approval-gated MCP tools**: a per-server
+- [ ] Build **approval-gated MCP tools**: a per-server
       `require_approval: [tool names]` list that routes a matching call through
       the existing approval flow, rendering the tool's arguments as the bound
-      payload. This is the only thing that would let Calendar — or any future
-      product capability — leave the binary without losing per-call
-      authorization. Cost is a payload presenter for arbitrary MCP arguments
-      and the loss of typed handling (timezones, relative ranges) the native
-      service does today. Do not attempt it in the same pass as the Calendar
-      restore.
+      payload. With Calendar deleted this is no longer hypothetical — it is the
+      only way a configured calendar (or any other mutating server) regains
+      per-call authorization instead of being trusted wholesale. Cost is a
+      payload presenter for arbitrary MCP arguments, and typed handling
+      (timezones, relative ranges) is not coming back.
 
 ---
 
@@ -211,11 +194,15 @@ hand.
 
 - [ ] Set `server.trusted_proxy_hops: 1` in Railway's `/data/config.yaml`.
 - [ ] Reset Railway's `/data/config.yaml` to the current shape **before the
-      next deploy**. The sweep removed the `scheduler`, `embeddings`, and
-      `implementation_sessions` sections, and `calendar` is now
-      `default_calendar` only — no `enabled`, no `timezone`. The loader uses
+      next deploy**. The sweep removed the `scheduler`, `embeddings`,
+      `implementation_sessions`, and `calendar` sections. The loader uses
       `KnownFields(true)`, so a stale key fails startup rather than being
-      ignored.
+      ignored — though `LoadOrCreateConfig` prunes these particular retired
+      sections in place first, carrying `calendar.timezone` over to
+      `agent.timezone`.
+- [ ] Configure a Google Calendar MCP server to replace the deleted native
+      adapter, and drop `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from
+      Railway's environment — nothing reads them now.
 
 ---
 
@@ -245,8 +232,9 @@ hand.
 
 - Telegram keeps webhook authentication, owner allowlisting, and update
   deduplication.
-- Calendar mutations retain independent payload-bound approvals. Consolidating
-  the calendar tools never consolidates their approvals.
+- Any protected mutation retains an independent payload-bound approval, with
+  one `approvals.Action` and one executor per operation. Consolidating tools
+  never consolidates their approvals.
 - Generic Telegram selections can never satisfy an approval, authorize a
   mutation, or be read as approve/reject.
 - Eggy has no repository commit, push, pull-request, or merge capability. If

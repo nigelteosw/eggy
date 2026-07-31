@@ -24,7 +24,7 @@ export const navigation: readonly DocNavGroup[] = [
       { title: "Web chat", path: "/use/web-chat", description: "Chat with Eggy in the authenticated web UI." },
       { title: "Telegram", path: "/use/telegram", description: "Use Eggy's direct Telegram commands and selections." },
       { title: "Models and reasoning effort", path: "/use/models", description: "Select configured model aliases." },
-      { title: "Approvals and protected actions", path: "/use/approvals", description: "Understand payload-bound Calendar approvals." },
+      { title: "Approvals and protected actions", path: "/use/approvals", description: "Understand payload-bound approvals and what they authorize." },
     ],
   },
   {
@@ -32,7 +32,6 @@ export const navigation: readonly DocNavGroup[] = [
     items: [
       { title: "Configuration overview", path: "/configure/configuration", description: "Configure the daemon without storing secrets in YAML." },
       { title: "Model providers", path: "/configure/model-providers", description: "Connect OpenAI-compatible model providers." },
-      { title: "Google Calendar", path: "/configure/google-calendar", description: "Enable native Calendar reads and approved mutations." },
       { title: "MCP servers", path: "/configure/mcp-servers", description: "Connect trusted HTTP or stdio MCP servers." },
       { title: "Repository inspection", path: "/configure/repositories", description: "Configure trusted read-only repository access." },
     ],

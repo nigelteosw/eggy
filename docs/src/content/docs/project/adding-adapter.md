@@ -42,4 +42,4 @@ Add fake-adapter wiring when the capability participates in integration or Docke
 
 Keep repository mutation and shipping out of generic tools and Telegram selections. Preserve path, environment, timeout, output, and process-group restrictions.
 
-Calendar tools may be consolidated internally, but each mutation retains one independent approval action and one executor.
+A protected mutation retains one independent approval action and one executor per operation; tools may be consolidated, approvals may not.

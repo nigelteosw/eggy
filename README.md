@@ -27,27 +27,8 @@ Selections are transient, expire after ten minutes, and never authorize a
 protected action.
 
 The authenticated web UI provides chat and the one runtime administration
-surface. Its settings panel edits providers, model aliases, the default
-calendar, and MCP servers directly in `config.yaml`; changes take effect after
-restarting `eggyd`.
-
-## Calendar
-
-Native Google Calendar is the one compiled-in product capability, because its
-mutations carry approvals a configured MCP server cannot express: creating,
-moving, or deleting an event requests an approval bound to that one event's
-payload, and approving it authorizes nothing else.
-
-Reads (`calendar_list`, `calendar_calendars`) run directly and cover every
-non-hidden readable calendar. Mutations (`calendar_create`, `calendar_update`,
-`calendar_delete`) only ever return `awaiting_owner`; the change happens after
-the owner approves. Relative ranges like `today` and `this_week` are resolved
-against `agent.timezone` on Eggy's own clock, not the model's.
-
-Set `calendar.default_calendar` in `config.yaml`, provide `GOOGLE_CLIENT_ID`,
-`GOOGLE_CLIENT_SECRET`, and `EGGY_ENCRYPTION_KEY`, then connect the account at
-`/auth/google`. Omit the `calendar` section and Calendar is entirely absent —
-no tools, no OAuth routes, no prompt bytes.
+surface. Its settings panel edits providers, model aliases, and MCP servers
+directly in `config.yaml`; changes take effect after restarting `eggyd`.
 
 ## Repository inspection
 
@@ -97,7 +78,7 @@ The home directory (normally `/data` on Railway) contains:
 - `SOUL.md`, `memories/USER.md`, and `memories/MEMORY.md` for owner-readable
   context;
 - `eggy.db` for conversation/thread memory;
-- `state.json`, `auth.json` (encrypted Calendar and MCP OAuth credentials), and
+- `state.json`, `auth.json` (encrypted MCP OAuth credentials), and
   `cron/` for remaining operational records pending the SQLite consolidation
   tracked in `TODO.md`;
 - `skills/` for reviewed procedural skill files;

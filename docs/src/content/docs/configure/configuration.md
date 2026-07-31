@@ -19,7 +19,6 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `models` | Owner-facing model aliases |
 | `repositories` | Trusted read-only Git repositories |
 | `runner` | Checkout root, timeout, retention, output, and environment bounds |
-| `calendar` | Optional native Google Calendar default |
 | `mcp` | Optional trusted remote or local servers |
 
 ## Secrets

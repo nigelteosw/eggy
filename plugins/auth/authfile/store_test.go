@@ -1,15 +1,11 @@
 package authfile
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
-
-	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func newStore(t *testing.T) *Store {
@@ -44,23 +40,25 @@ func TestWriteAndReadRoundTripsAndIsOwnerOnly(t *testing.T) {
 }
 
 // TestSectionsDoNotClobberEachOther proves the shared document is safe for
-// two adapters: writing an MCP record must not disturb the calendar
-// credential sitting in the same file.
+// two adapters: writing one section's record must not disturb a credential
+// another adapter is holding in the same file.
 func TestSectionsDoNotClobberEachOther(t *testing.T) {
 	store := newStore(t)
-	expiry := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
-	if err := store.Calendar().Update(context.Background(), func(auth *ports.CalendarAuth) error {
-		auth.EncryptedRefreshToken, auth.TokenExpiry = "sealed", expiry
-		return nil
-	}); err != nil {
+	if err := store.Write("tokens", "github", json.RawMessage(`{"ciphertext":"sealed"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Write("mcp", "railway", json.RawMessage(`{"ciphertext":"abc"}`)); err != nil {
 		t.Fatal(err)
 	}
-	auth, err := store.Calendar().Load(context.Background())
-	if err != nil || auth.EncryptedRefreshToken != "sealed" || !auth.TokenExpiry.Equal(expiry) {
-		t.Fatalf("calendar=%#v err=%v", auth, err)
+	body, err := store.Read("tokens", "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record struct {
+		Ciphertext string `json:"ciphertext"`
+	}
+	if err := json.Unmarshal(body, &record); err != nil || record.Ciphertext != "sealed" {
+		t.Fatalf("tokens=%s err=%v", body, err)
 	}
 	if _, err := store.Read("mcp", "railway"); err != nil {
 		t.Fatal(err)
@@ -94,15 +92,6 @@ func TestInvalidNamesAreRejected(t *testing.T) {
 		if err := store.Write("mcp", name, json.RawMessage(`{}`)); err == nil {
 			t.Fatalf("key %q was accepted", name)
 		}
-	}
-}
-
-// TestCalendarLoadOnEmptyFileIsZeroNotAnError proves a fresh home reads as
-// "not authorized yet" rather than failing the boot.
-func TestCalendarLoadOnEmptyFileIsZeroNotAnError(t *testing.T) {
-	auth, err := newStore(t).Calendar().Load(context.Background())
-	if err != nil || auth != (ports.CalendarAuth{}) {
-		t.Fatalf("auth=%#v err=%v", auth, err)
 	}
 }
 

@@ -40,20 +40,8 @@ type Config struct {
 	ModelAliases map[string]ModelAliasConfig `yaml:"-"`
 	Repositories []RepositoryConfig          `yaml:"repositories"`
 	Runner       RunnerConfig                `yaml:"runner"`
-	Calendar     CalendarConfig              `yaml:"calendar,omitempty"`
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
 }
-
-// CalendarConfig configures the native Google Calendar integration. An empty
-// section is the off switch: with no default_calendar there are no calendar
-// tools, no OAuth routes, and no prompt bytes. Event times are read and
-// written in agent.timezone.
-type CalendarConfig struct {
-	DefaultCalendar string `yaml:"default_calendar,omitempty"`
-}
-
-// Configured reports whether Calendar should be wired at all.
-func (c CalendarConfig) Configured() bool { return strings.TrimSpace(c.DefaultCalendar) != "" }
 
 type AgentConfig struct {
 	DefaultModel string `yaml:"default_model"`
@@ -170,8 +158,6 @@ type Secrets struct {
 	TelegramWebhookSecret string
 	ProviderAPIKeys       map[string]string
 	GitHubToken           string
-	GoogleClientID        string
-	GoogleClientSecret    string
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
 	UIUserEmail           string
@@ -183,7 +169,7 @@ type Secrets struct {
 func (s Secrets) Values() []string {
 	values := []string{
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
-		s.GoogleClientID, s.GoogleClientSecret, s.EncryptionKey,
+		s.EncryptionKey,
 		s.UIPassword,
 	}
 	for _, key := range s.ProviderAPIKeys {
@@ -208,7 +194,6 @@ type commonConfigDocument struct {
 	Telegram     TelegramConfig     `yaml:"telegram,omitempty"`
 	Repositories []RepositoryConfig `yaml:"repositories"`
 	Runner       RunnerConfig       `yaml:"runner"`
-	Calendar     CalendarConfig     `yaml:"calendar,omitempty"`
 	MCP          MCPConfig          `yaml:"mcp,omitempty"`
 }
 
@@ -228,14 +213,12 @@ type configDocument struct {
 func SecretsFromEnv(getenv func(string) string) Secrets {
 	return Secrets{
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
-		GitHubToken:        getenv("GITHUB_TOKEN"),
-		GoogleClientID:     getenv("GOOGLE_CLIENT_ID"),
-		GoogleClientSecret: getenv("GOOGLE_CLIENT_SECRET"),
-		EncryptionKey:      getenv("EGGY_ENCRYPTION_KEY"),
-		UIUserEmail:        getenv("EGGY_UI_USER_EMAIL"),
-		UIPassword:         getenv("EGGY_UI_PASSWORD"),
-		ProviderAPIKeys:    map[string]string{},
-		MCPBearerTokens:    map[string]string{},
+		GitHubToken:     getenv("GITHUB_TOKEN"),
+		EncryptionKey:   getenv("EGGY_ENCRYPTION_KEY"),
+		UIUserEmail:     getenv("EGGY_UI_USER_EMAIL"),
+		UIPassword:      getenv("EGGY_UI_PASSWORD"),
+		ProviderAPIKeys: map[string]string{},
+		MCPBearerTokens: map[string]string{},
 	}
 }
 
@@ -285,12 +268,12 @@ func normalizeConfig(document configDocument) Config {
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
-		Repositories: common.Repositories, Runner: common.Runner, Calendar: common.Calendar, MCP: common.MCP,
+		Repositories: common.Repositories, Runner: common.Runner, MCP: common.MCP,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, Calendar: c.Calendar, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, MCP: c.MCP}
 }
 
 func (c Config) MarshalYAML() (any, error) {
@@ -629,12 +612,6 @@ func (c Config) validateSecrets(s Secrets) error {
 	}
 	if len(c.Repositories) > 0 {
 		required = append(required, struct{ name, value string }{"GITHUB_TOKEN", s.GitHubToken})
-	}
-	if c.Calendar.Configured() {
-		required = append(required,
-			struct{ name, value string }{"GOOGLE_CLIENT_ID", s.GoogleClientID},
-			struct{ name, value string }{"GOOGLE_CLIENT_SECRET", s.GoogleClientSecret},
-			struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
 	}
 	for name, server := range c.MCP.Servers {
 		if !server.Enabled {

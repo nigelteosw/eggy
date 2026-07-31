@@ -14,7 +14,7 @@ Telegram accepts one configured numeric owner. Web chat requires the configured 
 
 Secret values come from environment variables or `.env`, not YAML. Provider credentials remain inside adapters. Logger setup receives the loaded secret set and redacts it from output.
 
-Calendar and MCP OAuth records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`.
+MCP OAuth records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`, which also signs web UI session cookies.
 
 ## Repository boundary
 
@@ -24,7 +24,7 @@ The local runner is a restricted process boundary, not a container boundary. A s
 
 ## Side effects
 
-Native Calendar writes require independent, payload-bound approvals. Reads do not. Telegram selections cannot authorize mutations.
+Eggy ships no protected action today; MCP tools are trusted at configuration time and carry no per-call approval. Telegram selections cannot authorize mutations.
 
 MCP servers are trusted wholesale when configured because Eggy cannot place a reliable per-call approval boundary around an arbitrary server's behavior. Narrow their tools with exact filters.
 

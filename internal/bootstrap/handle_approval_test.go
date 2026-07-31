@@ -97,11 +97,9 @@ func TestHandleApprovalFallsBackToNewMessageWhenEditFails(t *testing.T) {
 // this, handleApproval returned any Decide/executor-lookup/ExecuteApproved
 // error straight to Run's event-loop goroutine, which only logs it -- the
 // owner who tapped Approve saw nothing at all, with no way to tell a bug
-// apart from an ordinary provider failure (e.g. an expired Calendar OAuth
-// token). Approving a CalendarCreate here with no calendar executor
-// registered (appTestConfig leaves Calendar disabled) reproduces that
-// "unknown approval action" failure path and asserts it now reaches the
-// owner.
+// apart from an ordinary provider failure (e.g. an expired OAuth token).
+// Approving an action with no executor registered reproduces that "unknown
+// approval action" failure path and asserts it now reaches the owner.
 func TestHandleApprovalDeliversFailureMessageWhenExecutionFails(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	var delivered []byte

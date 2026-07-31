@@ -45,7 +45,6 @@ For a persistent hosted instance, continue to [Deploy on Railway](/eggy/get-star
 - Switch among configured model aliases.
 - Remember successful conversation turns in an embedded SQLite database.
 - Read owner-maintained identity and memory from Markdown.
-- Read Google Calendar and request narrow approvals for event mutations.
 - Inspect configured GitHub repositories without changing them.
 - Connect trusted MCP servers over Streamable HTTP or stdio.
 - Create exact and recurring schedules for agent turns or deterministic reminders.
@@ -64,24 +63,23 @@ Web chat / Telegram
         │                       │
         └──── bounded tools ◄───┘
                   │
-        Calendar · MCP · repos
+        MCP · repos
                   │
                   ▼
           durable /data home
 ```
 
-The kernel knows only provider-neutral ports. Concrete model, channel, Calendar, repository, scheduler, memory, and MCP implementations live in adapter packages and are composed at startup.
+The kernel knows only provider-neutral ports. Concrete model, channel, repository, scheduler, memory, and MCP implementations live in adapter packages and are composed at startup.
 
 ## Deliberate boundaries
 
 Configured repositories are trusted inputs, but repository access is read-only. Eggy can clone, open, and inspect a checkout; it cannot edit files, run an agent shell, commit, push, or open a pull request.
 
-Calendar mutations are different. Creating, updating, and deleting an event are compiled-in capabilities with approvals bound to the exact action payload. Configured MCP servers do not receive that per-call approval layer; adding a server to configuration is the trust decision.
+Configured MCP servers receive no per-call approval layer: adding a server to configuration is the trust decision. The payload-bound approval mechanism exists and is wired, but no capability registers a protected action today.
 
 ## Quick links
 
 - [Run Eggy locally](/eggy/get-started/quickstart/)
 - [Configure model providers](/eggy/configure/model-providers/)
-- [Connect Google Calendar](/eggy/configure/google-calendar/)
 - [Understand the security model](/eggy/operate/security/)
 - [Read the architecture](/eggy/project/architecture/)

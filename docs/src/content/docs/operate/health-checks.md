@@ -32,7 +32,6 @@ This route returns `ready` only when the application's readiness check passes. O
 
 - It does not make a model completion.
 - It does not send a Telegram reply.
-- It does not prove Calendar OAuth is connected.
 - It does not call every enabled MCP tool.
 
 Use an owner conversation for end-to-end channel and model verification. Use the relevant OAuth or MCP flow for integrations.

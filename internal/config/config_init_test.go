@@ -95,31 +95,28 @@ calendar:
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets()))
-	if err != nil {
+	if _, _, err := LoadOrCreateConfig(path, mapEnv(testSecrets())); err != nil {
 		t.Fatalf("LoadOrCreateConfig() error = %v", err)
-	}
-	if cfg.Calendar.DefaultCalendar != "primary" {
-		t.Fatalf("calendar = %#v, want the surviving default_calendar", cfg.Calendar)
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, retired := range []string{"implementation_sessions", "scheduler", "heartbeat_cadence", "enabled: true", "Asia/Singapore"} {
+	for _, retired := range []string{"implementation_sessions", "scheduler", "heartbeat_cadence", "calendar:", "default_calendar", "Asia/Singapore"} {
 		if strings.Contains(string(body), retired) {
 			t.Fatalf("retired %q survived:\n%s", retired, body)
 		}
 	}
-	for _, kept := range []string{"default_calendar: primary", "# Mutations without a calendar_id write here.", "owner_id: 42", "clone_url: https://github.com/acme/repo.git"} {
+	for _, kept := range []string{"owner_id: 42", "clone_url: https://github.com/acme/repo.git"} {
 		if !strings.Contains(string(body), kept) {
 			t.Fatalf("pruning lost %q:\n%s", kept, body)
 		}
 	}
 }
 
-// calendar.timezone moved to agent.timezone rather than disappearing, so an
-// older config keeps its clock instead of being dropped onto the UTC default.
+// calendar.timezone moves to agent.timezone rather than disappearing with the
+// retired section, so an older config keeps its clock instead of being dropped
+// onto the UTC default.
 func TestLoadOrCreateConfigCarriesCalendarTimezoneToAgent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	legacy := strings.Replace(validConfig(), "  timezone: UTC\n", "", 1) + `calendar:

@@ -12,7 +12,7 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | --- | --- |
 | `config.yaml` | Startup configuration |
 | `.env` | Local secrets |
-| `auth.json` | Encrypted Calendar and MCP OAuth credentials |
+| `auth.json` | Encrypted MCP OAuth credentials |
 | `SOUL.md` | Durable agent identity |
 | `memories/USER.md` | Owner context |
 | `memories/MEMORY.md` | Curated durable memory |

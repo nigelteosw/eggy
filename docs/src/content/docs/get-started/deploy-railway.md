@@ -56,7 +56,7 @@ EGGY_UI_PASSWORD
 EGGY_ENCRYPTION_KEY
 ```
 
-`EGGY_ENCRYPTION_KEY` is also required by native Calendar and OAuth-backed MCP servers. Use a base64-encoded 32-byte key and keep it stable; changing it makes existing encrypted credentials unreadable.
+`EGGY_ENCRYPTION_KEY` is also required by OAuth-backed MCP servers. Use a base64-encoded 32-byte key and keep it stable; changing it makes existing encrypted credentials unreadable.
 
 ## Verify deployment
 

@@ -34,15 +34,6 @@ func (o *AppOptions) applyDefaults() {
 	if o.GitHubAPIBase == "" {
 		o.GitHubAPIBase = "https://api.github.com"
 	}
-	if o.GoogleAuthURL == "" {
-		o.GoogleAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
-	}
-	if o.GoogleTokenURL == "" {
-		o.GoogleTokenURL = "https://oauth2.googleapis.com/token"
-	}
-	if o.GoogleAPIBase == "" {
-		o.GoogleAPIBase = "https://www.googleapis.com/calendar/v3"
-	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}

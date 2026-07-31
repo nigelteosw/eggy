@@ -11,12 +11,12 @@ Eggy is a Go 1.26 ports-and-adapters modular monolith.
   package must be exported there (see `services.DecodeToolInput`). Test fakes
   are duplicated across the two rather than shared through an exported
   package: a fake is not API.
-- Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, Google, YAML, JSON-file persistence, Docker, or Railway packages.
+- Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, YAML, JSON-file persistence, Docker, or Railway packages.
 - Provider request/response types and credentials stay inside their adapter packages.
 - Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the five direct Telegram commands in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `web` <- `bootstrap` — so neither config nor web may import `internal/bootstrap`.
 - Treat configured repositories as trusted, but keep path, environment, timeout, output, and process-group restrictions intact.
 - Never reintroduce repository mutation or shipping through a generic tool or Telegram selection. Any future protected mutation must use an independent approval check.
-- Calendar mutations keep independent, payload-bound approvals with one `approvals.Action` and one executor each. Consolidating the calendar tools is fine; consolidating their approvals is not. Do not replace native Calendar with an MCP server unless per-call approval gating for MCP tools exists first — an MCP server is trusted wholesale at configuration time.
+- The approvals mechanism survives having no protected action registered. Any future protected mutation keeps one `approvals.Action`, one executor, and one payload-bound approval per operation; consolidating tools is fine, consolidating their approvals is not. Note that MCP tools have no per-call approval gating today: a configured server is trusted wholesale at configuration time.
 
 ## Adding a new adapter (open for extension, closed for modification)
 

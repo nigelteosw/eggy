@@ -124,24 +124,6 @@ func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 	})
 }
 
-// SetCalendar sets the calendar Eggy writes to when a tool call omits
-// calendar_id. An empty defaultCalendar clears the section, which is how
-// Calendar is turned off: no default calendar means no tools and no OAuth
-// routes on the next start.
-func SetCalendar(path, defaultCalendar string) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
-		cfg.Calendar.DefaultCalendar = strings.TrimSpace(defaultCalendar)
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
-	})
-}
-
 // SetModelAlias configures alias. reasoningEfforts is a comma-separated list
 // of supported levels (e.g. "low,medium,high,max"); pass "" to leave the
 // alias without a reasoning-effort option.

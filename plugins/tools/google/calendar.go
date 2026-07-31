@@ -6,12 +6,21 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
 
+type Calendar struct {
+	ID      string `json:"id"`
+	Summary string `json:"summary,omitempty"`
+	Primary bool   `json:"primary,omitempty"`
+	Access  string `json:"access,omitempty"`
+}
+
 type Event struct {
 	ID          string   `json:"id"`
+	Calendar    string   `json:"calendar,omitempty"`
 	Summary     string   `json:"summary,omitempty"`
 	Start       string   `json:"start,omitempty"`
 	End         string   `json:"end,omitempty"`
@@ -36,9 +45,47 @@ type NewEvent struct {
 
 const defaultCalendar = "primary"
 
+// maxCalendars bounds a fan-out read. Each calendar costs one request, and an
+// account subscribed to a dozen holiday feeds would otherwise spend a turn
+// waiting on calendars nobody asked about.
+const maxCalendars = 12
+
+// Calendars lists what the account can actually read, which is the only way a
+// model can name a calendar other than the primary one. Hidden entries are
+// dropped: an account unsubscribed from a calendar in the Google UI does not
+// consider it theirs, and listing it invites reads nobody wants.
+func (w *Workspace) Calendars(ctx context.Context) ([]Calendar, error) {
+	var response struct {
+		Items []struct {
+			ID         string `json:"id"`
+			Summary    string `json:"summary"`
+			Primary    bool   `json:"primary"`
+			AccessRole string `json:"accessRole"`
+			Hidden     bool   `json:"hidden"`
+		} `json:"items"`
+	}
+	values := url.Values{"minAccessRole": {"reader"}, "showHidden": {"false"}}
+	if err := w.call(ctx, http.MethodGet, w.endpoints.Calendar+"/users/me/calendarList", values, nil, &response); err != nil {
+		return nil, err
+	}
+	calendars := make([]Calendar, 0, len(response.Items))
+	for _, item := range response.Items {
+		if item.Hidden {
+			continue
+		}
+		calendars = append(calendars, Calendar{ID: item.ID, Summary: item.Summary, Primary: item.Primary, Access: item.AccessRole})
+	}
+	return calendars, nil
+}
+
 // CalendarList defaults to the next seven days when the window is left open,
 // which is what "what's on my calendar" almost always means and what Hermes'
 // CLI defaults to.
+//
+// With no calendar named it reads every calendar the account can see, not just
+// the primary one. Answering "nothing today" from the primary calendar alone,
+// while a work or shared calendar is full, is worse than an error: it is
+// confidently wrong, and the owner has no way to tell from the answer.
 func (w *Workspace) CalendarList(ctx context.Context, calendarID, start, end string, now time.Time) ([]Event, error) {
 	from, err := rfc3339(start)
 	if err != nil {
@@ -54,6 +101,36 @@ func (w *Workspace) CalendarList(ctx context.Context, calendarID, start, end str
 	if to == "" {
 		to = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	}
+	if strings.TrimSpace(calendarID) != "" {
+		return w.eventsIn(ctx, calendarID, calendarID, from, to)
+	}
+	calendars, err := w.Calendars(ctx)
+	if err != nil {
+		// A calendar list the account cannot read is not a reason to answer
+		// nothing: the primary calendar is still readable, and saying so is
+		// better than a failed turn.
+		return w.eventsIn(ctx, defaultCalendar, "", from, to)
+	}
+	if len(calendars) > maxCalendars {
+		calendars = calendars[:maxCalendars]
+	}
+	events := make([]Event, 0, len(calendars)*8)
+	for _, calendar := range calendars {
+		found, err := w.eventsIn(ctx, calendar.ID, calendar.Summary, from, to)
+		if err != nil {
+			// One unreadable calendar must not take the whole answer down --
+			// a subscribed feed can vanish or lose its grant independently.
+			continue
+		}
+		events = append(events, found...)
+	}
+	// Each calendar came back ordered; merged, they are not. A model reading a
+	// day's schedule out of order reports it out of order.
+	sort.SliceStable(events, func(i, j int) bool { return events[i].Start < events[j].Start })
+	return events, nil
+}
+
+func (w *Workspace) eventsIn(ctx context.Context, calendarID, label, from, to string) ([]Event, error) {
 	values := url.Values{"timeMin": {from}, "timeMax": {to}, "singleEvents": {"true"}, "orderBy": {"startTime"}, "maxResults": {"50"}}
 	var response struct {
 		Items []calendarEvent `json:"items"`
@@ -63,7 +140,12 @@ func (w *Workspace) CalendarList(ctx context.Context, calendarID, start, end str
 	}
 	events := make([]Event, 0, len(response.Items))
 	for _, item := range response.Items {
-		events = append(events, item.event())
+		event := item.event()
+		// Named only when several calendars can appear in one answer, so a
+		// single-calendar read is not padded with a field saying what the
+		// caller already asked for.
+		event.Calendar = label
+		events = append(events, event)
 	}
 	return events, nil
 }

@@ -198,6 +198,10 @@ func authorizedWorkspace(t *testing.T, handler http.Handler) *Workspace {
 func TestCalendarListDefaultsToTheNextSevenDays(t *testing.T) {
 	var seen url.Values
 	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/users/me/calendarList") {
+			_, _ = w.Write([]byte(`{"items":[{"id":"primary@example.com","summary":"Personal","primary":true}]}`))
+			return
+		}
 		seen = r.URL.Query()
 		_, _ = w.Write([]byte(`{"items":[{"id":"e1","summary":"Standup","start":{"dateTime":"2026-08-01T10:00:00Z"},"end":{"dateTime":"2026-08-01T10:30:00Z"}},{"id":"e2","summary":"Holiday","start":{"date":"2026-08-02"},"end":{"date":"2026-08-03"}}]}`))
 	}))
@@ -436,4 +440,93 @@ func TestTokenRecordIsSealedAtRest(t *testing.T) {
 func readFile(path string) (string, error) {
 	body, err := os.ReadFile(path)
 	return string(body), err
+}
+
+// Reading only the primary calendar answers "nothing today" while a work or
+// shared calendar is full. That is worse than an error: it is confidently
+// wrong, and the answer gives the owner no way to notice.
+func TestCalendarListReadsEveryCalendar(t *testing.T) {
+	var read []string
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/users/me/calendarList") {
+			_, _ = w.Write([]byte(`{"items":[
+{"id":"primary@example.com","summary":"Personal","primary":true,"accessRole":"owner"},
+{"id":"work@example.com","summary":"Work","accessRole":"writer"},
+{"id":"hidden@example.com","summary":"Old","accessRole":"reader","hidden":true}]}`))
+			return
+		}
+		calendar := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/calendars/"), "/events")
+		read = append(read, calendar)
+		if strings.Contains(calendar, "work") {
+			_, _ = w.Write([]byte(`{"items":[{"id":"w1","summary":"Standup","start":{"dateTime":"2026-08-01T09:00:00Z"},"end":{"dateTime":"2026-08-01T09:30:00Z"}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[{"id":"p1","summary":"Dentist","start":{"dateTime":"2026-08-01T14:00:00Z"},"end":{"dateTime":"2026-08-01T15:00:00Z"}}]}`))
+	}))
+
+	events, err := workspace.CalendarList(context.Background(), "", "", "", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read) != 2 {
+		t.Fatalf("read %v, want both visible calendars and not the hidden one", read)
+	}
+	// Merged results arrive per calendar, each ordered on its own. A model
+	// reading them out of order reports the day out of order.
+	if len(events) != 2 || events[0].Summary != "Standup" || events[1].Summary != "Dentist" {
+		t.Fatalf("events=%#v", events)
+	}
+	// Without the calendar name the model cannot say which one an event is on.
+	if events[0].Calendar != "Work" || events[1].Calendar != "Personal" {
+		t.Fatalf("events not labelled: %#v", events)
+	}
+}
+
+// One calendar losing its grant -- a shared feed revoked, a subscription
+// removed -- must not take the whole day's answer down with it.
+func TestCalendarListSurvivesOneUnreadableCalendar(t *testing.T) {
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/users/me/calendarList") {
+			_, _ = w.Write([]byte(`{"items":[{"id":"a@example.com","summary":"A"},{"id":"b@example.com","summary":"B"}]}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "b@example.com") {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"code":403,"message":"insufficient permission"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[{"id":"a1","summary":"Lunch","start":{"dateTime":"2026-08-01T12:00:00Z"},"end":{"dateTime":"2026-08-01T13:00:00Z"}}]}`))
+	}))
+	events, err := workspace.CalendarList(context.Background(), "", "", "", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(events) != 1 || events[0].Summary != "Lunch" {
+		t.Fatalf("events=%#v err=%v", events, err)
+	}
+}
+
+// A named calendar is read directly: asking for one must not fan out.
+func TestCalendarListHonoursANamedCalendar(t *testing.T) {
+	var paths []string
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write([]byte(`{"items":[]}`))
+	}))
+	if _, err := workspace.CalendarList(context.Background(), "work@example.com", "", "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || !strings.Contains(paths[0], "work@example.com") {
+		t.Fatalf("paths=%v", paths)
+	}
+}
+
+func TestCalendarsListsIdsTheModelCanName(t *testing.T) {
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[{"id":"primary@example.com","summary":"Personal","primary":true,"accessRole":"owner"},{"id":"hidden@example.com","summary":"Old","hidden":true}]}`))
+	}))
+	calendars, err := workspace.Calendars(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calendars) != 1 || calendars[0].ID != "primary@example.com" || !calendars[0].Primary {
+		t.Fatalf("calendars=%#v", calendars)
+	}
 }

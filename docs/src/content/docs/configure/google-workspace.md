@@ -159,6 +159,14 @@ There are no per-product commands. The tools are on the registry from the next t
 > what's on my calendar tomorrow?
 > any unread mail from the bank this week?
 
+## Several calendars
+
+A read with no calendar named covers **every calendar the account can see**, not just the primary one, and each event carries the calendar it came from. Calendars hidden in the Google UI are skipped, and at most twelve are read in one answer.
+
+That needs no extra scope — `auth/calendar` already permits it — but a calendar only appears if the account is subscribed to it in Google Calendar itself. A shared calendar someone sent a link to, and which was never added, is not visible to the API either.
+
+If one calendar cannot be read, the rest of the answer still comes back rather than the whole turn failing.
+
 `/google logout` discards the grant.
 
 ## Times must carry a zone

@@ -156,9 +156,9 @@ type calendarTool struct {
 func (t calendarTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_calendar",
-		Description: "Read and change the calendar. action=list defaults to the next seven days; action=create needs summary, start and end; action=delete needs an event id. Every time must carry a timezone offset or Z — a bare datetime is read as UTC and lands hours away.",
+		Description: "Read and change calendars. action=list reads every calendar the account can see over the next seven days by default, and each event names the calendar it came from; pass calendar_id to read one. action=calendars lists the available calendars and their ids. action=create needs summary, start and end; action=delete needs an event id. Every time must carry a timezone offset or Z — a bare datetime is read as UTC and lands hours away.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
-"action":{"type":"string","enum":["list","create","delete"]},
+"action":{"type":"string","enum":["list","calendars","create","delete"]},
 "calendar_id":{"type":"string"},"start":{"type":"string"},"end":{"type":"string"},
 "summary":{"type":"string"},"location":{"type":"string"},"description":{"type":"string"},
 "attendees":{"type":"array","items":{"type":"string"}},"event_id":{"type":"string"}},
@@ -188,6 +188,12 @@ func (t calendarTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 			return nil, unauthorized(err)
 		}
 		return result(events)
+	case "calendars":
+		calendars, err := t.workspace.Calendars(ctx)
+		if err != nil {
+			return nil, unauthorized(err)
+		}
+		return result(calendars)
 	case "create":
 		event, err := t.workspace.CalendarCreate(ctx, NewEvent{
 			CalendarID: input.CalendarID, Summary: input.Summary, Start: input.Start, End: input.End,

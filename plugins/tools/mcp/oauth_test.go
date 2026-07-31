@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func TestOAuthProviderDiscoversRegistersExchangesAndRestores(t *testing.T) {
@@ -257,4 +259,48 @@ func (noRegistrationRoundTripper) RoundTrip(request *http.Request) (*http.Respon
 		body = `{"issuer":"https://accounts.google.com","authorization_endpoint":"https://accounts.google.com/o/oauth2/v2/auth","token_endpoint":"https://oauth2.googleapis.com/token","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+}
+
+// TestCompleteLoginKeepsAnExistingRefreshTokenWhenNoneIsReturned covers the
+// failure that looks like a working connection: the server issues an access
+// token with no refresh token (Google does this whenever the account has
+// already consented), and discarding the stored one leaves a session that dies
+// at the first expiry with "login required".
+func TestCompleteLoginKeepsAnExistingRefreshTokenWhenNoneIsReturned(t *testing.T) {
+	record := OAuthRecord{RefreshToken: "long-lived-refresh", AccessToken: "old-access"}
+	copyTokenToRecord(&record, &oauth2.Token{AccessToken: "new-access", TokenType: "Bearer"})
+	if record.RefreshToken != "long-lived-refresh" {
+		t.Fatalf("refresh token discarded: %#v", record)
+	}
+	if record.AccessToken != "new-access" {
+		t.Fatalf("record=%#v", record)
+	}
+
+	copyTokenToRecord(&record, &oauth2.Token{AccessToken: "newer", RefreshToken: "rotated", TokenType: "Bearer"})
+	if record.RefreshToken != "rotated" {
+		t.Fatalf("a rotated refresh token must replace the old one: %#v", record)
+	}
+}
+
+// Offline access alone is not enough to be handed a refresh token; consent has
+// to be forced, or a second authorization returns an access token that cannot
+// be renewed.
+func TestBeginLoginForcesConsentSoARefreshTokenIsIssued(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	provider := newOAuthProvider(ServerConfig{
+		Name: "railway", URL: "https://resource.example",
+		RedirectURL: "https://eggy.example/auth/mcp/railway/callback",
+	}, store, &http.Client{Transport: &oauthRoundTripper{}})
+
+	authorizationURL, err := provider.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := url.Parse(authorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Query().Get("access_type") != "offline" || query.Query().Get("prompt") != "consent" {
+		t.Fatalf("authorization URL=%s", authorizationURL)
+	}
 }

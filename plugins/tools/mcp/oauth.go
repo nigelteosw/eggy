@@ -91,7 +91,16 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 	record.StateExpires = time.Now().Add(10 * time.Minute)
 	record.CodeVerifier = verifier
 	config := oauthConfig(record, p.config.RedirectURL)
-	authorizationURL := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("resource", record.Resource))
+	// prompt=consent alongside access_type=offline is what actually guarantees
+	// a refresh token from Google: offline alone returns one only on the
+	// account's first consent to this client, so a re-authorization after any
+	// earlier grant would hand back an access token that cannot be renewed.
+	// The cost is seeing the consent screen on every login, which is rare.
+	authorizationURL := config.AuthCodeURL(state,
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent"),
+		oauth2.S256ChallengeOption(verifier),
+		oauth2.SetAuthURLParam("resource", record.Resource))
 	record.LastAuthorizationURL = authorizationURL
 	if err := p.store.Save(p.config.Name, p.config.URL, record); err != nil {
 		return "", err
@@ -261,9 +270,20 @@ func randomOAuthValue(size int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(value), nil
 }
 
+// copyTokenToRecord stores a freshly issued token, keeping the refresh token
+// already on record when the response carries none.
+//
+// An authorization server is not required to return a refresh token every
+// time. Google omits it when the account has already consented to this client,
+// and returns one only on first consent or when consent is forced. Copying the
+// empty value over a good one turns a working connection into one that dies
+// silently at the first access-token expiry, roughly an hour later, with
+// "login required" and no indication that anything was discarded.
 func copyTokenToRecord(record *OAuthRecord, token *oauth2.Token) {
 	record.AccessToken = token.AccessToken
-	record.RefreshToken = token.RefreshToken
+	if token.RefreshToken != "" {
+		record.RefreshToken = token.RefreshToken
+	}
 	record.TokenType = token.TokenType
 	record.Expiry = token.Expiry
 }

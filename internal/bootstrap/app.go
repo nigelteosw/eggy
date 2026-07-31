@@ -11,7 +11,6 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
@@ -52,36 +51,33 @@ type AppOptions struct {
 // answering.
 const maxToolStepsPerTurn = 500
 
+// App is what survives construction: the state a running daemon reads, not the
+// collaborators that were needed to assemble it. Anything used only to build
+// something else stays a local in NewApp and is reachable through whatever it
+// was handed to -- the agent runtime, skills service, conversation service,
+// active turns, capability manifest, and approval executors all live on
+// turnService or commands now, which is what owns them.
 type App struct {
-	config            config.Config
-	home              home.Layout
-	store             ports.StateStore
-	context           ports.ContextStore
-	channel           ports.Channel
-	chatHub           *webchat.Hub
-	dispatcher        *services.Dispatcher
-	httpHandler       http.Handler
-	loop              *agent.Loop
-	agentRuntime      *services.AgentRuntime
-	manifest          agent.CapabilityManifest
-	turnService       *turns.Service
-	commands          *commands.CommandService
-	scheduler         *schedulerlocal.Scheduler
-	approvals         *services.ApprovalService
-	approvalExecutors map[approvals.Action]ApprovalExecutor
-	turns             *services.ActiveTurns
-	workspaces        *repo.WorkspaceSessions
-	mcp               *mcpadapter.Manager
-	skillsService     *services.SkillsService
-	conversation      *services.ConversationService
-	memory            *memorysqlite.Store
-	now               func() time.Time
-	eventQueue        chan events.Event
-	workers           sync.WaitGroup
-	readyLog          sync.Once
-	logger            *slog.Logger
-	timezone          string
-	location          *time.Location
+	config      config.Config
+	store       ports.StateStore
+	context     ports.ContextStore
+	channel     ports.Channel
+	chatHub     *webchat.Hub
+	dispatcher  *services.Dispatcher
+	httpHandler http.Handler
+	loop        *agent.Loop
+	turnService *turns.Service
+	commands    *commands.CommandService
+	scheduler   *schedulerlocal.Scheduler
+	approvals   *services.ApprovalService
+	workspaces  *repo.WorkspaceSessions
+	mcp         *mcpadapter.Manager
+	memory      *memorysqlite.Store
+	now         func() time.Time
+	eventQueue  chan events.Event
+	workers     sync.WaitGroup
+	readyLog    sync.Once
+	logger      *slog.Logger
 }
 
 // ApprovalExecutor is an alias rather than its own interface so the executor
@@ -107,9 +103,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 	}()
 	app := &App{
-		config: config, home: layout, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
+		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
 		memory: memoryStore,
-		now:    options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger, timezone: timezone, location: location,
+		now:    options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger,
 	}
 	configuredRepositories := map[string]ports.Repository{}
 	for _, configured := range config.Repositories {
@@ -150,16 +146,16 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// kept out of durable context and recall while those two were not.
 	activeSecrets := secrets.Values()
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
-	app.skillsService = services.NewSkillsService(skillsStore)
-	app.approvalExecutors = map[approvals.Action]ApprovalExecutor{}
-	app.conversation = services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
+	skillsService := services.NewSkillsService(skillsStore)
+	approvalExecutors := map[approvals.Action]ApprovalExecutor{}
+	conversation := services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
 
 	catalog, err := buildModelCatalog(config, secrets, options)
 	if err != nil {
 		return nil, err
 	}
 	aliases, targets := catalog.aliases, catalog.targets
-	app.agentRuntime = services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
+	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
 	// One kernel-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
@@ -167,7 +163,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.workspaces = repo.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
 	registry := services.NewToolRegistry()
-	app.turns = services.NewActiveTurns()
+	activeTurns := services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		repo.NewStatusTool(stateStore, app.scheduler),
@@ -175,7 +171,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		services.NewRecallConversationTool(memoryStore, services.NewSecretGuard(activeSecrets)),
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
-	baseTools = append(baseTools, services.NewSkillTools(app.skillsService)...)
+	baseTools = append(baseTools, services.NewSkillTools(skillsService)...)
 	if err := registerAll(registry, baseTools...); err != nil {
 		return nil, err
 	}
@@ -262,16 +258,16 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			break
 		}
 	}
-	app.manifest = agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
+	manifest := agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
 	mcpAdministration := newMCPAdmin(app.mcp)
 	app.commands = commands.New(commands.Options{
 		ConfigPath:   options.ConfigPath,
 		MCP:          mcpAdministration.commandsView(),
 		Google:       googleAdministration.commandsView(),
-		Turns:        app.turns,
+		Turns:        activeTurns,
 		Store:        stateStore,
-		Conversation: app.conversation,
-		AgentRuntime: app.agentRuntime,
+		Conversation: conversation,
+		AgentRuntime: agentRuntime,
 		DefaultModel: config.Agent.DefaultModel,
 		ModelAliases: aliases,
 	})
@@ -279,15 +275,15 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// an event type to the right entry point on this; everything the turn
 	// itself does lives in internal/kernel/turns.
 	app.turnService = turns.New(turns.Options{
-		Commands: app.commands, Registry: app.turns, Conversation: app.conversation,
-		Context: contextStore, Store: stateStore, Runtime: app.agentRuntime,
-		Skills: app.skillsService, Loop: app.loop, Channel: app.channel,
-		Threads: memoryStore, Approvals: app.approvals, Executors: app.approvalExecutors,
+		Commands: app.commands, Registry: activeTurns, Conversation: conversation,
+		Context: contextStore, Store: stateStore, Runtime: agentRuntime,
+		Skills: skillsService, Loop: app.loop, Channel: app.channel,
+		Threads: memoryStore, Approvals: app.approvals, Executors: approvalExecutors,
 		Presenter: turnPresenter{channel: app.channel},
-		Manifest:  app.manifest, Logger: app.logger, Now: app.now,
+		Manifest:  manifest, Logger: app.logger, Now: app.now,
 		// The owner's timezone, not the scheduler's quiet-hours one: this is
 		// what renders the turn's trusted temporal context.
-		Location: app.location, Timezone: timezone,
+		Location: location, Timezone: timezone,
 	})
 	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,

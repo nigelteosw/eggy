@@ -95,16 +95,11 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 		efforts:   make(map[string][]string, len(config.ModelAliases)),
 	}
 	for name, provider := range config.Providers {
-		if options.FakeAdapters {
-			catalog.providers[name] = staticModel{}
-			continue
+		model, err := newModelAdapter(name, provider, config, secrets, options)
+		if err != nil {
+			return modelCatalog{}, err
 		}
-		switch provider.Adapter {
-		case "openai_compatible":
-			catalog.providers[name] = openaicompat.New(providerBaseURL(config, options, name), secrets.ProviderAPIKeys[name], options.HTTPClient)
-		default:
-			return modelCatalog{}, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
-		}
+		catalog.providers[name] = model
 	}
 	for alias, configured := range config.ModelAliases {
 		model := catalog.providers[configured.Provider]
@@ -119,6 +114,31 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 	}
 	sort.Strings(catalog.aliases)
 	return catalog, nil
+}
+
+// newModelAdapter is the one place a provider's configured adapter name
+// becomes a running implementation. This is the extension point for a new
+// model backend: add the plugin package, add its name to
+// config.supportedModelAdapters so the name validates, and add one case here.
+// Nothing else in the tree needs to change.
+//
+// Most backends need none of that. "openai_compatible" is OpenAI's Chat
+// Completions wire format, so OpenAI, DeepSeek, OpenRouter, and Groq are all
+// reachable by adding a providers entry with the right base_url and
+// api_key_env. A new case is earned by a different wire format, not a
+// different vendor.
+func newModelAdapter(name string, provider config.ProviderConfig, cfg config.Config, secrets config.Secrets, options AppOptions) (ports.Model, error) {
+	// Checked before the adapter name so a fake-adapter run never dials out,
+	// whatever the config happens to say.
+	if options.FakeAdapters {
+		return staticModel{}, nil
+	}
+	switch provider.Adapter {
+	case "openai_compatible":
+		return openaicompat.New(providerBaseURL(cfg, options, name), secrets.ProviderAPIKeys[name], options.HTTPClient), nil
+	default:
+		return nil, fmt.Errorf("provider %q has unsupported adapter %q", name, provider.Adapter)
+	}
 }
 
 // providerBaseURL is the configured base URL for a provider, with the test

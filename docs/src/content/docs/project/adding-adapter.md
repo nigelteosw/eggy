@@ -30,7 +30,9 @@ Test against a fake transport or subprocess. Test fakes stay local to their pack
 
 Put new non-secret fields and parsing in `internal/config`. Secrets should be named by configuration and loaded from environment variables.
 
-For model backends, branch on `ProviderConfig.Adapter`; do not hardcode another unconditional constructor.
+For model backends, add the adapter's name to `config.supportedModelAdapters` so configuration validates it, then add one case to `bootstrap.newModelAdapter` — the single place an adapter name becomes a running implementation. Do not hardcode another unconditional constructor.
+
+Check first that a new adapter is warranted at all. `adapter` names a wire format, so an OpenAI-compatible service is a `providers` entry with a different `base_url`, not a package. See [Model providers](/configure/model-providers/).
 
 ## 4. Wire in bootstrap
 

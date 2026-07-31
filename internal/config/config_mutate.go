@@ -21,11 +21,10 @@ func LoadDocument(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("open config: %w", err)
 	}
-	var document configDocument
-	if err := decodeKnownYAML(data, &document); err != nil {
+	var cfg Config
+	if err := decodeKnownYAML(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
-	cfg := normalizeConfig(document)
 	if err := cfg.applyDefaults(); err != nil {
 		return Config{}, err
 	}

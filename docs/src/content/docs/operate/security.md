@@ -14,7 +14,9 @@ Telegram accepts one configured numeric owner. Web chat requires the configured 
 
 Secret values come from environment variables or `.env`, not YAML. Provider credentials remain inside adapters. Logger setup receives the loaded secret set and redacts it from output.
 
-MCP OAuth records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`, which also signs web UI session cookies.
+MCP OAuth and Google records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`, which also signs web UI session cookies. One sealing implementation covers every provider record (`plugins/auth/authfile`), and session signing lives beside it in `plugins/auth/session`.
+
+Owner authentication and outbound authorization are deliberately separate. `plugins/auth/session` answers who may talk to Eggy; the OAuth grants under `plugins/tools/` answer what Eggy may do on the owner's behalf.
 
 ## Repository boundary
 

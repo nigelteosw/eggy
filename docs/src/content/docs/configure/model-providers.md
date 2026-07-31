@@ -4,7 +4,14 @@ description: Configure OpenAI-compatible providers and expose their models throu
 eyebrow: Configure
 ---
 
-The shipped model adapter speaks the OpenAI-compatible chat-completions shape. Provider credentials and wire formats remain inside `plugins/models/openaicompat`.
+`adapter` names a **wire format, not a vendor.** The shipped adapter,
+`openai_compatible`, speaks OpenAI's chat-completions shape — `/chat/completions`,
+`tools` and `tool_calls`, `reasoning_effort`, and cached-token usage reporting.
+
+That is OpenAI's own API, so OpenAI, DeepSeek, OpenRouter, Groq, and most hosted
+model services are all reachable by adding a provider entry. Adding one of them
+needs no Go code. Provider credentials and wire types stay inside
+`plugins/models/openaicompat`.
 
 ## Add a provider
 
@@ -14,6 +21,16 @@ providers:
     adapter: openai_compatible
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
+```
+
+OpenAI itself is the same shape, pointed at a different base URL:
+
+```yaml
+providers:
+  openai:
+    adapter: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
 ```
 
 Then set the named environment variable:
@@ -42,4 +59,20 @@ models:
 
 ## Add a different model adapter
 
-A genuinely different provider implementation belongs in `plugins/models/<provider>/`. Select it through `ProviderConfig.Adapter` in bootstrap; do not import provider types into the kernel or widen the shared `Model` port to fit one provider.
+A new adapter is earned by a **different wire format**, not a different vendor.
+Anthropic's Messages API is the real example: a top-level system prompt, content
+blocks instead of string content, `tool_use` and `tool_result` blocks instead of
+`tool_calls`, and a required `max_tokens`. None of that fits `openai_compatible`.
+
+Writing an `openai` adapter that duplicates `openaicompat` is the wrong turn, and
+a test in `internal/config` pins that OpenAI stays a provider entry.
+
+A genuinely new format costs three things:
+
+1. the package, in `plugins/models/<provider>/`;
+2. its name in `config.supportedModelAdapters`, so configuration validates;
+3. one case in `bootstrap.newModelAdapter`, which is the only place an adapter
+   name becomes a running implementation.
+
+Nothing else changes. Do not import provider types into the kernel or widen the
+shared `Model` port to fit one provider.

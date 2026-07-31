@@ -36,6 +36,9 @@ Unknown commands return the same command reference. Ordinary text continues to t
 | `/mcp login <name>` | Start OAuth and return the provider authorization URL |
 | `/mcp login <name> <pasted redirect URL or code>` | Finish a login the browser could not deliver to the callback |
 | `/mcp logout <name>` | Discard stored credentials for one server |
+| `/google` | Whether Google Workspace is authorized, and with which scopes |
+| `/google login [pasted redirect URL or code]` | Start authorization, or finish it from the paste |
+| `/google logout` | Discard the stored Google grant |
 
 Edits go through the same `internal/config` helpers the web settings panel calls, under the same file lock and the same validation. There is one administration authority and two views onto it.
 

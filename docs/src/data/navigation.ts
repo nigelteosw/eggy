@@ -33,6 +33,7 @@ export const navigation: readonly DocNavGroup[] = [
       { title: "Configuration overview", path: "/configure/configuration", description: "Configure the daemon without storing secrets in YAML." },
       { title: "Model providers", path: "/configure/model-providers", description: "Connect OpenAI-compatible model providers." },
       { title: "MCP servers", path: "/configure/mcp-servers", description: "Connect trusted HTTP or stdio MCP servers." },
+      { title: "Google Workspace", path: "/configure/google-workspace", description: "Gmail, Calendar, Drive, Docs, Sheets and Contacts through one grant." },
       { title: "Repository inspection", path: "/configure/repositories", description: "Configure trusted read-only repository access." },
     ],
   },

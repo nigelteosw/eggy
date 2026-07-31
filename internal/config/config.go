@@ -41,6 +41,29 @@ type Config struct {
 	Repositories []RepositoryConfig          `yaml:"repositories"`
 	Runner       RunnerConfig                `yaml:"runner"`
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
+	Google       GoogleConfig                `yaml:"google,omitempty"`
+}
+
+// GoogleConfig is one grant across every Google product, which is why there is
+// no per-product block here. The client is a Desktop (installed app) client:
+// Google grants those an implicit loopback redirect, so authorization needs
+// nothing registered in the console and no publicly reachable address, and
+// server.public_base_url plays no part in it.
+type GoogleConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// ClientID is not a secret -- it travels in the authorization URL -- so it
+	// lives in YAML. ClientSecretEnv names the variable holding the secret,
+	// which never does. A Desktop client's secret is not confidential in the
+	// OAuth sense, but it is still a credential and is treated as one.
+	ClientID        string `yaml:"client_id,omitempty"`
+	ClientSecretEnv string `yaml:"client_secret_env,omitempty"`
+	// Products decides which tools exist at all. An unlisted product costs no
+	// schema, no prompt bytes, and no code path -- the same rule every other
+	// configurable capability follows.
+	Products       []string `yaml:"products,omitempty"`
+	Scopes         []string `yaml:"scopes,omitempty"`
+	Timeout        Duration `yaml:"timeout,omitempty"`
+	MaxOutputBytes int64    `yaml:"max_output_bytes,omitempty"`
 }
 
 type AgentConfig struct {
@@ -171,6 +194,7 @@ type Secrets struct {
 	EncryptionKey         string
 	MCPBearerTokens       map[string]string
 	MCPOAuthClientSecrets map[string]string
+	GoogleClientSecret    string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -181,6 +205,7 @@ func (s Secrets) Values() []string {
 	values := []string{
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
 		s.EncryptionKey,
+		s.GoogleClientSecret,
 		s.UIPassword,
 	}
 	for _, key := range s.ProviderAPIKeys {
@@ -209,6 +234,7 @@ type commonConfigDocument struct {
 	Repositories []RepositoryConfig `yaml:"repositories"`
 	Runner       RunnerConfig       `yaml:"runner"`
 	MCP          MCPConfig          `yaml:"mcp,omitempty"`
+	Google       GoogleConfig       `yaml:"google,omitempty"`
 }
 
 type configDocument struct {
@@ -268,6 +294,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 		if server.OAuthClientSecretEnv != "" {
 			secrets.MCPOAuthClientSecrets[name] = getenv(server.OAuthClientSecretEnv)
 		}
+	}
+	if cfg.Google.ClientSecretEnv != "" {
+		secrets.GoogleClientSecret = getenv(cfg.Google.ClientSecretEnv)
 	}
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return cfg, Secrets{}, err
@@ -459,7 +488,58 @@ func (c Config) Validate() error {
 	if err := c.validateMCP(); err != nil {
 		return err
 	}
+	if err := c.validateGoogle(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateGoogle refuses a half-configured integration rather than letting it
+// fail at the first tool call. An enabled Google with no client id authorizes
+// nothing; an unknown product name is almost always a typo that would
+// otherwise present as a missing tool with no explanation.
+func (c Config) validateGoogle() error {
+	google := c.Google
+	if !google.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(google.ClientID) == "" {
+		return errors.New("google.client_id is required when google.enabled is true")
+	}
+	if google.ClientSecretEnv != "" && !environmentNamePattern.MatchString(google.ClientSecretEnv) {
+		return fmt.Errorf("google.client_secret_env %q is not a valid environment variable name", google.ClientSecretEnv)
+	}
+	if len(google.Products) == 0 {
+		return errors.New("google.products must name at least one of: " + strings.Join(knownGoogleProducts, ", "))
+	}
+	for _, product := range google.Products {
+		if !containsString(knownGoogleProducts, strings.ToLower(strings.TrimSpace(product))) {
+			return fmt.Errorf("unknown google product %q; known products are %s", product, strings.Join(knownGoogleProducts, ", "))
+		}
+	}
+	for _, scope := range google.Scopes {
+		if !strings.HasPrefix(scope, "https://") {
+			return fmt.Errorf("google scope %q must be a full https scope URL", scope)
+		}
+	}
+	if google.MaxOutputBytes < 0 {
+		return errors.New("google.max_output_bytes must not be negative")
+	}
+	return nil
+}
+
+// knownGoogleProducts is duplicated from the adapter's own list rather than
+// imported: internal/config must not depend on a plugin package, and the
+// adapter's Tools function is the one place that pins the pairing.
+var knownGoogleProducts = []string{"calendar", "contacts", "docs", "drive", "gmail", "sheets"}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func (c Config) validateMCP() error {
@@ -652,6 +732,14 @@ func (c Config) validateSecrets(s Secrets) error {
 		}
 		if server.OAuthClientSecretEnv != "" {
 			required = append(required, struct{ name, value string }{server.OAuthClientSecretEnv, s.MCPOAuthClientSecrets[name]})
+		}
+	}
+	if c.Google.Enabled {
+		// The token lands in the same encrypted auth.json the MCP records use,
+		// so the key is required for the same reason.
+		required = append(required, struct{ name, value string }{"EGGY_ENCRYPTION_KEY", s.EncryptionKey})
+		if c.Google.ClientSecretEnv != "" {
+			required = append(required, struct{ name, value string }{c.Google.ClientSecretEnv, s.GoogleClientSecret})
 		}
 	}
 	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {

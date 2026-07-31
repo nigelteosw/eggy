@@ -199,73 +199,58 @@ hand.
 
 ---
 
-## Open decision: how Eggy reaches Google
+## Decided: Google Workspace is a native adapter, not MCP
 
-Two ways in, and the Google Cloud console is on both. Neither avoids creating
-a project, enabling APIs, configuring a consent screen, and issuing client
-credentials — that cost is fixed. What differs is which client type, what has
-to be reachable, and how many grants there are.
+Settled 2026-07-31 after the MCP path could not be authorized. Hermes' *auth
+model* was adopted; its *vehicle* was not. `plugins/tools/google` speaks
+Google's REST APIs from Go with no Python, no shell tool, and no bundled
+scripts, because Hermes is Python only because Hermes is a Python skill host.
 
-**Where it stands (2026-07-31):** the MCP path is built and committed. A
-Google remote MCP server per product, a web OAuth client, and the callback at
-`/auth/mcp/{server}/callback`, with a pasted-redirect fallback for when the
-browser cannot deliver to it.
+**How it differs from the MCP path, which stays in the tree for everything
+else:**
 
-**Why the Hermes method works.** Hermes ships no MCP client for this; its
-`google-workspace` skill is a CLI holding one token and calling Google's REST
-APIs directly. Four properties do the work:
+| | MCP servers | `plugins/tools/google` |
+|---|---|---|
+| OAuth client type | Web application | Desktop (installed app) |
+| Redirect | `{public_base_url}/auth/mcp/{server}/callback`, registered byte for byte in the console | `http://localhost:1`, implicit for desktop clients, registered nowhere |
+| Needs a public address | Yes, to start and to receive the callback | No; `server.public_base_url` plays no part |
+| Completing a login | Browser delivers to the callback route; pasted redirect as fallback | Paste only — nothing listens on the redirect by design |
+| Grants | One server, one record, one consent screen per product | One grant, one record, every product |
+| Contacts | Unreachable — Google hosts no People MCP server | Covered |
+| Tool schemas | Whatever each server publishes, per connected server | One per configured product; an unlisted product costs nothing |
+| Transport | MCP over streamable HTTP | REST, `net/http` and `golang.org/x/oauth2` |
+| Token at rest | Sealed in `auth.json`, bound to server name and URL | Sealed in `auth.json` under `google` |
+| Trust | Configured server is trusted, no per-call approval | Same: configuring it is the approval |
 
-1. **A desktop client, not a web one.** Google allows loopback redirects on
-   any port for desktop clients without registering them, so the flow needs no
-   public address and no redirect entry per server. Eggy's web client must
-   send the registered callback in both the authorization request and the
-   exchange; the pasted-redirect path removes the need for the browser to
-   *deliver* to that callback, not the need to have registered it.
-2. **One grant, one token, every product.** Gmail, Calendar, Drive, Docs,
-   Sheets, and Contacts come from a single consent against a single client.
-   The MCP path is one server, one record, and one consent screen per product.
-3. **No dependency on Google hosting an MCP server.** Verified live: Calendar,
-   Gmail, Drive, Docs, Sheets, and Chat serve
-   `https://<product>mcp.googleapis.com/mcp/v1`. Contacts/People serves
-   nothing, so Hermes' contacts coverage has no MCP equivalent at all.
-4. **No inbound HTTP in the auth path.** The redirect is pasted back, so
-   authorization never needs `server.public_base_url` to be right or reachable.
+**What carried over from Hermes exactly:** the dead loopback redirect, paste
+either a full redirect URL or a bare code, check state only when the paste
+carried one, `access_type=offline` with `prompt=consent` so a refresh token is
+actually issued, and store the scopes the grant reports rather than the ones
+requested (their `OAUTHLIB_RELAX_TOKEN_SCOPE` lesson).
 
-**What it would cost Eggy — and it is not a native adapter.** Hermes' skill
-compiles nothing in: it is a `SKILL.md`, a `setup.py`, and a `google_api.py`
-the model invokes over a shell as `$GAPI gmail search …`. It publishes *zero*
-tool schemas. Eggy already has both halves of that shape:
+**What was deliberately not copied:** Python and Google's client libraries in
+the image, a plaintext `google_token.json`, a pending-auth file separate from
+the token, and the shell tool their `$GAPI` invocation depends on. The bounded
+shell remains undecided above, and this no longer waits on it.
 
-- skills, as a compact always-in-context index plus `skill_read` for the body
-  (`internal/kernel/agent/prompt.go`), so a Google skill costs one line until
-  it is read;
-- a bounded process runner (`plugins/runner/localprocess`, `ports.Runner`)
-  with root containment, an environment allowlist, a timeout, and output
-  bounds, configured under `runner:` and already driving the GitHub adapter
-  and workspace sessions.
+**Follow-ups:**
 
-The missing piece is one model-facing tool that calls `Runner.Execute` — which
-is exactly the bounded shell the coding decision above has not made, not a new
-subsystem. Note this inverts the budget argument rather than supporting it:
-MCP schemas are permanent per-turn bytes for every connected server, while the
-Hermes shape pays only on `skill_read`. What genuinely costs is a Python
-runtime and Google's client libraries in the image, and a credentials file
-outside `auth.json` — a second token store beside the encrypted MCP one.
-
-**Decide it on this, not on setup friction:**
-
+- [ ] Register a Desktop OAuth client and set `google.client_id` plus
+      `GOOGLE_CLIENT_SECRET` in Railway. The Web client and its three
+      registered redirect URIs belong to the MCP path and are not used here.
+- [ ] Enable the Gmail, Calendar, Drive, Docs, Sheets and People APIs for the
+      products configured. A disabled API answers every call with a 403 naming
+      itself, which Eggy now passes through verbatim.
 - [ ] Establish whether the consent screen is External/Testing. If it is,
-      refresh tokens expire after seven days and *both* paths break weekly on
-      a daemon that is supposed to be always-on. Publishing the app, or an
-      Internal client on a Workspace account, is the fix — and it is the same
-      fix either way, so it cannot be an argument for switching.
-- [ ] Confirm the MCP path actually authorizes end to end once the readable
-      exchange error is deployed. A path that has never once succeeded is not
-      evidence against itself.
-- [ ] Only if it cannot: decide the bounded shell first. A Hermes-shaped
-      Google skill is downstream of that tool existing, and it is not worth
-      deciding a shell on Google's behalf. Contacts is the only capability MCP
-      cannot reach at all.
+      refresh tokens expire after seven days and the grant dies weekly no
+      matter how it was obtained. Publishing the app, or an Internal client on
+      a Workspace account, is the fix.
+- [ ] Decide what happens to the Google Calendar MCP server entry. Two live
+      paths to the same calendar is the "second way to do a job" the standing
+      constraints forbid; keeping both is a decision, not a default.
+- [ ] `Workspace.endpoints` is settable only in-package for tests. Keep it that
+      way — an operator-settable API host is a credential exfiltration
+      primitive, not a feature.
 
 ---
 

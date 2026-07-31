@@ -231,6 +231,18 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			return nil, err
 		}
 	}
+	// One grant, several products, registered like any other kernel tool.
+	// Unlike MCP these are not a live provider: the tool set is decided by
+	// config.products at startup and does not change when a login completes --
+	// only whether a call succeeds does.
+	googleAuth, googleWorkspace, err := newGoogleWorkspace(config, secrets, options)
+	if err != nil {
+		return nil, err
+	}
+	googleAdministration := newGoogleAdmin(googleAuth)
+	if err := registerAll(registry, googleTools(googleWorkspace, config.Google, options.Now)...); err != nil {
+		return nil, err
+	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
 	if err != nil {
 		return nil, err
@@ -279,6 +291,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.commands = commands.New(commands.Options{
 		ConfigPath:   options.ConfigPath,
 		MCP:          mcpAdministration.commandsView(),
+		Google:       googleAdministration.commandsView(),
 		Turns:        app.turns,
 		Store:        stateStore,
 		Conversation: app.conversation,

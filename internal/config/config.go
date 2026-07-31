@@ -315,12 +315,12 @@ func normalizeConfig(document configDocument) Config {
 	return Config{
 		Server: common.Server, DataDir: common.DataDir, Owner: common.Owner, Telegram: common.Telegram,
 		Agent: document.Agent, Providers: document.Providers, ModelAliases: document.Models,
-		Repositories: common.Repositories, Runner: common.Runner, MCP: common.MCP,
+		Repositories: common.Repositories, Runner: common.Runner, MCP: common.MCP, Google: common.Google,
 	}
 }
 
 func (c Config) commonDocument() commonConfigDocument {
-	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, MCP: c.MCP}
+	return commonConfigDocument{Server: c.Server, DataDir: c.DataDir, Owner: c.Owner, Telegram: c.Telegram, Repositories: c.Repositories, Runner: c.Runner, MCP: c.MCP, Google: c.Google}
 }
 
 func (c Config) MarshalYAML() (any, error) {

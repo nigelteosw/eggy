@@ -37,6 +37,7 @@ Unknown commands return the same command reference. Ordinary text continues to t
 | `/mcp login <name> <pasted redirect URL or code>` | Finish a login the browser could not deliver to the callback |
 | `/mcp logout <name>` | Discard stored credentials for one server |
 | `/google` | Whether Google Workspace is authorized, and with which scopes |
+| `/google set client_id=… [client_secret_env=VAR] [products=…] [enabled=…]` | Configure Google without editing config.yaml |
 | `/google login [pasted redirect URL or code]` | Start authorization, or finish it from the paste |
 | `/google logout` | Discard the stored Google grant |
 

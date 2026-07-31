@@ -120,7 +120,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{"providers", "models"} {
+	for _, section := range []string{"providers", "models", "google"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
@@ -273,9 +273,33 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 				model := cfg.ModelAliases[alias]
 				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", ")})
 			}
+		case "google":
+			// One row, because there is one grant. A second row would suggest
+			// per-product configuration that does not exist.
+			state := "disabled"
+			if cfg.Google.Enabled {
+				state = "enabled"
+			}
+			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products"}
+			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", ")})
 		}
 		writeWebResult(w, result)
 	}
+}
+
+// splitList reads a comma-separated form field into a list. The web form
+// carries flat strings, so a multi-valued field arrives as one of these rather
+// than as JSON; empty entries are dropped so a trailing comma is not a product
+// named "".
+func splitList(value string) []string {
+	parts := strings.Split(value, ",")
+	list := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			list = append(list, trimmed)
+		}
+	}
+	return list
 }
 
 func webConfigSetRoute(configPath, section string) http.HandlerFunc {
@@ -294,6 +318,12 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 		case "models":
 			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
 			title = "Set model " + named["alias"] + "."
+		case "google":
+			err = config.SetGoogle(configPath, config.GoogleInput{
+				Enabled: named["enabled"] != "false", ClientID: named["client_id"],
+				ClientSecretEnv: named["client_secret_env"], Products: splitList(named["products"]),
+			})
+			title = "Saved Google Workspace."
 		}
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())

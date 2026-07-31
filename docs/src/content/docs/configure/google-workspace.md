@@ -68,7 +68,19 @@ Copy the client ID and client secret from the dialog.
 
 ## 5. Configure Eggy
 
-The client ID is not a secret — it travels in the authorization URL — so it lives in YAML. The secret does not: name the environment variable that holds it, and startup fails if that variable is empty.
+Three ways in, all writing the same section through the same validation and the same file lock. Pick whichever surface you are already holding.
+
+**From the web settings panel** — the Google Workspace card takes the client ID, the secret's variable name, and a checkbox per product. Nothing needs to be typed as YAML.
+
+**From Telegram**, which is the only path that works when you have nothing but a phone:
+
+```
+/google set client_id=xxxx.apps.googleusercontent.com client_secret_env=GOOGLE_CLIENT_SECRET products=calendar,gmail
+```
+
+Both are upserts: fields you leave out keep their stored values, so `/google set enabled=false` turns Google off without erasing the client you would need to turn it back on. Neither surface can set `scopes`, `timeout`, or `max_output_bytes` — those are reviewed decisions and are preserved untouched by an edit from either.
+
+**Or edit `config.yaml` directly:**
 
 ```yaml
 google:

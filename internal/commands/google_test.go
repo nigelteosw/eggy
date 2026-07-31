@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/config"
 )
 
 type fakeGoogleRuntime struct {
@@ -118,5 +120,58 @@ func TestGoogleLogout(t *testing.T) {
 	runtime := &fakeGoogleRuntime{}
 	if output := run(t, googleService(runtime), "/google logout"); !runtime.loggedOut || !strings.Contains(output, "/google login") {
 		t.Fatalf("loggedOut=%v output=%q", runtime.loggedOut, output)
+	}
+}
+
+// The same "one administration authority" property /mcp add has: a Telegram
+// edit is readable by the helper the web panel calls, because both went
+// through internal/config.
+func TestGoogleSetWritesThroughInternalConfig(t *testing.T) {
+	path := mcpTestConfig(t)
+	service := New(Options{ConfigPath: path})
+
+	output := run(t, service, "/google set client_id=x.apps.googleusercontent.com client_secret_env=GOOGLE_CLIENT_SECRET products=calendar,gmail")
+	if !strings.Contains(output, "Restart") || !strings.Contains(output, "GOOGLE_CLIENT_SECRET") {
+		t.Fatalf("output=%q", output)
+	}
+	stored, err := config.GetGoogleConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Enabled || stored.ClientID != "x.apps.googleusercontent.com" || len(stored.Products) != 2 {
+		t.Fatalf("stored=%#v", stored)
+	}
+}
+
+// Configuration has to be reachable before the adapter exists, or an owner on
+// a phone can never get to the state where /google login is possible.
+func TestGoogleSetWorksWithNoRunningAdapter(t *testing.T) {
+	path := mcpTestConfig(t)
+	service := New(Options{ConfigPath: path})
+	if output := run(t, service, "/google login"); !strings.Contains(output, "not configured") {
+		t.Fatalf("login without an adapter output=%q", output)
+	}
+	if output := run(t, service, "/google set client_id=x.apps.googleusercontent.com products=calendar"); !strings.Contains(output, "Saved") {
+		t.Fatalf("set without an adapter output=%q", output)
+	}
+}
+
+// A pasted secret must never be echoed back into the transcript, and the field
+// takes a variable name in the first place.
+func TestGoogleSetRefusesASecretValue(t *testing.T) {
+	service := New(Options{ConfigPath: mcpTestConfig(t)})
+	output := run(t, service, "/google set client_id=x.apps.googleusercontent.com client_secret_env=GOCSPX-realsecret")
+	if strings.Contains(output, "GOCSPX-realsecret") {
+		t.Fatalf("the pasted secret was echoed: %q", output)
+	}
+	if !strings.Contains(output, "rotate it") {
+		t.Fatalf("output=%q", output)
+	}
+}
+
+func TestGoogleSetRejectsAnUnknownField(t *testing.T) {
+	service := New(Options{ConfigPath: mcpTestConfig(t)})
+	if output := run(t, service, "/google set scopes=everything"); !strings.Contains(output, "Unknown field") {
+		t.Fatalf("output=%q", output)
 	}
 }

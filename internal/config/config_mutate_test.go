@@ -373,3 +373,78 @@ func TestSetMCPServerRecoversFromAnUnusableStoredSecretEnv(t *testing.T) {
 		t.Fatalf("server=%#v", servers["calendar"])
 	}
 }
+
+func TestSetGooglePreservesWhatASurfaceCannotSee(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+google:
+  enabled: true
+  client_id: "old.apps.googleusercontent.com"
+  client_secret_env: "GOOGLE_CLIENT_SECRET"
+  products: ["calendar"]
+  scopes: ["https://www.googleapis.com/auth/calendar.readonly"]
+  max_output_bytes: 4096
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGoogle(path, GoogleInput{Enabled: true, Products: []string{"gmail", "calendar"}}); err != nil {
+		t.Fatal(err)
+	}
+	env := testSecrets()
+	env["GOOGLE_CLIENT_SECRET"] = "secret"
+	reloaded, _, err := LoadConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	google := reloaded.Google
+	// A surface edit that blanked the client id, the narrowed scopes, or the
+	// output bound would be a config the owner never asked for.
+	if google.ClientID != "old.apps.googleusercontent.com" || google.ClientSecretEnv != "GOOGLE_CLIENT_SECRET" {
+		t.Fatalf("client fields lost: %#v", google)
+	}
+	if len(google.Scopes) != 1 || google.MaxOutputBytes != 4096 {
+		t.Fatalf("advanced fields lost: %#v", google)
+	}
+	if len(google.Products) != 2 || google.Products[0] != "calendar" || google.Products[1] != "gmail" {
+		t.Fatalf("products=%v, want the new set sorted", google.Products)
+	}
+}
+
+// A rejected config is never written: the owner still has the file they had.
+func TestSetGoogleRejectsAnUnknownProduct(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", Products: []string{"gmial"}})
+	if err == nil || !strings.Contains(err.Error(), "unknown google product") {
+		t.Fatalf("error=%v", err)
+	}
+	stored, err := GetGoogleConfig(path)
+	if err != nil || stored.Enabled {
+		t.Fatalf("a rejected write reached the file: %#v err=%v", stored, err)
+	}
+}
+
+// Disabling must not require re-sending the client, or an owner turning Google
+// off from a phone would erase the configuration needed to turn it back on.
+func TestSetGoogleDisablesWithoutErasing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", Products: []string{"calendar"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGoogle(path, GoogleInput{Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := GetGoogleConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Enabled || stored.ClientID != "x.apps.googleusercontent.com" || len(stored.Products) != 1 {
+		t.Fatalf("stored=%#v", stored)
+	}
+}

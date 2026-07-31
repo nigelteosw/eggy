@@ -287,6 +287,67 @@ func GetMCPServersConfig(path string) (map[string]MCPServerConfig, error) {
 	return cfg.MCP.Servers, nil
 }
 
+// GoogleInput is the set of Google fields a surface can set. Scopes, timeout,
+// and max_output_bytes are deliberately absent: narrowing a consent screen and
+// bounding a response are reviewed decisions, and both are preserved untouched
+// when a surface edits the rest.
+type GoogleInput struct {
+	Enabled         bool
+	ClientID        string
+	ClientSecretEnv string
+	Products        []string
+}
+
+// SetGoogle writes the Google section from the fields a surface can set.
+//
+// It is upsert-shaped like SetMCPServer for the same reason: the owner editing
+// from a phone or a browser is amending one integration, not authoring the
+// section, so anything they cannot see must survive the write. Validation runs
+// before the file is touched, so an unknown product name or a client id left
+// blank is rejected with the existing config still in place.
+func SetGoogle(path string, input GoogleInput) error {
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		google := cfg.Google
+		google.Enabled = input.Enabled
+		if input.ClientID != "" {
+			google.ClientID = input.ClientID
+		}
+		if input.ClientSecretEnv != "" {
+			google.ClientSecretEnv = input.ClientSecretEnv
+		}
+		if len(input.Products) > 0 {
+			products := make([]string, 0, len(input.Products))
+			for _, product := range input.Products {
+				if trimmed := strings.ToLower(strings.TrimSpace(product)); trimmed != "" {
+					products = append(products, trimmed)
+				}
+			}
+			sort.Strings(products)
+			google.Products = products
+		}
+		cfg.Google = google
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// GetGoogleConfig returns the section as stored. It carries no token and no
+// secret -- client_secret_env is a variable name -- so it is safe to show the
+// authenticated owner on either surface.
+func GetGoogleConfig(path string) (GoogleConfig, error) {
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		return GoogleConfig{}, err
+	}
+	return cfg.Google, nil
+}
+
 func GetProvidersConfigText(path string) (string, error) {
 	cfg, err := LoadDocument(path)
 	if err != nil {

@@ -297,7 +297,7 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 func TestWebConfigRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	handler := NewWebHandler("", testWebConfig(now))
-	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp"} {
+	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp", "/api/config/google"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusUnauthorized {
@@ -545,5 +545,60 @@ func TestWebMCPLoginIsAbsentWithoutAManager(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code == http.StatusFound {
 		t.Fatalf("a login redirect was served with no MCP manager: %d", response.Code)
+	}
+}
+
+// The Google section is the one an owner otherwise had to reach by editing
+// /data/config.yaml by hand. It round-trips through the same section routes
+// providers and models use.
+func TestWebGoogleSectionRoundTrips(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	setBody := strings.NewReader(`{"enabled":"true","client_id":"x.apps.googleusercontent.com","client_secret_env":"GOOGLE_CLIENT_SECRET","products":"calendar,gmail"}`)
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/google", setBody)
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusOK {
+		t.Fatalf("set status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/google", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	var decoded webResult
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	// One row, because there is one grant. A second would imply per-product
+	// configuration that does not exist.
+	if len(decoded.TableRows) != 1 {
+		t.Fatalf("rows=%#v", decoded.TableRows)
+	}
+	row := decoded.TableRows[0]
+	if row[0] != "enabled" || row[1] != "x.apps.googleusercontent.com" || row[3] != "calendar, gmail" {
+		t.Fatalf("row=%#v", row)
+	}
+}
+
+// The same validation the chat command and the config loader apply: a rejected
+// write leaves the file the owner had.
+func TestWebGoogleSectionRejectsAnUnknownProduct(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	body := strings.NewReader(`{"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"gmial"}`)
+	request := httptest.NewRequest(http.MethodPost, "/api/config/google", body)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

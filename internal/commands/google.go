@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/config"
 )
 
 // GoogleRuntime is the owner's half of the Google integration: one grant to
@@ -25,12 +27,18 @@ type GoogleStatus struct {
 }
 
 func (s *CommandService) googleCommand(ctx context.Context, args []string) (string, bool, error) {
-	if s.google == nil {
-		return "Google Workspace is not configured. Set `google.enabled` and `google.client_id` in config.yaml, then restart.", true, nil
-	}
 	action := "status"
 	if len(args) > 0 {
 		action = args[0]
+	}
+	// Configuration is reachable before the capability exists -- that is the
+	// point of having it here. Everything else needs a running adapter, which
+	// only a restart after a config write can produce.
+	if action == "set" {
+		return s.googleSet(args[1:])
+	}
+	if s.google == nil {
+		return "Google Workspace is not configured.\n\n" + googleUsage(), true, nil
 	}
 	switch action {
 	case "status":
@@ -99,12 +107,74 @@ func (s *CommandService) googleStatus() (string, bool, error) {
 	return strings.Join(lines, "\n"), true, nil
 }
 
+// googleSet is why an owner holding a phone can set this up at all. It writes
+// through the same internal/config helper the web panel calls, under the same
+// lock and the same validation -- one administration authority, two views onto
+// it, exactly as /mcp add does.
+func (s *CommandService) googleSet(args []string) (string, bool, error) {
+	if s.configPath == "" {
+		return "Google configuration is unavailable.", true, nil
+	}
+	if len(args) == 0 {
+		return googleSetUsage, true, nil
+	}
+	input := config.GoogleInput{Enabled: true}
+	for _, argument := range args {
+		key, value, ok := strings.Cut(argument, "=")
+		if !ok {
+			return "Arguments are key=value pairs. " + googleSetUsage, true, nil
+		}
+		switch key {
+		case "client_id":
+			input.ClientID = value
+		case "client_secret_env":
+			// The name is config; the value is not. The same rule /mcp add
+			// follows, and for the same reason: what lands here lands in the
+			// message history.
+			if !environmentName.MatchString(value) {
+				return secretNameHint(key), true, nil
+			}
+			input.ClientSecretEnv = value
+		case "products":
+			input.Products = strings.Split(value, ",")
+		case "enabled":
+			switch value {
+			case "true":
+				input.Enabled = true
+			case "false":
+				input.Enabled = false
+			default:
+				return "enabled must be true or false.", true, nil
+			}
+		default:
+			return fmt.Sprintf("Unknown field %q. %s", key, googleSetUsage), true, nil
+		}
+	}
+	if err := config.SetGoogle(s.configPath, input); err != nil {
+		return fmt.Sprintf("Could not save Google configuration: %v", err), true, nil
+	}
+	message := "Saved Google Workspace. " + restartNotice
+	if input.ClientSecretEnv != "" {
+		message += fmt.Sprintf("\nSet %s in the deployment's environment — Eggy reads the client secret from there, never from chat.", input.ClientSecretEnv)
+	}
+	if input.Enabled {
+		message += "\nThen run /google login to authorize it."
+	}
+	return message, true, nil
+}
+
+const googleSetUsage = "/google set client_id=<desktop client id> [client_secret_env=VAR] " +
+	"[products=calendar,gmail,drive,docs,sheets,contacts] [enabled=true|false]"
+
 func googleUsage() string {
 	return strings.Join([]string{
 		"Usage:",
 		"/google — whether Google is authorized, and with which scopes",
+		googleSetUsage,
 		"/google login — start authorization and return the URL to approve",
 		"/google login <pasted redirect URL or code> — finish it",
 		"/google logout — discard the stored grant",
+		"",
+		"The OAuth client must be a Desktop app client. A Web application client cannot authorize this way.",
 	}, "\n")
 }

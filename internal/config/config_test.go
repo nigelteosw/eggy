@@ -546,3 +546,59 @@ func TestNegativeTelegramOwnerIDIsRejectedAsATypo(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+// A section that decodes but never reaches Config is worse than one that fails
+// to parse: startup succeeds, the capability is silently absent, and the next
+// config write from any surface erases what the owner wrote. Google is carried
+// through load and back out through marshal.
+func TestGoogleSectionSurvivesLoadAndWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+google:
+  enabled: true
+  client_id: "x.apps.googleusercontent.com"
+  client_secret_env: "GOOGLE_CLIENT_SECRET"
+  products: ["calendar", "gmail"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := testSecrets()
+	env["GOOGLE_CLIENT_SECRET"] = "secret"
+	cfg, _, err := LoadConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Google.Enabled || cfg.Google.ClientID != "x.apps.googleusercontent.com" || len(cfg.Google.Products) != 2 {
+		t.Fatalf("google=%#v", cfg.Google)
+	}
+
+	marshalled, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(marshalled), "x.apps.googleusercontent.com") {
+		t.Fatalf("google section dropped on write:\n%s", marshalled)
+	}
+}
+
+// An enabled Google needs its client secret present, for the same reason a
+// bearer-env MCP server needs its token: a missing variable otherwise fails at
+// the first call rather than at boot.
+func TestEnabledGoogleRequiresItsSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+google:
+  enabled: true
+  client_id: "x.apps.googleusercontent.com"
+  client_secret_env: "GOOGLE_CLIENT_SECRET"
+  products: ["calendar"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err == nil || !strings.Contains(err.Error(), "GOOGLE_CLIENT_SECRET") {
+		t.Fatalf("error=%v", err)
+	}
+}

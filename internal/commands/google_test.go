@@ -189,10 +189,10 @@ func TestGoogleLoginUnpacksGooglesOwnErrorPage(t *testing.T) {
 	if !strings.Contains(output, "redirect_uri_mismatch") {
 		t.Fatalf("output=%q", output)
 	}
-	// Google's own advice -- register the redirect URI -- is the wrong repair:
-	// a loopback address cannot be registered and does not need to be.
-	if !strings.Contains(output, "Desktop app client") {
-		t.Fatalf("output does not name the repair: %q", output)
+	// Google's advice is only "register the redirect URI", which says neither
+	// where nor which of the two repairs applies. Both have to be named.
+	if !strings.Contains(output, "authorized redirect URIs") || !strings.Contains(output, "Desktop app client") {
+		t.Fatalf("output does not name both repairs: %q", output)
 	}
 	if len(runtime.completed) != 0 {
 		t.Fatalf("an exchange was attempted for a refused authorization: %#v", runtime.completed)

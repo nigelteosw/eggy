@@ -180,12 +180,15 @@ func googleAuthError(encoded string) string {
 		return ""
 	}
 	failure := string(code)
-	// The one refusal an owner cannot act on without being told which client
-	// they registered. Google's own help text says "register the redirect URI",
-	// which is the wrong repair here: the loopback address cannot be
-	// registered, and does not need to be for the client type this expects.
+	// Google's help text says only "register the redirect URI", which does not
+	// say where or which of the two repairs applies. Both are real: a web
+	// client matches its registered list exactly, port included, and localhost
+	// is exempt from the HTTPS rule so it can be registered; a desktop client
+	// needs no entry at all because loopback matching ignores the port.
 	if failure == "redirect_uri_mismatch" {
-		failure += " — the OAuth client is a Web application client. Loopback redirects work only for a Desktop app client; create one and set it as the client id"
+		failure += " — the redirect URI in the authorization URL above is not authorized on this OAuth client. " +
+			"Add it verbatim to the client's authorized redirect URIs (scheme, port and trailing slash all match exactly), " +
+			"or use a Desktop app client, where a loopback redirect needs no entry and the port is not matched"
 	}
 	return failure
 }

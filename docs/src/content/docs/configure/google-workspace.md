@@ -62,7 +62,9 @@ This choice is the reason authorization works without any of the usual infrastru
 - `server.public_base_url` plays no part in authorization;
 - Eggy never has to be reachable from the browser you approve in.
 
-A **Web application** client will not work with this integration. If you already made one for an MCP server, leave it alone and create a second client — they are independent.
+A **Web application** client can be made to work — Google exempts localhost from its HTTPS rule, so `http://localhost:1` is a legal redirect URI to register — but it must be registered verbatim, and the match is exact down to the port. That makes port 1 load-bearing configuration in someone else's console: change `LoopbackRedirect` in the adapter and authorization breaks until the console is edited to match.
+
+A Desktop client has no such entry, because loopback matching ignores the port. Keeping one client per integration also means a consent-screen or verification change to one does not move the other. If you already made a Web client for an MCP server, leave it alone.
 
 Copy the client ID and client secret from the dialog.
 
@@ -181,7 +183,7 @@ A bare datetime is ambiguous and Google resolves it as UTC, which silently moves
 | `Google token exchange failed: invalid_client` | The client secret does not belong to the client ID, or `GOOGLE_CLIENT_SECRET` is unset |
 | `Google token exchange failed: invalid_grant` | The code expired or was already spent. Start over |
 | `authorization was refused: access_denied` | External consent screen and the account is not on the test-user list |
-| `authorization was refused: redirect_uri_mismatch` | The client is a Web application client. Loopback redirects work only for a Desktop app client — create one and set it as `client_id` (step 4). The redirect cannot be fixed by registering it |
+| `authorization was refused: redirect_uri_mismatch` | `http://localhost:1` is not authorized on that client. Either add it verbatim under Authorized redirect URIs, or switch to a Desktop app client (step 4) |
 | `has not been used in project … or it is disabled` | That product's API is not enabled (step 2) |
 | A 403 naming a scope | The consent screen granted less than was asked for. `/google logout`, adjust `scopes`, log in again |
 | Everything worked, then broke about a week later | External + Testing expires refresh tokens after seven days (step 3) |

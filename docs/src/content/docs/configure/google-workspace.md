@@ -181,6 +181,7 @@ A bare datetime is ambiguous and Google resolves it as UTC, which silently moves
 | `Google token exchange failed: invalid_client` | The client secret does not belong to the client ID, or `GOOGLE_CLIENT_SECRET` is unset |
 | `Google token exchange failed: invalid_grant` | The code expired or was already spent. Start over |
 | `authorization was refused: access_denied` | External consent screen and the account is not on the test-user list |
+| `authorization was refused: redirect_uri_mismatch` | The client is a Web application client. Loopback redirects work only for a Desktop app client — create one and set it as `client_id` (step 4). The redirect cannot be fixed by registering it |
 | `has not been used in project … or it is disabled` | That product's API is not enabled (step 2) |
 | A 403 naming a scope | The consent screen granted less than was asked for. `/google logout`, adjust `scopes`, log in again |
 | Everything worked, then broke about a week later | External + Testing expires refresh tokens after seven days (step 3) |

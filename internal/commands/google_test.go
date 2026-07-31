@@ -175,3 +175,35 @@ func TestGoogleSetRejectsAnUnknownField(t *testing.T) {
 		t.Fatalf("output=%q", output)
 	}
 }
+
+// The refusal an owner actually hits first, captured from a real attempt.
+// Google rejects the loopback redirect before any consent screen, so there is
+// no redirect and no ?error= -- the reason is packed into an opaque authError
+// blob on accounts.google.com. Reporting "no code parameter" for this
+// describes the symptom and hides a cause with a one-line repair.
+func TestGoogleLoginUnpacksGooglesOwnErrorPage(t *testing.T) {
+	const refusal = "https://accounts.google.com/signin/oauth/error?authError=ChVyZWRpcmVjdF91cmlfbWlzbWF0Y2gSsAEKWW91IGNhbid0IHNpZ24gaW4gdG8gdGhpcyBhcHAgYmVjYXVzZSBpdCBkb2Vzbid0IGNvbXBseSB3aXRoIEdvb2dsZSdzIE9BdXRoIDIuMCBwb2xpY3kuCgpJZiB5b3UncmUgdGhlIGFwcCBkZXZlbG9wZXIsIHJlZ2lzdGVyIHRoZSByZWRpcmVjdCBVUkkgaW4gdGhlIEdvb2dsZSBDbG91ZCBDb25zb2xlLgogIBptaHR0cHM6Ly9kZXZlbG9wZXJzLmdvb2dsZS5jb20vaWRlbnRpdHkvcHJvdG9jb2xzL29hdXRoMi93ZWItc2VydmVyI2F1dGhvcml6YXRpb24tZXJyb3JzLXJlZGlyZWN0LXVyaS1taXNtYXRjaCCQAyoiCgxyZWRpcmVjdF91cmkSEmh0dHA6Ly9sb2NhbGhvc3Q6MQ&flowName=GeneralOAuthFlow"
+
+	runtime := &fakeGoogleRuntime{}
+	output := run(t, googleService(runtime), "/google login "+refusal)
+	if !strings.Contains(output, "redirect_uri_mismatch") {
+		t.Fatalf("output=%q", output)
+	}
+	// Google's own advice -- register the redirect URI -- is the wrong repair:
+	// a loopback address cannot be registered and does not need to be.
+	if !strings.Contains(output, "Desktop app client") {
+		t.Fatalf("output does not name the repair: %q", output)
+	}
+	if len(runtime.completed) != 0 {
+		t.Fatalf("an exchange was attempted for a refused authorization: %#v", runtime.completed)
+	}
+}
+
+// An authError that decodes to nothing recognizable must not be reported as a
+// confident diagnosis; the generic missing-code message is the honest answer.
+func TestGoogleLoginIgnoresAnUnreadableAuthError(t *testing.T) {
+	output := run(t, googleService(&fakeGoogleRuntime{}), "/google login https://accounts.google.com/signin/oauth/error?authError=%%%")
+	if !strings.Contains(output, "no code parameter") {
+		t.Fatalf("output=%q", output)
+	}
+}

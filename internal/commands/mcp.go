@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -144,11 +146,53 @@ func parseOAuthRedirect(pasted string) (code, state string, err error) {
 		}
 		return "", "", fmt.Errorf("authorization was refused: %s", failure)
 	}
+	if failure := googleAuthError(query.Get("authError")); failure != "" {
+		return "", "", errors.New("authorization was refused: " + failure)
+	}
 	if query.Get("code") == "" {
 		return "", "", fmt.Errorf("that URL has no code parameter — paste the address the browser landed on after you approved")
 	}
 	return query.Get("code"), query.Get("state"), nil
 }
+
+// googleAuthError reads the reason off Google's own error page.
+//
+// A refusal that happens before consent does not come back as ?error= on the
+// redirect -- there is no redirect, because the redirect is what Google
+// objected to. It lands on accounts.google.com/signin/oauth/error with the
+// reason packed into an opaque base64 "authError" blob, and without unpacking
+// it the owner is told only that their URL has no code, which describes the
+// symptom and hides the cause.
+//
+// The blob is a length-delimited protobuf whose first field is the error code.
+// Rather than depend on that shape, this pulls the printable runs out and
+// takes the first token that looks like an OAuth error code.
+func googleAuthError(encoded string) string {
+	if encoded == "" {
+		return ""
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(encoded, "="))
+	if err != nil {
+		return ""
+	}
+	code := oauthErrorCode.Find(decoded)
+	if code == nil {
+		return ""
+	}
+	failure := string(code)
+	// The one refusal an owner cannot act on without being told which client
+	// they registered. Google's own help text says "register the redirect URI",
+	// which is the wrong repair here: the loopback address cannot be
+	// registered, and does not need to be for the client type this expects.
+	if failure == "redirect_uri_mismatch" {
+		failure += " — the OAuth client is a Web application client. Loopback redirects work only for a Desktop app client; create one and set it as the client id"
+	}
+	return failure
+}
+
+// oauthErrorCode matches the snake_case token OAuth error codes use, long
+// enough not to catch protobuf framing bytes that happen to be printable.
+var oauthErrorCode = regexp.MustCompile(`[a-z][a-z0-9]*(_[a-z0-9]+){1,4}`)
 
 // mcpNamed runs an action that takes exactly one server name, so the arity
 // check and the error rendering are written once. An error here is reported to

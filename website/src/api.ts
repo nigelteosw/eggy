@@ -86,7 +86,7 @@ export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" });
 }
 
-export type ConfigSection = "providers" | "models" | "calendar";
+export type ConfigSection = "providers" | "models";
 
 export function getConfig(section: ConfigSection): Promise<CommandResult> {
   return request(`/api/config/${section}`);
@@ -99,8 +99,15 @@ export function setConfig(section: ConfigSection, values: Record<string, string>
 export type MCPServerInput = {
   name: string;
   url: string;
+  transport: string;
   auth: "oauth" | "bearer-env" | "none";
   bearer_token_env: string;
+  // oauth_client_id is a client registered by hand, for an authorization
+  // server without dynamic client registration. It is not a secret -- it
+  // travels in the authorization URL -- so it is sent as a value. The secret
+  // is only ever named: oauth_client_secret_env is an environment variable.
+  oauth_client_id: string;
+  oauth_client_secret_env: string;
   enabled: boolean;
 };
 

@@ -161,11 +161,14 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			server := servers[name]
-			rows = append(rows, []string{name, server.Transport, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv})
+			// Only names are ever rendered, never values: bearer_token_env and
+			// oauth_client_secret_env are variable names, and the client id is
+			// public by construction. No secret reaches this response.
+			rows = append(rows, []string{name, server.Transport, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv, server.OAuthClientID, server.OAuthClientSecretEnv})
 		}
 		writeWebResult(w, webResult{
 			State:        webSuccess,
-			TableHeaders: []string{"Name", "Transport", "URL", "Auth", "Enabled", "Bearer token env"},
+			TableHeaders: []string{"Name", "Transport", "URL", "Auth", "Enabled", "Bearer token env", "OAuth client id", "OAuth client secret env"},
 			TableRows:    rows,
 		})
 	}
@@ -174,12 +177,14 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 func webMCPSetRoute(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
-			Name           string `json:"name"`
-			URL            string `json:"url"`
-			Transport      string `json:"transport"`
-			Auth           string `json:"auth"`
-			BearerTokenEnv string `json:"bearer_token_env"`
-			Enabled        bool   `json:"enabled"`
+			Name                 string `json:"name"`
+			URL                  string `json:"url"`
+			Transport            string `json:"transport"`
+			Auth                 string `json:"auth"`
+			BearerTokenEnv       string `json:"bearer_token_env"`
+			OAuthClientID        string `json:"oauth_client_id"`
+			OAuthClientSecretEnv string `json:"oauth_client_secret_env"`
+			Enabled              bool   `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
@@ -191,7 +196,9 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 		}
 		if err := config.SetMCPServer(configPath, config.MCPServerInput{
 			Name: input.Name, URL: input.URL, Transport: input.Transport,
-			Auth: input.Auth, BearerTokenEnv: input.BearerTokenEnv, Enabled: input.Enabled,
+			Auth: input.Auth, BearerTokenEnv: input.BearerTokenEnv,
+			OAuthClientID: input.OAuthClientID, OAuthClientSecretEnv: input.OAuthClientSecretEnv,
+			Enabled: input.Enabled,
 		}); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return

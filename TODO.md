@@ -52,31 +52,6 @@ against the targets, not from memory.
 
 ---
 
-## P1: Bootstrap composes, nothing more
-
-`internal/bootstrap` is 1,453 lines and `NewApp` is 223 of them. It is the one
-package allowed to know every adapter exists, which makes it the easiest place
-for logic that belongs elsewhere to accumulate unnoticed.
-
-- [ ] Make model adapter construction one selector keyed by
-      `ProviderConfig.Adapter`. A new provider adds one plugin package and one
-      case.
-- [ ] Stop retaining construction-only collaborators on `App`. Keep only what
-      `Run`, `Ready`, `Close`, event handling, and HTTP handling use. Tests
-      assert public behavior; they do not force production fields to stay
-      reachable.
-
-**Do not** extract tool registration into a `buildToolRegistry` helper. It was
-tried: it needs eleven collaborators, so it trades a long function for an
-eleven-parameter one and hides the coupling instead of removing it. It becomes
-possible only after the items above shrink what a turn's tool set is assembled
-from.
-
-Success criteria: `internal/bootstrap` holds composition, event-loop ownership,
-and surface routing only.
-
----
-
 ## P1: Collapse the config surface
 
 75 YAML fields across a 1,549-line package, validated in more than one place.
@@ -148,6 +123,23 @@ two plugin packages import a third.
 in opposite directions of trust, and one "auth" package owning both is a
 security god-object. Telegram's webhook-secret and owner-allowlist checks are
 the only things that may later join `session`.
+
+**Tool registration stays inline in `NewApp`.** Extracting a
+`buildToolRegistry` helper was tried and rejected: it needs eleven
+collaborators, so it trades a long function for an eleven-parameter one and
+hides the coupling instead of removing it. It becomes worth revisiting only if
+what a turn's tool set is assembled from gets smaller.
+
+**Adding a model backend is usually config, not code.** `openai_compatible` is
+OpenAI's Chat Completions wire format — `/chat/completions`, `tools` /
+`tool_calls`, `reasoning_effort`, `usage.cached_tokens` — so OpenAI itself,
+DeepSeek, OpenRouter, and Groq are all reachable by adding a `providers` entry
+with the right `base_url` and `api_key_env`. Writing an `openai` adapter that
+duplicates `openaicompat` is the wrong turn, and a test pins that. A new
+adapter is earned by a genuinely different wire format: Anthropic's Messages
+API, with its top-level system prompt, content blocks, and required
+`max_tokens`, is the real example. That costs a plugin package, a name in
+`config.supportedModelAdapters`, and one case in `bootstrap.newModelAdapter`.
 
 **`knownGoogleProducts` stays duplicated in `internal/config`.** The boundary
 rule forces it: config may not import a plugin package. If a third copy

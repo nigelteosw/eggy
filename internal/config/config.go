@@ -663,6 +663,18 @@ func pathWithin(root, path string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
+// supportedModelAdapters is the wire format a provider speaks, not the vendor
+// it belongs to. "openai_compatible" is OpenAI's Chat Completions shape, which
+// OpenAI itself, DeepSeek, OpenRouter, Groq, and most hosted models serve --
+// reaching any of them is a providers entry, not a new adapter.
+//
+// A vendor whose wire format genuinely differs (Anthropic's Messages API,
+// with its top-level system prompt, content blocks, and required max_tokens)
+// is what earns a new name here plus a case in bootstrap's newModelAdapter.
+// Those two lists are deliberately kept in step: this one decides what config
+// accepts, that one decides what config gets.
+var supportedModelAdapters = []string{"openai_compatible"}
+
 func (c Config) validateProviders() error {
 	if !configuredNamePattern.MatchString(c.Agent.DefaultModel) {
 		return errors.New("agent.default_model must name a configured model alias")
@@ -671,8 +683,8 @@ func (c Config) validateProviders() error {
 		if !configuredNamePattern.MatchString(name) {
 			return fmt.Errorf("invalid provider name %q", name)
 		}
-		if provider.Adapter != "openai_compatible" {
-			return fmt.Errorf("unsupported provider adapter %q", provider.Adapter)
+		if !slices.Contains(supportedModelAdapters, provider.Adapter) {
+			return fmt.Errorf("unsupported provider adapter %q; supported adapters are %s", provider.Adapter, strings.Join(supportedModelAdapters, ", "))
 		}
 		u, err := url.Parse(provider.BaseURL)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {

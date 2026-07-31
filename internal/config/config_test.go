@@ -125,6 +125,51 @@ func TestValuesCoversEverySecretField(t *testing.T) {
 	}
 }
 
+// OpenAI is reachable without a new adapter: "openai_compatible" *is* OpenAI's
+// Chat Completions wire format, so ChatGPT models are a providers entry rather
+// than a plugin package. This pins that, because the alternative -- writing an
+// "openai" adapter that duplicates openaicompat -- is the obvious wrong turn
+// when adding it.
+func TestOpenAIIsAProviderEntryNotANewAdapter(t *testing.T) {
+	body := strings.Replace(validConfig(), `providers:
+  deepseek:
+    adapter: openai_compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY`, `providers:
+  openai:
+    adapter: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY`, 1)
+	body = strings.Replace(body, "provider: deepseek", "provider: openai", 1)
+
+	env := testSecrets()
+	env["OPENAI_API_KEY"] = "sk-test"
+	cfg, secrets, err := loadText(t, body, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, model, err := cfg.ActiveModel("deepseek-pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.BaseURL != "https://api.openai.com/v1" || model.Provider != "openai" {
+		t.Fatalf("provider=%#v model=%#v", provider, model)
+	}
+	if secrets.ProviderAPIKeys["openai"] != "sk-test" {
+		t.Fatalf("api key not resolved: %#v", secrets.ProviderAPIKeys)
+	}
+}
+
+// An unsupported adapter names what is supported, so adding a backend does not
+// start with guessing the vocabulary.
+func TestUnsupportedAdapterNamesTheSupportedOnes(t *testing.T) {
+	broken := strings.Replace(validConfig(), "adapter: openai_compatible", "adapter: anthropic", 1)
+	_, _, err := loadText(t, broken, testSecrets())
+	if err == nil || !strings.Contains(err.Error(), "supported adapters are openai_compatible") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestLoadConfigAcceptsRailwayMCP(t *testing.T) {
 	env := testSecrets()
 	env["RAILWAY_MCP_TOKEN"] = "railway-token"

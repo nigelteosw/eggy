@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
@@ -64,7 +65,7 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 	// behind a proxy shares one bucket. That is the fail-safe direction -- the
 	// throttle only delays attempts by seconds, so a shared bucket slows an
 	// attacker without locking the owner out of the repair page.
-	throttle := webui.NewLoginThrottle(now)
+	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
 	mux.HandleFunc("GET /api/mode", writeMode(modeSafe))

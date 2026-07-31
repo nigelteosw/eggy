@@ -1,8 +1,15 @@
-// Package webui embeds Eggy's built web configuration UI and provides the
-// small, Eggy-agnostic primitives its login sits on: signed session tokens
-// and login-attempt throttling. It has no knowledge of CommandService, config
-// sections, or any other Eggy-specific type.
-package webui
+// Package session holds the primitives the owner's login sits on: signed
+// session tokens and login-attempt throttling. It answers "who may talk to
+// Eggy", which is the opposite direction of trust from the OAuth grants in
+// plugins/tools/* -- those answer "what may Eggy do on the owner's behalf".
+// The two are kept apart deliberately; merging them produces one security
+// object that owns everything and is understood by no one.
+//
+// Nothing here knows about CommandService, config sections, or any other
+// Eggy-specific type. It lives beside plugins/auth/authfile rather than in the
+// package that serves the JavaScript bundle, because session crypto is not an
+// asset.
+package session
 
 import (
 	"crypto/hmac"

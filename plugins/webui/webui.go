@@ -1,3 +1,7 @@
+// Package webui embeds Eggy's built web configuration UI and serves it. That
+// is all it does: the signed session tokens and login throttling its login
+// once carried live in plugins/auth/session, because session crypto is not an
+// asset and an HTTP surface should not reach into an asset bundle for it.
 package webui
 
 import (

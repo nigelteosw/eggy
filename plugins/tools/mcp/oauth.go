@@ -146,7 +146,7 @@ func (p *oauthProvider) discover(ctx context.Context, record *OAuthRecord) error
 	if len(metadata.AuthorizationServers) == 0 {
 		return errors.New("MCP protected resource has no authorization server")
 	}
-	server, err := auth.GetAuthServerMetadata(ctx, metadata.AuthorizationServers[0], p.client)
+	server, err := p.authorizationServerMetadata(ctx, metadata.AuthorizationServers[0])
 	if err != nil {
 		return fmt.Errorf("discover MCP authorization server: %w", err)
 	}
@@ -166,6 +166,41 @@ func (p *oauthProvider) discover(ctx context.Context, record *OAuthRecord) error
 		record.Scopes = append([]string(nil), server.ScopesSupported...)
 	}
 	return nil
+}
+
+// authorizationServerMetadata fetches the authorization server's metadata,
+// tolerating a trailing slash the protected resource added to the issuer.
+//
+// RFC 8414 section 3.3 requires the issuer inside the metadata document to
+// equal the issuer identifier used to build its URL, byte for byte, and the
+// SDK enforces that. Google's remote MCP servers advertise
+// "https://accounts.google.com/" in authorization_servers while the document
+// at that address declares "https://accounts.google.com", so handing the
+// advertised string straight to discovery fails on the slash alone and no
+// Google MCP server can ever be authorized. Both spellings address the same
+// metadata document, so trying the trimmed form second costs one request in
+// the failure case and nothing in the common one -- and a server that really
+// does publish a trailing-slash issuer still matches on the first attempt.
+func (p *oauthProvider) authorizationServerMetadata(ctx context.Context, advertised string) (*oauthex.AuthServerMeta, error) {
+	candidates := []string{advertised}
+	if trimmed := strings.TrimRight(advertised, "/"); trimmed != "" && trimmed != advertised {
+		candidates = append(candidates, trimmed)
+	}
+	var last error
+	for _, issuer := range candidates {
+		server, err := auth.GetAuthServerMetadata(ctx, issuer, p.client)
+		if err != nil {
+			last = err
+			continue
+		}
+		if server != nil {
+			return server, nil
+		}
+	}
+	// A nil server with no error means every candidate answered 4xx, which the
+	// caller handles by synthesizing conventional endpoints. Only a real
+	// failure is worth reporting.
+	return nil, last
 }
 
 func (p *oauthProvider) protectedResourceMetadata(ctx context.Context) (*oauthex.ProtectedResourceMetadata, error) {

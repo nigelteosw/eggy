@@ -128,3 +128,52 @@ func TestOAuthProviderPersistsRotatedRefreshToken(t *testing.T) {
 		t.Fatalf("stored=%#v err=%v", stored, err)
 	}
 }
+
+// googleIssuerRoundTripper reproduces what Google's remote MCP servers
+// actually serve: the protected resource advertises its authorization server
+// with a trailing slash, while the metadata document at that address declares
+// the issuer without one. RFC 8414 requires the two to match exactly, so the
+// advertised string cannot be handed to discovery unchanged.
+type googleIssuerRoundTripper struct{ metadataURLs []string }
+
+func (r *googleIssuerRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	response := func(status int, body string) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "application/json")
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	}
+	url := request.URL.String()
+	switch url {
+	case "https://calendarmcp.googleapis.com/.well-known/oauth-protected-resource/mcp/v1",
+		"https://calendarmcp.googleapis.com/.well-known/oauth-protected-resource":
+		return response(http.StatusOK, `{"resource":"https://calendarmcp.googleapis.com/mcp/v1","authorization_servers":["https://accounts.google.com/"]}`)
+	}
+	if strings.Contains(url, "/.well-known/") {
+		r.metadataURLs = append(r.metadataURLs, url)
+		return response(http.StatusOK, `{"issuer":"https://accounts.google.com","authorization_endpoint":"https://accounts.google.com/o/oauth2/v2/auth","token_endpoint":"https://oauth2.googleapis.com/token","registration_endpoint":"https://accounts.google.com/register","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`)
+	}
+	return response(http.StatusNotFound, `{}`)
+}
+
+func TestOAuthDiscoveryToleratesTrailingSlashIssuer(t *testing.T) {
+	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip := &googleIssuerRoundTripper{}
+	provider := newOAuthProvider(ServerConfig{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
+		RedirectURL: "https://eggy.example/auth/mcp/calendar/callback",
+	}, store, &http.Client{Transport: roundTrip})
+
+	record := OAuthRecord{}
+	if err := provider.discover(context.Background(), &record); err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if record.AuthorizationEndpoint != "https://accounts.google.com/o/oauth2/v2/auth" || record.TokenEndpoint != "https://oauth2.googleapis.com/token" {
+		t.Fatalf("record=%#v", record)
+	}
+	if record.Resource != "https://calendarmcp.googleapis.com/mcp/v1" {
+		t.Fatalf("resource=%q", record.Resource)
+	}
+}

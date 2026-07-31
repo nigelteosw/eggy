@@ -16,14 +16,22 @@ type fakeMCPRuntime struct {
 	loginURL    string
 	loginErr    error
 	loggedIn    []string
+	completed   []completedLogin
+	completeErr error
 	loggedOut   []string
 	logoutError error
 }
+
+type completedLogin struct{ server, code, state string }
 
 func (f *fakeMCPRuntime) Statuses() []MCPStatus { return f.statuses }
 func (f *fakeMCPRuntime) BeginLogin(_ context.Context, server string) (string, error) {
 	f.loggedIn = append(f.loggedIn, server)
 	return f.loginURL, f.loginErr
+}
+func (f *fakeMCPRuntime) CompleteLogin(_ context.Context, server, code, state string) error {
+	f.completed = append(f.completed, completedLogin{server: server, code: code, state: state})
+	return f.completeErr
 }
 func (f *fakeMCPRuntime) Logout(server string) error {
 	f.loggedOut = append(f.loggedOut, server)
@@ -217,6 +225,53 @@ func TestMCPLoginReturnsTheAuthorizationURL(t *testing.T) {
 	runtime.loginErr = errors.New("server is not configured for OAuth")
 	if output := run(t, service, "/mcp login calendar"); !strings.Contains(output, "not configured for OAuth") {
 		t.Fatalf("login failure output=%q", output)
+	}
+}
+
+// TestMCPLoginCompletesFromAPastedRedirect covers the path that exists for the
+// case the callback route cannot serve: the browser could not reach Eggy, and
+// the owner has the redirect in an address bar. Both the whole URL and the bare
+// code have to work, because both are things they plausibly copied.
+func TestMCPLoginCompletesFromAPastedRedirect(t *testing.T) {
+	runtime := &fakeMCPRuntime{}
+	service, _ := mcpService(t, runtime)
+	run(t, service, "/mcp add calendar url=https://mcp.example.com auth=oauth")
+
+	output := run(t, service, "/mcp login calendar http://localhost:1/?state=abc&code=4/xyz&scope=https://www.googleapis.com/auth/calendar")
+	if !strings.Contains(output, "Authorized calendar") {
+		t.Fatalf("output=%q", output)
+	}
+	if len(runtime.completed) != 1 || runtime.completed[0] != (completedLogin{server: "calendar", code: "4/xyz", state: "abc"}) {
+		t.Fatalf("completed=%#v", runtime.completed)
+	}
+
+	run(t, service, "/mcp login calendar 4/bare-code")
+	if last := runtime.completed[len(runtime.completed)-1]; last.code != "4/bare-code" || last.state != "" {
+		t.Fatalf("bare code completed=%#v", last)
+	}
+}
+
+// TestMCPLoginReportsWhatTheRedirectSays keeps the two failures the owner will
+// actually hit distinguishable: a denied consent carries an error parameter,
+// and a URL copied before approving carries neither error nor code.
+func TestMCPLoginReportsWhatTheRedirectSays(t *testing.T) {
+	runtime := &fakeMCPRuntime{}
+	service, _ := mcpService(t, runtime)
+
+	output := run(t, service, "/mcp login calendar http://localhost:1/?error=access_denied&error_description=User+refused")
+	if !strings.Contains(output, "access_denied") || !strings.Contains(output, "User refused") {
+		t.Fatalf("denied output=%q", output)
+	}
+	if output := run(t, service, "/mcp login calendar https://eggy.example/auth/mcp/calendar/callback"); !strings.Contains(output, "no code parameter") {
+		t.Fatalf("codeless output=%q", output)
+	}
+	if len(runtime.completed) != 0 {
+		t.Fatalf("completed=%#v", runtime.completed)
+	}
+
+	runtime.completeErr = errors.New("MCP OAuth code exchange failed: redirect_uri_mismatch")
+	if output := run(t, service, "/mcp login calendar 4/xyz"); !strings.Contains(output, "redirect_uri_mismatch") {
+		t.Fatalf("exchange failure output=%q", output)
 	}
 }
 

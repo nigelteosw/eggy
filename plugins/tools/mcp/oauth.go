@@ -42,6 +42,13 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 	if p.store == nil {
 		return "", errors.New("MCP OAuth storage is unavailable")
 	}
+	// The redirect is built from server.public_base_url, so an unset base leaves
+	// a path with no scheme or host. The authorization server rejects that with
+	// its own generic complaint about the client, which points nowhere near the
+	// setting that is actually missing.
+	if redirect, err := url.Parse(p.config.RedirectURL); err != nil || !redirect.IsAbs() || redirect.Host == "" {
+		return "", errors.New("MCP OAuth redirect URL is not absolute; set server.public_base_url to the address the browser can reach")
+	}
 	record, err := p.store.Load(p.config.Name, p.config.URL)
 	if err != nil && !errors.Is(err, ErrOAuthRecordNotFound) {
 		return "", err
@@ -65,6 +72,14 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 		if p.config.OAuthClientSecret != "" {
 			record.TokenEndpointAuthMethod = "client_secret_post"
 		}
+	}
+	// Configured scopes win at every login, not only at discovery. A completed
+	// exchange overwrites the record's scopes with the ones actually granted,
+	// so without this a scope added to config.yaml after the first login would
+	// never be asked for again -- the flow would keep replaying the old grant
+	// and the new capability would fail at call time with a 403.
+	if len(p.config.OAuthScopes) > 0 {
+		record.Scopes = append([]string(nil), p.config.OAuthScopes...)
 	}
 	if record.ClientID == "" {
 		if record.RegistrationEndpoint == "" {
@@ -115,8 +130,17 @@ func (p *oauthProvider) CompleteLogin(ctx context.Context, code, state string) e
 	if err != nil {
 		return ErrLoginRequired
 	}
-	if state == "" || state != record.State || record.StateExpires.IsZero() || time.Now().After(record.StateExpires) {
-		return errors.New("invalid or expired MCP OAuth state")
+	if record.State == "" || record.StateExpires.IsZero() || time.Now().After(record.StateExpires) {
+		return errors.New("no pending MCP login, or it expired; start the login again")
+	}
+	// An empty state is the owner pasting the redirect back by hand, which is
+	// the only path that works when the browser cannot reach Eggy's callback.
+	// It is not a weakening of the CSRF check the callback route relies on:
+	// that route rejects an empty state before it ever gets here, and a pasted
+	// value still has to land inside the ten-minute pending window the owner
+	// themselves opened.
+	if state != "" && state != record.State {
+		return errors.New("MCP OAuth state does not match the pending login; start the login again")
 	}
 	if strings.TrimSpace(code) == "" {
 		return errors.New("MCP OAuth code is required")
@@ -124,7 +148,10 @@ func (p *oauthProvider) CompleteLogin(ctx context.Context, code, state string) e
 	config := oauthConfig(record, p.config.RedirectURL)
 	token, err := config.Exchange(oauthHTTPContext(ctx, p.client), code, oauth2.VerifierOption(record.CodeVerifier), oauth2.SetAuthURLParam("resource", record.Resource))
 	if err != nil {
-		return errors.New("MCP OAuth code exchange failed")
+		// The authorization server's own words. redirect_uri_mismatch,
+		// invalid_client and an expired code are four different repairs, and a
+		// flat "exchange failed" sent the owner looking at all of them.
+		return fmt.Errorf("MCP OAuth code exchange failed: %w", err)
 	}
 	copyTokenToRecord(&record, token)
 	record.State = ""
@@ -279,7 +306,15 @@ func randomOAuthValue(size int) (string, error) {
 // empty value over a good one turns a working connection into one that dies
 // silently at the first access-token expiry, roughly an hour later, with
 // "login required" and no indication that anything was discarded.
+//
+// The scopes stored are the ones the response reports as granted, not the ones
+// asked for. A consent screen lets the account untick individual permissions,
+// and a record claiming a scope the grant does not carry produces a 403 at
+// tool-call time that reads like a broken server rather than a narrow consent.
 func copyTokenToRecord(record *OAuthRecord, token *oauth2.Token) {
+	if granted, ok := token.Extra("scope").(string); ok && strings.TrimSpace(granted) != "" {
+		record.Scopes = strings.Fields(granted)
+	}
 	record.AccessToken = token.AccessToken
 	if token.RefreshToken != "" {
 		record.RefreshToken = token.RefreshToken

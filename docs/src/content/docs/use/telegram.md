@@ -34,6 +34,7 @@ Unknown commands return the same command reference. Ordinary text continues to t
 | `/mcp remove <name>` | Delete the config entry; stored OAuth credentials are kept |
 | `/mcp enable <name>` / `/mcp disable <name>` | Flip one server's `enabled` flag |
 | `/mcp login <name>` | Start OAuth and return the provider authorization URL |
+| `/mcp login <name> <pasted redirect URL or code>` | Finish a login the browser could not deliver to the callback |
 | `/mcp logout <name>` | Discard stored credentials for one server |
 
 Edits go through the same `internal/config` helpers the web settings panel calls, under the same file lock and the same validation. There is one administration authority and two views onto it.

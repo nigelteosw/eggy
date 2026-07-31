@@ -282,6 +282,108 @@ func TestCompleteLoginKeepsAnExistingRefreshTokenWhenNoneIsReturned(t *testing.T
 	}
 }
 
+// TestCompleteLoginAcceptsAPastedRedirectWithoutState covers the hand-carried
+// path: the owner copies the address bar into /mcp login, and a bare code has
+// no state to send. The pending session must still exist and be unexpired --
+// that, not the echoed state, is what bounds the window.
+func TestCompleteLoginAcceptsAPastedRedirectWithoutState(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
+	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &oauthRoundTripper{}})
+	if _, err := provider.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err != nil {
+		t.Fatalf("pasted code rejected: %v", err)
+	}
+	record, _ := store.Load(cfg.Name, cfg.URL)
+	if record.AccessToken != "access-token" || record.State != "" || record.CodeVerifier != "" {
+		t.Fatalf("record=%#v", record)
+	}
+
+	// A second paste has nothing pending behind it: the verifier is spent, and
+	// replaying the code must not reach the token endpoint at all.
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err == nil {
+		t.Fatal("a spent pending session accepted a second code")
+	}
+}
+
+func TestCompleteLoginRejectsAnExpiredPendingSession(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
+	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &oauthRoundTripper{}})
+	if _, err := provider.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update(cfg.Name, cfg.URL, func(record *OAuthRecord) error {
+		record.StateExpires = time.Now().Add(-time.Minute)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err == nil {
+		t.Fatal("expired pending session accepted")
+	}
+}
+
+// TestBeginLoginRequiresAnAbsoluteRedirect names the setting that is missing.
+// An unset server.public_base_url leaves a bare path, and the authorization
+// server answers that with a complaint about the client instead.
+func TestBeginLoginRequiresAnAbsoluteRedirect(t *testing.T) {
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	provider := newOAuthProvider(ServerConfig{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
+		RedirectURL: "/auth/mcp/calendar/callback",
+	}, store, &http.Client{Transport: &noRegistrationRoundTripper{}})
+	_, err := provider.BeginLogin(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "public_base_url") {
+		t.Fatalf("error=%v, want one naming the fix", err)
+	}
+}
+
+// TestCompleteLoginStoresGrantedScopes covers a consent screen the account
+// narrowed. Keeping the requested scopes would have the record claim access it
+// does not have, and configured scopes still have to win at the next login or
+// the narrowed grant would be the only one ever asked for again.
+func TestCompleteLoginStoresGrantedScopes(t *testing.T) {
+	record := OAuthRecord{Scopes: []string{"calendar", "calendar.events"}}
+	copyTokenToRecord(&record, (&oauth2.Token{AccessToken: "a", TokenType: "Bearer"}).WithExtra(map[string]any{"scope": "calendar.readonly"}))
+	if len(record.Scopes) != 1 || record.Scopes[0] != "calendar.readonly" {
+		t.Fatalf("scopes=%v", record.Scopes)
+	}
+
+	// A response with no scope field says nothing about the grant; Google omits
+	// it on refresh. The record's scopes must survive that untouched.
+	copyTokenToRecord(&record, &oauth2.Token{AccessToken: "b", TokenType: "Bearer"})
+	if len(record.Scopes) != 1 || record.Scopes[0] != "calendar.readonly" {
+		t.Fatalf("scopes=%v", record.Scopes)
+	}
+
+	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	cfg := ServerConfig{
+		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
+		RedirectURL:   "https://eggy.example/auth/mcp/calendar/callback",
+		OAuthClientID: "eggy.apps.googleusercontent.com",
+		OAuthScopes:   []string{"https://www.googleapis.com/auth/calendar"},
+	}
+	stored := OAuthRecord{
+		Version: 1, ServerURL: cfg.URL, ClientID: cfg.OAuthClientID, Scopes: []string{"narrowed"},
+		AuthorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth", TokenEndpoint: "https://oauth2.googleapis.com/token",
+	}
+	if err := store.Save(cfg.Name, cfg.URL, stored); err != nil {
+		t.Fatal(err)
+	}
+	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &noRegistrationRoundTripper{}})
+	authorizationURL, err := provider.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(authorizationURL)
+	if parsed.Query().Get("scope") != "https://www.googleapis.com/auth/calendar" {
+		t.Fatalf("authorization URL=%s", authorizationURL)
+	}
+}
+
 // Offline access alone is not enough to be handed a refresh token; consent has
 // to be forced, or a second authorization returns an access token that cannot
 // be renewed.

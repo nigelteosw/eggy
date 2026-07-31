@@ -54,13 +54,10 @@ against the targets, not from memory.
 
 ## P1: Bootstrap composes, nothing more
 
-`internal/bootstrap` is 1,524 lines and `NewApp` is ~255 of them. It is the one
+`internal/bootstrap` is 1,453 lines and `NewApp` is 223 of them. It is the one
 package allowed to know every adapter exists, which makes it the easiest place
 for logic that belongs elsewhere to accumulate unnoticed.
 
-- [ ] Move tool definitions and input decoding next to the service that owns
-      them, `internal/bootstrap/assistant_tools.go` included. A tool's schema
-      belongs with its implementation, not with the wiring.
 - [ ] Make model adapter construction one selector keyed by
       `ProviderConfig.Adapter`. A new provider adds one plugin package and one
       case.
@@ -68,9 +65,6 @@ for logic that belongs elsewhere to accumulate unnoticed.
       `Run`, `Ready`, `Close`, event handling, and HTTP handling use. Tests
       assert public behavior; they do not force production fields to stay
       reachable.
-- [ ] Extract the Telegram wiring. Client, channel, selector, webhook, and
-      command registration are scattered across four points in `NewApp` and are
-      the one genuinely separable piece.
 
 **Do not** extract tool registration into a `buildToolRegistry` helper. It was
 tried: it needs eleven collaborators, so it trades a long function for an

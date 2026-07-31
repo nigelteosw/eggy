@@ -45,6 +45,27 @@ runner:
   retention: "30m"
   max_output_bytes: 1048576
   allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
+# One Google grant across every product listed. The client is a Desktop
+# (installed app) client, which Google grants an implicit loopback redirect:
+# nothing is registered in the console, nothing has to be publicly reachable,
+# and server.public_base_url plays no part in authorizing it. `/google login`
+# returns a URL, the browser fails to load the page it lands on, and the owner
+# pastes that address back -- the code is in its query string.
+#
+# Leave the whole section out and none of it exists: no token store is opened,
+# no tool schema is built, no scope is ever requested.
+# google:
+#   enabled: true
+#   client_id: "xxxx.apps.googleusercontent.com"
+#   client_secret_env: "GOOGLE_CLIENT_SECRET"
+#   # Only the products named here become tools. Adding one later needs a new
+#   # login, because scopes are granted once for the whole client.
+#   products: ["calendar", "gmail", "contacts"]
+#   # Omit scopes to request what the listed products need. Set them to narrow
+#   # the consent screen -- readonly variants, for instance.
+#   scopes: []
+#   timeout: "30s"
+#   max_output_bytes: 131072
 mcp:
   # Anything listed here is trusted. An MCP tool call carries no per-call
   # approval because a server can only get here by you putting it here. Reviewing the

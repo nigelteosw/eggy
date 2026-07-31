@@ -21,15 +21,16 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 	return nil
 }
 
-// The command surface stays small and enumerated. /mcp is the one
-// administration command, and it is here because the config it edits lives on
-// the Eggy runtime -- an owner on a phone has no other way to reach it.
-func TestOnlySixTelegramCommandsAreAdvertised(t *testing.T) {
+// The command surface stays small and enumerated. /mcp and /google are the
+// administration commands, and they are here because what they reach lives on
+// the Eggy runtime -- an owner on a phone has no other way to authorize a
+// server or a Google grant.
+func TestOnlySevenTelegramCommandsAreAdvertised(t *testing.T) {
 	got := TelegramAutocomplete()
-	if len(got) != 6 {
+	if len(got) != 7 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "model", "mcp"}
+	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)

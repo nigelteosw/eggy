@@ -29,6 +29,7 @@ var telegramCommands = []struct {
 	{Name: "clear", Description: "Clear recent conversation history"},
 	{Name: "model", Description: "Show or select the active model"},
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
+	{Name: "google", Description: "Authorize Google Workspace and show its status"},
 }
 
 type ConversationResetter interface {
@@ -47,6 +48,7 @@ type AgentSettings interface {
 type Options struct {
 	ConfigPath   string
 	MCP          MCPRuntime
+	Google       GoogleRuntime
 	Store        ports.StateStore
 	Conversation ConversationResetter
 	Turns        TurnStopper
@@ -58,6 +60,7 @@ type Options struct {
 type CommandService struct {
 	configPath   string
 	mcp          MCPRuntime
+	google       GoogleRuntime
 	store        ports.StateStore
 	conversation ConversationResetter
 	turns        TurnStopper
@@ -70,7 +73,7 @@ func New(options Options) *CommandService {
 	aliases := append([]string(nil), options.ModelAliases...)
 	sort.Strings(aliases)
 	return &CommandService{
-		configPath: options.ConfigPath, mcp: options.MCP,
+		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
 		store: options.Store, conversation: options.Conversation, turns: options.Turns,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
 	}
@@ -110,6 +113,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.model(ctx, args)
 	case "mcp":
 		return s.mcpCommand(ctx, args)
+	case "google":
+		return s.googleCommand(ctx, args)
 	default:
 		return "Unknown command.\n\n" + HelpText(), true, nil
 	}
@@ -186,7 +191,7 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 }
 
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout]"
+	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout]"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

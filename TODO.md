@@ -199,6 +199,61 @@ hand.
 
 ---
 
+## Decided: Google Workspace is a native adapter, not MCP
+
+Settled 2026-07-31 after the MCP path could not be authorized. Hermes' *auth
+model* was adopted; its *vehicle* was not. `plugins/tools/google` speaks
+Google's REST APIs from Go with no Python, no shell tool, and no bundled
+scripts, because Hermes is Python only because Hermes is a Python skill host.
+
+**How it differs from the MCP path, which stays in the tree for everything
+else:**
+
+| | MCP servers | `plugins/tools/google` |
+|---|---|---|
+| OAuth client type | Web application | Desktop (installed app) |
+| Redirect | `{public_base_url}/auth/mcp/{server}/callback`, registered byte for byte in the console | `http://localhost:1`, implicit for desktop clients, registered nowhere |
+| Needs a public address | Yes, to start and to receive the callback | No; `server.public_base_url` plays no part |
+| Completing a login | Browser delivers to the callback route; pasted redirect as fallback | Paste only — nothing listens on the redirect by design |
+| Grants | One server, one record, one consent screen per product | One grant, one record, every product |
+| Contacts | Unreachable — Google hosts no People MCP server | Covered |
+| Tool schemas | Whatever each server publishes, per connected server | One per configured product; an unlisted product costs nothing |
+| Transport | MCP over streamable HTTP | REST, `net/http` and `golang.org/x/oauth2` |
+| Token at rest | Sealed in `auth.json`, bound to server name and URL | Sealed in `auth.json` under `google` |
+| Trust | Configured server is trusted, no per-call approval | Same: configuring it is the approval |
+
+**What carried over from Hermes exactly:** the dead loopback redirect, paste
+either a full redirect URL or a bare code, check state only when the paste
+carried one, `access_type=offline` with `prompt=consent` so a refresh token is
+actually issued, and store the scopes the grant reports rather than the ones
+requested (their `OAUTHLIB_RELAX_TOKEN_SCOPE` lesson).
+
+**What was deliberately not copied:** Python and Google's client libraries in
+the image, a plaintext `google_token.json`, a pending-auth file separate from
+the token, and the shell tool their `$GAPI` invocation depends on. The bounded
+shell remains undecided above, and this no longer waits on it.
+
+**Follow-ups:**
+
+- [ ] Register a Desktop OAuth client and set `google.client_id` plus
+      `GOOGLE_CLIENT_SECRET` in Railway. The Web client and its three
+      registered redirect URIs belong to the MCP path and are not used here.
+- [ ] Enable the Gmail, Calendar, Drive, Docs, Sheets and People APIs for the
+      products configured. A disabled API answers every call with a 403 naming
+      itself, which Eggy now passes through verbatim.
+- [ ] Establish whether the consent screen is External/Testing. If it is,
+      refresh tokens expire after seven days and the grant dies weekly no
+      matter how it was obtained. Publishing the app, or an Internal client on
+      a Workspace account, is the fix.
+- [ ] Decide what happens to the Google Calendar MCP server entry. Two live
+      paths to the same calendar is the "second way to do a job" the standing
+      constraints forbid; keeping both is a decision, not a default.
+- [ ] `Workspace.endpoints` is settable only in-package for tests. Keep it that
+      way — an operator-settable API host is a credential exfiltration
+      primitive, not a feature.
+
+---
+
 ## Operational follow-ups
 
 - [ ] Set `server.trusted_proxy_hops: 1` in Railway's `/data/config.yaml`.
@@ -210,10 +265,28 @@ hand.
       sections in place first, carrying `calendar.timezone` over to
       `agent.timezone`.
 - [ ] Configure the Google Calendar MCP server to replace the deleted native
-      adapter: `/mcp add calendar url=https://calendarmcp.googleapis.com/mcp/v1
-      auth=oauth`, restart, then `/mcp login calendar`.
-- [ ] Drop `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from Railway's
-      environment — nothing reads them now.
+      adapter. Google implements no dynamic client registration, so the client
+      is the hand-registered one and the entry belongs in `/data/config.yaml`
+      rather than in `/mcp add`, which has no `oauth_scopes` field and would
+      otherwise ask consent for all twelve advertised calendar scopes:
+
+      ```yaml
+      calendar:
+        url: "https://calendarmcp.googleapis.com/mcp/v1"
+        transport: "streamable-http"
+        auth: "oauth"
+        oauth_client_id: "<web client id>"
+        oauth_client_secret_env: "GOOGLE_CLIENT_SECRET"
+        oauth_scopes: ["https://www.googleapis.com/auth/calendar"]
+        enabled: true
+      ```
+
+      Then restart and run `/mcp login calendar`. Scopes are re-consented, not
+      widened in place, so set them before the first login.
+- [ ] Keep `GOOGLE_CLIENT_SECRET` in Railway's environment: with the calendar
+      server configured, `oauth_client_secret_env` reads it and startup fails
+      when it is empty. `GOOGLE_CLIENT_ID` is still unread — the client id
+      lives in `config.yaml`, not the environment — and can go.
 
 ---
 

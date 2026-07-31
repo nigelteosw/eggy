@@ -1,256 +1,105 @@
-# Eggy roadmap
+# Eggy cleanup plan
 
-Unfinished work and standing constraints only. Completed work lives in git;
-current behavior lives in `README.md` and the docs site under
-`docs/src/content/docs/`. Delete an item once it lands.
+A plan for one thing: **separation of concerns and code cleanup.** Product
+direction, new capabilities, and deployment chores are parked at the bottom
+rather than mixed in here.
 
-## What Eggy is
+Unfinished work only. Completed work lives in git; current behavior lives in
+`README.md` and `docs/src/content/docs/`. Delete an item once it lands.
 
-One owner's always-on agent daemon: a chat surface, a model, durable memory,
-and a small tool set. It is not a personal-assistant product, not a scheduler,
-and not a CI system.
+The bar every item clears: **it deletes or moves code.** An item that only adds
+code needs an argument for why the thing it prevents is worse than the thing it
+costs. More code is harder to maintain, so a refactor that nets larger is a
+refactor that failed.
 
-The design target is a **pi-shaped core**: a handful of tools, a small prompt,
-and everything beyond the core reached through *configuration* rather than
-through a compiled-in feature. When a capability is not configured, it must
-cost nothing at runtime — no tool schema, no goroutine, no store, no HTTP
-route, no prompt bytes.
+## Design rules this plan enforces
 
-**Core (always present, not configurable away):**
+- **A capability that is not configured costs nothing at runtime** — no tool
+  schema, no goroutine, no store, no HTTP route, no prompt bytes.
+- **One way to do a job.** A second implementation of something that already
+  exists is the defect this plan exists to find.
+- **Boundaries are one-way.** `internal/kernel` and `internal/ports` stay
+  provider-neutral; adapters live under `plugins/<category>/<provider>` and are
+  wired only in `internal/bootstrap`; the direction is
+  `config <- web <- bootstrap`.
 
-- one `eggyd` process, one owner, one replica;
-- model routing over configured providers and aliases;
-- conversation memory in SQLite with full-text recall;
-- owner-facing Markdown context (`SOUL.md`, `USER.md`, `MEMORY.md`);
-- one tool registry with exactly one tool source;
-- at least one chat surface.
+## Baseline (re-measured 2026-07-31, after the Google adapter)
 
-**Configurable (absent unless configured):** Telegram channel, web chat and
-settings, read-only repository inspection, MCP servers, schedules.
+Non-test `.go` outside `docs/` and `website/`:
 
-**Extension mechanism:** MCP for capabilities, Markdown skills for procedure.
-A native adapter is otherwise only justified when a port must stay
-provider-neutral (models, channels, storage), or when a capability needs
-per-call authorization that MCP structurally cannot give it. New product
-features do not get compiled in.
+- **15,622 production lines**, 13,114 test lines;
+- largest packages: `plugins/tools/mcp` 1,634, `internal/config` 1,549,
+  `internal/bootstrap` 1,524, `internal/kernel/services` 1,097, `internal/web`
+  909, `internal/commands` 770;
+- **75 YAML-tagged fields** in `internal/config/config.go`;
+- machine-managed persistence spans `state.json`, `auth.json`, `cron/`, and
+  `eggy.db`; Markdown context and skills remain files by design.
 
-**There is no native product adapter left.** Calendar was the one exemption,
-justified by payload-bound approvals an MCP server cannot express; it was
-deleted on 2026-07-31 in favour of a configured Google Calendar MCP server.
-The consequence is explicit: calendar mutations now carry no per-call
-approval, because a configured MCP server is trusted wholesale. Approval-gated
-MCP tools (P2 below) is what would close that gap. Anything asking to be
-compiled in again must make the argument Calendar no longer gets to make.
+The previous baseline recorded here (13,201 lines, 64 fields) was stale — it
+predated `plugins/tools/google` entirely. Re-measure before claiming progress
+against the targets, not from memory.
 
-## Measured baseline (2026-07-31, Calendar deleted)
+## Targets
 
-Counted as non-test `.go` outside `docs/` and `website/`:
-
-- 13,201 production Go lines and 11,574 test lines (2026-07-31, after the MCP
-  administration work);
-- largest packages: `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,381,
-  `internal/config` 1,343, `internal/kernel/services` 1,105, `internal/web`
-  872, and `internal/commands` 427;
-- 64 YAML-tagged fields in `internal/config/config.go`;
-- machine-managed persistence still spans `state.json`, `auth.json`, `cron/`,
-  and `eggy.db`; Markdown context and skills remain files by design.
-
-Tool counts and HTTP route registrations are not re-counted here; that is the
-P2 re-measurement below, and it should be done once rather than guessed at
-twice.
-
-## Targets for this pass
-
-- **≤ 12,500 production Go lines** excluding generated web assets — currently
-  over, at 13,201;
-- **≤ 6 tools** in the default core; **≤ 13** with Telegram and repositories
-  configured; MCP counted separately;
+- **≤ 12,500 production lines** excluding generated web assets — currently
+  15,622, so this is ~3,100 lines away and will not be met by tidying alone;
+  decide whether the target or the scope moves.
+- **≤ 50 config fields** — currently 75.
 - **three durable forms**: YAML for startup config, Markdown for owner-facing
-  documents, SQLite for everything machine-managed;
-- **≤ 50 config fields**;
-- **one** runtime administration *authority* — every config write goes through
-  `internal/config` under one lock; Telegram and web are views onto it, not
-  separate implementations.
-
----
-
-## P1: Make the config surface the product surface
-
-"Configurable" is the whole design claim, so the config must be small, flat,
-and validated in one place.
-
-- [ ] Collapse `internal/config` (now 1,343 lines, 64 YAML-tagged fields) to
-      the sections that survive: `server`, `data_dir`, `agent`, `providers`,
-      `models`, `telegram`, `repositories`, `runner`, `mcp`. Delete
-      `commonConfigDocument`/`configDocument` duality once no legacy shape
-      needs reading.
-- [ ] Reject unknown keys with a message naming the key and the nearest valid
-      one. A silently-ignored key is how a "configurable" system becomes a
-      guessing game.
-- [ ] Make every optional section's absence the off switch. No `enabled: true`
-      field where an empty section already means "not configured". The one
-      remaining offender is `mcp.servers.<name>.enabled` — decide whether a
-      listed-but-disabled server is worth a field or whether removing the entry
-      is the off switch.
-- [ ] `config.example.yaml` documents every surviving field exactly once and is
-      asserted against the parsed shape in a test.
-
----
-
-## P1: Consolidate durable state in SQLite
-
-- [ ] Write the schema-versioned migration design first: it must cover
-      `state.json`, `cron/`, and `auth.json`, preserve encrypted payloads, and
-      be safe to retry after interruption.
-- [ ] Move approvals, processed event IDs, selected model, and schedules into
-      SQLite tables behind the existing provider-neutral ports. Give the
-      scheduler a narrow `ScheduleStore` interface instead of importing
-      `cronfile`.
-- [ ] Keep `SOUL.md`, `USER.md`, `MEMORY.md`, and skill Markdown as files.
-- [ ] After one production deployment has imported and verified the old
-      records, delete the legacy JSON/YAML stores and the migration reader.
-      Document the last release that can import the old layout.
-- [ ] Backup set becomes exactly `eggy.db`, `config.yaml`, `.env`, and the
-      Markdown files. Readiness checks verify those and nothing historical.
-
-Success criteria: `openStores` opens one database; one transaction can update
-related approval and conversation state; `/data/state.json` compatibility is an
-explicit migration, never a silent break.
+  documents, SQLite for everything machine-managed.
+- **one runtime administration authority** — every config write goes through
+  `internal/config` under one lock; Telegram and web are views onto it.
 
 ---
 
 ## P1: Bootstrap composes, nothing more
 
-- [ ] Move surviving tool definitions and input decoding next to the service
-      that owns them, `internal/bootstrap/assistant_tools.go` included.
-- [ ] Make model adapter construction one selector function keyed by
+`internal/bootstrap` is 1,524 lines and `NewApp` is ~255 of them. It is the one
+package allowed to know every adapter exists, which makes it the easiest place
+for logic that belongs elsewhere to accumulate unnoticed.
+
+- [ ] Move tool definitions and input decoding next to the service that owns
+      them, `internal/bootstrap/assistant_tools.go` included. A tool's schema
+      belongs with its implementation, not with the wiring.
+- [ ] Make model adapter construction one selector keyed by
       `ProviderConfig.Adapter`. A new provider adds one plugin package and one
       case.
 - [ ] Stop retaining construction-only collaborators on `App`. Keep only what
       `Run`, `Ready`, `Close`, event handling, and HTTP handling use. Tests
-      assert public behavior or use a fixture; they do not force production
-      fields to stay reachable.
-- [ ] Replace positional constructors with small dependency structs only where
-      one already takes six or more collaborators. No containers, no service
-      locators, no lifecycle interfaces whose only caller is bootstrap.
-- [ ] `NewApp` is ~255 lines and is the last straight-line stretch left. The
-      obvious extraction — lifting tool registration into `buildToolRegistry` —
-      was tried and rejected: it needs eleven collaborators, so it trades a long
-      function for an eleven-parameter one. Do it only after the items above
-      shrink what a turn's tool set is assembled from; extracting it first just
-      moves the coupling somewhere it is harder to see. The Telegram wiring
-      (client, channel, selector, webhook, command registration) is the one
-      genuinely separable piece, and it is scattered across four points in the
-      function.
+      assert public behavior; they do not force production fields to stay
+      reachable.
+- [ ] Extract the Telegram wiring. Client, channel, selector, webhook, and
+      command registration are scattered across four points in `NewApp` and are
+      the one genuinely separable piece.
 
-Success criteria: `internal/bootstrap` holds composition, event-loop
-ownership, and surface routing only; adding an adapter changes no kernel
-behavior and no other adapter.
+**Do not** extract tool registration into a `buildToolRegistry` helper. It was
+tried: it needs eleven collaborators, so it trades a long function for an
+eleven-parameter one and hides the coupling instead of removing it. It becomes
+possible only after the items above shrink what a turn's tool set is assembled
+from.
+
+Success criteria: `internal/bootstrap` holds composition, event-loop ownership,
+and surface routing only.
 
 ---
 
-## P2: Keep the prompt and tool budget honest
+## P1: Collapse the config surface
 
-- [ ] Re-measure the per-turn context floor now that Calendar's tools and
-      prompt text are gone, and record it once here alongside the tool count
-      and HTTP route count the baseline above deliberately left open. Tool
-      schemas were the largest section by a wide margin; that is the number
-      that matters, not prose bytes.
-- [ ] One home per policy fact: tool descriptions explain invocation, runtime
-      policy explains cross-tool constraints. Delete the duplicate.
-- [ ] Report MCP schema bytes separately from kernel schema bytes. Do not
-      build deferred tool loading until MCP schemas alone exceed ~10K tokens.
-- [ ] Reject duplicate, secret-like, prompt-injection, exfiltration, and
-      invisible-Unicode content before durable context writes.
-- [ ] Do not describe lexical workspace containment as a sandbox. If isolation
-      is needed for repository or stdio-MCP subprocesses, it is a container.
-- [ ] Build **approval-gated MCP tools**: a per-server
-      `require_approval: [tool names]` list that routes a matching call through
-      the existing approval flow, rendering the tool's arguments as the bound
-      payload. With Calendar deleted this is no longer hypothetical — it is the
-      only way a configured calendar (or any other mutating server) regains
-      per-call authorization instead of being trusted wholesale. Cost is a
-      payload presenter for arbitrary MCP arguments, and typed handling
-      (timezones, relative ranges) is not coming back.
+75 YAML fields across a 1,549-line package, validated in more than one place.
 
----
-
-## P2: Documentation and test weight
-
-- [ ] `README.md` becomes a short operator guide: install, configure, run.
-      `docs/src/content/docs/project/architecture.md` is the only architectural
-      narrative; ADRs hold durable trade-offs.
-- [ ] Delete comments that narrate removed implementations or rejected
-      alternatives. Keep comments stating a non-obvious invariant, an exported
-      contract, or a security reason.
-- [ ] Delete tests for removed behavior in the same change as the behavior. Do
-      not chase a test-line target; keep focused safety and adapter contract
-      tests even when they exceed the implementation.
-- [ ] Audit `AGENTS.md`, `README.md`, the docs site, and `config.example.yaml`
-      after every phase. `docs/ARCHITECTURE.md` no longer exists; grep for
-      stale references to it when touching docs.
-
----
-
-## Open decision: does Eggy write code?
-
-Eggy is becoming a read-only code *reader*: `workspace_open`, `read_file`,
-repository search and metadata, `workspace_close`. A pi-shaped *coding* agent
-would instead ship a bounded edit tool and a bounded shell, and still never
-commit, push, or open a pull request.
-
-Both are defensible; they are not compatible. Until this is decided, do not
-reintroduce write tools opportunistically. If write capability returns, it
-arrives with all of: workspace root containment, timeouts, output bounds,
-process-group cancellation, an environment allowlist that excludes repository
-credentials, and no git remote-write path — and the owner ships the result by
-hand.
-
----
-
-## Decided: Google Workspace is a native adapter, not MCP
-
-Settled 2026-07-31 after the MCP path could not be authorized, and shipped:
-`plugins/tools/google` speaks Google's REST APIs from Go. Hermes' *auth model*
-was adopted; its *vehicle* was not, because Hermes is Python only because
-Hermes is a Python skill host.
-
-Why the auth model works, and how it differs from the MCP path that stays in
-the tree for everything else:
-
-| | MCP servers | `plugins/tools/google` |
-|---|---|---|
-| OAuth client type | Web application | Desktop (installed app) |
-| Redirect | `{public_base_url}/auth/mcp/{server}/callback`, registered exactly | `http://localhost:1`, no entry needed — loopback matching ignores the port |
-| Needs a public address | Yes | No |
-| Completing a login | Browser delivers to the callback route; pasted redirect as fallback | Paste only — nothing listens on the redirect by design |
-| Grants | One server, one record, one consent screen per product | One grant, one record, every product |
-| Contacts | Unreachable — Google hosts no People MCP server | Covered |
-| Tool schemas | Whatever each server publishes | One per configured product; unlisted products cost nothing |
-| Token at rest | Sealed in `auth.json`, bound to server name and URL | Sealed in `auth.json` under `google` |
-
-A web client *can* register `http://localhost:1` — Google exempts localhost
-from its HTTPS rule — but the match is exact including the port, which makes
-`LoopbackRedirect` load-bearing configuration in a console. That is the
-remaining reason to prefer a desktop client, and the only one.
-
-Carried over from Hermes exactly: the dead loopback redirect, paste either a
-full redirect URL or a bare code, check state only when the paste carried one,
-`access_type=offline` with `prompt=consent` so a refresh token is really
-issued, and store the scopes the grant reports rather than the ones requested.
-
-Not copied: Python and Google's client libraries in the image, a plaintext
-token file, and the shell tool their `$GAPI` invocation depends on. The bounded
-shell remains undecided above and this never needed it.
-
-**Remaining:**
-
-- [ ] Establish whether the consent screen is External/Testing. If it is,
-      refresh tokens expire after seven days and the grant dies weekly. An
-      Internal client on a Workspace account, or a published app, is the fix.
-- [ ] Decide whether `Endpoints` stays in-package. It is settable only by
-      tests today and must not become config: an operator-settable API host is
-      a credential exfiltration primitive, not a feature.
+- [ ] Collapse `internal/config` to the sections that survive: `server`,
+      `data_dir`, `agent`, `providers`, `models`, `telegram`, `repositories`,
+      `runner`, `mcp`, `google`. Delete the
+      `commonConfigDocument`/`configDocument` duality once no legacy shape needs
+      reading.
+- [ ] Make every optional section's absence the off switch. No `enabled: true`
+      where an empty section already means "not configured". The remaining
+      offenders are `mcp.servers.<name>.enabled` and `google.enabled`.
+- [ ] Reject an unknown key with a message naming the key and the nearest valid
+      one. `KnownFields(true)` already rejects it; the message is what makes it
+      a repair instead of a guess.
+- [ ] `config.example.yaml` documents every surviving field exactly once, and a
+      test asserts it against the parsed shape.
 
 ---
 
@@ -262,114 +111,112 @@ HTTP surface doing its own session crypto out of a package named for an asset
 bundle is the one auth boundary with no owner.
 
 - [ ] Move `cookie.go` and `throttle.go` to `plugins/auth/session`, beside the
-      `authfile` container that is already there. Their tests move with them,
-      so coverage is preserved without writing any. Two import sites change
+      `authfile` container already there. Their tests move with them, so
+      coverage is preserved without writing any. Two import sites change
       (`internal/web/web.go`, `internal/web/safemode.go`) and `plugins/webui`
       drops to `Assets()` plus the bundle, which is what its name claims.
 
-This is a move, not a rewrite: no new abstraction, no net new lines.
+A move, not a rewrite: no new abstraction, no net new lines.
 
-### Decided: the two OAuth flows stay separate
+---
 
-Unifying `plugins/tools/google/oauth.go` and `plugins/tools/mcp/oauth.go`
-behind one parameterized adapter was considered and **rejected**. What they
-share is small — state and verifier generation, the pending-window check, the
-exchange, token persistence — call it 50-60 lines. What they do not share is
-structural and all on the MCP side: protected-resource discovery,
+## P2: Mechanical cleanups
+
+- [ ] `plugins/webui/dist/index.html` is force-tracked out of an otherwise
+      ignored `dist/`, and references content-hashed assets
+      (`/assets/index-<hash>.js`) that are **not** tracked. A fresh clone serves
+      a page pointing at files that do not exist, and every `make build`
+      rewrites the hashes and dirties the tree. Track the built assets too, or
+      track neither and build the UI as a release step. The half-measure gives
+      the worst of both.
+- [ ] 23 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26
+      baseline and read as `slices.Sort`/`slices.SortFunc`. Do it when a change
+      already touches those files, not as its own churn commit.
+- [ ] Add two characterization tests to `plugins/tools/google`: that
+      `access_type=offline` + `prompt=consent` reach the authorization URL, and
+      that a mismatched state is rejected. MCP pins both; Google pins neither,
+      and both failures are silent — a grant that stops renewing weeks later.
+- [ ] Decide whether `Endpoints` stays in-package in `plugins/tools/google`. It
+      is settable only by tests today and must never become config: an
+      operator-settable API host is a credential exfiltration primitive.
+
+---
+
+## Decided — do not re-propose
+
+**The two OAuth flows stay separate.** Unifying `plugins/tools/google/oauth.go`
+and `plugins/tools/mcp/oauth.go` behind one parameterized adapter was
+considered and rejected. Shared: state and verifier generation, the pending
+window check, the exchange, token persistence — 50-60 lines. Not shared, and
+structural, all on the MCP side: protected-resource discovery,
 authorization-server metadata with trailing-slash tolerance and synthesized
 fallback endpoints, RFC 7591 dynamic registration, a `resource` parameter
 threaded through every call, per-server keying, and conformance to the MCP
 SDK's `auth.OAuthHandler`. Google has fixed endpoints and one loopback
-constant.
+constant. One adapter would carry all of that past a provider that never uses
+it, adding branches to delete ~50 lines. Revisit only if a *third* provider
+appears on the MCP side of the split.
 
-One adapter would carry all of that machinery past a provider that never uses
-it, adding branches and parameters to delete ~50 lines. Two straightforward
-flows are cheaper to maintain than one flow with six switches. Revisit only if
-a *third* OAuth provider appears and lands on the MCP side of the split.
+**`GoogleRuntime` and `MCPRuntime` stay separate.** Four lines each; collapsing
+them needs a server key Google ignores or a named-grant registry. Machinery to
+delete eight lines.
 
-For the same reason, two smaller consolidations were also rejected:
-`commands.GoogleRuntime` and `commands.MCPRuntime` are four lines each, and
-collapsing them needs a server key Google ignores or a named-grant registry —
-machinery to delete eight lines. And `parseOAuthRedirect` stays in
-`internal/commands`: its header calls itself homeless, but both callers *are*
-the command surface, and moving it would have two plugin packages import a
-third.
+**`parseOAuthRedirect` stays in `internal/commands`.** Its header calls itself
+homeless, but both callers *are* the command surface, and moving it would have
+two plugin packages import a third.
 
-What must not regress in either flow, since no single test covers all of it:
-forced consent so a refresh token is actually issued, granted-scope recording,
-the pending window, the loopback redirect matching byte for byte, and the
-per-record associated data binding a grant to the server it was issued for.
+**`knownGoogleProducts` stays duplicated in `internal/config`.** The boundary
+rule forces it: config may not import a plugin package. If a third copy
+appears, invert it — let the adapter validate its own product names and have
+config check only the shape.
 
-Coverage is uneven and that is the real gap: MCP pins these invariants across
-13 tests, while Google asserts nothing about `access_type=offline` +
-`prompt=consent` reaching the authorization URL, and nothing about
-state-mismatch rejection.
-
-- [ ] Add those two characterization tests to `plugins/tools/google`. Both
-      failures are silent — a grant that stops renewing weeks later — which is
-      exactly the kind the comments were written to prevent.
-
----
-
-## Code-smell sweep (2026-07-31): what is left
-
-A read of the whole tree for duplication and drift. The fixes that landed are
-in git; these are the findings that did **not** get fixed, with the reason.
-
-- [ ] `plugins/webui/dist/index.html` is force-tracked out of an otherwise
-      ignored `dist/`, and it references content-hashed assets
-      (`/assets/index-<hash>.js`) that are **not** tracked. So a fresh clone
-      serves a page pointing at files that do not exist, and every `make build`
-      rewrites the hashes and dirties the tree. Decide one way: track the built
-      assets too, or track neither and build the UI as a release step. The
-      current half-measure gives the worst of both.
-- [ ] 23 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26
-      baseline and read as `slices.Sort`/`slices.SortFunc` now. Pure
-      modernization with no behavior change — worth doing in one pass when a
-      change already touches those files, not as its own churn commit.
-- [ ] `knownGoogleProducts` in `internal/config` duplicates the adapter's
-      product list, and the boundary rule is what forces it: `internal/config`
-      may not import a plugin package. Left as is and left commented. If a
-      third copy ever appears, that is the signal to invert it — let the
-      adapter validate its own product names at construction and have config
-      check only the shape.
-
-Two of the fixes that landed were defects rather than style, and are recorded
-here only so the invariants are not re-broken:
+### Invariants that cost a defect to learn
 
 - Google product names are canonicalized once, in `config.applyDefaults`.
   Validation accepts any casing, so when scope selection matched exactly and
   the adapter matched case-insensitively, `products: ["Gmail"]` registered the
   tool and requested no scope — every call 403'd, reading as a broken API.
-- `Secrets.Values()` is the only list of live credentials. Bootstrap used to
-  build a second one for the durable-context secret guard, and it had drifted:
-  the Google client secret and the MCP OAuth client secrets were absent, so
-  those two alone could be written into `MEMORY.md` and recall unmasked. A
-  reflection test now fails when a field is added to `Secrets` but not to
-  `Values`.
+- `Secrets.Values()` is the only list of live credentials. Bootstrap built a
+  second one for the durable-context secret guard and it drifted: the Google
+  client secret and the MCP OAuth client secrets were absent, so those two
+  alone could reach `MEMORY.md` and recall unmasked. A reflection test now
+  fails when a field is added to `Secrets` but not to `Values`.
+- Either OAuth flow must keep: forced consent so a refresh token is really
+  issued, granted-scope recording, the pending window, the loopback redirect
+  matching byte for byte, and per-record associated data binding a grant to the
+  server it was issued for.
 
 ---
 
-## Operational follow-ups
+## Not this pass
 
-- [ ] Set `server.trusted_proxy_hops: 1` in Railway's `/data/config.yaml`.
-- [ ] Reset Railway's `/data/config.yaml` to the current shape **before the
-      next deploy**. The sweep removed the `scheduler`, `embeddings`,
-      `implementation_sessions`, and `calendar` sections. The loader uses
-      `KnownFields(true)`, so a stale key fails startup rather than being
-      ignored — though `LoadOrCreateConfig` prunes these particular retired
-      sections in place first, carrying `calendar.timezone` over to
-      `agent.timezone`.
-- [ ] Remove the `calendar` MCP server from Railway's `/data/config.yaml`
-      (`/mcp remove calendar`, then restart). It never authorized, its tools
-      answer with permission errors beside the working ones, and two live
-      routes to one calendar is the second way to do a job the constraints
-      below forbid.
-- [ ] Keep `GOOGLE_CLIENT_SECRET` in Railway's environment — `google.enabled`
-      reads it through `client_secret_env` and startup fails when it is empty
-      — and make sure it is the **Desktop** client's secret, not the web
-      client's. `GOOGLE_CLIENT_ID` is unread: the client id lives in
-      `config.yaml`.
+Real work, tracked so it is not lost, but not separation of concerns or
+cleanup. Each adds capability or is a deployment chore.
+
+- **Consolidate durable state in SQLite** — move approvals, processed event
+  IDs, selected model, and schedules out of `state.json`/`cron/` behind the
+  existing ports; keep the Markdown files as files. Needs a schema-versioned,
+  retry-safe migration design written first, and preserves encrypted payloads.
+  The largest net-new-code item on the list, which is why it is parked.
+- **Approval-gated MCP tools** — a per-server `require_approval: [tool names]`
+  list routing a matching call through the existing approval flow. This is the
+  open safety gap left by deleting Calendar: a configured MCP server is trusted
+  wholesale, so calendar mutations now carry no per-call approval.
+- **Does Eggy write code?** — undecided between read-only inspection and a
+  bounded edit tool plus bounded shell. Both defensible, not compatible. Until
+  decided, do not reintroduce write tools opportunistically.
+- **Prompt and tool budget** — re-measure the per-turn context floor, report
+  MCP schema bytes separately from kernel schema bytes, and do not build
+  deferred tool loading until MCP schemas alone exceed ~10K tokens.
+- **Docs pass** — `README.md` becomes a short operator guide;
+  `docs/src/content/docs/project/architecture.md` is the only architectural
+  narrative. Audit `AGENTS.md`, the docs site, and `config.example.yaml` after
+  every phase.
+- **Railway operations** — set `server.trusted_proxy_hops: 1`; reset
+  `/data/config.yaml` to the current shape before the next deploy (retired
+  `scheduler`, `embeddings`, `implementation_sessions`, `calendar` sections);
+  remove the `calendar` MCP server, which never authorized; keep
+  `GOOGLE_CLIENT_SECRET` set to the **Desktop** client's secret.
 
 ---
 

@@ -3,11 +3,49 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var ErrResultTooLarge = errors.New("MCP result exceeds configured output limit")
+
+// maxErrorTextBytes bounds how much of a server's error the model is shown.
+// An error explains itself in a sentence or two; a server that answers a
+// failure with a wall of text should not be able to spend a turn's context on
+// it.
+const maxErrorTextBytes = 2048
+
+// errorText recovers what the server actually said. An MCP failure arrives as
+// an ordinary result with IsError set and the explanation in its text content,
+// so discarding that content leaves the model with nothing to act on: it
+// cannot tell a bad argument from an expired credential, and its only recourse
+// is to call the same tool again. Every retry storm and invented diagnosis in
+// this position traces back to throwing this string away.
+func errorText(result *sdk.CallToolResult) string {
+	var parts []string
+	for _, content := range result.Content {
+		if text, ok := content.(*sdk.TextContent); ok && strings.TrimSpace(text.Text) != "" {
+			parts = append(parts, strings.TrimSpace(text.Text))
+		}
+	}
+	if len(parts) == 0 {
+		if result.StructuredContent != nil {
+			if encoded, err := json.Marshal(result.StructuredContent); err == nil {
+				parts = append(parts, string(encoded))
+			}
+		}
+		if len(parts) == 0 {
+			return "the server reported a failure with no message"
+		}
+	}
+	joined := strings.Join(parts, "; ")
+	if len(joined) > maxErrorTextBytes {
+		joined = joined[:maxErrorTextBytes] + "… (truncated)"
+	}
+	return joined
+}
 
 type resultEnvelope struct {
 	Content           []any `json:"content"`
@@ -19,7 +57,7 @@ func convertResult(result *sdk.CallToolResult, maxBytes int64) (json.RawMessage,
 		return nil, errors.New("MCP server returned an empty result")
 	}
 	if result.IsError {
-		return nil, errors.New("MCP tool returned an error")
+		return nil, fmt.Errorf("MCP tool returned an error: %s", errorText(result))
 	}
 	envelope := resultEnvelope{StructuredContent: result.StructuredContent}
 	for _, content := range result.Content {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,5 +125,53 @@ func TestNormalizeToolName(t *testing.T) {
 	}
 	if got, err := normalizeToolName("railway", "café"); err != nil || got != "railway__caf" {
 		t.Fatalf("non-ASCII name=%q err=%v", got, err)
+	}
+}
+
+// TestConvertResultCarriesTheServersErrorText is the diagnosability property:
+// an MCP failure arrives as a result with IsError set and the explanation in
+// its content, and a model told only "returned an error" has nothing to act on
+// but a retry.
+func TestConvertResultCarriesTheServersErrorText(t *testing.T) {
+	result := &sdk.CallToolResult{
+		IsError: true,
+		Content: []sdk.Content{
+			&sdk.TextContent{Text: "Request had insufficient authentication scopes."},
+			&sdk.TextContent{Text: "  "},
+		},
+	}
+	_, err := convertResult(result, 1<<20)
+	if err == nil || !strings.Contains(err.Error(), "insufficient authentication scopes") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestConvertResultErrorFallsBackToStructuredContentThenAPlainMessage(t *testing.T) {
+	structured := &sdk.CallToolResult{IsError: true, StructuredContent: map[string]any{"code": 403}}
+	_, err := convertResult(structured, 1<<20)
+	if err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("err=%v", err)
+	}
+
+	silent := &sdk.CallToolResult{IsError: true}
+	_, err = convertResult(silent, 1<<20)
+	if err == nil || !strings.Contains(err.Error(), "no message") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// A server that answers a failure with a wall of text must not spend the
+// turn's context on it.
+func TestConvertResultErrorTextIsBounded(t *testing.T) {
+	result := &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: strings.Repeat("x", 10_000)}}}
+	_, err := convertResult(result, 1<<20)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(err.Error()) > maxErrorTextBytes+128 {
+		t.Fatalf("error length=%d", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("err=%v", err)
 	}
 }

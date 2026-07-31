@@ -20,15 +20,30 @@ choices. Its command surface is deliberately limited to:
 - `/stop`
 - `/clear`
 - `/model [alias]`
+- `/mcp [add|remove|enable|disable|login|logout]`
 
 The agent can call `telegram_select` with its own prompt and 2–8 labelled
 options. A tap returns the selected value as the owner's next ordinary message.
 Selections are transient, expire after ten minutes, and never authorize a
 protected action.
 
-The authenticated web UI provides chat and the one runtime administration
-surface. Its settings panel edits providers, model aliases, and MCP servers
-directly in `config.yaml`; changes take effect after restarting `eggyd`.
+`/mcp` is the one administration command, and it is there because the config
+it edits lives on the Eggy runtime — an owner on a phone cannot shell into the
+deployment to add a server. It can list servers with their live state, add,
+remove, enable, disable, and start or discard an OAuth authorization. No secret
+value is ever accepted as a chat argument: `bearer_env` names an environment
+variable, and the token must already exist in the deployment's environment.
+stdio servers stay file-only, since a subprocess command line is not a chat
+argument.
+
+The authenticated web UI provides chat and a settings panel for providers,
+model aliases, and MCP servers, plus `/auth/mcp/{server}` to start an OAuth
+flow in the browser.
+
+Both surfaces are views onto one administration authority: every config write
+goes through `internal/config` under the same file lock with the same
+validation. Writes take effect after restarting `eggyd`, and both surfaces say
+so.
 
 ## Repository inspection
 

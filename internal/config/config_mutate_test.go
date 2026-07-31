@@ -95,7 +95,7 @@ func TestSetMCPServerAddsNewServerWithSaneDefaults(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+	if err := SetMCPServer(path, MCPServerInput{Name: "railway", URL: "https://mcp.railway.com", Auth: "oauth", BearerTokenEnv: "", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	env := testSecrets()
@@ -131,7 +131,7 @@ mcp:
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := SetMCPServer(path, "filesystem", "https://mcp.example.com", "none", "", true)
+	err := SetMCPServer(path, MCPServerInput{Name: "filesystem", URL: "https://mcp.example.com", Auth: "none", BearerTokenEnv: "", Enabled: true})
 	if err == nil || !strings.Contains(err.Error(), "stdio transport") {
 		t.Fatalf("error = %v", err)
 	}
@@ -157,7 +157,7 @@ mcp:
 	}
 	// Only flip "enabled" through the essentials-only web form; tool_filter,
 	// transport, and timeouts must survive untouched.
-	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "bearer-env", "RAILWAY_MCP_TOKEN", false); err != nil {
+	if err := SetMCPServer(path, MCPServerInput{Name: "railway", URL: "https://mcp.railway.com", Auth: "bearer-env", BearerTokenEnv: "RAILWAY_MCP_TOKEN", Enabled: false}); err != nil {
 		t.Fatal(err)
 	}
 	env := testSecrets()
@@ -181,7 +181,7 @@ func TestSetMCPServerRejectsNonHTTPSURL(t *testing.T) {
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := SetMCPServer(path, "railway", "http://mcp.railway.com", "oauth", "", true)
+	err := SetMCPServer(path, MCPServerInput{Name: "railway", URL: "http://mcp.railway.com", Auth: "oauth", BearerTokenEnv: "", Enabled: true})
 	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Fatalf("error = %v", err)
 	}
@@ -193,7 +193,7 @@ func TestRemoveMCPServerDeletesEntry(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+	if err := SetMCPServer(path, MCPServerInput{Name: "railway", URL: "https://mcp.railway.com", Auth: "oauth", BearerTokenEnv: "", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := RemoveMCPServer(path, "railway"); err != nil {
@@ -226,7 +226,7 @@ func TestGetMCPServersConfigListsServers(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetMCPServer(path, "railway", "https://mcp.railway.com", "oauth", "", true); err != nil {
+	if err := SetMCPServer(path, MCPServerInput{Name: "railway", URL: "https://mcp.railway.com", Auth: "oauth", BearerTokenEnv: "", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	servers, err := GetMCPServersConfig(path)

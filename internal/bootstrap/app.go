@@ -275,7 +275,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 	}
 	app.manifest = agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
+	mcpAdministration := newMCPAdmin(app.mcp)
 	app.commands = commands.New(commands.Options{
+		ConfigPath:   options.ConfigPath,
+		MCP:          mcpAdministration.commandsView(),
 		Turns:        app.turns,
 		Store:        stateStore,
 		Conversation: app.conversation,
@@ -313,6 +316,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
+		MCP:              mcpAdministration.webView(),
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

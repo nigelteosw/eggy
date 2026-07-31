@@ -148,18 +148,33 @@ func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) erro
 	})
 }
 
-// SetMCPServer upserts one MCP server definition by its essential,
-// web-editable fields (url, auth, bearer_token_env, enabled). Every server it
-// writes uses the streamable-http transport: a stdio server is a local
-// subprocess with a command line and an environment allowlist, which belongs
-// in reviewed configuration rather than a web form, so editing one here is
-// refused instead of silently rewritten into an HTTP server. Advanced fields
-// not exposed by the web form (oauth_scopes,
-// tool_filter, timeouts) are preserved untouched when editing an existing
-// server; a brand-new server gets the same sane defaults
-// Config.applyDefaults would give it, so it validates immediately instead of
-// only becoming valid after the next config load.
-func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) error {
+// MCPServerInput is the set of MCP server fields an owner can set from a
+// surface -- the web settings panel or the Telegram /mcp command. It is a
+// struct rather than a parameter list because transport made it the seventh
+// positional string, and a run of same-typed positional strings is how a URL
+// ends up in the auth field.
+type MCPServerInput struct {
+	Name           string
+	URL            string
+	Transport      string
+	Auth           string
+	BearerTokenEnv string
+	Enabled        bool
+}
+
+// SetMCPServer upserts one MCP server definition from the fields a surface can
+// set. An empty Transport keeps whatever the server already had and defaults a
+// new server to streamable-http. A stdio server is a local subprocess with a
+// command line and an environment allowlist, which belongs in reviewed
+// configuration rather than a chat message or a web form: writing one is
+// refused here in either direction rather than silently rewritten into an HTTP
+// server. Advanced fields no surface exposes (oauth_scopes, tool_filter,
+// timeouts) are preserved untouched when editing an existing server; a
+// brand-new server gets the same sane defaults Config.applyDefaults would give
+// it, so it validates immediately instead of only becoming valid after the
+// next config load.
+func SetMCPServer(path string, input MCPServerInput) error {
+	name := input.Name
 	return filelock.With(path, func() error {
 		cfg, err := LoadDocument(path)
 		if err != nil {
@@ -169,16 +184,19 @@ func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) er
 			cfg.MCP.Servers = map[string]MCPServerConfig{}
 		}
 		server := cfg.MCP.Servers[name]
-		if server.Transport == "stdio" {
+		if server.Transport == "stdio" || input.Transport == "stdio" {
 			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
 		}
-		server.URL = url
+		server.URL = input.URL
+		if input.Transport != "" {
+			server.Transport = input.Transport
+		}
 		if server.Transport == "" {
 			server.Transport = "streamable-http"
 		}
-		server.Auth = auth
-		server.BearerTokenEnv = bearerTokenEnv
-		server.Enabled = enabled
+		server.Auth = input.Auth
+		server.BearerTokenEnv = input.BearerTokenEnv
+		server.Enabled = input.Enabled
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)
 		}
@@ -188,6 +206,29 @@ func SetMCPServer(path, name, url, auth, bearerTokenEnv string, enabled bool) er
 		if server.MaxOutputBytes == 0 {
 			server.MaxOutputBytes = 128 << 10
 		}
+		cfg.MCP.Servers[name] = server
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// SetMCPServerEnabled flips one server's enabled flag without touching
+// anything else about it. It is the one MCP edit a stdio server also accepts:
+// turning a subprocess server off needs no knowledge of its command or args,
+// so refusing it here would force a file edit for the safest possible change.
+func SetMCPServerEnabled(path, name string, enabled bool) error {
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		server, ok := cfg.MCP.Servers[name]
+		if !ok {
+			return fmt.Errorf("MCP server %q is not configured", name)
+		}
+		server.Enabled = enabled
 		cfg.MCP.Servers[name] = server
 		if err := cfg.Validate(); err != nil {
 			return err

@@ -490,3 +490,60 @@ func TestWebHandlerChatRoutesRequireSession(t *testing.T) {
 		}
 	}
 }
+
+type fakeMCPLogin struct {
+	url      string
+	err      error
+	requests []string
+}
+
+func (f *fakeMCPLogin) BeginLogin(_ context.Context, server string) (string, error) {
+	f.requests = append(f.requests, server)
+	return f.url, f.err
+}
+
+// TestWebMCPLoginRedirectsAndRequiresSession covers the route that makes the
+// OAuth callback reachable at all, and the reason it must be owner-gated: an
+// anonymous visitor who could start a flow would bind their own account as
+// Eggy's credential for that server.
+func TestWebMCPLoginRedirectsAndRequiresSession(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	runtime := &fakeMCPLogin{url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc"}
+	webConfig := testWebConfig(now)
+	webConfig.MCP = runtime
+	handler := NewWebHandler(writeConfigFile(t, validConfig()), webConfig)
+
+	anonymous := httptest.NewRecorder()
+	handler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/auth/mcp/calendar", nil))
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous status=%d, want 401", anonymous.Code)
+	}
+	if len(runtime.requests) != 0 {
+		t.Fatalf("an anonymous request started an OAuth flow: %v", runtime.requests)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/mcp/calendar", nil)
+	request.AddCookie(webLoginCookie(t, handler))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusFound || response.Header().Get("Location") != runtime.url {
+		t.Fatalf("status=%d location=%q", response.Code, response.Header().Get("Location"))
+	}
+	if len(runtime.requests) != 1 || runtime.requests[0] != "calendar" {
+		t.Fatalf("requests=%v", runtime.requests)
+	}
+}
+
+// Without a manager there is no login route at all, rather than one that
+// panics on a nil runtime.
+func TestWebMCPLoginIsAbsentWithoutAManager(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(writeConfigFile(t, validConfig()), testWebConfig(now))
+	request := httptest.NewRequest(http.MethodGet, "/auth/mcp/calendar", nil)
+	request.AddCookie(webLoginCookie(t, handler))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code == http.StatusFound {
+		t.Fatalf("a login redirect was served with no MCP manager: %d", response.Code)
+	}
+}

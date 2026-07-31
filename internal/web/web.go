@@ -23,6 +23,12 @@ import (
 // wiring (docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md):
 // ChatHub/Enqueue/Memory/OwnerID are only read by the /api/chat/* routes and
 // may be left zero-valued in tests that only exercise login/config routes.
+// MCPLoginStarter begins an OAuth authorization for one configured MCP
+// server and returns the provider URL to send the owner to.
+type MCPLoginStarter interface {
+	BeginLogin(ctx context.Context, server string) (string, error)
+}
+
 type WebUIConfig struct {
 	UserEmail  string
 	Password   string
@@ -33,6 +39,11 @@ type WebUIConfig struct {
 	Memory     HistoryReader
 	Threads    ThreadDirectory
 	OwnerID    string
+	// MCP is the running MCP manager, or nil when no server is configured.
+	// The web panel edits MCP config through internal/config like every other
+	// section; this is only the part config cannot do -- starting an OAuth
+	// flow against a live connection.
+	MCP MCPLoginStarter
 	// TrustedProxyHops is how many reverse proxies Eggy is deployed behind
 	// (server.trusted_proxy_hops). It is the login throttle's whole notion
 	// of client identity: at 0 the throttle keys on RemoteAddr and
@@ -114,14 +125,16 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
 
-	// MCP server definitions are file-owned by deliberate design (see
-	// docs/superpowers/specs/2026-07-22-eggy-mcp-client-design.md): there is
-	// no /config get|set mcp catalog command, so these routes call the
-	// internal/config mutation helpers directly instead of bridging through
-	// commands.CommandService.
 	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
+	// Starting an OAuth flow is owner-only: an anonymous visitor who could
+	// reach this would bind their own account as Eggy's credential for that
+	// server. The matching callback is deliberately not session-gated -- it is
+	// the provider's redirect, authenticated by the state parameter it carries.
+	if webConfig.MCP != nil {
+		mux.Handle("GET /auth/mcp/{server}", requireWebSession(webConfig, now, webMCPLoginRoute(webConfig.MCP)))
+	}
 
 	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Threads, now)))
@@ -148,11 +161,11 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			server := servers[name]
-			rows = append(rows, []string{name, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv})
+			rows = append(rows, []string{name, server.Transport, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv})
 		}
 		writeWebResult(w, webResult{
 			State:        webSuccess,
-			TableHeaders: []string{"Name", "URL", "Auth", "Enabled", "Bearer token env"},
+			TableHeaders: []string{"Name", "Transport", "URL", "Auth", "Enabled", "Bearer token env"},
 			TableRows:    rows,
 		})
 	}
@@ -163,6 +176,7 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 		var input struct {
 			Name           string `json:"name"`
 			URL            string `json:"url"`
+			Transport      string `json:"transport"`
 			Auth           string `json:"auth"`
 			BearerTokenEnv string `json:"bearer_token_env"`
 			Enabled        bool   `json:"enabled"`
@@ -175,11 +189,34 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, "name, url, and auth are required")
 			return
 		}
-		if err := config.SetMCPServer(configPath, input.Name, input.URL, input.Auth, input.BearerTokenEnv, input.Enabled); err != nil {
+		if err := config.SetMCPServer(configPath, config.MCPServerInput{
+			Name: input.Name, URL: input.URL, Transport: input.Transport,
+			Auth: input.Auth, BearerTokenEnv: input.BearerTokenEnv, Enabled: input.Enabled,
+		}); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: "Restart Eggy for this to take effect."})
+	}
+}
+
+// webMCPLoginRoute starts an OAuth flow and redirects the owner's browser to
+// the provider. Without it the callback route below is unreachable: nothing
+// else in the process calls BeginLogin, so an auth: oauth server could be
+// configured but never authorized.
+func webMCPLoginRoute(runtime MCPLoginStarter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		server := r.PathValue("server")
+		if server == "" {
+			writeWebError(w, http.StatusBadRequest, "server name is required")
+			return
+		}
+		authorizationURL, err := runtime.BeginLogin(r.Context(), server)
+		if err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		http.Redirect(w, r, authorizationURL, http.StatusFound)
 	}
 }
 

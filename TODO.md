@@ -1,8 +1,8 @@
 # Eggy roadmap
 
 Unfinished work and standing constraints only. Completed work lives in git;
-current behavior lives in `README.md` and `docs/ARCHITECTURE.md`. Delete an item
-once it lands.
+current behavior lives in `README.md` and the docs site under
+`docs/src/content/docs/`. Delete an item once it lands.
 
 ## What Eggy is
 
@@ -46,10 +46,11 @@ compiled in again must make the argument Calendar no longer gets to make.
 
 Counted as non-test `.go` outside `docs/` and `website/`:
 
-- 12,803 production Go lines and 11,216 test lines;
-- largest packages: `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,323,
-  `internal/config` 1,302, `internal/kernel/services` 1,105, and
-  `internal/web` 835;
+- 13,201 production Go lines and 11,574 test lines (2026-07-31, after the MCP
+  administration work);
+- largest packages: `plugins/tools/mcp` 1,526, `internal/bootstrap` 1,381,
+  `internal/config` 1,343, `internal/kernel/services` 1,105, `internal/web`
+  872, and `internal/commands` 427;
 - 64 YAML-tagged fields in `internal/config/config.go`;
 - machine-managed persistence still spans `state.json`, `auth.json`, `cron/`,
   and `eggy.db`; Markdown context and skills remain files by design.
@@ -61,13 +62,15 @@ twice.
 ## Targets for this pass
 
 - **≤ 12,500 production Go lines** excluding generated web assets — currently
-  over, at 12,803;
+  over, at 13,201;
 - **≤ 6 tools** in the default core; **≤ 13** with Telegram and repositories
   configured; MCP counted separately;
 - **three durable forms**: YAML for startup config, Markdown for owner-facing
   documents, SQLite for everything machine-managed;
 - **≤ 50 config fields**;
-- **one** runtime administration surface.
+- **one** runtime administration *authority* — every config write goes through
+  `internal/config` under one lock; Telegram and web are views onto it, not
+  separate implementations.
 
 ---
 
@@ -76,7 +79,7 @@ twice.
 "Configurable" is the whole design claim, so the config must be small, flat,
 and validated in one place.
 
-- [ ] Collapse `internal/config` (now 1,107 lines, 64 YAML-tagged fields) to
+- [ ] Collapse `internal/config` (now 1,343 lines, 64 YAML-tagged fields) to
       the sections that survive: `server`, `data_dir`, `agent`, `providers`,
       `models`, `telegram`, `repositories`, `runner`, `mcp`. Delete
       `commonConfigDocument`/`configDocument` duality once no legacy shape
@@ -85,7 +88,10 @@ and validated in one place.
       one. A silently-ignored key is how a "configurable" system becomes a
       guessing game.
 - [ ] Make every optional section's absence the off switch. No `enabled: true`
-      field where an empty section already means "not configured".
+      field where an empty section already means "not configured". The one
+      remaining offender is `mcp.servers.<name>.enabled` — decide whether a
+      listed-but-disabled server is worth a field or whether removing the entry
+      is the off switch.
 - [ ] `config.example.yaml` documents every surviving field exactly once and is
       asserted against the parsed shape in a test.
 
@@ -136,9 +142,11 @@ behavior and no other adapter.
 
 ## P2: Keep the prompt and tool budget honest
 
-- [ ] Re-measure the per-turn context floor after the P0 cuts and record it
-      once here. Tool schemas were the largest section by a wide margin; that
-      is the number that matters, not prose bytes.
+- [ ] Re-measure the per-turn context floor now that Calendar's tools and
+      prompt text are gone, and record it once here alongside the tool count
+      and HTTP route count the baseline above deliberately left open. Tool
+      schemas were the largest section by a wide margin; that is the number
+      that matters, not prose bytes.
 - [ ] One home per policy fact: tool descriptions explain invocation, runtime
       policy explains cross-tool constraints. Delete the duplicate.
 - [ ] Report MCP schema bytes separately from kernel schema bytes. Do not
@@ -161,16 +169,17 @@ behavior and no other adapter.
 ## P2: Documentation and test weight
 
 - [ ] `README.md` becomes a short operator guide: install, configure, run.
-      `docs/ARCHITECTURE.md` is the only architectural narrative; ADRs hold
-      durable trade-offs.
+      `docs/src/content/docs/project/architecture.md` is the only architectural
+      narrative; ADRs hold durable trade-offs.
 - [ ] Delete comments that narrate removed implementations or rejected
       alternatives. Keep comments stating a non-obvious invariant, an exported
       contract, or a security reason.
 - [ ] Delete tests for removed behavior in the same change as the behavior. Do
       not chase a test-line target; keep focused safety and adapter contract
       tests even when they exceed the implementation.
-- [ ] Audit `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, and
-      `config.example.yaml` after every phase.
+- [ ] Audit `AGENTS.md`, `README.md`, the docs site, and `config.example.yaml`
+      after every phase. `docs/ARCHITECTURE.md` no longer exists; grep for
+      stale references to it when touching docs.
 
 ---
 
@@ -200,9 +209,11 @@ hand.
       ignored — though `LoadOrCreateConfig` prunes these particular retired
       sections in place first, carrying `calendar.timezone` over to
       `agent.timezone`.
-- [ ] Configure a Google Calendar MCP server to replace the deleted native
-      adapter, and drop `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from
-      Railway's environment — nothing reads them now.
+- [ ] Configure the Google Calendar MCP server to replace the deleted native
+      adapter: `/mcp add calendar url=https://calendarmcp.googleapis.com/mcp/v1
+      auth=oauth`, restart, then `/mcp login calendar`.
+- [ ] Drop `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` from Railway's
+      environment — nothing reads them now.
 
 ---
 

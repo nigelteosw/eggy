@@ -1,7 +1,11 @@
 // Package commands handles Telegram's deliberately small conversational
-// command surface. Startup configuration and subsystem administration belong
-// to config.yaml and the authenticated web panel, not to a shared command
-// language.
+// command surface. Most startup configuration belongs to config.yaml and the
+// authenticated web panel rather than to a chat command language. MCP is the
+// exception, because the config it edits lives on the Eggy runtime: an owner
+// holding a phone must be able to add or authorize a server without shelling
+// into the deployment. Those edits go through the internal/config helpers the
+// web panel calls, under the same lock and the same validation -- one
+// administration authority, two views onto it.
 package commands
 
 import (
@@ -24,6 +28,7 @@ var telegramCommands = []struct {
 	{Name: "stop", Description: "Stop the current turn"},
 	{Name: "clear", Description: "Clear recent conversation history"},
 	{Name: "model", Description: "Show or select the active model"},
+	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
 }
 
 type ConversationResetter interface {
@@ -40,6 +45,8 @@ type AgentSettings interface {
 }
 
 type Options struct {
+	ConfigPath   string
+	MCP          MCPRuntime
 	Store        ports.StateStore
 	Conversation ConversationResetter
 	Turns        TurnStopper
@@ -49,6 +56,8 @@ type Options struct {
 }
 
 type CommandService struct {
+	configPath   string
+	mcp          MCPRuntime
 	store        ports.StateStore
 	conversation ConversationResetter
 	turns        TurnStopper
@@ -61,6 +70,7 @@ func New(options Options) *CommandService {
 	aliases := append([]string(nil), options.ModelAliases...)
 	sort.Strings(aliases)
 	return &CommandService{
+		configPath: options.ConfigPath, mcp: options.MCP,
 		store: options.Store, conversation: options.Conversation, turns: options.Turns,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
 	}
@@ -98,6 +108,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return "Cleared recent conversation history. Durable memory is unchanged.", true, nil
 	case "model":
 		return s.model(ctx, args)
+	case "mcp":
+		return s.mcpCommand(ctx, args)
 	default:
 		return "Unknown command.\n\n" + HelpText(), true, nil
 	}
@@ -126,7 +138,24 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 			}
 		}
 	}
-	return fmt.Sprintf("**Eggy status**\n\n**Active model:** %s\n**Pending approvals:** %d", model, pending), true, nil
+	report := fmt.Sprintf("**Eggy status**\n\n**Active model:** %s\n**Pending approvals:** %d", model, pending)
+	if s.mcp != nil {
+		statuses := s.mcp.Statuses()
+		ready, tools, attention := 0, 0, []string(nil)
+		for _, status := range statuses {
+			tools += status.Tools
+			if status.State == mcpStateReady {
+				ready++
+				continue
+			}
+			attention = append(attention, status.Name+" ("+status.State+")")
+		}
+		report += fmt.Sprintf("\n**MCP:** %d/%d ready, %d tools", ready, len(statuses), tools)
+		if len(attention) > 0 {
+			report += "\n**Needs attention:** " + strings.Join(attention, ", ")
+		}
+	}
+	return report, true, nil
 }
 
 func (s *CommandService) model(ctx context.Context, args []string) (string, bool, error) {
@@ -157,7 +186,7 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 }
 
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias]"
+	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout]"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

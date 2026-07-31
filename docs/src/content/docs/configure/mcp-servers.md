@@ -31,6 +31,21 @@ mcp:
 
 HTTP authentication may be `none`, `oauth`, or `bearer-env`. Bearer authentication names its token variable with `bearer_token_env`. OAuth uses PKCE, the callback `/auth/mcp/{server}/callback`, and encrypted records in `auth.json`.
 
+## Authorizing an OAuth server
+
+Start the flow from either surface:
+
+- **Telegram:** `/mcp login <name>` returns the provider's authorization URL.
+- **Web:** visit `/auth/mcp/{server}` while signed in; it redirects to the provider.
+
+The start route is owner-gated in both cases. The callback deliberately is not — it is the provider's redirect, authenticated by the `state` parameter it carries. Completing a login connects the server immediately, so its tools appear on the next turn without a restart. `/mcp logout <name>` discards the stored credentials.
+
+## Editing servers without a file
+
+Both the web settings panel and Telegram's `/mcp` command write through the same `internal/config` helpers, under the same lock and validation. HTTP servers can be added, edited, enabled, disabled, and removed from either. stdio servers are file-only: a subprocess command line is not a chat argument or a web form field.
+
+A config write takes effect on restart, because adapters are constructed at startup. Both surfaces say so on every write.
+
 ## Stdio
 
 ```yaml

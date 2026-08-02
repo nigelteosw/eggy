@@ -37,6 +37,8 @@ The model can call `recall_conversation` explicitly. Recall is bounded and is ne
 
 Exact and five-field cron schedules live under `cron/`. A schedule can run a read-only agent turn or deliver a deterministic message without a model call.
 
+`schedule_list` reports what exists and `schedule_cancel` removes one by id, so a schedule created in conversation can be reviewed and taken back there too. The web panel lists the same schedules and cancels them; creating one stays conversational. `schedule_list` is the only one of the four on the unprompted allowlist — a heartbeat may see what else is due, but may not change it.
+
 Skills are local Markdown procedures. The prompt receives only enabled skill summaries; the model loads full instructions by exact name with `skill_read`. A skill cannot grant a tool or bypass policy.
 
 ## Backups

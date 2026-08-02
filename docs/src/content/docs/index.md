@@ -47,7 +47,7 @@ For a persistent hosted instance, continue to [Deploy on Railway](/eggy/get-star
 - Read owner-maintained identity and memory from Markdown.
 - Inspect configured GitHub repositories without changing them.
 - Connect trusted MCP servers over Streamable HTTP or stdio.
-- Create exact and recurring schedules for agent turns or deterministic reminders.
+- Create, review, and cancel exact and recurring schedules for agent turns or deterministic reminders.
 - Load reviewed procedural skills from local Markdown files.
 
 ## How Eggy works

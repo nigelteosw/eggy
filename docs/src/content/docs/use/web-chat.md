@@ -40,8 +40,12 @@ The settings panel reads and updates:
 - model aliases and supported reasoning effort values;
 - MCP server definitions;
 - Google Workspace;
-- the heartbeat interval and instruction.
+- the heartbeat interval and instruction;
+- the merged tool catalog, read-only;
+- the schedules that exist, with a cancel button on each.
 
 Changes are written to `config.yaml`. Restart `eggyd` to reconstruct adapters and apply them. Secrets are never returned through the configuration API.
+
+Two of those sections are not config and do not need a restart. The tool list is read live from the registry the agent loop itself runs on, so an MCP server that reconnects or is logged out of changes the page for the same reason it changes the next turn. Cancelling a schedule removes it from `cron/` and takes effect immediately.
 
 > Configuration is an administration action, not an agent tool. The model cannot call the web settings endpoints.

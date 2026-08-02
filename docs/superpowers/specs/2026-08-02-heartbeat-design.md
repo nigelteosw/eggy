@@ -111,6 +111,32 @@ OpenClaw's heartbeat deliberately runs with full session context. Eggy's does
 not. This is the one place the design departs from the reference, and it is a
 decision rather than an oversight.
 
+### Why not a plugin
+
+Considered and rejected. `plugins/<category>/<provider>` is for provider
+adapters: something that implements a port, so that a second provider could
+implement it too. The heartbeat implements no port, and there is no alternative
+provider of "deciding whether to speak unprompted" to swap in.
+
+The decisive reason is that isolation is the entire safety story here, and
+`internal/kernel/turns` exists to hold exactly that. Its package comment records
+why it was extracted from `internal/bootstrap`: that is core agentic behaviour
+rather than wiring, and the safety-relevant part — which turns are unprompted,
+and what those turns may reach — sat where no kernel test could guard it.
+Putting `HeartbeatTurn` in a plugin would move `ReadOnlyTools()` and the
+no-ambient-history rule back outside the kernel.
+
+"The heartbeat is Telegram-only" is true but is not an argument for a Telegram
+plugin, because it is already true of *all* unprompted output and is enforced
+in one place. `proactiveDestination()` stamps `destination.Telegram` on every
+unprompted path, and its comment states that this is a decision rather than a
+default, so that making the surface configurable later is a change to that one
+function. `TestUnpromptedTurnsAlwaysReportToTelegram` and the web-only case in
+`routed_channel_test.go` already pin the behaviour. The heartbeat inherits it by
+using `proactiveDestination()`; a Telegram-specific plugin would instead
+hard-code a coupling that is currently deliberately soft, and a later Slack or
+Discord channel would need the heartbeat rewritten rather than rerouted.
+
 ### Why not the dispatcher
 
 `internal/kernel/services/dispatcher.go` writes every handled event's ID into
@@ -207,6 +233,21 @@ A nil channel blocks forever in a `select`, so an unconfigured heartbeat costs
 nothing at runtime: no goroutine, no ticker, no branch ever taken. This is what
 satisfies the standing rule that an unconfigured capability is free.
 
+The ticker additionally requires a configured Telegram channel. Unprompted
+output is addressed to `proactiveDestination()`, and `newRoutedChannel` gives a
+web-only deployment a *noop* Telegram deliberately, so that "no Telegram
+configured" means "no unprompted output" rather than output redirected into a
+web thread the owner never asked to be pushed to. Without this guard a web-only
+deployment with `heartbeat.interval` set would wake every interval, run a full
+model turn, and deliver the result into the noop — an unbounded standing token
+cost that can never produce a visible message. Cron has the same shape today,
+but a cron entry is owner-created and therefore self-inflicted; a heartbeat is
+a background cost the owner does not see accruing.
+
+Startup logs once at warn level when `heartbeat.interval` is set with no
+Telegram channel configured, rather than failing: the rest of the deployment is
+valid, and a silent no-op would be indistinguishable from a broken heartbeat.
+
 One new `case` beside the existing `scheduleTicker.C`, guarded on
 `a.turnService.Active()` — which already exists. That guard does two things for
 one line: ticks cannot pile up when a heartbeat runs longer than its interval,
@@ -257,6 +298,8 @@ Test-first, mirroring the existing patterns in `turns_test.go`.
   `TestUnpromptedTurnsRunWithARestrictedAllowlist`.
 - A heartbeat turn carries no ambient conversation history.
 - An unset interval runs no turn ever, and starts no ticker.
+- A set interval with no Telegram channel configured starts no ticker and runs
+  no turn, so a web-only deployment carries no standing model cost.
 - A config with no `heartbeat:` section still loads under `KnownFields(true)`.
 - A heartbeat tick is skipped while a turn is already active.
 

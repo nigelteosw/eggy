@@ -23,6 +23,8 @@ Sessions use a signed, HTTP-only cookie with a 12-hour lifetime. Failed logins a
 After login you can:
 
 - create and switch among conversation threads;
+- rename a thread, overwriting the title auto-generated from its first message;
+- delete a thread along with its messages — unless a workspace is still attached, which must be closed first so the checkout is not orphaned on disk;
 - load durable message history;
 - stream an in-progress assistant reply;
 - send a new owner message;
@@ -36,7 +38,9 @@ The settings panel reads and updates:
 
 - providers;
 - model aliases and supported reasoning effort values;
-- MCP server definitions.
+- MCP server definitions;
+- Google Workspace;
+- the heartbeat interval and instruction.
 
 Changes are written to `config.yaml`. Restart `eggyd` to reconstruct adapters and apply them. Secrets are never returned through the configuration API.
 

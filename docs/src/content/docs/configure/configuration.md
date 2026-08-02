@@ -34,6 +34,8 @@ heartbeat:
 
 `3h` is the recommended starting interval. Each tick runs an isolated read-only turn with no conversation history, and delivers to Telegram only when there is something worth saying — so a heartbeat is not one message per tick. A tick is skipped while another turn is running. Without a `telegram` block there is nowhere to deliver unprompted output, so the heartbeat stays off and says so once at startup.
 
+The settings panel edits this section too. A blank interval there means off, rather than leaving the previous interval in place; the instruction is preserved either way, so turning the heartbeat back on does not mean retyping it. Like every other section, the panel writes `config.yaml` and the change applies on the next restart.
+
 ## Secrets
 
 YAML names secret environment variables but does not hold their values:

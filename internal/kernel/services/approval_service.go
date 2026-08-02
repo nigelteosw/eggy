@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -55,6 +56,14 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) 
 	if err != nil {
 		return err
 	}
+	// The expiry transition is committed and the error returned afterwards,
+	// rather than returned from the mutation. A store discards the whole
+	// update when the mutation errors, so marking the record Expired and
+	// returning ErrExpired in the same breath threw the mark away: the
+	// approval stayed Pending, deciding it failed again next time, and the
+	// count of "approvals waiting" could only ever grow. Nothing else can
+	// retire one, since Decide is the only path that checks the window.
+	expired := false
 	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
 		approval, ok := state.Approvals[id]
 		if !ok || approval.Status != approvals.Pending {
@@ -63,7 +72,8 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) 
 		if !s.now().Before(approval.ExpiresAt) {
 			approval.Status = approvals.Expired
 			state.Approvals[id] = approval
-			return approvals.ErrExpired
+			expired = true
+			return nil
 		}
 		if approved {
 			approval.Status = approvals.Approved
@@ -74,7 +84,36 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, approved bool) 
 		state.Approvals[id] = approval
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	if expired {
+		return approvals.ErrExpired
+	}
+	return nil
+}
+
+// Pending is every approval still awaiting a decision, oldest first.
+//
+// Expired ones are included rather than filtered out. An approval whose
+// window has closed still sits in state as Pending -- that is what the status
+// tool counts -- so hiding it here would leave the owner staring at a count
+// they cannot reconcile with any list. Reporting it and letting the caller
+// see ExpiresAt is what makes a stale approval explicable instead of a
+// phantom.
+func (s *ApprovalService) Pending(ctx context.Context) ([]approvals.Approval, error) {
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]approvals.Approval, 0, len(state.Approvals))
+	for _, approval := range state.Approvals {
+		if approval.Status == approvals.Pending {
+			pending = append(pending, approval)
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].CreatedAt.Before(pending[j].CreatedAt) })
+	return pending, nil
 }
 
 // Invalidate marks a pending approval unusable without changing approvals

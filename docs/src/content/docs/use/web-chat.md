@@ -42,10 +42,11 @@ The settings panel reads and updates:
 - Google Workspace;
 - the heartbeat interval and instruction;
 - the merged tool catalog, read-only;
-- the schedules that exist, with a cancel button on each.
+- the schedules that exist, with a cancel button on each;
+- the approvals waiting on you, with approve and reject on each.
 
 Changes are written to `config.yaml`. Restart `eggyd` to reconstruct adapters and apply them. Secrets are never returned through the configuration API.
 
-Two of those sections are not config and do not need a restart. The tool list is read live from the registry the agent loop itself runs on, so an MCP server that reconnects or is logged out of changes the page for the same reason it changes the next turn. Cancelling a schedule removes it from `cron/` and takes effect immediately.
+Two of those sections are not config and do not need a restart. The tool list is read live from the registry the agent loop itself runs on, so an MCP server that reconnects or is logged out of changes the page for the same reason it changes the next turn. Cancelling a schedule removes it from `cron/` and takes effect immediately. Approvals are read there and decided through the same route a chat tap uses, so the panel is a second view onto one mechanism rather than a second way to approve something.
 
 > Configuration is an administration action, not an agent tool. The model cannot call the web settings endpoints.

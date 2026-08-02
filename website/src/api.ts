@@ -156,6 +156,13 @@ export function deleteThread(threadId: string): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
 }
 
+// Approvals waiting on the owner. Deciding one goes through
+// approveChatDecision below -- the same route a chat tap uses -- so this is
+// only the view that was missing.
+export function listApprovals(): Promise<CommandResult> {
+  return request("/api/approvals");
+}
+
 // Schedules come back as a table like every other list route, so the card
 // renders them with DataTable rather than through a projected type.
 export function listSchedules(): Promise<CommandResult> {

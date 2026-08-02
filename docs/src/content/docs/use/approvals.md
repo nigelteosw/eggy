@@ -22,6 +22,12 @@ Approving one deletion cannot authorize a different deletion. Approving an updat
 
 The model never receives mutation credentials.
 
+## Seeing what is waiting
+
+The web panel lists every approval still awaiting a decision, oldest first, and approves or rejects each one through the same event path a Telegram tap takes.
+
+An approval past its 30-minute window is shown as expired rather than hidden: it stays pending in `state.json` until something decides it, which is what `status` counts, so hiding it would leave a count matching nothing visible. Approve is disabled on an expired row — the window is what authorization rests on — and rejecting one retires it.
+
 ## What is not an approval
 
 - A `telegram_select` tap is an ordinary message.

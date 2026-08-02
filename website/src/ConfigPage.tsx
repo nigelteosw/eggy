@@ -5,6 +5,7 @@ import { GoogleCard } from "./GoogleCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { ToolsCard } from "./ToolsCard";
 import { SchedulesCard } from "./SchedulesCard";
+import { ApprovalsCard } from "./ApprovalsCard";
 
 export function ConfigPage({ onSessionExpired }: { onSessionExpired: () => void }) {
   return (
@@ -21,6 +22,7 @@ export function ConfigPage({ onSessionExpired }: { onSessionExpired: () => void 
         <GoogleCard onSessionExpired={onSessionExpired} />
         <HeartbeatCard onSessionExpired={onSessionExpired} />
         <SchedulesCard onSessionExpired={onSessionExpired} />
+        <ApprovalsCard onSessionExpired={onSessionExpired} />
       </div>
     </div>
   );

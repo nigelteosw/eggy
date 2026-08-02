@@ -296,6 +296,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,
+		Approvals:        app.approvals,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

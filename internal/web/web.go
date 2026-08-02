@@ -47,6 +47,9 @@ type WebUIConfig struct {
 	MCP MCPLoginStarter
 	// Tools is the live tool registry, listed read-only by the panel.
 	Tools ToolCatalog
+	// Schedules lists and cancels cron jobs for the panel. Creating one
+	// stays conversational, so this is deliberately not a full CRUD surface.
+	Schedules ScheduleDirectory
 	// TrustedProxyHops is how many reverse proxies Eggy is deployed behind
 	// (server.trusted_proxy_hops). It is the login throttle's whole notion
 	// of client identity: at 0 the throttle keys on RemoteAddr and
@@ -147,6 +150,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/chat/threads/{id}/stream", requireWebSession(webConfig, now, newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
 	mux.Handle("GET /api/tools", requireWebSession(webConfig, now, newToolListHandler(webConfig.Tools)))
+	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
+	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 
 	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
 

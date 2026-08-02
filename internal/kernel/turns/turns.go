@@ -205,6 +205,12 @@ func ReadOnlyTools() agent.RunOptions {
 		"read_file": true, "repository_github": true,
 		"workspace_open": true, "workspace_close": true,
 		"skill_read": true,
+		// Reading what is scheduled is read-only, and it is the one thing a
+		// heartbeat most plausibly needs: it shares a clock with those jobs
+		// and should be able to say what else is due. schedule_exact,
+		// schedule_recurring, and schedule_cancel stay off -- an unprompted
+		// turn must not change what runs later.
+		"schedule_list": true,
 	}}
 }
 

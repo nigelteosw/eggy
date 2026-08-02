@@ -156,6 +156,16 @@ export function deleteThread(threadId: string): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
 }
 
+// Schedules come back as a table like every other list route, so the card
+// renders them with DataTable rather than through a projected type.
+export function listSchedules(): Promise<CommandResult> {
+  return request("/api/schedules");
+}
+
+export function cancelSchedule(id: string): Promise<CommandResult> {
+  return request(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function sendChatMessage(threadId: string, text: string): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text }) });
 }

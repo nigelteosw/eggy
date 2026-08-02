@@ -11,15 +11,20 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// fakeSchedules records what the tools write. Using this rather than the real
-// scheduler is what keeps internal/kernel free of a plugin import, and it is
-// the reason ScheduleWriter is narrow: if this fake ever needs to grow, the
-// interface has stopped being a slice of the scheduler and started being the
-// scheduler.
+// fakeSchedules records what the tools write and holds what they read. Using
+// this rather than the real scheduler is what keeps internal/kernel free of a
+// plugin import.
+//
+// It grew List and Remove when the list and cancel tools arrived, which by
+// the standard this comment used to set means ScheduleWriter is no longer a
+// narrow slice of the scheduler -- it is now most of it. That is the honest
+// consequence of making schedules reviewable: answering "what did I create"
+// and "take that one back" needs the same reads the scheduler does.
 type fakeSchedules struct {
-	added []ports.Schedule
-	next  time.Time
-	err   error
+	added   []ports.Schedule
+	removed []string
+	next    time.Time
+	err     error
 }
 
 func (f *fakeSchedules) Add(_ context.Context, schedule ports.Schedule) error {
@@ -31,6 +36,28 @@ func (f *fakeSchedules) Add(_ context.Context, schedule ports.Schedule) error {
 }
 
 func (f *fakeSchedules) Next(string, time.Time) (time.Time, error) { return f.next, f.err }
+
+func (f *fakeSchedules) List(context.Context) ([]ports.Schedule, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]ports.Schedule(nil), f.added...), nil
+}
+
+func (f *fakeSchedules) Remove(_ context.Context, id string) error {
+	if f.err != nil {
+		return f.err
+	}
+	kept := f.added[:0]
+	for _, schedule := range f.added {
+		if schedule.ID != id {
+			kept = append(kept, schedule)
+		}
+	}
+	f.removed = append(f.removed, id)
+	f.added = kept
+	return nil
+}
 
 // TestScheduleToolsDistinguishReminderFromAgentExecution proves the agent
 // can create a deterministic, pre-rendered reminder ("kind":"reminder") as
@@ -80,5 +107,89 @@ func TestCurrentTimeToolReturnsTrustedZonedClock(t *testing.T) {
 	}
 	if !strings.Contains(string(result), `"current_time":"2026-07-19T12:34:56+08:00"`) || !strings.Contains(string(result), `"timezone":"Asia/Singapore"`) {
 		t.Fatalf("result=%s", result)
+	}
+}
+
+// The gap these two close: the agent could create a schedule and then had no
+// way to say what it had created, which also meant no way to take one back. A
+// wrong cron expression was permanent short of editing the volume by hand.
+func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
+	schedules := &fakeSchedules{next: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)}
+	now := func() time.Time { return time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC) }
+	id := 0
+	tools := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) })
+	byName := map[string]ports.Tool{}
+	for _, tool := range tools {
+		byName[tool.Definition().Name] = tool
+	}
+
+	if _, err := byName["schedule_recurring"].Execute(context.Background(), json.RawMessage(`{"cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := byName["schedule_exact"].Execute(context.Background(), json.RawMessage(`{"at":"2026-08-02T18:00:00Z","instruction":"stand up"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := byName["schedule_list"].Execute(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed struct {
+		Schedules []ports.Schedule `json:"schedules"`
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Schedules) != 2 {
+		t.Fatalf("schedules=%#v, want both", listed.Schedules)
+	}
+	// Sorted by next run, so the answer reads as a timeline: the 18:00
+	// one-off comes before tomorrow morning's recurring job.
+	if listed.Schedules[0].Instruction != "stand up" {
+		t.Fatalf("order=%#v, want the soonest first", listed.Schedules)
+	}
+	if listed.Schedules[1].Expression != "0 9 * * *" {
+		t.Fatalf("expression lost: %#v", listed.Schedules[1])
+	}
+
+	if _, err := byName["schedule_cancel"].Execute(context.Background(), json.RawMessage(`{"id":"sched-1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := schedules.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != "sched-2" {
+		t.Fatalf("remaining=%#v, want only the uncancelled one", remaining)
+	}
+}
+
+// An empty list is an empty array, not null: "nothing is scheduled" is an
+// answer, and a null would read to the model as a missing field.
+func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
+	tools := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })
+	for _, tool := range tools {
+		if tool.Definition().Name != "schedule_list" {
+			continue
+		}
+		raw, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(raw) != `{"schedules":[]}` {
+			t.Fatalf("raw=%s", raw)
+		}
+	}
+}
+
+func TestScheduleCancelRequiresAnID(t *testing.T) {
+	tools := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })
+	for _, tool := range tools {
+		if tool.Definition().Name != "schedule_cancel" {
+			continue
+		}
+		if _, err := tool.Execute(context.Background(), json.RawMessage(`{"id":"  "}`)); err == nil {
+			t.Fatal("a blank id must be rejected rather than removing nothing quietly")
+		}
 	}
 }

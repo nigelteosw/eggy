@@ -295,6 +295,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
+		Schedules:        app.scheduler,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

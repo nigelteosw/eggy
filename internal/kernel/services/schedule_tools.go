@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -16,16 +18,86 @@ import (
 type ScheduleWriter interface {
 	Add(ctx context.Context, schedule ports.Schedule) error
 	Next(expression string, after time.Time) (time.Time, error)
+	// List and Remove are what make a created schedule reviewable. Without
+	// them the agent could create a job and then never answer what it
+	// created -- which also meant it could never take one back, so a wrong
+	// cron expression was permanent short of editing the volume by hand.
+	List(ctx context.Context) ([]ports.Schedule, error)
+	Remove(ctx context.Context, id string) error
 }
 
-// NewScheduleTools returns the two tools that create schedules. newID supplies
-// the schedule's identifier: the scheme belongs to the caller that owns run
-// identity, not to the kernel.
+// NewScheduleTools returns the tools that create, review, and cancel
+// schedules. newID supplies the schedule's identifier: the scheme belongs to
+// the caller that owns run identity, not to the kernel.
 func NewScheduleTools(schedules ScheduleWriter, now func() time.Time, newID func() string) []ports.Tool {
 	return []ports.Tool{
 		scheduleExactTool{schedules: schedules, newID: newID},
 		scheduleRecurringTool{schedules: schedules, now: now, newID: newID},
+		scheduleListTool{schedules: schedules},
+		scheduleCancelTool{schedules: schedules},
 	}
+}
+
+// scheduleListTool answers what is scheduled. It is read-only, so unlike the
+// other three it is safe for an unprompted turn: a heartbeat asked whether
+// anything is wrong should be able to see the jobs it shares a clock with.
+type scheduleListTool struct{ schedules ScheduleWriter }
+
+func (t scheduleListTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{
+		Name:        "schedule_list",
+		Description: "List the schedules that exist, with their cron expression, next run, and kind",
+		Schema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
+	}
+}
+
+func (t scheduleListTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	if err := DecodeToolInput(raw, &struct{}{}); err != nil {
+		return nil, err
+	}
+	schedules, err := t.schedules.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Sorted by next run so the answer reads as a timeline rather than in
+	// whatever order the store happened to walk its directory.
+	sort.Slice(schedules, func(i, j int) bool { return schedules[i].NextRun.Before(schedules[j].NextRun) })
+	if schedules == nil {
+		schedules = []ports.Schedule{}
+	}
+	return json.Marshal(struct {
+		Schedules []ports.Schedule `json:"schedules"`
+	}{Schedules: schedules})
+}
+
+// scheduleCancelTool removes a schedule. Cancelling one that is already gone
+// is not an error: the owner's intent is that it not run, and it will not.
+type scheduleCancelTool struct{ schedules ScheduleWriter }
+
+func (t scheduleCancelTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{
+		Name:        "schedule_cancel",
+		Description: "Cancel a schedule by its id, so it never runs again",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false}`),
+	}
+}
+
+func (t scheduleCancelTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if err := DecodeToolInput(raw, &input); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.ID) == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	if err := t.schedules.Remove(ctx, input.ID); err != nil {
+		return nil, err
+	}
+	return json.Marshal(struct {
+		Cancelled string `json:"cancelled"`
+	}{Cancelled: input.ID})
 }
 
 // scheduleKindSchema is shared by both tools: an optional "kind" lets the

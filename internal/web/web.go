@@ -139,6 +139,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 
 	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Threads, now)))
+	mux.Handle("PATCH /api/chat/threads/{id}", requireWebSession(webConfig, now, newThreadRenameHandler(webConfig.Threads)))
+	mux.Handle("DELETE /api/chat/threads/{id}", requireWebSession(webConfig, now, newThreadDeleteHandler(webConfig.Threads)))
 	mux.Handle("GET /api/chat/threads/{id}/history", requireWebSession(webConfig, now, newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
 	mux.Handle("GET /api/chat/threads/{id}/stream", requireWebSession(webConfig, now, newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))

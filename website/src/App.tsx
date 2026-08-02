@@ -104,6 +104,11 @@ export function App() {
                 setActiveThreadId(id);
                 setSidebarOpen(false);
               }}
+              onDeleted={(id) => {
+                // Only the open chat needs clearing; deleting some other row
+                // should leave the current conversation alone.
+                setActiveThreadId((current) => (current === id ? null : current));
+              }}
               reloadKey={sidebarReloadKey}
             />
           </div>

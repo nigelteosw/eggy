@@ -142,6 +142,14 @@ export function createThread(): Promise<string> {
   return request<{ id: string }>("/api/chat/threads", { method: "POST" }).then((result) => result.id);
 }
 
+export function renameThread(threadId: string, title: string): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, { method: "PATCH", body: JSON.stringify({ title }) });
+}
+
+export function deleteThread(threadId: string): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
+}
+
 export function sendChatMessage(threadId: string, text: string): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text }) });
 }

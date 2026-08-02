@@ -304,6 +304,83 @@ func TestSetThreadTitleNeverOverwritesAnAlreadyTitledThread(t *testing.T) {
 	}
 }
 
+func TestRenameThreadOverwritesAnExistingTitle(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	if _, err := store.CreateThread(context.Background(), "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetThreadTitle(context.Background(), "thread-1", "Auto title"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RenameThread(context.Background(), "thread-1", "Owner title"); err != nil {
+		t.Fatal(err)
+	}
+
+	thread, found, err := store.GetThread(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || thread.Title != "Owner title" {
+		t.Fatalf("thread=%#v, want the renamed title", thread)
+	}
+}
+
+func TestDeleteThreadRemovesItsMessagesAndResetMarkerButLeavesOtherThreads(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t, 100)
+	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"thread-1", "thread-2"} {
+		if _, err := store.CreateThread(context.Background(), id, "web", now); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+			ConversationID: id, Role: ports.RoleUser, Content: "hi from " + id, Source: "web", CreatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ResetConversation(context.Background(), "thread-1", now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteThread(context.Background(), "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, found, err := store.GetThread(context.Background(), "thread-1"); err != nil || found {
+		t.Fatalf("thread-1 still present: found=%v err=%v", found, err)
+	}
+	// SearchText reads the messages table directly, so it proves the rows
+	// are gone rather than merely hidden behind a reset marker.
+	found, err := store.SearchText(context.Background(), "hi from", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0].Content != "hi from thread-2" {
+		t.Fatalf("messages=%#v, want only thread-2's to survive", found)
+	}
+	// The reset marker is keyed by conversation ID, so a recycled ID must
+	// not inherit the deleted thread's cleared_at.
+	if _, err := store.CreateThread(context.Background(), "thread-1", "web", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		ConversationID: "thread-1", Role: ports.RoleUser, Content: "second life", Source: "web", CreatedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := store.RecentMessages(context.Background(), "thread-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages=%#v, want the reset marker gone with the thread", messages)
+	}
+}
+
 func TestRecentMessagesIsScopedToOneConversationOldestFirstAndBounded(t *testing.T) {
 	t.Parallel()
 

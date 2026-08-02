@@ -62,6 +62,22 @@ func (s *fakeThreadStore) SetThreadTitle(_ context.Context, id, title string) er
 	return nil
 }
 
+func (s *fakeThreadStore) RenameThread(_ context.Context, id, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	thread := s.threads[id]
+	thread.Title = title
+	s.threads[id] = thread
+	return nil
+}
+
+func (s *fakeThreadStore) DeleteThread(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.threads, id)
+	return nil
+}
+
 func (s *fakeThreadStore) AttachWorkspace(_ context.Context, id, channel, repository, workspace string, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

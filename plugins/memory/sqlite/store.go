@@ -342,6 +342,43 @@ func (s *Store) SetThreadTitle(ctx context.Context, id, title string) error {
 	return err
 }
 
+// RenameThread sets a thread's title outright, unlike SetThreadTitle: this
+// is the owner naming their own conversation, so it overwrites whatever
+// auto-titling produced. Renaming a thread that does not exist is not an
+// error -- the handler has already established the thread is there, and a
+// racing delete should not surface as a failure.
+func (s *Store) RenameThread(ctx context.Context, id, title string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE threads SET title = ? WHERE id = ?`, title, id)
+	return err
+}
+
+// DeleteThread removes a thread and everything keyed to it: its messages
+// and its reset marker. The three statements run in one transaction so a
+// failure never leaves messages orphaned behind a deleted thread row, where
+// nothing would ever list or clean them up.
+//
+// An attached workspace is not removed from disk here; the store does not
+// own checkouts. Callers that can delete a thread with a workspace should
+// detach it first.
+func (s *Store) DeleteThread(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for _, statement := range []string{
+		`DELETE FROM messages WHERE conversation_id = ?`,
+		`DELETE FROM conversation_resets WHERE conversation_id = ?`,
+		`DELETE FROM threads WHERE id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 type rowScanner interface {
 	Scan(...any) error
 }

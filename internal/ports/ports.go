@@ -213,6 +213,12 @@ type ThreadStore interface {
 	GetThread(ctx context.Context, id string) (thread Thread, found bool, err error)
 	// SetThreadTitle auto-titles a thread; a no-op once it has a title.
 	SetThreadTitle(ctx context.Context, id, title string) error
+	// RenameThread sets a thread's title outright, overwriting any
+	// auto-generated one. This is the owner naming the conversation.
+	RenameThread(ctx context.Context, id, title string) error
+	// DeleteThread removes a thread along with its messages and reset
+	// marker. Deleting a thread that does not exist is not an error.
+	DeleteThread(ctx context.Context, id string) error
 	// AttachWorkspace records a checkout on a thread, creating the thread
 	// row if this is a surface (Telegram) that never explicitly created
 	// one. Replaces any previously attached workspace.

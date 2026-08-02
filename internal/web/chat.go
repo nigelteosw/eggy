@@ -29,6 +29,8 @@ type ThreadDirectory interface {
 	CreateThread(ctx context.Context, id, channel string, at time.Time) (ports.Thread, error)
 	ListThreads(ctx context.Context, channel string) ([]ports.Thread, error)
 	GetThread(ctx context.Context, id string) (thread ports.Thread, found bool, err error)
+	RenameThread(ctx context.Context, id, title string) error
+	DeleteThread(ctx context.Context, id string) error
 }
 
 // HistoryReader reads a thread's messages back for display. Writing is the
@@ -119,6 +121,69 @@ func newThreadCreateHandler(threads ThreadDirectory, now func() time.Time) http.
 			ID string `json:"id"`
 		}{ID: thread.ID})
 		_, _ = w.Write(body)
+	}
+}
+
+// threadTitleMaxLength bounds an owner-supplied title. The sidebar truncates
+// long titles anyway, so the limit exists to keep the stored row sane rather
+// than to make anything fit.
+const threadTitleMaxLength = 200
+
+func newThreadRenameHandler(threads ThreadDirectory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := requireExistingThread(w, r, threads)
+		if !ok {
+			return
+		}
+		var input struct {
+			Title string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		title := strings.TrimSpace(input.Title)
+		if title == "" {
+			writeWebError(w, http.StatusBadRequest, "title is required")
+			return
+		}
+		if len(title) > threadTitleMaxLength {
+			writeWebError(w, http.StatusBadRequest, "title is too long")
+			return
+		}
+		if err := threads.RenameThread(r.Context(), id, title); err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Chat renamed."})
+	}
+}
+
+// newThreadDeleteHandler deletes a thread and its messages. A thread with a
+// workspace attached is refused rather than silently orphaning the checkout
+// on disk: the reaper only ever sees workspaces through thread rows, so a
+// deleted row is a checkout nothing will ever clean up.
+func newThreadDeleteHandler(threads ThreadDirectory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		thread, found, err := threads.GetThread(r.Context(), id)
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !found {
+			writeWebError(w, http.StatusNotFound, "thread not found")
+			return
+		}
+		if thread.Workspace != "" {
+			writeWebError(w, http.StatusConflict, "this chat has a workspace attached; close it before deleting")
+			return
+		}
+		if err := threads.DeleteThread(r.Context(), id); err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Chat deleted."})
 	}
 }
 

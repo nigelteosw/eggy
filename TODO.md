@@ -87,6 +87,13 @@ Nothing in `internal/config` is currently a cleanup item.
 - [ ] Decide whether `Endpoints` stays in-package in `plugins/tools/google`. It
       is settable only by tests today and must never become config: an
       operator-settable API host is a credential exfiltration primitive.
+- [ ] `state.ProcessedEvents` is never pruned. `services.Dispatcher` writes one
+      entry per handled event and nothing removes any, so `state.json` grows
+      without bound — every Telegram message and every cron fire, permanently —
+      and each dispatch does a full `Load` plus `Update` of the growing map.
+      Prune on write against a retention window. Found while designing the
+      heartbeat, which is why that design bypasses the dispatcher rather than
+      becoming the leak's dominant contributor.
 
 ---
 
@@ -202,6 +209,17 @@ cleanup. Each adds capability or is a deployment chore.
   existing ports; keep the Markdown files as files. Needs a schema-versioned,
   retry-safe migration design written first, and preserves encrypted payloads.
   The largest net-new-code item on the list, which is why it is parked.
+- **Review the heartbeat design** —
+  `docs/superpowers/specs/2026-08-02-heartbeat-design.md`. A proactive check-in
+  on a fixed interval that is permitted to stay silent, keeping `ScheduledTurn`'s
+  isolation (`ReadOnlyTools()`, no ambient history) and adding a `HEARTBEAT_OK`
+  silence protocol. Deliberately not a cron entry: cron, reminder, and heartbeat
+  stay three separate things. Deletion budget: +65 production lines, +2 config
+  keys, 0 tools, 0 durable records, 0 background loops, 0 ports changes. Read it
+  against the standing constraints before anything is implemented — the item
+  that needs the hardest look is whether a capability that only adds is worth
+  it, given a recurring scheduled turn already exists and merely cannot stay
+  quiet.
 - **Approval-gated MCP tools** — a per-server `require_approval: [tool names]`
   list routing a matching call through the existing approval flow. This is the
   open safety gap left by deleting Calendar: a configured MCP server is trusted

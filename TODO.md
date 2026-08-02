@@ -87,6 +87,17 @@ Nothing in `internal/config` is currently a cleanup item.
 - [ ] Decide whether `Endpoints` stays in-package in `plugins/tools/google`. It
       is settable only by tests today and must never become config: an
       operator-settable API host is a credential exfiltration primitive.
+- [ ] `docs/superpowers/specs/2026-07-31-compact-docs-sidebar-design.md` shipped
+      without the regression test it requires. `docs/tests/navigation.test.ts`
+      covers routes, content coverage, and previous/next only, so neither
+      property that design exists to protect is pinned: the desktop sidebar
+      being non-scrollable, and the brand mark using `--brand-yellow` rather
+      than the mint accent. The second is one CSS variable away from silently
+      regressing into exactly the failure the spec was written to prevent.
+- [ ] Nothing pins the documented Telegram commands against `internal/commands`.
+      The docs-site spec made it a one-time manual verification step, so the
+      five shipped commands and their documentation can drift apart silently.
+      `navigation.test.ts` already does this class of check for routes.
 - [ ] `state.ProcessedEvents` is never pruned. `services.Dispatcher` writes one
       entry per handled event and nothing removes any, so `state.json` grows
       without bound — every Telegram message and every cron fire, permanently —
@@ -214,7 +225,7 @@ cleanup. Each adds capability or is a deployment chore.
   on a fixed interval that is permitted to stay silent, keeping `ScheduledTurn`'s
   isolation (`ReadOnlyTools()`, no ambient history) and adding a `HEARTBEAT_OK`
   silence protocol. Deliberately not a cron entry: cron, reminder, and heartbeat
-  stay three separate things. Deletion budget: +65 production lines, +2 config
+  stay three separate things. Deletion budget: +75 production lines, +2 config
   keys, 0 tools, 0 durable records, 0 background loops, 0 ports changes. Read it
   against the standing constraints before anything is implemented — the item
   that needs the hardest look is whether a capability that only adds is worth

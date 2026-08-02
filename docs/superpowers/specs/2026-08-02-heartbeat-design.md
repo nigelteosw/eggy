@@ -77,7 +77,7 @@ deleted `internal/kernel/services/heartbeat.go`,
 section. `internal/config/config_init.go` still lists `{"scheduler"}` among
 `retiredConfigFields`, annotated "heartbeat and proactive messaging".
 
-This design is a narrower re-introduction: ~65 production lines against the
+This design is a narrower re-introduction: ~75 production lines against the
 ~300 that were removed, because the deleted version carried its own policy
 object, its own durable state, and its own background loop, none of which
 survive here. The new section is named `heartbeat:`, not `scheduler:`, so the
@@ -274,7 +274,7 @@ running a turn with no input.
 
 | | |
 |---|---|
-| production lines | +65 |
+| production lines | +75 |
 | config keys | +2 |
 | tools | 0 |
 | durable records | 0 |

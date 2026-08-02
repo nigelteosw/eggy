@@ -1,5 +1,16 @@
 # Eggy Documentation Site Design
 
+Date: 2026-07-30
+Status: shipped
+
+One deviation from what is written below. This spec lists "Google Calendar" as
+a Configure page. Native Calendar was removed on 2026-07-31, the day after this
+was written, in favour of a configured MCP calendar server. The page shipped as
+`configure/google-workspace.md` and is broader than planned: one Google grant
+covering Gmail, Calendar, Drive, Docs, Sheets, and Contacts. The shipped docs
+are correct; this document is not, and is kept as the record of the original
+design rather than edited to match.
+
 ## Goal
 
 Replace the bare Astro scaffold under `docs/` with a comprehensive static

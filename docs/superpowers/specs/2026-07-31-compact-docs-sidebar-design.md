@@ -1,5 +1,15 @@
 # Compact Documentation Sidebar Design
 
+Date: 2026-07-31
+Status: shipped, except its verification
+
+The compact sidebar and the brand mark landed — `--brand-yellow` is defined in
+`docs/src/styles/global.css` and applied to the mark, separate from the mint
+documentation accent. The regression test this document requires was never
+written: `docs/tests/navigation.test.ts` covers routes, content coverage, and
+previous/next links only. Both properties this design exists to protect are
+therefore unpinned. Tracked in `TODO.md`.
+
 ## Goal
 
 Refine Eggy's desktop documentation navigation to match the compact behavior

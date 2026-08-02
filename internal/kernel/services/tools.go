@@ -24,8 +24,27 @@ var ErrDuplicateTool = errors.New("duplicate tool")
 // agent machinery.
 type ToolRegistry struct {
 	tools     map[string]ports.Tool
-	providers []func() []ports.Tool
+	providers []toolProvider
 }
+
+type toolProvider struct {
+	source string
+	list   func() []ports.Tool
+}
+
+// ToolListing is one tool in the merged catalog together with where it came
+// from. Source is "kernel" for a tool registered at startup, or the name the
+// provider was added under (an MCP manager adds itself as "mcp"). It exists so
+// a surface that shows the owner what Eggy can do -- the web panel's tool
+// list -- reports origin from the registry rather than guessing it back out of
+// a tool's name.
+type ToolListing struct {
+	Source     string
+	Definition ports.ToolDefinition
+}
+
+// SourceKernel is the origin of every tool registered with Register.
+const SourceKernel = "kernel"
 
 func NewToolRegistry() *ToolRegistry { return &ToolRegistry{tools: map[string]ports.Tool{}} }
 
@@ -50,17 +69,46 @@ func (r *ToolRegistry) Register(tool ports.Tool) error {
 // advertises. Unlike Register, this reports no error for a collision -- a
 // remote catalog is not under our control, so one badly named remote tool
 // drops out rather than failing the process.
-func (r *ToolRegistry) AddProvider(provider func() []ports.Tool) {
+func (r *ToolRegistry) AddProvider(source string, provider func() []ports.Tool) {
 	if provider == nil {
 		return
 	}
-	r.providers = append(r.providers, provider)
+	r.providers = append(r.providers, toolProvider{source: source, list: provider})
 }
 
 // Tools is the merged catalog: every registered tool in name order, then
 // each provider's tools in name order, skipping any name already taken.
 func (r *ToolRegistry) Tools() []ports.Tool {
-	result := sortedTools(r.tools)
+	merged := r.merged()
+	result := make([]ports.Tool, 0, len(merged))
+	for _, entry := range merged {
+		result = append(result, entry.tool)
+	}
+	return result
+}
+
+// Catalog is Tools with each tool's origin attached, in the same order.
+func (r *ToolRegistry) Catalog() []ToolListing {
+	merged := r.merged()
+	listings := make([]ToolListing, 0, len(merged))
+	for _, entry := range merged {
+		listings = append(listings, ToolListing{Source: entry.source, Definition: entry.tool.Definition()})
+	}
+	return listings
+}
+
+type sourcedTool struct {
+	source string
+	tool   ports.Tool
+}
+
+// merged is the one place the catalog is assembled, so the tools a turn runs
+// and the tools the panel lists can never be two different answers.
+func (r *ToolRegistry) merged() []sourcedTool {
+	result := make([]sourcedTool, 0, len(r.tools))
+	for _, tool := range sortedTools(r.tools) {
+		result = append(result, sourcedTool{source: SourceKernel, tool: tool})
+	}
 	if len(r.providers) == 0 {
 		return result
 	}
@@ -70,7 +118,7 @@ func (r *ToolRegistry) Tools() []ports.Tool {
 	}
 	for _, provider := range r.providers {
 		supplied := map[string]ports.Tool{}
-		for _, tool := range provider() {
+		for _, tool := range provider.list() {
 			name := tool.Definition().Name
 			if name == "" || taken[name] {
 				continue
@@ -78,7 +126,9 @@ func (r *ToolRegistry) Tools() []ports.Tool {
 			taken[name] = true
 			supplied[name] = tool
 		}
-		result = append(result, sortedTools(supplied)...)
+		for _, tool := range sortedTools(supplied) {
+			result = append(result, sourcedTool{source: provider.source, tool: tool})
+		}
 	}
 	return result
 }

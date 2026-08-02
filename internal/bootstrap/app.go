@@ -234,7 +234,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// turn sees without restarting the process. It is a provider on the one
 		// registry rather than a second source on the loop: MCP supplies tools,
 		// it does not modify the agent.
-		registry.AddProvider(app.mcp.Tools)
+		registry.AddProvider("mcp", app.mcp.Tools)
 	}
 	// One context budget for one loop: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
@@ -294,6 +294,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
 		MCP:              mcpAdministration.webView(),
+		Tools:            registry,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

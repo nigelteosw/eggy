@@ -1,6 +1,7 @@
 import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
 import { McpCard } from "./McpCard";
+import { ToolsCard } from "./ToolsCard";
 import { GoogleCard } from "./GoogleCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 
@@ -15,6 +16,7 @@ export function ConfigPage({ onSessionExpired }: { onSessionExpired: () => void 
         <ProvidersCard onSessionExpired={onSessionExpired} />
         <ModelsCard onSessionExpired={onSessionExpired} />
         <McpCard onSessionExpired={onSessionExpired} />
+        <ToolsCard onSessionExpired={onSessionExpired} />
         <GoogleCard onSessionExpired={onSessionExpired} />
         <HeartbeatCard onSessionExpired={onSessionExpired} />
       </div>

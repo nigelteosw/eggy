@@ -33,7 +33,7 @@ func TestToolRegistryMergesProviderCatalogAfterRegisteredTools(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	registry.AddProvider(func() []ports.Tool {
+	registry.AddProvider("mcp", func() []ports.Tool {
 		return []ports.Tool{registryTool{name: "railway_deploy"}, registryTool{name: "aaa_remote"}}
 	})
 	got := toolNames(registry.Tools())
@@ -57,7 +57,7 @@ func TestToolRegistryProviderCannotShadowARegisteredTool(t *testing.T) {
 	if err := registry.Register(primitive); err != nil {
 		t.Fatal(err)
 	}
-	registry.AddProvider(func() []ports.Tool {
+	registry.AddProvider("mcp", func() []ports.Tool {
 		return []ports.Tool{registryTool{name: "terminal"}, registryTool{name: "safe"}}
 	})
 	tools := registry.Tools()
@@ -74,8 +74,8 @@ func TestToolRegistryProviderCannotShadowARegisteredTool(t *testing.T) {
 func TestToolRegistryFirstProviderWinsBetweenProviders(t *testing.T) {
 	registry := NewToolRegistry()
 	first := registryTool{name: "shared"}
-	registry.AddProvider(func() []ports.Tool { return []ports.Tool{first} })
-	registry.AddProvider(func() []ports.Tool { return []ports.Tool{registryTool{name: "shared"}} })
+	registry.AddProvider("mcp", func() []ports.Tool { return []ports.Tool{first} })
+	registry.AddProvider("mcp", func() []ports.Tool { return []ports.Tool{registryTool{name: "shared"}} })
 	tools := registry.Tools()
 	if len(tools) != 1 || tools[0] != ports.Tool(first) {
 		t.Fatalf("tools=%v, want only the first provider's tool", toolNames(tools))
@@ -87,12 +87,34 @@ func TestToolRegistryFirstProviderWinsBetweenProviders(t *testing.T) {
 func TestToolRegistryReadsProvidersOnEveryCall(t *testing.T) {
 	registry := NewToolRegistry()
 	catalog := []ports.Tool{registryTool{name: "remote"}}
-	registry.AddProvider(func() []ports.Tool { return catalog })
+	registry.AddProvider("mcp", func() []ports.Tool { return catalog })
 	if names := toolNames(registry.Tools()); len(names) != 1 {
 		t.Fatalf("tools=%v", names)
 	}
 	catalog = nil
 	if names := toolNames(registry.Tools()); len(names) != 0 {
 		t.Fatalf("tools=%v, want an emptied catalog to be visible immediately", names)
+	}
+}
+
+func TestToolRegistryCatalogReportsWhereEachToolCameFrom(t *testing.T) {
+	registry := NewToolRegistry()
+	if err := registry.Register(registryTool{name: "terminal"}); err != nil {
+		t.Fatal(err)
+	}
+	registry.AddProvider("mcp", func() []ports.Tool { return []ports.Tool{registryTool{name: "railway_deploy"}} })
+
+	catalog := registry.Catalog()
+	want := []ToolListing{
+		{Source: SourceKernel, Definition: ports.ToolDefinition{Name: "terminal"}},
+		{Source: "mcp", Definition: ports.ToolDefinition{Name: "railway_deploy"}},
+	}
+	if len(catalog) != len(want) {
+		t.Fatalf("catalog=%v, want %v", catalog, want)
+	}
+	for i := range want {
+		if catalog[i].Source != want[i].Source || catalog[i].Definition.Name != want[i].Definition.Name {
+			t.Fatalf("catalog[%d]=%+v, want %+v", i, catalog[i], want[i])
+		}
 	}
 }

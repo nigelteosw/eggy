@@ -123,6 +123,12 @@ export function removeMCPServer(name: string): Promise<CommandResult> {
   return request(`/api/config/mcp/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
+// The merged tool catalog: every tool a turn can call, kernel and MCP alike,
+// read live from the one registry the loop runs on.
+export function listTools(): Promise<CommandResult> {
+  return request("/api/tools");
+}
+
 export type ChatEvent = {
   kind: "message" | "typing" | "edit" | "approval";
   id?: string;

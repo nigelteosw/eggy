@@ -45,6 +45,8 @@ type WebUIConfig struct {
 	// section; this is only the part config cannot do -- starting an OAuth
 	// flow against a live connection.
 	MCP MCPLoginStarter
+	// Tools is the live tool registry, listed read-only by the panel.
+	Tools ToolCatalog
 	// TrustedProxyHops is how many reverse proxies Eggy is deployed behind
 	// (server.trusted_proxy_hops). It is the login throttle's whole notion
 	// of client identity: at 0 the throttle keys on RemoteAddr and
@@ -144,6 +146,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/chat/threads/{id}/history", requireWebSession(webConfig, now, newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
 	mux.Handle("GET /api/chat/threads/{id}/stream", requireWebSession(webConfig, now, newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
 	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
+	mux.Handle("GET /api/tools", requireWebSession(webConfig, now, newToolListHandler(webConfig.Tools)))
+
 	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
 
 	return mux

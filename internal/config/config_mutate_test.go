@@ -455,3 +455,79 @@ func storedGoogle(path string) (GoogleConfig, error) {
 	cfg, err := LoadDocument(path)
 	return cfg.Google, err
 }
+
+func TestSetHeartbeatRoundTripsAnInterval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "3h", "watch the deploy"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Heartbeat.Interval.Value(); got != 3*time.Hour {
+		t.Fatalf("interval=%v, want 3h", got)
+	}
+	if reloaded.Heartbeat.Instruction != "watch the deploy" {
+		t.Fatalf("instruction=%q", reloaded.Heartbeat.Instruction)
+	}
+}
+
+// Turning it off is the likeliest reason to open this form, so a blank
+// interval must mean off rather than "leave what was there".
+func TestSetHeartbeatWithABlankIntervalTurnsItOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()+"heartbeat:\n  interval: 3h\n  instruction: watch the deploy\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Heartbeat.Interval.Value(); got != 0 {
+		t.Fatalf("interval=%v, want 0 (off)", got)
+	}
+	// The wording survives, so turning it back on does not mean retyping it.
+	if reloaded.Heartbeat.Instruction != "watch the deploy" {
+		t.Fatalf("instruction=%q, want the configured wording preserved", reloaded.Heartbeat.Instruction)
+	}
+}
+
+func TestSetHeartbeatRejectsAnUnparseableInterval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "every 3 hours", ""); err == nil || !strings.Contains(err.Error(), "heartbeat.interval") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+// A web-only deployment has nowhere to deliver unprompted output, so the
+// refusal happens at the form rather than in a startup log the owner will
+// never read.
+func TestSetHeartbeatRefusesWithoutATelegramChannel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	webOnly := strings.Replace(validConfig(), "telegram:\n  owner_id: 42\n", "owner:\n  id: '42'\n", 1)
+	if err := os.WriteFile(path, []byte(webOnly), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetHeartbeat(path, "3h", "")
+	if err == nil || !strings.Contains(err.Error(), "telegram") {
+		t.Fatalf("error=%v", err)
+	}
+	// Rejected before the file was touched.
+	body, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if strings.Contains(string(body), "heartbeat") {
+		t.Fatal("a refused heartbeat was written to config.yaml anyway")
+	}
+}

@@ -86,7 +86,7 @@ export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" });
 }
 
-export type ConfigSection = "providers" | "models" | "google";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat";
 
 export function getConfig(section: ConfigSection): Promise<CommandResult> {
   return request(`/api/config/${section}`);

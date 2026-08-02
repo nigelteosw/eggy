@@ -121,7 +121,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{"providers", "models", "google"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
@@ -283,6 +283,21 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 			}
 			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products"}
 			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", ")})
+		case "heartbeat":
+			// One row, like Google: there is one heartbeat. A zero interval
+			// is reported as "off" rather than as "0s", because off is the
+			// state the owner is looking for and a duration that means off
+			// reads like a misconfiguration.
+			interval := "off"
+			if cfg.Heartbeat.Interval.Value() > 0 {
+				interval = cfg.Heartbeat.Interval.Value().String()
+			}
+			instruction := cfg.Heartbeat.Instruction
+			if strings.TrimSpace(instruction) == "" {
+				instruction = "(built-in default)"
+			}
+			result.TableHeaders = []string{"Interval", "Instruction"}
+			result.TableRows = append(result.TableRows, []string{interval, instruction})
 		}
 		writeWebResult(w, result)
 	}
@@ -325,6 +340,12 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 				ClientSecretEnv: named["client_secret_env"], Products: splitList(named["products"]),
 			})
 			title = "Saved Google Workspace."
+		case "heartbeat":
+			err = config.SetHeartbeat(configPath, named["interval"], named["instruction"])
+			title = "Saved heartbeat."
+			if strings.TrimSpace(named["interval"]) == "" {
+				title = "Heartbeat turned off."
+			}
 		}
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())

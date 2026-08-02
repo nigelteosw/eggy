@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -326,6 +327,46 @@ func SetGoogle(path string, input GoogleInput) error {
 			google.Products = products
 		}
 		cfg.Google = google
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// SetHeartbeat writes the heartbeat section from the fields a surface can set.
+//
+// An empty Interval means off, and off is spelled by writing a zero interval
+// rather than by leaving the section as it was: turning the heartbeat off is
+// the single most likely reason an owner opens this form, so a blank field
+// that silently preserved the old interval would be the wrong default in
+// exactly the case that matters. Instruction keeps the upsert shape the other
+// setters use -- blank leaves the configured wording alone, since clearing it
+// falls back to the built-in prompt anyway.
+func SetHeartbeat(path, interval, instruction string) error {
+	parsed := Duration(0)
+	if trimmed := strings.TrimSpace(interval); trimmed != "" {
+		value, err := time.ParseDuration(trimmed)
+		if err != nil {
+			return fmt.Errorf("heartbeat.interval: %w", err)
+		}
+		parsed = Duration(value)
+	}
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		cfg.Heartbeat.Interval = parsed
+		if trimmed := strings.TrimSpace(instruction); trimmed != "" {
+			cfg.Heartbeat.Instruction = trimmed
+		}
+		// A heartbeat with nowhere to deliver is refused here rather than
+		// saved and ignored, so the owner learns it at the form instead of
+		// from a warning in a log they will not read.
+		if parsed > 0 && !cfg.Telegram.Configured() {
+			return errors.New("heartbeat needs a configured telegram channel, since that is where unprompted output goes")
+		}
 		if err := cfg.Validate(); err != nil {
 			return err
 		}

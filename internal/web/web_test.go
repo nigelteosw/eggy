@@ -297,7 +297,7 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 func TestWebConfigRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	handler := NewWebHandler("", testWebConfig(now))
-	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp", "/api/config/google"} {
+	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp", "/api/config/google", "/api/config/heartbeat"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusUnauthorized {
@@ -595,6 +595,80 @@ func TestWebGoogleSectionRejectsAnUnknownProduct(t *testing.T) {
 
 	body := strings.NewReader(`{"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"gmial"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/config/google", body)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// The heartbeat panel writes config.yaml like every other section, so the
+// response says so: bootstrap reads the interval once at startup, and a form
+// that looked live would be a lie on the one setting an owner reaches for
+// when the heartbeat is bothering them.
+func TestWebHeartbeatSectionRoundTripsAndSaysRestartIsNeeded(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/heartbeat", strings.NewReader(`{"interval":"3h","instruction":"watch the deploy"}`))
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusOK {
+		t.Fatalf("set status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+	var saved webResult
+	if err := json.Unmarshal(setResponse.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(saved.Detail, "Restart") {
+		t.Fatalf("detail=%q, want the restart-to-apply notice", saved.Detail)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/heartbeat", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	var decoded webResult
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.TableRows) != 1 || decoded.TableRows[0][0] != "3h0m0s" || decoded.TableRows[0][1] != "watch the deploy" {
+		t.Fatalf("rows=%#v", decoded.TableRows)
+	}
+}
+
+// Off is reported as "off", not as "0s": off is the state the owner is
+// looking for, and a duration that means off reads like a misconfiguration.
+func TestWebHeartbeatSectionReportsOffWhenUnset(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/config/heartbeat", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	var decoded webResult
+	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.TableRows) != 1 || decoded.TableRows[0][0] != "off" {
+		t.Fatalf("rows=%#v", decoded.TableRows)
+	}
+}
+
+func TestWebHeartbeatSectionRejectsAnUnparseableInterval(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/config/heartbeat", strings.NewReader(`{"interval":"every 3 hours"}`))
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

@@ -105,6 +105,73 @@ func proactiveDestination() destination.Destination {
 	return destination.Destination{Kind: destination.Telegram}
 }
 
+// defaultHeartbeatInstruction is what a heartbeat asks when the owner has not
+// said what to check. Deliberately open: the silence protocol in the system
+// message is what keeps an open question from becoming chatter.
+const defaultHeartbeatInstruction = "Check in: is there anything the owner needs to know about right now? Say nothing unless there is."
+
+// heartbeatInstruction falls back to the built-in default rather than running
+// a turn with no input at all.
+func (a *App) heartbeatInstruction() string {
+	if instruction := strings.TrimSpace(a.config.Heartbeat.Instruction); instruction != "" {
+		return instruction
+	}
+	return defaultHeartbeatInstruction
+}
+
+// heartbeatTicks is the heartbeat's clock, separated from what a tick does
+// (onHeartbeatTick) so each half is a decision with its own test: when Eggy
+// wakes up, and what it does when it wakes.
+//
+// A nil channel blocks forever in a select, so an unconfigured heartbeat
+// costs nothing at runtime: no ticker, no goroutine, no branch ever taken.
+//
+// A configured Telegram channel is required too. Unprompted output is
+// addressed to proactiveDestination(), and newRoutedChannel gives a web-only
+// deployment a noop Telegram deliberately -- so without this guard such a
+// deployment would wake every interval, run a full model turn, and deliver it
+// into the noop: a standing token cost that can never produce a visible
+// message. Logged rather than fatal, because the rest of the deployment is
+// valid and a silent no-op would be indistinguishable from a broken
+// heartbeat.
+func (a *App) heartbeatTicks() (<-chan time.Time, func()) {
+	interval := a.config.Heartbeat.Interval.Value()
+	if interval <= 0 {
+		return nil, func() {}
+	}
+	if !a.config.Telegram.Configured() {
+		slog.Warn("heartbeat.interval is set but no Telegram channel is configured; heartbeat disabled")
+		return nil, func() {}
+	}
+	// NewTicker first fires one interval after start, so a restart produces
+	// no boot-time heartbeat storm.
+	ticker := time.NewTicker(interval)
+	return ticker.C, ticker.Stop
+}
+
+// onHeartbeatTick is what one tick does. Today that is exactly one thing: run
+// an isolated turn that is allowed to say nothing. It is a named function
+// rather than an inline case so that a second thing a tick could do -- an
+// outbound call to an external workflow runner, say -- is added here, beside
+// the turn, instead of by growing the daemon loop.
+func (a *App) onHeartbeatTick(ctx context.Context) {
+	// Skipped while a turn is already running: ticks cannot pile up when a
+	// heartbeat outlasts its interval, and a heartbeat never interrupts a
+	// live owner conversation.
+	if a.turnService.Active() {
+		return
+	}
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		// Not retried: the next tick is the retry, and a heartbeat has no
+		// durable claim to release.
+		if err := a.turnService.HeartbeatTurn(destination.With(ctx, proactiveDestination()), a.heartbeatInstruction()); err != nil {
+			slog.Error("heartbeat failed", "error", err)
+		}
+	}()
+}
+
 func (a *App) Run(ctx context.Context) error {
 	if a.memory != nil {
 		defer a.memory.Close()
@@ -126,10 +193,14 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	scheduleTicker := time.NewTicker(time.Minute)
 	defer scheduleTicker.Stop()
+	heartbeat, stopHeartbeat := a.heartbeatTicks()
+	defer stopHeartbeat()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-heartbeat:
+			a.onHeartbeatTick(ctx)
 		case event := <-a.eventQueue:
 			a.workers.Add(1)
 			go func() {

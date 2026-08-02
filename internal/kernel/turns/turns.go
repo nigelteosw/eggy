@@ -187,6 +187,10 @@ type Policy struct {
 	// agent.Instructions is what stops one turn kind's rules from riding along
 	// on every other turn -- see agent.ScheduledTurnMessage.
 	Extra []ports.Message
+	// SuppressSilentReply lets a turn conclude there is nothing worth saying.
+	// Only the heartbeat sets it: every other kind of turn answers something
+	// the owner asked for and must always deliver.
+	SuppressSilentReply bool
 }
 
 // ReadOnlyTools is the floor every restricted turn starts from.
@@ -227,6 +231,42 @@ func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 	return s.run(ctx, text, ReadOnlyTools(), Policy{
 		Extra: []ports.Message{agent.ScheduledTurnMessage()},
 	})
+}
+
+// HeartbeatTurn is a periodic check-in the owner is not present for. Its
+// isolation is ScheduledTurn's, unchanged -- the same read-only allowlist and
+// no ambient conversation history -- and the only difference is that it is
+// allowed to conclude there is nothing worth saying.
+func (s *Service) HeartbeatTurn(ctx context.Context, text string) error {
+	return s.run(ctx, text, ReadOnlyTools(), Policy{
+		Extra:               []ports.Message{agent.HeartbeatTurnMessage()},
+		SuppressSilentReply: true,
+	})
+}
+
+// silentReply reports whether a heartbeat reply amounts to "nothing to say".
+//
+// A strict equality check is not enough: models reliably append a pleasantry
+// to a sentinel, and "HEARTBEAT_OK -- all quiet!" on the owner's phone is the
+// exact notification the heartbeat exists to avoid. So the token is
+// recognised when it leads or trails the reply, stripped, and the reply
+// dropped when what remains is short enough to be a pleasantry. The leniency
+// only applies once the model has already declared nothing to report, so it
+// cannot swallow a genuine short alert.
+func silentReply(content string) bool {
+	const pleasantryLimit = 300
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return true
+	}
+	remainder, found := strings.CutPrefix(trimmed, agent.HeartbeatSentinel)
+	if !found {
+		remainder, found = strings.CutSuffix(trimmed, agent.HeartbeatSentinel)
+	}
+	if !found {
+		return false
+	}
+	return len(strings.TrimSpace(remainder)) <= pleasantryLimit
 }
 
 // run is one turn, whatever kind. Everything above differs only in the tool
@@ -338,6 +378,12 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 				s.logger.Error("thread auto-titling failed", "thread_id", dest.ThreadID, "error", err)
 			}
 		}
+	}
+	// Checked before the thinking block, not just before the reply: a silent
+	// heartbeat that still pushed its reasoning would be the notification the
+	// silence protocol exists to prevent.
+	if policy.SuppressSilentReply && silentReply(result.Message.Content) {
+		return nil
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
 		showThinking, err := s.runtime.ShowThinking(ctx)

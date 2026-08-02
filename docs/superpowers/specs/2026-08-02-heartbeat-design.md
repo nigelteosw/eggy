@@ -1,7 +1,12 @@
 # Heartbeat: a proactive check-in that is allowed to say nothing
 
 Date: 2026-08-02
-Status: designed, not implemented
+Status: implemented 2026-08-02, as designed. One departure: the ticker
+construction and the tick action are named functions (`heartbeatTicks`,
+`onHeartbeatTick`) rather than an inline `case` body, so each half is
+separately testable and a second thing a tick could trigger later — an
+external workflow runner, say — is added beside the turn rather than by
+growing the daemon loop.
 
 ## Problem
 
@@ -188,7 +193,7 @@ section or zero interval means off. A built-in default instruction applies when
 
 ```yaml
 heartbeat:
-  interval: 30m
+  interval: 3h
 ```
 
 Validation rejects a negative interval. ~12 lines, +2 config keys.

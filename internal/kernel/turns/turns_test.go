@@ -18,11 +18,12 @@ import (
 type fakeLoop struct {
 	ctx     context.Context
 	options agent.RunOptions
+	history []ports.Message
 	reply   string
 }
 
-func (l *fakeLoop) Run(ctx context.Context, _, _, _ string, _ []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
-	l.ctx, l.options = ctx, options
+func (l *fakeLoop) Run(ctx context.Context, _, _, _ string, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
+	l.ctx, l.options, l.history = ctx, options, history
 	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply}}, nil
 }
 
@@ -138,6 +139,76 @@ func TestNoUnpromptedAllowlistNamesAnMCPTool(t *testing.T) {
 			if strings.Contains(tool, "__") {
 				t.Fatalf("%s allowlist names MCP tool %q", name, tool)
 			}
+		}
+	}
+}
+
+// chattyConversation has a recent window, so a turn that carries no ambient
+// history is proved by the absence of these rather than by an empty store.
+type chattyConversation struct{ fakeConversation }
+
+func (chattyConversation) RecentMessages(context.Context, string) ([]ports.Message, error) {
+	return []ports.Message{{Role: ports.RoleUser, Content: "earlier owner chat"}}, nil
+}
+
+// The whole feature: a heartbeat that has nothing to say says nothing. A
+// recurring scheduled turn cannot do this, which is why the heartbeat is a
+// separate mechanism rather than a cron entry.
+func TestHeartbeatTurnDeliversOnlyWhenItHasSomethingToSay(t *testing.T) {
+	for name, tt := range map[string]struct {
+		reply string
+		want  []string
+	}{
+		"bare sentinel":       {reply: agent.HeartbeatSentinel, want: nil},
+		"trailing pleasantry": {reply: agent.HeartbeatSentinel + " — all quiet!", want: nil},
+		"leading sentinel":    {reply: "HEARTBEAT_OK\n\nNothing to report.", want: nil},
+		"empty reply":         {reply: "   ", want: nil},
+		"a real finding":      {reply: "The deploy has been failing for an hour.", want: []string{"The deploy has been failing for an hour."}},
+		// The leniency only applies once the model has declared nothing to
+		// report, so a genuine short alert is never swallowed.
+		"short alert without the sentinel": {reply: "Disk is full.", want: []string{"Disk is full."}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			channel := &fakeChannel{}
+			if err := newTestService(&fakeLoop{reply: tt.reply}, channel).HeartbeatTurn(context.Background(), "check in"); err != nil {
+				t.Fatal(err)
+			}
+			if len(channel.delivered) != len(tt.want) {
+				t.Fatalf("delivered=%v, want %v", channel.delivered, tt.want)
+			}
+			for i, want := range tt.want {
+				if channel.delivered[i] != want {
+					t.Fatalf("delivered[%d]=%q, want %q", i, channel.delivered[i], want)
+				}
+			}
+		})
+	}
+}
+
+// A heartbeat inherits ScheduledTurn's isolation by construction: the same
+// read-only allowlist, and no ambient conversation history, so an owner's
+// earlier chat cannot steer a turn they are not present for.
+func TestHeartbeatTurnIsIsolatedLikeAScheduledTurn(t *testing.T) {
+	loop := &fakeLoop{reply: "a finding"}
+	service := New(Options{
+		Registry: &fakeRegistry{}, Conversation: &chattyConversation{}, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	if err := service.HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	if loop.options.AllowedTools == nil {
+		t.Fatal("a heartbeat ran with the unrestricted tool set")
+	}
+	for _, tool := range []string{"terminal", "workspace_edit", "propose_change", "patch", "write_file"} {
+		if loop.options.AllowedTools[tool] {
+			t.Fatalf("heartbeat reached repository mutation or shell tool %q", tool)
+		}
+	}
+	for _, message := range loop.history {
+		if strings.Contains(message.Content, "earlier owner chat") {
+			t.Fatal("a heartbeat carried ambient conversation history")
 		}
 	}
 }

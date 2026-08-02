@@ -20,6 +20,19 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `repositories` | Trusted read-only Git repositories |
 | `runner` | Checkout root, timeout, retention, output, and environment bounds |
 | `mcp` | Optional trusted remote or local servers |
+| `heartbeat` | Optional periodic check-in that speaks only when warranted |
+
+## Heartbeat
+
+Omitted, the heartbeat costs nothing: no ticker, no model call. Set an interval to turn it on:
+
+```yaml
+heartbeat:
+  interval: 3h
+  # instruction: "Check the deploy and open pull requests."
+```
+
+`3h` is the recommended starting interval. Each tick runs an isolated read-only turn with no conversation history, and delivers to Telegram only when there is something worth saying — so a heartbeat is not one message per tick. A tick is skipped while another turn is running. Without a `telegram` block there is nowhere to deliver unprompted output, so the heartbeat stays off and says so once at startup.
 
 ## Secrets
 

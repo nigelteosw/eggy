@@ -45,6 +45,14 @@ runner:
   retention: "30m"
   max_output_bytes: 1048576
   allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
+# A periodic check-in the owner is not present for. Omit the section and it
+# costs nothing: no ticker, no goroutine, no model call. Each tick runs an
+# isolated read-only turn that is allowed to conclude there is nothing worth
+# saying, so it only reaches Telegram when something warrants it. Requires a
+# telegram block, since that is where unprompted output goes.
+# heartbeat:
+#   interval: "3h"
+#   instruction: "Check the deploy and open pull requests."
 # One Google grant across every product listed. The client is a Desktop
 # (installed app) client, which Google grants an implicit loopback redirect:
 # nothing is registered in the console, nothing has to be publicly reachable,

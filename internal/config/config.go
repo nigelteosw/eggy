@@ -47,6 +47,17 @@ type Config struct {
 	Runner       RunnerConfig                `yaml:"runner"`
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
 	Google       GoogleConfig                `yaml:"google,omitempty"`
+	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
+}
+
+// HeartbeatConfig is the periodic check-in the owner is not present for. An
+// absent section or a zero interval means off, and off costs nothing at
+// runtime: no ticker, no goroutine, no model call. Instruction overrides the
+// built-in prompt; the silence protocol lives in the system message rather
+// than here, so overriding this cannot delete it.
+type HeartbeatConfig struct {
+	Interval    Duration `yaml:"interval,omitempty"`
+	Instruction string   `yaml:"instruction,omitempty"`
 }
 
 // GoogleConfig is one grant across every Google product, which is why there is
@@ -423,6 +434,9 @@ func (c Config) Validate() error {
 	}
 	if c.Runner.Retention.Value() <= 0 {
 		return errors.New("runner.retention must be positive")
+	}
+	if c.Heartbeat.Interval < 0 {
+		return errors.New("heartbeat.interval must not be negative")
 	}
 	if c.Runner.MaxOutputBytes <= 0 {
 		return errors.New("runner.max_output_bytes must be positive")

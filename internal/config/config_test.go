@@ -415,8 +415,40 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+// An absent heartbeat: section is the common case -- every config deployed
+// before the heartbeat existed -- and must keep loading under
+// KnownFields(true), leaving the capability off.
+func TestLoadConfigWithoutHeartbeatSectionLeavesItOff(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig(), testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval := cfg.Heartbeat.Interval.Value(); interval != 0 {
+		t.Fatalf("heartbeat interval = %v, want 0 (off) when the section is absent", interval)
+	}
+}
+
+func TestLoadConfigAcceptsHeartbeatInterval(t *testing.T) {
+	cfg, _, err := loadText(t, validConfig()+"heartbeat:\n  interval: 30m\n", testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval := cfg.Heartbeat.Interval.Value(); interval != 30*time.Minute {
+		t.Fatalf("heartbeat interval = %v, want 30m", interval)
+	}
+}
+
+func TestLoadConfigRejectsNegativeHeartbeatInterval(t *testing.T) {
+	if _, _, err := loadText(t, validConfig()+"heartbeat:\n  interval: -5m\n", testSecrets()); err == nil {
+		t.Fatal("a negative heartbeat interval must be rejected")
+	}
+}
+
 func TestLoadConfigRejectsRemovedFeatureSections(t *testing.T) {
-	for _, section := range []string{"heartbeat", "embeddings", "implementation_sessions", "scheduler"} {
+	// heartbeat is deliberately absent: it came back as a real section (an
+	// interval and an instruction), narrower than the deleted scheduler:
+	// block, which stays rejected.
+	for _, section := range []string{"embeddings", "implementation_sessions", "scheduler"} {
 		t.Run(section, func(t *testing.T) {
 			_, _, err := loadText(t, validConfig()+section+": {}\n", testSecrets())
 			if err == nil || !strings.Contains(err.Error(), "field "+section) {

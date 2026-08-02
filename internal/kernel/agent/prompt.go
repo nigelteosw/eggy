@@ -208,3 +208,15 @@ func BuildInstructions(context ports.AgentContext, capability CapabilityManifest
 func ScheduledTurnMessage() ports.Message {
 	return ports.Message{Role: ports.RoleSystem, Content: "Scheduled turn: report useful findings, reminders, or read-only repository observations. Do not imply that you can edit or ship repository changes."}
 }
+
+// HeartbeatSentinel is the token a heartbeat turn replies with when there is
+// nothing worth interrupting the owner for.
+const HeartbeatSentinel = "HEARTBEAT_OK"
+
+// HeartbeatTurnMessage carries ScheduledTurnMessage's read-only framing plus
+// the permission that is the whole point of a heartbeat: saying nothing. The
+// protocol lives here rather than in the configured instruction so an owner
+// who overrides heartbeat.instruction cannot accidentally delete it.
+func HeartbeatTurnMessage() ports.Message {
+	return ports.Message{Role: ports.RoleSystem, Content: "Heartbeat: a periodic check-in the owner is not present for. Report only what genuinely warrants interrupting them; read-only observations only, and do not imply that you can edit or ship repository changes. If there is nothing worth saying, reply with exactly " + HeartbeatSentinel + " and nothing else."}
+}

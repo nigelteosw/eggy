@@ -81,6 +81,43 @@ func TestDispatcherMarksEventAfterHandlerMutatesSharedState(t *testing.T) {
 	}
 }
 
+func TestDispatcherPrunesProcessedEventsPastRetention(t *testing.T) {
+	store := newMemoryStore()
+	now := time.Now().UTC()
+	store.state.ProcessedEvents["expired"] = now.Add(-processedEventRetention - time.Hour)
+	store.state.ProcessedEvents["recent"] = now.Add(-processedEventRetention + time.Hour)
+	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+		events.TypeMessage: func(context.Context, events.Event) error { return nil },
+	})
+	// A timestamp older than the window must still deduplicate: retention is
+	// measured from when Eggy handled the event, not from the producer's clock.
+	event := events.Event{ID: "stale-timestamp", Type: events.TypeMessage, Owner: "42", Timestamp: now.Add(-30 * 24 * time.Hour)}
+	if err := dispatcher.Handle(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := store.Load(context.Background())
+	if _, ok := state.ProcessedEvents["expired"]; ok {
+		t.Fatal("entry past the retention window was not pruned")
+	}
+	if _, ok := state.ProcessedEvents["recent"]; !ok {
+		t.Fatal("entry inside the retention window was pruned")
+	}
+	if _, ok := state.ProcessedEvents["stale-timestamp"]; !ok {
+		t.Fatal("event with an old timestamp was not recorded")
+	}
+
+	calls := 0
+	dispatcher = NewDispatcher("42", store, map[events.Type]EventHandler{
+		events.TypeMessage: func(context.Context, events.Event) error { calls++; return nil },
+	})
+	if err := dispatcher.Handle(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("event with an old timestamp was reprocessed, calls=%d", calls)
+	}
+}
+
 func TestDispatcherSerializesConcurrentDuplicateEvents(t *testing.T) {
 	store := newMemoryStore()
 	started := make(chan struct{})

@@ -13,6 +13,15 @@ import (
 
 var ErrOwnerDenied = errors.New("event owner denied")
 
+// processedEventRetention bounds the deduplication ledger. Every handled event
+// writes one entry, so without a cutoff `state.json` grows for the life of the
+// deployment and every dispatch pays a full Load plus Update of the growing
+// map. The window only has to outlast redelivery: Telegram retries an
+// unconfirmed update for minutes, and a restart replays at most the queue it
+// was holding. A week is far past both and keeps the ledger proportional to a
+// week of traffic rather than to uptime.
+const processedEventRetention = 7 * 24 * time.Hour
+
 type EventHandler func(context.Context, events.Event) error
 
 type Dispatcher struct {
@@ -54,15 +63,23 @@ func (d *Dispatcher) Handle(ctx context.Context, event events.Event) error {
 	if _, seen := state.ProcessedEvents[event.ID]; seen {
 		return nil
 	}
-	when := event.Timestamp
-	if when.IsZero() {
-		when = time.Now().UTC()
-	}
+	// The recorded time is when the event was handled, not the event's own
+	// timestamp: nothing reads the value except this retention sweep, and a
+	// sweep must measure how long ago Eggy saw an event. Keying off the
+	// producer's clock would expire a replayed old event on the write that
+	// recorded it, silently dropping the deduplication it exists for.
+	now := time.Now().UTC()
 	_, err = d.store.Update(ctx, state.Version, func(state *ports.State) error {
 		if state.ProcessedEvents == nil {
 			state.ProcessedEvents = map[string]time.Time{}
 		}
-		state.ProcessedEvents[event.ID] = when
+		cutoff := now.Add(-processedEventRetention)
+		for id, handled := range state.ProcessedEvents {
+			if handled.Before(cutoff) {
+				delete(state.ProcessedEvents, id)
+			}
+		}
+		state.ProcessedEvents[event.ID] = now
 		return nil
 	})
 	return err

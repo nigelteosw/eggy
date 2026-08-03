@@ -98,13 +98,6 @@ Nothing in `internal/config` is currently a cleanup item.
       The docs-site spec made it a one-time manual verification step, so the
       five shipped commands and their documentation can drift apart silently.
       `navigation.test.ts` already does this class of check for routes.
-- [ ] `state.ProcessedEvents` is never pruned. `services.Dispatcher` writes one
-      entry per handled event and nothing removes any, so `state.json` grows
-      without bound — every Telegram message and every cron fire, permanently —
-      and each dispatch does a full `Load` plus `Update` of the growing map.
-      Prune on write against a retention window. Found while designing the
-      heartbeat, which is why that design bypasses the dispatcher rather than
-      becoming the leak's dominant contributor.
 
 ---
 

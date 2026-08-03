@@ -29,7 +29,7 @@ At most one repository can set `self: true`. The flag grants nothing; it tells E
 - `read_file` — read a file inside the attached workspace.
 - `workspace_close` — detach and clean up the workspace.
 
-Additional repository metadata tools can inspect branches and status within the same restrictions.
+That is the whole repository surface. There is no tree listing, no content search, and no shell.
 
 ## Restrictions
 

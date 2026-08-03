@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -72,38 +71,19 @@ func (r *fakeReadWorkspaceRunner) Destroy(context.Context, string) error {
 }
 
 type fakeRepositoryReader struct {
-	cloned   int
-	entries  []ports.WorkspaceEntry
-	matches  []ports.WorkspaceMatch
-	content  string
-	status   string
-	branches []string
-	summary  ports.RepositorySummary
-	checks   []ports.CheckRun
+	cloned  int
+	content string
+	summary ports.RepositorySummary
+	checks  []ports.CheckRun
 }
 
 func (r *fakeRepositoryReader) Clone(context.Context, ports.Repository, string) error {
 	r.cloned++
 	return nil
 }
-func (r *fakeRepositoryReader) Inspect(context.Context, string) (string, error) { return "", nil }
-func (r *fakeRepositoryReader) CreateBranch(context.Context, string, string) error {
-	return errors.New("inspection checkouts must never create a branch")
-}
-func (r *fakeRepositoryReader) Diff(context.Context, string) (string, error) { return "", nil }
 
-func (r *fakeRepositoryReader) ListTree(context.Context, string, string, int) ([]ports.WorkspaceEntry, error) {
-	return r.entries, nil
-}
-func (r *fakeRepositoryReader) Search(context.Context, string, string, int) ([]ports.WorkspaceMatch, error) {
-	return r.matches, nil
-}
 func (r *fakeRepositoryReader) ReadFile(context.Context, string, string, int, int) (string, error) {
 	return r.content, nil
-}
-func (r *fakeRepositoryReader) Status(context.Context, string) (string, error) { return r.status, nil }
-func (r *fakeRepositoryReader) Branches(context.Context, string) ([]string, error) {
-	return r.branches, nil
 }
 func (r *fakeRepositoryReader) RepositorySummary(context.Context, ports.Repository) (ports.RepositorySummary, error) {
 	return r.summary, nil

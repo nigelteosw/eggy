@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -29,12 +28,7 @@ type Adapter struct {
 var _ ports.RepositoryCheckout = (*Adapter)(nil)
 var _ ports.RepositoryReader = (*Adapter)(nil)
 
-var errStopWalk = errors.New("stop walk")
-
-const (
-	maxScannedFileBytes = 1 << 20
-	maxSearchLineLength = 300
-)
+const maxScannedFileBytes = 1 << 20
 
 func New(runner ports.Runner, token, apiBase string, client *http.Client) *Adapter {
 	if client == nil {
@@ -86,147 +80,6 @@ func (a *Adapter) Clone(ctx context.Context, repository ports.Repository, worksp
 	})
 	return err
 }
-
-func (a *Adapter) Status(ctx context.Context, workspace string) (string, error) {
-	result, err := a.runner.Execute(ctx, ports.Command{Argv: []string{"git", "status", "--porcelain=v1", "--branch"}, Dir: workspace})
-	if err != nil {
-		return "", err
-	}
-	if result.OutputTruncated {
-		return "", errors.New("git status output was truncated")
-	}
-	return strings.TrimSpace(result.Stdout), nil
-}
-
-func (a *Adapter) Branches(ctx context.Context, workspace string) ([]string, error) {
-	result, err := a.runner.Execute(ctx, ports.Command{
-		Argv: []string{"git", "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"}, Dir: workspace,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.OutputTruncated {
-		return nil, errors.New("git branch output was truncated")
-	}
-	var branches []string
-	for _, line := range strings.Split(result.Stdout, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			branches = append(branches, line)
-		}
-	}
-	return branches, nil
-}
-
-func (a *Adapter) ListTree(ctx context.Context, workspace, path string, maxEntries int) ([]ports.WorkspaceEntry, error) {
-	root, err := safeWorkspacePath(workspace, path)
-	if err != nil {
-		return nil, err
-	}
-	if maxEntries <= 0 {
-		maxEntries = 200
-	}
-	var entries []ports.WorkspaceEntry
-	walkErr := filepath.WalkDir(root, func(current string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if current == root {
-			return nil
-		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		relative, err := filepath.Rel(workspace, current)
-		if err != nil {
-			return err
-		}
-		entries = append(entries, ports.WorkspaceEntry{Path: relative, IsDir: entry.IsDir()})
-		if len(entries) >= maxEntries {
-			return errStopWalk
-		}
-		return nil
-	})
-	if walkErr != nil && !errors.Is(walkErr, errStopWalk) {
-		return nil, walkErr
-	}
-	return entries, nil
-}
-
-func (a *Adapter) Search(ctx context.Context, workspace, query string, maxMatches int) ([]ports.WorkspaceMatch, error) {
-	if strings.TrimSpace(query) == "" {
-		return nil, errors.New("search query is empty")
-	}
-	if maxMatches <= 0 {
-		maxMatches = 50
-	}
-	var matches []ports.WorkspaceMatch
-	walkErr := filepath.WalkDir(workspace, func(current string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if entry.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		relative, err := filepath.Rel(workspace, current)
-		if err != nil {
-			return err
-		}
-		if strings.Contains(relative, query) {
-			matches = append(matches, ports.WorkspaceMatch{Path: relative})
-			if len(matches) >= maxMatches {
-				return errStopWalk
-			}
-		}
-		if matched, stop := searchFileContents(current, relative, query, maxMatches, &matches); matched && stop {
-			return errStopWalk
-		}
-		return nil
-	})
-	if walkErr != nil && !errors.Is(walkErr, errStopWalk) {
-		return nil, walkErr
-	}
-	return matches, nil
-}
-
-func searchFileContents(absolute, relative, query string, maxMatches int, matches *[]ports.WorkspaceMatch) (matched, stop bool) {
-	info, err := os.Stat(absolute)
-	if err != nil || info.Size() > maxScannedFileBytes {
-		return false, false
-	}
-	file, err := os.Open(absolute)
-	if err != nil {
-		return false, false
-	}
-	defer file.Close()
-	if isLikelyBinary(file) {
-		return false, false
-	}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), maxScannedFileBytes)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		line := scanner.Text()
-		if strings.Contains(line, query) {
-			*matches = append(*matches, ports.WorkspaceMatch{Path: relative, Line: lineNumber, Text: truncateText(strings.TrimSpace(line), maxSearchLineLength)})
-			if len(*matches) >= maxMatches {
-				return true, true
-			}
-		}
-	}
-	return false, false
-}
-
-func isLikelyBinary(file *os.File) bool {
-	defer file.Seek(0, io.SeekStart)
-	buffer := make([]byte, 512)
-	n, _ := file.Read(buffer)
-	return bytes.IndexByte(buffer[:n], 0) != -1
-}
-
 func (a *Adapter) ReadFile(ctx context.Context, workspace, path string, startLine, endLine int) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("path is required")
@@ -286,13 +139,6 @@ func safeWorkspacePath(workspace, relative string) (string, error) {
 		return "", errors.New("path escapes repository workspace")
 	}
 	return cleanJoined, nil
-}
-
-func truncateText(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	return text[:limit] + "...(truncated)"
 }
 
 func (a *Adapter) RepositorySummary(ctx context.Context, repository ports.Repository) (ports.RepositorySummary, error) {

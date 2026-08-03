@@ -15,7 +15,7 @@ import (
 	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
 )
 
-func TestReadOnlyWorkspaceOperationsListSearchReadStatusAndBranches(t *testing.T) {
+func TestReadFileReadsAClonedWorkspaceAndRefusesToEscapeIt(t *testing.T) {
 	remote := createRemote(t)
 	root := filepath.Join(t.TempDir(), "runs")
 	runner, err := localprocess.New(root, []string{"PATH", "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT"}, 10*time.Second, 1<<20)
@@ -29,37 +29,12 @@ func TestReadOnlyWorkspaceOperationsListSearchReadStatusAndBranches(t *testing.T
 		t.Fatal(err)
 	}
 
-	entries, err := adapter.ListTree(context.Background(), workspace, "", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawReadme, sawGit bool
-	for _, entry := range entries {
-		sawReadme = sawReadme || entry.Path == "README.md"
-		sawGit = sawGit || strings.HasPrefix(entry.Path, ".git")
-	}
-	if !sawReadme || sawGit {
-		t.Fatalf("entries=%#v", entries)
-	}
-
-	matches, err := adapter.Search(context.Background(), workspace, "initial", 10)
-	if err != nil || len(matches) != 1 || matches[0].Path != "README.md" || matches[0].Line != 1 {
-		t.Fatalf("matches=%#v err=%v", matches, err)
-	}
 	content, err := adapter.ReadFile(context.Background(), workspace, "README.md", 0, 0)
 	if err != nil || content != "initial\n" {
 		t.Fatalf("content=%q err=%v", content, err)
 	}
 	if _, err := adapter.ReadFile(context.Background(), workspace, "../outside.md", 0, 0); err == nil {
 		t.Fatal("expected path traversal to be rejected")
-	}
-	status, err := adapter.Status(context.Background(), workspace)
-	if err != nil || !strings.Contains(status, "## main") {
-		t.Fatalf("status=%q err=%v", status, err)
-	}
-	branches, err := adapter.Branches(context.Background(), workspace)
-	if err != nil || len(branches) == 0 {
-		t.Fatalf("branches=%v err=%v", branches, err)
 	}
 }
 

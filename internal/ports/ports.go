@@ -363,17 +363,6 @@ type RepositoryCheckout interface {
 	Clone(context.Context, Repository, string) error
 }
 
-type WorkspaceEntry struct {
-	Path  string `json:"path"`
-	IsDir bool   `json:"is_dir"`
-}
-
-type WorkspaceMatch struct {
-	Path string `json:"path"`
-	Line int    `json:"line,omitempty"`
-	Text string `json:"text,omitempty"`
-}
-
 type RepositorySummary struct {
 	Number        int    `json:"number,omitempty"`
 	Title         string `json:"title,omitempty"`
@@ -394,11 +383,7 @@ type CheckRun struct {
 // RepositoryReader answers read-only questions about a repository checkout and
 // its GitHub metadata without launching a coding agent, a branch, or a commit.
 type RepositoryReader interface {
-	ListTree(ctx context.Context, workspace, path string, maxEntries int) ([]WorkspaceEntry, error)
-	Search(ctx context.Context, workspace, query string, maxMatches int) ([]WorkspaceMatch, error)
 	ReadFile(ctx context.Context, workspace, path string, startLine, endLine int) (string, error)
-	Status(ctx context.Context, workspace string) (string, error)
-	Branches(ctx context.Context, workspace string) ([]string, error)
 	RepositorySummary(ctx context.Context, repository Repository) (RepositorySummary, error)
 	Issue(ctx context.Context, repository Repository, number int) (RepositorySummary, error)
 	ReviewSummary(ctx context.Context, repository Repository, number int) (RepositorySummary, error)

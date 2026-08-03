@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -25,12 +26,12 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // administration commands, and they are here because what they reach lives on
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
-func TestOnlyEightTelegramCommandsAreAdvertised(t *testing.T) {
+func TestOnlyNineTelegramCommandsAreAdvertised(t *testing.T) {
 	got := TelegramAutocomplete()
-	if len(got) != 8 {
+	if len(got) != 9 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto"}
+	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)
@@ -95,6 +96,50 @@ func TestAutoCommandTogglesAndNamesTheResultingMode(t *testing.T) {
 	}
 	if len(gate.saved) != 2 {
 		t.Fatalf("expected two writes, got %v", gate.saved)
+	}
+}
+
+type fakeRestarter struct{ restarts int }
+
+func (f *fakeRestarter) Restart() { f.restarts++ }
+
+func restartEnv(key string) string {
+	if key == "DEEPSEEK_API_KEY" {
+		return "test-key"
+	}
+	return ""
+}
+
+// /restart is the chat-side answer to "restart Eggy for this to take effect",
+// so it must actually reach the supervisor rather than only saying it did.
+func TestRestartCommandAsksTheDaemonToRebuild(t *testing.T) {
+	restarter := &fakeRestarter{}
+	service := New(Options{ConfigPath: mcpTestConfig(t), Restarter: restarter, Getenv: restartEnv})
+	output := run(t, service, "/restart")
+	if restarter.restarts != 1 {
+		t.Fatalf("restarts=%d", restarter.restarts)
+	}
+	if !strings.Contains(output, "Restarting") {
+		t.Fatalf("output=%q", output)
+	}
+}
+
+// The pre-flight is the point of the command being safe to fire from a phone:
+// a config that would not load sends the daemon to safe mode, where Telegram
+// is gone. Refusing keeps the working Eggy and reports why.
+func TestRestartRefusesAConfigThatWouldNotLoad(t *testing.T) {
+	restarter := &fakeRestarter{}
+	path := mcpTestConfig(t)
+	if err := os.WriteFile(path, []byte("agent:\n  default_model: \"missing\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := New(Options{ConfigPath: path, Restarter: restarter, Getenv: restartEnv})
+	output := run(t, service, "/restart")
+	if restarter.restarts != 0 {
+		t.Fatalf("restarted into a broken config: restarts=%d", restarter.restarts)
+	}
+	if !strings.Contains(output, "Not restarting") {
+		t.Fatalf("output=%q", output)
 	}
 }
 

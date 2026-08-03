@@ -194,6 +194,14 @@ export function toggleAutoMode(): Promise<CommandResult> {
   return request("/api/approvals/auto", { method: "POST" });
 }
 
+// Restarting rebuilds the daemon around config.yaml as it now stands, which
+// is what every "restart to take effect" notice in this panel is asking for.
+// A config Eggy could not load comes back as a rejection with the reason and
+// nothing restarts, so this is safe to offer as a button.
+export function restartEggy(): Promise<CommandResult> {
+  return request("/api/restart", { method: "POST" });
+}
+
 // Schedules come back as a table like every other list route, so the card
 // renders them with DataTable rather than through a projected type.
 export function listSchedules(): Promise<CommandResult> {

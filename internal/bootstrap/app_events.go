@@ -199,6 +199,13 @@ func (a *App) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-a.restart:
+			// Deliberately not a cancellation: ctx stays live so the deferred
+			// workers.Wait drains the turn that asked for the restart -- and
+			// any other turn mid-flight -- instead of cutting it off. Only
+			// once they are done do the stores and MCP clients close.
+			slog.Info("restart requested, draining in-flight turns")
+			return ErrRestart
 		case <-heartbeat:
 			a.onHeartbeatTick(ctx)
 		case event := <-a.eventQueue:

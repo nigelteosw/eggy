@@ -19,12 +19,15 @@ Eggy's Telegram command surface is intentionally small.
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
 | `/auto` | Switch auto mode on or off for approval-gated tool calls |
+| `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
 Unknown commands return the same command reference. Ordinary text continues to the model.
 
 `/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and tells you when auto mode is enabled.
 
 `/auto` is a toggle rather than a setting: it flips the [approval gate](/eggy/use/approvals/) and replies with the state it left you in. While auto mode is enabled, tools you gated with `require_approval` run without asking.
+
+`/restart` applies config that was written from a chat command or the settings panel. See [Restarting to apply config](/eggy/configure/configuration/#restarting-to-apply-config) for what it does and does not restart.
 
 ## Managing MCP servers
 
@@ -50,7 +53,7 @@ Three limits are deliberate:
 
 - **No secret value is ever accepted as a chat argument.** `bearer_env` and `client_secret_env` name environment variables; the token and client secret themselves must exist in the deployment's environment. An OAuth `client_id` is accepted directly because it is not a secret — it travels in the authorization URL.
 - **stdio servers are edited in `config.yaml`.** A subprocess command line and environment allowlist belong in reviewed configuration, not a chat message.
-- **A config write needs a restart.** Adapters are built once at startup, so a newly added server reads as `not running — restart eggy to apply.` until then. Every write says so.
+- **A config write needs a restart.** Adapters are built once at startup, so a newly added server reads as `not running — restart eggy to apply.` until then. Every write says so, and `/restart` is the restart it is asking for.
 
 ## Inline selections
 

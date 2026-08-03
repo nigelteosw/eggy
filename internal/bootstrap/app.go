@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -40,9 +41,13 @@ type AppOptions struct {
 	ProviderBaseURLs map[string]string
 	GitHubAPIBase    string
 	ConfigPath       string
-	Now              func() time.Time
-	Logger           *slog.Logger
-	FakeAdapters     bool
+	// Getenv is the daemon's environment lookup, .env included. Only the
+	// config pre-flight behind /restart needs it: everything else was
+	// resolved into config and secrets before NewApp was called.
+	Getenv       func(string) string
+	Now          func() time.Time
+	Logger       *slog.Logger
+	FakeAdapters bool
 }
 
 // maxToolStepsPerTurn is no longer a work cap. A turn that outgrows its
@@ -82,6 +87,25 @@ type App struct {
 	workers     sync.WaitGroup
 	readyLog    sync.Once
 	logger      *slog.Logger
+	// restart is closed by Restart to ask the supervisor for a fresh App
+	// built from the current config.yaml. A channel rather than a flag
+	// because Run must notice it while parked in its select, and closed
+	// rather than sent so every reader sees it once.
+	restart     chan struct{}
+	restartOnce sync.Once
+}
+
+// ErrRestart is what Run returns when the owner asked for a restart. It is a
+// request to the supervisor in cmd/eggyd, not a failure: the process stays up
+// and rebuilds itself around a re-read config.
+var ErrRestart = errors.New("restart requested")
+
+// Restart asks the daemon to rebuild itself. It returns immediately, because
+// the caller is usually the turn that is still owed an acknowledgement --
+// Run's shutdown waits for in-flight turns, so that reply is delivered before
+// anything closes.
+func (a *App) Restart() {
+	a.restartOnce.Do(func() { close(a.restart) })
 }
 
 // ApprovalExecutor is an alias rather than its own interface so the executor
@@ -110,6 +134,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
 		memory: memoryStore,
 		now:    options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger,
+		restart: make(chan struct{}),
 	}
 	configuredRepositories := map[string]ports.Repository{}
 	for _, configured := range config.Repositories {
@@ -291,6 +316,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Store:        stateStore,
 		Approvals:    app.approvals,
 		Conversation: conversation,
+		Restarter:    app,
+		Getenv:       options.Getenv,
 		AgentRuntime: agentRuntime,
 		DefaultModel: config.Agent.DefaultModel,
 		ModelAliases: aliases,
@@ -322,6 +349,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Schedules:        app.scheduler,
 		Approvals:        app.approvals,
 		AutoMode:         app.approvals,
+		Restarter:        app,
+		Getenv:           options.Getenv,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

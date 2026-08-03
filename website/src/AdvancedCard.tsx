@@ -11,7 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./com
 // The save path is the same validated one safe mode uses: a config Eggy will
 // not load is rejected and the stored file is left alone, so this cannot lock
 // the owner out. Unlike safe mode there is no reload afterwards, because Eggy
-// is already running and a restart is the owner's call.
+// is already running and a restart is the owner's call -- RestartCard, sitting
+// directly below this one, is where they make it.
 export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [config, setConfig] = useState("");
   const [loading, setLoading] = useState(true);
@@ -85,7 +86,7 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
         )}
         {saved && (
           <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
-            Saved. Restart Eggy for it to take effect.
+            Saved. Restart Eggy for it to take effect — the button below, or /restart in chat.
           </p>
         )}
       </CardContent>

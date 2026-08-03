@@ -11,9 +11,11 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -31,6 +33,7 @@ var telegramCommands = []struct {
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
 	{Name: "google", Description: "Authorize Google Workspace and show its status"},
 	{Name: "auto", Description: "Switch auto mode on or off for approval-gated tool calls"},
+	{Name: "restart", Description: "Reload config.yaml by rebuilding the running daemon"},
 }
 
 type ConversationResetter interface {
@@ -54,6 +57,15 @@ type ApprovalGate interface {
 	SetAutoApprove(context.Context, bool) error
 }
 
+// Restarter rebuilds the daemon around a freshly read config.yaml. It is the
+// chat-side answer to every "restart Eggy for this to take effect" notice this
+// package and the web panel print: config written from a phone should be
+// applicable from a phone, without shelling into the deployment. Restart must
+// not block, because the turn calling it still owes the owner a reply.
+type Restarter interface {
+	Restart()
+}
+
 type Options struct {
 	ConfigPath   string
 	MCP          MCPRuntime
@@ -62,9 +74,14 @@ type Options struct {
 	Approvals    ApprovalGate
 	Conversation ConversationResetter
 	Turns        TurnStopper
+	Restarter    Restarter
 	AgentRuntime AgentSettings
 	DefaultModel string
 	ModelAliases []string
+	// Getenv is the daemon's own environment lookup, including .env, which
+	// the process environment does not carry. /restart pre-flights the config
+	// with it so the check answers the same question startup will.
+	Getenv func(string) string
 }
 
 type CommandService struct {
@@ -75,6 +92,8 @@ type CommandService struct {
 	approvals    ApprovalGate
 	conversation ConversationResetter
 	turns        TurnStopper
+	restarter    Restarter
+	getenv       func(string) string
 	agentRuntime AgentSettings
 	defaultModel string
 	modelAliases []string
@@ -86,6 +105,7 @@ func New(options Options) *CommandService {
 	return &CommandService{
 		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
 		store: options.Store, approvals: options.Approvals, conversation: options.Conversation, turns: options.Turns,
+		restarter: options.Restarter, getenv: options.Getenv,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
 	}
 }
@@ -128,6 +148,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.googleCommand(ctx, args)
 	case "auto":
 		return s.autoCommand(ctx)
+	case "restart":
+		return s.restartCommand()
 	default:
 		return "Unknown command.\n\n" + HelpText(), true, nil
 	}
@@ -253,6 +275,43 @@ func (s *CommandService) autoCommand(ctx context.Context) (string, bool, error) 
 	return AutoModeMessage(!auto), true, nil
 }
 
+// restartCommand is /restart. The work is in Restart below, which the panel's
+// restart button calls too: one restart authority, two views onto it.
+func (s *CommandService) restartCommand() (string, bool, error) {
+	message, _ := Restart(s.restarter, s.configPath, s.getenv)
+	return message, true, nil
+}
+
+// RestartMessage is the one wording for a restart that was accepted, so chat
+// and the panel cannot describe the same event two different ways.
+const RestartMessage = "Restarting. Config is reloaded from disk; anything running finishes first, and Eggy is back in a few seconds."
+
+// Restart rebuilds the daemon so a config.yaml edited from the panel or by
+// /mcp takes effect, reporting what to tell the owner and whether it is
+// happening.
+//
+// The load is a pre-flight, not a formality: a config that fails to load puts
+// the process into safe mode, where Telegram is gone and only the repair page
+// can reach it. Refusing here leaves the owner holding a working Eggy and the
+// reason the new file would not have started. getenv is the daemon's own
+// lookup so the check sees .env, exactly as startup will; nil falls back to
+// the process environment.
+func Restart(restarter Restarter, configPath string, getenv func(string) string) (string, bool) {
+	if restarter == nil {
+		return "Restarting is unavailable.", false
+	}
+	if configPath != "" {
+		if getenv == nil {
+			getenv = os.Getenv
+		}
+		if _, _, err := config.LoadConfig(configPath, getenv); err != nil {
+			return fmt.Sprintf("Not restarting: config.yaml would not load.\n\n%v", err), false
+		}
+	}
+	restarter.Restart()
+	return RestartMessage, true
+}
+
 // AutoModeMessage is the one wording for the switch's new state, so Telegram
 // and the web panel cannot describe the same setting two different ways.
 func AutoModeMessage(auto bool) string {
@@ -263,7 +322,7 @@ func AutoModeMessage(auto bool) string {
 }
 
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /auto"
+	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /auto, /restart"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

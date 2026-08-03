@@ -10,6 +10,7 @@ import { SchedulesCard } from "./SchedulesCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
+import { RestartCard } from "./RestartCard";
 import { Sidebar, SidebarItem, SidebarSeparator, useSidebarCollapsed } from "./components/ui/sidebar";
 import {
   CheckShieldIcon,
@@ -47,7 +48,7 @@ const SECTIONS: Section[] = [
   { id: "automation", label: "Automation", title: "Automation", description: "Scheduled runs and the periodic check-in.", icon: <ClockIcon /> },
   { id: "approvals", label: "Approvals", title: "Approvals", description: "Protected actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "appearance", label: "Appearance", title: "Appearance", description: "How the panel looks.", icon: <PaletteIcon /> },
-  { id: "advanced", label: "Advanced", title: "Advanced", description: "The config file behind every form here.", icon: <FileCodeIcon /> },
+  { id: "advanced", label: "Advanced", title: "Advanced", description: "The config file behind every form here, and the restart that applies it.", icon: <FileCodeIcon /> },
 ];
 
 export function ConfigPage({
@@ -131,7 +132,12 @@ export function ConfigPage({
           {active === "appearance" && (
             <AppearanceCard theme={theme} onThemeChange={onThemeChange} onSessionExpired={onSessionExpired} />
           )}
-          {active === "advanced" && <AdvancedCard onSessionExpired={onSessionExpired} />}
+          {active === "advanced" && (
+            <>
+              <AdvancedCard onSessionExpired={onSessionExpired} />
+              <RestartCard onSessionExpired={onSessionExpired} />
+            </>
+          )}
         </div>
       </div>
     </div>

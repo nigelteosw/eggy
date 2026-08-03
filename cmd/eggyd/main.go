@@ -80,7 +80,16 @@ func run() error {
 	for {
 		app, cfg, err := startup(layout, *configPath, getenv, logger, logFiles)
 		if err == nil {
-			return serveApp(ctx, cfg, app, logger)
+			serveErr := serveApp(ctx, cfg, app, logger)
+			if errors.Is(serveErr, bootstrap.ErrRestart) {
+				// The same loop safe mode uses, for the ordinary case: /restart
+				// asked for a config reload, so build a new Eggy from the file
+				// on disk rather than making the owner redeploy. A config that
+				// fails now still lands in safe mode below.
+				logger.Info("restarting", "config", *configPath)
+				continue
+			}
+			return serveErr
 		}
 		logger.Error("startup failed, entering safe mode", "error", err, "config", *configPath)
 		repaired, safeModeErr := serveSafeMode(ctx, safeModeListen(getenv), *configPath, err, getenv, envSecrets, logger)
@@ -112,6 +121,7 @@ func startup(layout home.Layout, configPath string, getenv func(string) string, 
 	}
 	app, err := bootstrap.NewApp(cfg, secrets, bootstrap.AppOptions{
 		FakeAdapters: getenv("EGGY_FAKE_ADAPTERS") == "1", ConfigPath: configPath, Logger: logger,
+		Getenv: getenv,
 	})
 	if err != nil {
 		return nil, config.Config{}, err
@@ -135,6 +145,17 @@ func serveApp(ctx context.Context, cfg config.Config, app *bootstrap.App, logger
 	}()
 	select {
 	case err := <-errorsChannel:
+		if errors.Is(err, bootstrap.ErrRestart) {
+			// A restart takes the listener down with the App it belonged to:
+			// the next attempt binds the address itself, and may bind a
+			// different one if the config changed it. Graceful, because the
+			// request that triggered this -- a panel save, or the webhook
+			// carrying /restart -- is still owed its response.
+			if shutdownErr := shutdown(server); shutdownErr != nil {
+				return shutdownErr
+			}
+			return err
+		}
 		return err
 	case <-ctx.Done():
 		return shutdown(server)

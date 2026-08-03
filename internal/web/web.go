@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
@@ -58,6 +59,11 @@ type WebUIConfig struct {
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
+	// Restarter rebuilds the daemon around the config on disk, the panel's
+	// half of /restart. Every write this package acknowledges says a restart
+	// is needed; this is how the owner performs it without leaving the page
+	// they wrote it from.
+	Restarter commands.Restarter
 	// Getenv resolves the *_env variables a config names when the raw editor
 	// validates a replacement. It defaults to os.Getenv: unlike safe mode,
 	// which is handed one because it never loaded a config, the running
@@ -157,7 +163,8 @@ func rawConfigGetRoute(configPath string) http.HandlerFunc {
 // already accepted, so neither surface can write a config that would not
 // start. repaired may be nil: safe mode uses it to hand control back to the
 // supervisor, while the running daemon has nothing to retry -- a live process
-// picks the new file up on its next restart, which is the owner's call.
+// picks the new file up on its next restart, which is the owner's call and
+// which /restart in chat performs.
 func rawConfigSetRoute(configPath string, getenv func(string) string, repaired func()) http.HandlerFunc {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -182,7 +189,7 @@ func rawConfigSetRoute(configPath string, getenv func(string) string, repaired f
 			writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: "Eggy is starting up again. Reload in a few seconds."})
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: "Restart Eggy for this to take effect."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: restartToApply})
 	}
 }
 
@@ -253,6 +260,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 
+	mux.Handle("POST /api/restart", requireWebSession(webConfig, now, newRestartHandler(webConfig.Restarter, configPath, webConfig.Getenv)))
+
 	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
 
 	return mux
@@ -315,7 +324,7 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: "Restart Eggy for this to take effect."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: restartToApply})
 	}
 }
 
@@ -350,7 +359,7 @@ func webMCPRemoveRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Removed MCP server " + name + ".", Detail: "Restart Eggy for this to take effect."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Removed MCP server " + name + ".", Detail: restartToApply})
 	}
 }
 
@@ -470,7 +479,7 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 		// Appearance is the one section a restart does not gate: nothing in the
 		// running process reads it, so the page the owner is looking at has
 		// already applied it by the time this response lands.
-		detail := "Restart Eggy for this to take effect."
+		detail := restartToApply
 		if section == "appearance" {
 			detail = ""
 		}

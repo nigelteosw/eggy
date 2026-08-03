@@ -79,7 +79,7 @@ The bare `code` value works too. Either form is accepted only against a pending 
 
 Both the web settings panel and Telegram's `/mcp` command write through the same `internal/config` helpers, under the same lock and validation. HTTP servers can be added, edited, enabled, disabled, and removed from either. stdio servers are file-only: a subprocess command line is not a chat argument or a web form field.
 
-A config write takes effect on restart, because adapters are constructed at startup. Both surfaces say so on every write.
+A config write takes effect on restart, because adapters are constructed at startup. Both surfaces say so on every write, and `/restart` is how you perform it without leaving chat — see [Restarting to apply config](/eggy/configure/configuration/#restarting-to-apply-config).
 
 ## Stdio
 

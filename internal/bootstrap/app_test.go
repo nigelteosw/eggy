@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -461,10 +462,10 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	if len(names) != 8 {
-		t.Fatalf("registered %d commands, want 8: %v", len(names), names)
+	if len(names) != 9 {
+		t.Fatalf("registered %d commands, want 9: %v", len(names), names)
 	}
-	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto"} {
+	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto", "restart"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -1002,5 +1003,58 @@ func TestNewAppLeavesMCPToolsUngatedWhenNothingRequiresApproval(t *testing.T) {
 		if strings.Contains(listing.Definition.Description, "requires the owner's approval") {
 			t.Fatalf("tool %q was gated with no require_approval configured", listing.Definition.Name)
 		}
+	}
+}
+
+// /restart has to be a real request to the supervisor, and the reply has to
+// survive it: Run drains in-flight turns rather than cancelling them, so the
+// acknowledgement is delivered before the daemon comes apart. A restart that
+// cut off its own confirmation would leave the owner unable to tell a reload
+// from a crash.
+func TestRestartCommandStopsRunAfterDeliveringItsAcknowledgement(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	delivered := make(chan string, 4)
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if strings.Contains(request.URL.Path, "sendMessage") {
+			body, _ := io.ReadAll(request.Body)
+			delivered <- string(body)
+		}
+		return appJSON(200, `{"ok":true,"result":{}}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("key"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runErrors := make(chan error, 1)
+	go func() { runErrors <- app.Run(ctx) }()
+
+	body := `{"update_id":1,"message":{"message_id":1,"from":{"id":42},"chat":{"id":42},"text":"/restart"}}`
+	request := httptest.NewRequest(http.MethodPost, cfg.Server.TelegramWebhookPath, strings.NewReader(body))
+	request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "webhook")
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d", response.Code)
+	}
+
+	select {
+	case err := <-runErrors:
+		if !errors.Is(err, ErrRestart) {
+			t.Fatalf("Run returned %v, want ErrRestart", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Run to stop for the restart")
+	}
+	// Run returned, which means workers.Wait already drained: the reply must
+	// be here without waiting for it.
+	select {
+	case sent := <-delivered:
+		if !strings.Contains(sent, "Restarting") {
+			t.Fatalf("delivered %q, want the restart acknowledgement", sent)
+		}
+	default:
+		t.Fatal("Run stopped before the restart acknowledgement was delivered")
 	}
 }

@@ -22,6 +22,7 @@ choices. Its command surface is deliberately limited to:
 - `/model [alias]`
 - `/mcp [add|remove|enable|disable|login|logout]`
 - `/auto`
+- `/restart`
 
 The agent can call `telegram_select` with its own prompt and 2–8 labelled
 options. A tap returns the selected value as the owner's next ordinary message.
@@ -45,7 +46,11 @@ flow in the browser.
 Both surfaces are views onto one administration authority: every config write
 goes through `internal/config` under the same file lock with the same
 validation. Writes take effect after restarting `eggyd`, and both surfaces say
-so.
+so. `/restart` and the panel's Restart button perform that restart through one
+shared path: it rebuilds the daemon from the file on disk inside the running
+process, after checking the new config loads and letting in-flight turns
+finish. Config edited from a phone is therefore applicable from a phone, with
+no redeploy.
 
 ## Repository inspection
 

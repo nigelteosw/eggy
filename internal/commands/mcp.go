@@ -34,8 +34,9 @@ type MCPStatus struct {
 // restartNotice is the honest half of every config write from a chat surface.
 // A write lands in config.yaml under the same lock the web panel uses, but
 // adapters are built once at startup, so "configured" and "connected" disagree
-// until a restart. Saying so beats a reply that reads like the server is live.
-const restartNotice = "Restart Eggy to apply."
+// until a restart. Saying so beats a reply that reads like the server is live,
+// and naming /restart means the owner never has to leave the chat to do it.
+const restartNotice = "Restart Eggy to apply — send /restart."
 
 func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string, bool, error) {
 	if s.configPath == "" {

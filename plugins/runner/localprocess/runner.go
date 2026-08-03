@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,14 +106,6 @@ func (r *Runner) Destroy(ctx context.Context, workspace string) error {
 }
 
 func (r *Runner) Execute(ctx context.Context, command ports.Command) (ports.CommandResult, error) {
-	return r.execute(ctx, command, nil)
-}
-
-func (r *Runner) ExecuteStreaming(ctx context.Context, command ports.Command, onLine func(string)) (ports.CommandResult, error) {
-	return r.execute(ctx, command, onLine)
-}
-
-func (r *Runner) execute(ctx context.Context, command ports.Command, onLine func(string)) (ports.CommandResult, error) {
 	if len(command.Argv) == 0 {
 		return ports.CommandResult{}, ErrEmptyCommand
 	}
@@ -140,11 +131,6 @@ func (r *Runner) execute(ctx context.Context, command ports.Command, onLine func
 	configureProcessGroup(cmd)
 	stdout, stderr := &cappedBuffer{limit: limit}, &cappedBuffer{limit: limit}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	var emitter *lineEmitter
-	if onLine != nil {
-		emitter = &lineEmitter{limit: limit, callback: onLine}
-		cmd.Stdout = io.MultiWriter(stdout, emitter)
-	}
 	if err := cmd.Start(); err != nil {
 		return ports.CommandResult{}, fmt.Errorf("start command: %w", err)
 	}
@@ -153,15 +139,9 @@ func (r *Runner) execute(ctx context.Context, command ports.Command, onLine func
 	var waitErr error
 	select {
 	case waitErr = <-done:
-		if emitter != nil {
-			emitter.Flush()
-		}
 	case <-runContext.Done():
 		terminateProcessGroup(cmd)
 		waitErr = <-done
-		if emitter != nil {
-			emitter.Flush()
-		}
 		result := commandResult(cmd, stdout, stderr)
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return result, context.Canceled
@@ -238,61 +218,3 @@ func (b *cappedBuffer) Write(data []byte) (int, error) {
 	return original, nil
 }
 func (b *cappedBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return b.data.String() }
-
-// lineEmitter splits streamed output into whole lines. It buffers only the
-// current unterminated line, and caps that line at limit the way cappedBuffer
-// caps captured output, so a command that writes without ever emitting a
-// newline cannot grow it without bound.
-type lineEmitter struct {
-	mu       sync.Mutex
-	pending  []byte
-	limit    int64
-	callback func(string)
-}
-
-func (e *lineEmitter) Write(data []byte) (int, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	original := len(data)
-	for len(data) > 0 {
-		index := bytes.IndexByte(data, '\n')
-		if index < 0 {
-			e.appendLine(data)
-			break
-		}
-		e.appendLine(data[:index])
-		e.emit()
-		data = data[index+1:]
-	}
-	return original, nil
-}
-
-// appendLine buffers a fragment of the line being assembled, dropping
-// whatever would push it past the limit.
-func (e *lineEmitter) appendLine(data []byte) {
-	remaining := e.limit - int64(len(e.pending))
-	if remaining <= 0 {
-		return
-	}
-	if int64(len(data)) > remaining {
-		data = data[:remaining]
-	}
-	e.pending = append(e.pending, data...)
-}
-
-// emit hands the buffered line to the callback and resets for the next one,
-// keeping the allocated capacity so a long stream does not reallocate per
-// line.
-func (e *lineEmitter) emit() {
-	e.callback(strings.TrimSuffix(string(e.pending), "\r"))
-	e.pending = e.pending[:0]
-}
-
-func (e *lineEmitter) Flush() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if len(e.pending) == 0 {
-		return
-	}
-	e.emit()
-}

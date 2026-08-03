@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,6 +55,11 @@ type WebUIConfig struct {
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
+	// Getenv resolves the *_env variables a config names when the raw editor
+	// validates a replacement. It defaults to os.Getenv: unlike safe mode,
+	// which is handed one because it never loaded a config, the running
+	// daemon already holds the environment its current config came from.
+	Getenv func(string) string
 	// TrustedProxyHops is how many reverse proxies Eggy is deployed behind
 	// (server.trusted_proxy_hops). It is the login throttle's whole notion
 	// of client identity: at 0 the throttle keys on RemoteAddr and
@@ -127,6 +134,55 @@ func writeMode(mode string, theme func() string) http.HandlerFunc {
 	}
 }
 
+// rawConfigGetRoute hands back config.yaml as the owner wrote it, comments and
+// all. Shared by safe mode and the running panel: safe mode is where it began,
+// but reaching it only by breaking Eggy first meant the file was uneditable
+// from a browser in every case except the emergency.
+func rawConfigGetRoute(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		body, err := config.ReadConfigText(configPath)
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, body)
+	}
+}
+
+// rawConfigSetRoute replaces config.yaml, but only with a body LoadConfig has
+// already accepted, so neither surface can write a config that would not
+// start. repaired may be nil: safe mode uses it to hand control back to the
+// supervisor, while the running daemon has nothing to retry -- a live process
+// picks the new file up on its next restart, which is the owner's call.
+func rawConfigSetRoute(configPath string, getenv func(string) string, repaired func()) http.HandlerFunc {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		// The file is small by construction and the writer is the
+		// authenticated owner, but the cap keeps a stuck or hostile client
+		// from filling the volume.
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeWebError(w, http.StatusBadRequest, "could not read request body")
+			return
+		}
+		if err := config.ReplaceConfig(configPath, body, getenv); err != nil {
+			// A rejected config is never written: the owner still has the file
+			// they had, plus the reason this one would not have started.
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if repaired != nil {
+			repaired()
+			writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: "Eggy is starting up again. Reload in a few seconds."})
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: "Restart Eggy for this to take effect."})
+	}
+}
+
 // configuredTheme reads the theme for the probe above. A config it cannot
 // read falls back to the default rather than failing the probe: the mode is
 // the load-bearing half of that response, and refusing to report it because a
@@ -165,6 +221,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
+
+	mux.Handle("GET /api/config/raw", requireWebSession(webConfig, now, rawConfigGetRoute(configPath)))
+	mux.Handle("POST /api/config/raw", requireWebSession(webConfig, now, rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
 
 	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))

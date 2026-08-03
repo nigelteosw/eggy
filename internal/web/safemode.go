@@ -1,11 +1,9 @@
 package web
 
 import (
-	"io"
 	"net/http"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/webui"
 )
@@ -80,35 +78,15 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 			Next:   []string{"Fix the config below and save. Eggy retries startup as soon as it loads."},
 		})
 	}))
-	mux.Handle("GET /api/config/raw", requireWebSession(mode.Web, now, func(w http.ResponseWriter, _ *http.Request) {
-		body, err := config.ReadConfigText(mode.ConfigPath)
-		if err != nil {
-			writeWebError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(w, body)
-	}))
-	mux.Handle("POST /api/config/raw", requireWebSession(mode.Web, now, func(w http.ResponseWriter, r *http.Request) {
-		// The file is small by construction and the writer is the
-		// authenticated owner, but the cap keeps a stuck or hostile client
-		// from filling the volume.
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-		if err != nil {
-			writeWebError(w, http.StatusBadRequest, "could not read request body")
-			return
-		}
-		if err := config.ReplaceConfig(mode.ConfigPath, body, getenv); err != nil {
-			// A rejected config is never written: the owner still has the file
-			// they had, plus the reason this one would not have started.
-			writeWebError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if mode.Repaired != nil {
-			mode.Repaired()
-		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Config saved.", Detail: "Eggy is starting up again. Reload in a few seconds."})
-	}))
+	// The same two handlers the running panel's Advanced page uses. Safe mode
+	// differs only in passing Repaired: a save here hands control back to the
+	// supervisor, because there is a startup to retry.
+	repaired := mode.Repaired
+	if repaired == nil {
+		repaired = func() {}
+	}
+	mux.Handle("GET /api/config/raw", requireWebSession(mode.Web, now, rawConfigGetRoute(mode.ConfigPath)))
+	mux.Handle("POST /api/config/raw", requireWebSession(mode.Web, now, rawConfigSetRoute(mode.ConfigPath, getenv, repaired)))
 	// Every other API route belongs to the Eggy that is not running. Reporting
 	// them unavailable is more honest than the 404 the asset server would
 	// give, which reads as "this deployment does not have that feature".

@@ -43,10 +43,12 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
 
 export function ChatPage({
   threadId,
+  title,
   onSessionExpired,
   onMessageResolved,
 }: {
   threadId: string;
+  title: string;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
 }) {
@@ -63,6 +65,7 @@ export function ChatPage({
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const composer = useRef<HTMLTextAreaElement | null>(null);
   const messages = [...history, ...pending];
 
   function loadHistory() {
@@ -132,11 +135,14 @@ export function ChatPage({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend(event: React.FormEvent) {
+  async function handleSend(event: React.SyntheticEvent) {
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
     setDraft("");
+    // The grown height is inline style, so clearing the value does not undo
+    // it -- the box would stay several lines tall over a single-line draft.
+    if (composer.current) composer.current.style.height = "auto";
     setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text }]);
     try {
       await sendChatMessage(threadId, text);
@@ -163,7 +169,16 @@ export function ChatPage({
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    // bg-card/40 over the sidebar's bg-background, matching the config
+    // panel's raised content column, so both screens are the same two
+    // surfaces in the same order.
+    <div className="flex h-full flex-col bg-card/40">
+      {/* The config panel heads each section with its name; this is the chat
+          equivalent, and it also gives the mobile menu button a bar to sit in
+          rather than floating over the first message. */}
+      <header className="flex h-14 shrink-0 items-center border-b border-border px-4 pl-16 sm:px-6 md:pl-6">
+        <h1 className="truncate text-sm font-medium tracking-tight">{title}</h1>
+      </header>
       <div className="scrollbar-slim flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8 sm:px-6">
           {messages.length === 0 && !typing && (
@@ -202,11 +217,15 @@ export function ChatPage({
           {approvals.map((approval) => (
             <div
               key={approval.id}
-              className="animate-fade-in-up self-start rounded-2xl rounded-bl-md border border-amber-300/70 bg-amber-50 p-4 text-sm shadow-card"
+              // Amber as a translucent wash over whatever surface is behind
+              // it, rather than the fixed amber-50/amber-950 pair this had:
+              // those were picked for the paper theme and turn into a glaring
+              // light patch with unreadable text on charcoal.
+              className="animate-fade-in-up self-start rounded-2xl rounded-bl-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm shadow-card"
             >
               <div className="mb-3 flex items-start gap-2">
                 <span className="mt-0.5 text-base leading-none">⚠️</span>
-                <p className="text-amber-950">{approval.summary}</p>
+                <p className="text-foreground">{approval.summary}</p>
               </div>
               <div className="flex gap-2">
                 <Button type="button" size="sm" onClick={() => handleApproval(approval.id, true)}>
@@ -226,18 +245,37 @@ export function ChatPage({
           <div ref={bottomRef} />
         </div>
       </div>
-      <form onSubmit={handleSend} className="border-t border-border bg-card/80 px-4 py-4 backdrop-blur sm:px-6">
+      <form onSubmit={handleSend} className="shrink-0 border-t border-border px-4 py-4 sm:px-6">
         <div
           className={cn(
-            "mx-auto flex max-w-2xl items-center gap-2 rounded-xl border border-input bg-card p-1.5 shadow-subtle transition-shadow",
+            "mx-auto flex max-w-2xl items-end gap-2 rounded-xl border border-input bg-card p-1.5 shadow-subtle transition-shadow",
             "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25",
           )}
         >
-          <input
+          {/*
+            A textarea rather than an input, because a prompt is often several
+            lines and the single-line field silently scrolled away everything
+            but the last one. It grows with the content up to a cap, then
+            scrolls -- Enter sends, Shift+Enter breaks the line.
+          */}
+          <textarea
+            ref={composer}
             value={draft}
+            rows={1}
             onChange={(event) => setDraft(event.target.value)}
+            onInput={(event) => {
+              const field = event.currentTarget;
+              field.style.height = "auto";
+              field.style.height = `${Math.min(field.scrollHeight, 200)}px`;
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                handleSend(event);
+              }
+            }}
             placeholder="Message Eggy..."
-            className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70"
+            className="scrollbar-slim max-h-[200px] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
           <Button type="submit" size="icon" disabled={!draft.trim()} aria-label="Send message" className="shrink-0 rounded-lg">
             <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

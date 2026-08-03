@@ -15,6 +15,7 @@ export function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [view, setView] = useState<View>("chat");
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
   // Below the md breakpoint, the sidebar is an off-canvas overlay (there's
   // no room for a static 256px column next to the chat panel on a phone);
@@ -73,7 +74,7 @@ export function App() {
         <button
           type="button"
           onClick={() => setView("config")}
-          className="absolute right-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="absolute right-4 top-2.5 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           aria-label="Open settings"
         >
           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -87,7 +88,7 @@ export function App() {
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="absolute left-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            className="absolute left-4 top-2.5 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
             aria-label="Open chat list"
           >
             <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
@@ -112,6 +113,7 @@ export function App() {
                 setActiveThreadId(id);
                 setSidebarOpen(false);
               }}
+              onActiveTitleChange={setActiveThreadTitle}
               onDeleted={(id) => {
                 // Only the open chat needs clearing; deleting some other row
                 // should leave the current conversation alone.
@@ -124,12 +126,13 @@ export function App() {
             <div className="min-w-0 flex-1">
               <ChatPage
                 threadId={activeThreadId}
+                title={activeThreadTitle}
                 onSessionExpired={onSessionExpired}
                 onMessageResolved={() => setSidebarReloadKey((key) => key + 1)}
               />
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 bg-card/40 px-6 text-center">
               <span className="text-3xl">🥚</span>
               <p className="text-sm text-muted-foreground">Select a chat, or start a new one.</p>
             </div>

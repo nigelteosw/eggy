@@ -18,11 +18,16 @@ export function ThreadSidebar({
   activeThreadId,
   onSelect,
   onDeleted,
+  onActiveTitleChange,
   reloadKey,
 }: {
   activeThreadId: string | null;
   onSelect: (threadId: string) => void;
   onDeleted: (threadId: string) => void;
+  // Reports the open chat's title so the chat pane can head itself with it.
+  // It comes from here rather than from a fetch in ChatPage because this is
+  // the component that already holds the list and reloads it after a rename.
+  onActiveTitleChange: (title: string) => void;
   reloadKey: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -39,6 +44,11 @@ export function ThreadSidebar({
       .then(setThreads)
       .catch(() => setThreads([]));
   }, [reloadKey]);
+
+  useEffect(() => {
+    const active = threads.find((thread) => thread.id === activeThreadId);
+    onActiveTitleChange(active?.title || "New chat");
+  }, [threads, activeThreadId, onActiveTitleChange]);
 
   // A click anywhere else dismisses an open row menu, the way a menu is
   // expected to behave; without this it would linger while the user works
@@ -99,11 +109,14 @@ export function ThreadSidebar({
   }
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-card">
-      <div className="flex items-center gap-2.5 px-4 py-4">
+    // bg-background, not bg-card: this is the same surface the config rail
+    // sits on, so the two screens read as one app rather than as two.
+    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-background">
+      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-base leading-none">🥚</span>
         <span className="text-base font-semibold tracking-tight">Eggy</span>
       </div>
+      <div className="h-3" />
 
       <div className="px-3 pb-3">
         <Button type="button" onClick={handleNew} size="sm" className="h-9 w-full">

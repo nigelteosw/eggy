@@ -747,3 +747,91 @@ func TestModeProbeFallsBackToDarkWhenConfigIsUnreadable(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+// The raw editor began as safe mode's repair screen, which meant config.yaml
+// was only editable from a browser once Eggy had already failed to start. The
+// running panel serves the same two routes.
+func TestWebRawConfigRoundTripsInNormalMode(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	webConfig := testWebConfig(now)
+	webConfig.Getenv = testGetenv
+	handler := NewWebHandler(path, webConfig)
+	cookie := webLoginCookie(t, handler)
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", getResponse.Code, getResponse.Body.String())
+	}
+	if !strings.Contains(getResponse.Body.String(), "default_model") {
+		t.Fatalf("body did not look like config.yaml: %s", getResponse.Body.String())
+	}
+
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader(getResponse.Body.String()))
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusOK {
+		t.Fatalf("set status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+}
+
+// A config the running Eggy would not load is refused, and the file it already
+// had survives -- the same guarantee safe mode makes.
+func TestWebRawConfigRejectionLeavesTheFileAlone(t *testing.T) {
+	original := validConfig()
+	path := writeConfigFile(t, original)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	webConfig := testWebConfig(now)
+	webConfig.Getenv = testGetenv
+	handler := NewWebHandler(path, webConfig)
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader("agent: [not a mapping]\n"))
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Fatal("a refused config was written anyway")
+	}
+}
+
+// The editor is owner-only: config.yaml names every provider, repository, and
+// secret variable the deployment uses.
+func TestWebRawConfigRequiresASession(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/config/raw", nil),
+		httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader("agent: {}\n")),
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status=%d", request.Method, response.Code)
+		}
+	}
+}
+
+// testGetenv answers the variables validConfig names and nothing else. A stub
+// that answered everything would also answer PORT, which has to parse as one.
+func testGetenv(name string) string {
+	return map[string]string{
+		"DEEPSEEK_API_KEY":        "key",
+		"TELEGRAM_BOT_TOKEN":      "token",
+		"TELEGRAM_WEBHOOK_SECRET": "secret",
+		"GITHUB_TOKEN":            "gh",
+	}[name]
+}

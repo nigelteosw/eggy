@@ -48,3 +48,9 @@ The agent loop validates tool input, bounds tool steps, and sends only the effec
 ## Persistence
 
 All durable artifacts resolve through `internal/home`. File-backed stores use shared atomic-write and file-lock adapters; conversation history uses embedded SQLite. This keeps deployment to one binary plus one volume.
+
+Eggy keeps three durable forms and no more: YAML for startup configuration, Markdown for owner-facing documents, and SQLite for everything machine-managed.
+
+## Administration
+
+Every configuration write goes through `internal/config` under one file lock with the same validation. Telegram and the authenticated web panel are two views onto that single authority, not two implementations of it. Writes take effect on restart, and both surfaces say so; `/restart` and the panel's Restart button share one path that re-reads the file, verifies it loads, and lets in-flight turns finish.

@@ -183,6 +183,17 @@ export function listApprovals(): Promise<CommandResult> {
   return request("/api/approvals");
 }
 
+// Auto mode is the approval gate's switch. Toggling takes no argument, the
+// same gesture /auto is in chat, so the panel cannot ask for a state the chat
+// command cannot express.
+export function getAutoMode(): Promise<CommandResult> {
+  return request("/api/approvals/auto");
+}
+
+export function toggleAutoMode(): Promise<CommandResult> {
+  return request("/api/approvals/auto", { method: "POST" });
+}
+
 // Schedules come back as a table like every other list route, so the card
 // renders them with DataTable rather than through a projected type.
 export function listSchedules(): Promise<CommandResult> {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 )
 
@@ -15,6 +16,50 @@ import (
 // to approve something.
 type ApprovalDirectory interface {
 	Pending(ctx context.Context) ([]approvals.Approval, error)
+}
+
+// AutoModeSwitch is the approval gate's on/off state. Unlike deciding an
+// approval, this is a setting rather than an event, so the panel writes it
+// directly -- through the same approval authority /auto writes, which is what
+// keeps the two surfaces from holding different answers.
+type AutoModeSwitch interface {
+	AutoApprove(ctx context.Context) (bool, error)
+	SetAutoApprove(ctx context.Context, auto bool) error
+}
+
+// newAutoModeHandler reads the switch on GET and flips it on POST. POST takes
+// no body: it is a toggle, matching /auto, so the panel and the chat command
+// are the same gesture and neither can set a state the other cannot express.
+func newAutoModeHandler(gate AutoModeSwitch, toggle bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if gate == nil {
+			writeWebError(w, http.StatusNotFound, "approvals are unavailable")
+			return
+		}
+		auto, err := gate.AutoApprove(r.Context())
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if toggle {
+			auto = !auto
+			if err := gate.SetAutoApprove(r.Context(), auto); err != nil {
+				writeWebError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		writeWebResult(w, webResult{
+			State: webSuccess, Title: commands.AutoModeMessage(auto),
+			Fields: []webField{{Label: "auto_mode", Value: autoModeValue(auto)}},
+		})
+	}
+}
+
+func autoModeValue(auto bool) string {
+	if auto {
+		return "enabled"
+	}
+	return "disabled"
 }
 
 // newApprovalListHandler answers with the same table shape the other list

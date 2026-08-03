@@ -52,6 +52,9 @@ type WebUIConfig struct {
 	// Approvals lists what is waiting on the owner. Deciding one goes
 	// through the existing chat approve route, not a second path.
 	Approvals ApprovalDirectory
+	// AutoMode is the approval gate's on/off switch, the panel's half of the
+	// /auto command.
+	AutoMode AutoModeSwitch
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -245,6 +248,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
 	mux.Handle("GET /api/tools", requireWebSession(webConfig, now, newToolListHandler(webConfig.Tools)))
 	mux.Handle("GET /api/approvals", requireWebSession(webConfig, now, newApprovalListHandler(webConfig.Approvals, now)))
+	mux.Handle("GET /api/approvals/auto", requireWebSession(webConfig, now, newAutoModeHandler(webConfig.AutoMode, false)))
+	mux.Handle("POST /api/approvals/auto", requireWebSession(webConfig, now, newAutoModeHandler(webConfig.AutoMode, true)))
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 

@@ -66,6 +66,10 @@ type App struct {
 	dispatcher  *services.Dispatcher
 	httpHandler http.Handler
 	loop        *agent.Loop
+	// tools is the one registry the loop runs on, kept so the panel's tool
+	// list and the approval executor resolve names against the same catalog a
+	// turn does rather than against a second copy.
+	tools       *services.ToolRegistry
 	turnService *turns.Service
 	commands    *commands.CommandService
 	scheduler   *schedulerlocal.Scheduler
@@ -163,6 +167,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.workspaces = repo.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
 	registry := services.NewToolRegistry()
+	app.tools = registry
 	activeTurns := services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
@@ -234,7 +239,25 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// turn sees without restarting the process. It is a provider on the one
 		// registry rather than a second source on the loop: MCP supplies tools,
 		// it does not modify the agent.
-		registry.AddProvider("mcp", app.mcp.Tools)
+		provider := app.mcp.Tools
+		if app.mcp.HasApprovalGates() {
+			// Wrapped inside the provider rather than once at wiring time,
+			// because the catalog this reads is rebuilt on every reconnect: a
+			// gate applied to the tools that existed at startup would silently
+			// come off the moment a server reconnected.
+			manager := app.mcp
+			provider = func() []ports.Tool {
+				tools := manager.Tools()
+				for index, tool := range tools {
+					if manager.RequiresApproval(tool.Definition().Name) {
+						tools[index] = services.NewApprovalGatedTool(tool, app.approvals, app.approvals)
+					}
+				}
+				return tools
+			}
+			approvalExecutors[services.ApprovalToolCall] = services.NewApprovalToolExecutor(registry, app.approvals)
+		}
+		registry.AddProvider("mcp", provider)
 	}
 	// One context budget for one loop: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
@@ -266,6 +289,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Google:       googleAdministration.commandsView(),
 		Turns:        activeTurns,
 		Store:        stateStore,
+		Approvals:    app.approvals,
 		Conversation: conversation,
 		AgentRuntime: agentRuntime,
 		DefaultModel: config.Agent.DefaultModel,
@@ -297,6 +321,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Tools:            registry,
 		Schedules:        app.scheduler,
 		Approvals:        app.approvals,
+		AutoMode:         app.approvals,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

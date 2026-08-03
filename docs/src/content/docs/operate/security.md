@@ -26,9 +26,11 @@ The local runner is a restricted process boundary, not a container boundary. A s
 
 ## Side effects
 
-Eggy ships no protected action today; MCP tools are trusted at configuration time and carry no per-call approval. Telegram selections cannot authorize mutations.
+MCP servers are trusted at configuration time: a server's tools run without asking unless you say otherwise. Telegram selections cannot authorize mutations.
 
-MCP servers are trusted wholesale when configured because Eggy cannot place a reliable per-call approval boundary around an arbitrary server's behavior. Narrow their tools with exact filters.
+`require_approval` is how you say otherwise. Naming a tool under a server's `require_approval` routes each of its calls through the payload-bound approval mechanism: the call does not reach the server, the approval binds the exact arguments, and your decision executes it once. Eggy cannot judge which of an arbitrary server's tools are dangerous, so the list is yours to write — narrow what a server exposes with `tool_filter`, then gate the mutations that remain.
+
+`/auto` disables every gate until it is switched back on. It is durable across restarts and `status` reports it while it is on, but it is a real bypass: with auto mode enabled a gated tool is exactly as trusted as an ungated one.
 
 ## Scheduled turns
 

@@ -30,6 +30,7 @@ var telegramCommands = []struct {
 	{Name: "model", Description: "Show or select the active model"},
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
 	{Name: "google", Description: "Authorize Google Workspace and show its status"},
+	{Name: "auto", Description: "Switch auto mode on or off for approval-gated tool calls"},
 }
 
 type ConversationResetter interface {
@@ -45,11 +46,20 @@ type AgentSettings interface {
 	SelectModel(context.Context, string) error
 }
 
+// ApprovalGate is the runtime switch behind /approvals. Reading and writing go
+// through the one approval authority rather than this package touching state
+// directly, so the gate has a single answer whoever asks.
+type ApprovalGate interface {
+	AutoApprove(context.Context) (bool, error)
+	SetAutoApprove(context.Context, bool) error
+}
+
 type Options struct {
 	ConfigPath   string
 	MCP          MCPRuntime
 	Google       GoogleRuntime
 	Store        ports.StateStore
+	Approvals    ApprovalGate
 	Conversation ConversationResetter
 	Turns        TurnStopper
 	AgentRuntime AgentSettings
@@ -62,6 +72,7 @@ type CommandService struct {
 	mcp          MCPRuntime
 	google       GoogleRuntime
 	store        ports.StateStore
+	approvals    ApprovalGate
 	conversation ConversationResetter
 	turns        TurnStopper
 	agentRuntime AgentSettings
@@ -74,7 +85,7 @@ func New(options Options) *CommandService {
 	sort.Strings(aliases)
 	return &CommandService{
 		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
-		store: options.Store, conversation: options.Conversation, turns: options.Turns,
+		store: options.Store, approvals: options.Approvals, conversation: options.Conversation, turns: options.Turns,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
 	}
 }
@@ -115,6 +126,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.mcpCommand(ctx, args)
 	case "google":
 		return s.googleCommand(ctx, args)
+	case "auto":
+		return s.autoCommand(ctx)
 	default:
 		return "Unknown command.\n\n" + HelpText(), true, nil
 	}
@@ -164,6 +177,18 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	if len(waiting) > 0 {
 		report += "\n" + strings.Join(waiting, "\n")
 	}
+	// Reported unconditionally when on, and only when on. A bypass the owner
+	// switched on days ago and forgot is the failure mode worth a line here;
+	// the safe state does not need one.
+	if s.approvals != nil {
+		auto, err := s.approvals.AutoApprove(ctx)
+		if err != nil {
+			return "", true, err
+		}
+		if auto {
+			report += "\n**Auto mode is enabled** — gated tool calls run without asking. `/auto` switches it back off."
+		}
+	}
 	if s.mcp != nil {
 		statuses := s.mcp.Statuses()
 		ready, tools, attention := 0, 0, []string(nil)
@@ -210,8 +235,35 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 	return "Model set to " + alias + ".", true, nil
 }
 
+// autoCommand flips auto mode. It takes no argument on purpose: a toggle the
+// owner can fire from a phone without remembering a subcommand, and the reply
+// states the resulting mode so the tap is always confirmed rather than
+// assumed.
+func (s *CommandService) autoCommand(ctx context.Context) (string, bool, error) {
+	if s.approvals == nil {
+		return "Approvals are unavailable.", true, nil
+	}
+	auto, err := s.approvals.AutoApprove(ctx)
+	if err != nil {
+		return "", true, err
+	}
+	if err := s.approvals.SetAutoApprove(ctx, !auto); err != nil {
+		return "", true, err
+	}
+	return AutoModeMessage(!auto), true, nil
+}
+
+// AutoModeMessage is the one wording for the switch's new state, so Telegram
+// and the web panel cannot describe the same setting two different ways.
+func AutoModeMessage(auto bool) string {
+	if auto {
+		return "Auto mode enabled. Approval-gated tool calls now run without asking."
+	}
+	return "Auto mode disabled. Approval-gated tool calls will ask before running."
+}
+
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout]"
+	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /auto"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

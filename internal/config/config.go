@@ -224,6 +224,11 @@ type MCPServerConfig struct {
 	FailureThreshold int                 `yaml:"failure_threshold"`
 	Cooldown         Duration            `yaml:"cooldown"`
 	ToolFilter       MCPToolFilterConfig `yaml:"tool_filter"`
+	// RequireApproval names the remote tools on this server whose calls the
+	// owner must approve before they run. A configured MCP server is otherwise
+	// trusted wholesale, so this is what lets a mutation arriving over MCP
+	// carry the same per-call approval a native tool's would.
+	RequireApproval []string `yaml:"require_approval,omitempty"`
 }
 
 type MCPToolFilterConfig struct {
@@ -622,6 +627,25 @@ func (c Config) validateMCP() error {
 					return fmt.Errorf("MCP server %q has duplicate tool filter %q", name, tool)
 				}
 				seen[tool] = true
+			}
+		}
+		approvals := map[string]bool{}
+		for _, tool := range server.RequireApproval {
+			if strings.TrimSpace(tool) == "" {
+				return fmt.Errorf("MCP server %q require_approval must not contain empty names", name)
+			}
+			if approvals[tool] {
+				return fmt.Errorf("MCP server %q has duplicate require_approval entry %q", name, tool)
+			}
+			approvals[tool] = true
+		}
+		// An excluded tool never reaches the catalog, so requiring approval for
+		// it is a contradiction: the owner wrote down a gate for a call that
+		// cannot happen, which most likely means the gate they wanted is on a
+		// tool that is still ungated.
+		for _, tool := range server.ToolFilter.Exclude {
+			if approvals[tool] {
+				return fmt.Errorf("MCP server %q requires approval for excluded tool %q", name, tool)
 			}
 		}
 	}

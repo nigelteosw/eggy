@@ -1,12 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { CommandResult, SessionExpiredError, approveChatDecision, listApprovals } from "./api";
+import {
+  CommandResult,
+  SessionExpiredError,
+  approveChatDecision,
+  getAutoMode,
+  listApprovals,
+  toggleAutoMode,
+} from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
+import { Switch } from "./components/ui/switch";
 
 // Column positions in the rows /api/approvals returns.
 const ID = 0;
 const STATE = 3;
+
+// The auto-mode routes report the state in a field rather than only in prose,
+// so the switch reflects the server's answer instead of what the click assumed.
+function readAutoMode(result: CommandResult): boolean {
+  return result.fields?.some((field) => field.label === "auto_mode" && field.value === "enabled") ?? false;
+}
 
 /**
  * Approvals were countable and not inspectable: status reports "1 approval
@@ -18,6 +32,9 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
+  const [auto, setAuto] = useState(false);
+  const [autoMessage, setAutoMessage] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   const load = useCallback(() => {
     listApprovals()
@@ -29,11 +46,39 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         }
         setError(err instanceof Error ? err.message : "Failed to load");
       });
+    getAutoMode()
+      .then((mode) => setAuto(readAutoMode(mode)))
+      .catch((err) => {
+        if (err instanceof SessionExpiredError) {
+          onSessionExpired();
+        }
+        // A gate whose state cannot be read is left showing off. Rendering it
+        // as on would tell the owner calls are being reviewed when nothing
+        // here knows that.
+      });
   }, [onSessionExpired]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  async function switchAuto() {
+    setSwitching(true);
+    setError(null);
+    try {
+      const mode = await toggleAutoMode();
+      setAuto(readAutoMode(mode));
+      setAutoMessage(mode.title ?? null);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Could not switch auto mode");
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   async function decide(row: string[], approved: boolean) {
     setDeciding(row[ID]);
@@ -64,6 +109,15 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-3">
+          <Switch checked={auto} disabled={switching} onCheckedChange={switchAuto} label="Auto mode" />
+          <p className="text-sm text-muted-foreground">
+            {autoMessage ??
+              (auto
+                ? "Auto mode enabled. Approval-gated tool calls now run without asking."
+                : "Auto mode disabled. Approval-gated tool calls will ask before running.")}
+          </p>
+        </div>
         <DataTable
           headers={result?.table_headers}
           rows={result?.table_rows}

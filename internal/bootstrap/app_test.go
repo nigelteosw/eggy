@@ -461,10 +461,10 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	if len(names) != 7 {
-		t.Fatalf("registered %d commands, want 7: %v", len(names), names)
+	if len(names) != 8 {
+		t.Fatalf("registered %d commands, want 8: %v", len(names), names)
 	}
-	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google"} {
+	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -946,5 +946,61 @@ func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
 	}
 	if len(webChannel.delivered) != 0 {
 		t.Fatalf("web delivered=%v, want unprompted output kept off the web channel", webChannel.delivered)
+	}
+}
+
+// The wiring end of R1: a require_approval entry has to survive config, the
+// manager, and the provider boundary to reach the model as a gated tool. The
+// description is what proves the gate is on -- it is the only part of the
+// wrapper the loop can see.
+func TestNewAppGatesConfiguredMCPToolsBehindApproval(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.MCP.Servers = map[string]config.MCPServerConfig{
+		"railway": {
+			Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth",
+			ToolFilter:      config.MCPToolFilterConfig{Include: []string{"list-projects", "delete-project"}},
+			RequireApproval: []string{"delete-project"},
+		},
+	}
+	secrets := appTestSecrets("deepseek")
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gated, plain := "", ""
+	for _, listing := range app.tools.Catalog() {
+		switch listing.Definition.Name {
+		case "railway__delete_project":
+			gated = listing.Definition.Description
+		case "railway__list_projects":
+			plain = listing.Definition.Description
+		}
+	}
+	if !strings.Contains(gated, "requires the owner's approval") {
+		t.Fatalf("configured tool is not gated: %q", gated)
+	}
+	if plain == "" || strings.Contains(plain, "requires the owner's approval") {
+		t.Fatalf("an unconfigured tool was gated: %q", plain)
+	}
+}
+
+// Nothing configured, nothing paid for: no wrapper on any tool, and no
+// executor registered for an action that can never be requested.
+func TestNewAppLeavesMCPToolsUngatedWhenNothingRequiresApproval(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	cfg.MCP.Servers = map[string]config.MCPServerConfig{
+		"railway": {Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth", ToolFilter: config.MCPToolFilterConfig{Include: []string{"list-projects"}}},
+	}
+	secrets := appTestSecrets("deepseek")
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listing := range app.tools.Catalog() {
+		if strings.Contains(listing.Definition.Description, "requires the owner's approval") {
+			t.Fatalf("tool %q was gated with no require_approval configured", listing.Definition.Name)
+		}
 	}
 }

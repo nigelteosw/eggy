@@ -213,6 +213,12 @@ mcp:
 		{"transport", "streamable-http", "sse", "unsupported transport"},
 		{"auth", "auth: oauth", "auth: token", "unsupported auth"},
 		{"stdio fields on http", "auth: oauth", "auth: oauth\n      command: npx", "apply only to the stdio transport"},
+		{"empty require_approval entry", "enabled: true", "enabled: true\n      require_approval: [\"\"]", "require_approval must not contain empty names"},
+		{"duplicate require_approval entry", "enabled: true", "enabled: true\n      require_approval: [send, send]", "duplicate require_approval entry"},
+		// A gate on a tool the filter already removed is a contradiction, and
+		// the likely reading is that the gate the owner wanted is on a
+		// different tool -- one that is still ungated.
+		{"require_approval on an excluded tool", "enabled: true", "enabled: true\n      require_approval: [send]\n      tool_filter:\n        exclude: [send]", "requires approval for excluded tool"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

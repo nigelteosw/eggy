@@ -34,8 +34,12 @@ type serverRuntime struct {
 	// discovery warnings in status, so a rebuild never duplicates or drops
 	// the warnings discovery produced.
 	collisions []string
-	breakers   map[string]*toolBreaker
-	callMu     sync.Mutex
+	// protected holds the flattened names of this server's tools that config
+	// requires an approval for. Keyed by flattened name because that is what a
+	// caller has: the model calls "server__tool", not the remote name.
+	protected map[string]bool
+	breakers  map[string]*toolBreaker
+	callMu    sync.Mutex
 }
 
 type Manager struct {
@@ -43,11 +47,14 @@ type Manager struct {
 	order    []string
 	runtimes map[string]*serverRuntime
 	tools    []ports.Tool
-	now      func() time.Time
-	oauth    map[string]*oauthProvider
-	handlers map[string]auth.OAuthHandler
-	connect  connector
-	http     *http.Client
+	// protected is the flattened catalog's approval-gated names, rebuilt with
+	// the catalog so a reconnect can never drop a gate.
+	protected map[string]bool
+	now       func() time.Time
+	oauth     map[string]*oauthProvider
+	handlers  map[string]auth.OAuthHandler
+	connect   connector
+	http      *http.Client
 }
 
 func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*Manager, error) {
@@ -147,6 +154,7 @@ func (m *Manager) applyServerLocked(runtime *serverRuntime, session clientSessio
 	runtime.status.Warnings = nil
 	runtime.status.ReloadRequired = false
 	runtime.tools = nil
+	runtime.protected = nil
 	if state != StateReady {
 		m.rebuildLocked()
 		return
@@ -167,7 +175,22 @@ func (m *Manager) applyServerLocked(runtime *serverRuntime, session clientSessio
 		if !runtime.config.SupportsParallelToolCalls {
 			tool.executeMu = &runtime.callMu
 		}
+		if slices.Contains(runtime.config.RequireApproval, advertised.Name) {
+			if runtime.protected == nil {
+				runtime.protected = map[string]bool{}
+			}
+			runtime.protected[tool.definition.Name] = true
+		}
 		tools = append(tools, tool)
+	}
+	// A require_approval entry naming a tool this server does not advertise is
+	// reported, not ignored. Silence would read as "the gate is on" while the
+	// typo left it off, and the failure only surfaces once an unapproved call
+	// has already run -- which is the whole thing the gate exists to prevent.
+	for _, name := range runtime.config.RequireApproval {
+		if !slices.ContainsFunc(selected, func(tool *sdk.Tool) bool { return tool != nil && tool.Name == name }) {
+			runtime.status.Warnings = append(runtime.status.Warnings, fmt.Sprintf("require_approval names tool %q, which this server does not advertise", name))
+		}
 	}
 	runtime.tools = tools
 	m.rebuildLocked()
@@ -180,6 +203,10 @@ func (m *Manager) applyServerLocked(runtime *serverRuntime, session clientSessio
 func (m *Manager) rebuildLocked() {
 	catalog := make([]ports.Tool, 0, len(m.tools))
 	owners := map[string]string{}
+	// Rebuilt with the catalog rather than kept alongside it: a tool that
+	// dropped out of the catalog must drop its gate with it, and a tool that
+	// came back through a reconnect must come back gated.
+	protected := map[string]bool{}
 	for _, name := range m.order {
 		runtime := m.runtimes[name]
 		if runtime == nil {
@@ -195,10 +222,14 @@ func (m *Manager) rebuildLocked() {
 			}
 			owners[toolName] = name
 			catalog = append(catalog, tool)
+			if runtime.protected[toolName] {
+				protected[toolName] = true
+			}
 			exported++
 		}
 		runtime.status.Tools = exported
 	}
+	m.protected = protected
 	slices.SortFunc(catalog, func(left, right ports.Tool) int {
 		if left.Definition().Name < right.Definition().Name {
 			return -1
@@ -299,6 +330,28 @@ func (m *Manager) Tools() []ports.Tool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]ports.Tool(nil), m.tools...)
+}
+
+// RequiresApproval reports whether a flattened catalog name is one config
+// requires the owner to approve before it runs.
+func (m *Manager) RequiresApproval(tool string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.protected[tool]
+}
+
+// HasApprovalGates reports whether any server configures require_approval at
+// all. It lets bootstrap skip the gate entirely when nothing asks for it, so
+// an unconfigured capability costs nothing at runtime.
+func (m *Manager) HasApprovalGates() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, runtime := range m.runtimes {
+		if len(runtime.config.RequireApproval) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) Statuses() []ServerStatus {

@@ -97,6 +97,22 @@ func (r *ToolRegistry) Catalog() []ToolListing {
 	return listings
 }
 
+// Lookup resolves one tool by name from the same merged catalog a turn runs
+// on, providers included. It exists for the approval executor, which has to
+// find a tool again after the owner decides -- by which time the object that
+// requested the approval may have been replaced by a reconnect or a restart.
+func (r *ToolRegistry) Lookup(name string) (ports.Tool, bool) {
+	if tool, ok := r.tools[name]; ok {
+		return tool, true
+	}
+	for _, entry := range r.merged() {
+		if entry.tool.Definition().Name == name {
+			return entry.tool, true
+		}
+	}
+	return nil, false
+}
+
 type sourcedTool struct {
 	source string
 	tool   ports.Tool

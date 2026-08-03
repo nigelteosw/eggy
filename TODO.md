@@ -219,6 +219,13 @@ declined. What is worth taking is listed below; what is not is in **Rejected
 from the comparison**, so it does not get re-proposed every time someone reads
 their READMEs.
 
+R1 (approval-gated MCP tools) shipped on 2026-08-03; see
+`docs/superpowers/specs/2026-08-03-approval-gated-mcp-tools-design.md`. It is
+the approval mechanism's first production consumer — `approvalExecutors` was an
+empty map until then — so the semantics it settled (deliver the result as an
+outcome rather than resuming the turn, one `tool.call` action, gate applied at
+the provider boundary) now bind anything else that gates a tool.
+
 **Already matched, do not rebuild:** an adapter-per-channel port
 (`ports.Channel` + `TrackableChannel`/`TypingChannel`), MCP as the extension
 path, cron plus a silence-permitted heartbeat, FTS5 conversation search,
@@ -231,22 +238,6 @@ plus a skill; a tool gated off when unconfigured; an MCP server. Core tool is
 last, because every core tool ships on every API call. This is the same
 principle as this file's "a capability that is not configured costs nothing at
 runtime", stated as a decision procedure, and it decides R2 below on its own.
-
-### R1 — Approval-gated MCP tools
-
-The open safety gap, named in `AGENTS.md` and left by deleting Calendar: a
-configured MCP server is trusted wholesale, so a calendar or mail mutation
-arriving over MCP carries no per-call approval, while the same class of action
-through a native tool would. Both references gate sensitive operations
-(OpenClaw pairing/allowlists, Hermes `clarify`/`sudo`); Eggy has the machinery
-already and simply does not reach it from the MCP path.
-
-A per-server `require_approval: [tool names]` list routing a matching call
-through the existing approval flow, with one `approvals.Action` and one
-executor, per the standing safety rule.
-
-Deletion budget: +~60 production lines, +1 config key per MCP server, 0 tools,
-0 durable records, 0 background loops, 0 ports changes.
 
 ### R2 — Web reach
 

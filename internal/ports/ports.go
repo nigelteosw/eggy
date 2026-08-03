@@ -276,6 +276,12 @@ type State struct {
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
 	Agent             AgentRuntimeState             `json:"agent,omitempty"`
+	// ApprovalAutoMode runs approval-gated tool calls without asking. It
+	// defaults to false, so state persisted before this field existed keeps
+	// the gate on, and it is durable rather than per-turn: a bypass the owner
+	// forgot they enabled must still be visible after a restart, which is what
+	// /status reports it for.
+	ApprovalAutoMode bool `json:"approval_auto_mode,omitempty"`
 }
 
 type AgentRuntimeState struct {

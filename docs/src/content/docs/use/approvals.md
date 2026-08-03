@@ -34,4 +34,25 @@ An approval past its 30-minute window is shown as expired rather than hidden: it
 - Adding an MCP server is a configuration-time trust decision, not a per-call approval.
 - Repository inspection requires no mutation approval because the shipped repository boundary is read-only.
 
-> MCP tools have no per-call approval gating. A configured calendar server can create, move, and delete real events without prompting — that is the accepted cost of removing the native adapter, and adding `require_approval` to the MCP layer is what would undo it.
+## Gating an MCP tool
+
+A configured MCP server is trusted wholesale by default: its tools run when the model calls them. Name individual tools under a server's `require_approval` to change that for those tools only.
+
+```yaml
+mcp:
+  servers:
+    railway:
+      require_approval:
+        - "deploy"
+        - "set-variables"
+```
+
+A gated call does not reach the server. It records an approval bound to the exact arguments, the model is told the call is waiting and to stop, and your approve tap runs it. The result is delivered to you rather than returned to the model, so gate mutations — where the answer is a confirmation — rather than reads the model needs in order to keep working.
+
+The binding is per call: approving one `deploy` authorizes that deploy's arguments once. It does not authorize a second deploy, different arguments, or a different tool. Names are exact remote tool names, the same ones `tool_filter` takes; one that the server does not advertise is reported as a warning on the server's status rather than silently gating nothing.
+
+## Auto mode
+
+`/auto` switches every gate off, and `/auto` again switches it back on. The panel's Approvals card has the same toggle. Either way the reply names the resulting state — "Auto mode enabled." or "Auto mode disabled."
+
+While it is on, gated tools run immediately and return their results to the model like any other tool; no approval is recorded. The setting is durable, so it survives a restart, and `status` reports it whenever it is on — a bypass you switched on and forgot is the thing worth being told about.

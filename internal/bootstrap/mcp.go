@@ -40,7 +40,8 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 			Enabled: configured.Enabled, ConnectTimeout: configured.ConnectTimeout.Value(), Timeout: configured.Timeout.Value(), MaxOutputBytes: configured.MaxOutputBytes,
 			SupportsParallelToolCalls: configured.SupportsParallelToolCalls,
 			FailureThreshold:          configured.FailureThreshold, Cooldown: configured.Cooldown.Value(),
-			Filter: mcpadapter.ToolFilter{Include: append([]string(nil), configured.ToolFilter.Include...), Exclude: append([]string(nil), configured.ToolFilter.Exclude...)},
+			Filter:          mcpadapter.ToolFilter{Include: append([]string(nil), configured.ToolFilter.Include...), Exclude: append([]string(nil), configured.ToolFilter.Exclude...)},
+			RequireApproval: append([]string(nil), configured.RequireApproval...),
 		})
 	}
 	if options.FakeAdapters {

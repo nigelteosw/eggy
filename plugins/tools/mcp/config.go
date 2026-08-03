@@ -44,6 +44,11 @@ type ServerConfig struct {
 	FailureThreshold int
 	Cooldown         time.Duration
 	Filter           ToolFilter
+	// RequireApproval names the remote tools whose calls must be approved by
+	// the owner before they run. Exact names, like Filter: a pattern that
+	// silently matches nothing would be invisible until an unapproved call had
+	// already gone through.
+	RequireApproval []string
 }
 
 func (c ServerConfig) withDefaults() ServerConfig {

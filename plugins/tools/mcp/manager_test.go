@@ -463,3 +463,98 @@ func managerToolNames(manager *Manager) []string {
 func containsSecret(value string) bool {
 	return strings.Contains(value, "Bearer") || strings.Contains(value, "secret")
 }
+
+// require_approval marks the flattened name, because that is what the model
+// calls and what the gate has to recognize.
+func TestManagerMarksConfiguredToolsAsRequiringApproval(t *testing.T) {
+	session := &fakeSession{tools: []*sdk.Tool{
+		{Name: "send-message", InputSchema: objectSchema()},
+		{Name: "list-messages", InputSchema: objectSchema()},
+	}}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "mail", URL: "https://mail.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096,
+		RequireApproval: []string{"send-message"},
+	}}, Options{Connect: sessionConnector(map[string]*fakeSession{"mail": session}), Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if !manager.RequiresApproval("mail__send_message") {
+		t.Fatal("configured tool is not gated")
+	}
+	if manager.RequiresApproval("mail__list_messages") {
+		t.Fatal("an unconfigured tool was gated")
+	}
+	if !manager.HasApprovalGates() {
+		t.Fatal("manager does not report configured gates")
+	}
+}
+
+// A server with no require_approval costs nothing: bootstrap skips the wrapper
+// and the executor entirely on the strength of this answer.
+func TestManagerWithoutRequireApprovalHasNoGates(t *testing.T) {
+	session := &fakeSession{tools: []*sdk.Tool{{Name: "send-message", InputSchema: objectSchema()}}}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "mail", URL: "https://mail.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096,
+	}}, Options{Connect: sessionConnector(map[string]*fakeSession{"mail": session}), Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	if manager.HasApprovalGates() || manager.RequiresApproval("mail__send_message") {
+		t.Fatal("an unconfigured server reported a gate")
+	}
+}
+
+// A typo in require_approval leaves a tool ungated, and the only thing that
+// would ever reveal it is a warning: the failure otherwise surfaces once an
+// unapproved call has already run.
+func TestManagerWarnsWhenRequireApprovalNamesAnUnadvertisedTool(t *testing.T) {
+	session := &fakeSession{tools: []*sdk.Tool{{Name: "send-message", InputSchema: objectSchema()}}}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "mail", URL: "https://mail.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096,
+		RequireApproval: []string{"send_message"},
+	}}, Options{Connect: sessionConnector(map[string]*fakeSession{"mail": session}), Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	status, err := manager.Status("mail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(status.Warnings, `require_approval names tool "send_message", which this server does not advertise`) {
+		t.Fatalf("no warning for an unmatched require_approval entry: %#v", status.Warnings)
+	}
+}
+
+// A catalog rebuild must not un-gate a tool. The gate is derived from config
+// on every rebuild rather than stamped once at startup, because a server that
+// reconnects mid-conversation replaces every tool object it exported.
+func TestManagerKeepsApprovalGateAcrossACatalogRebuild(t *testing.T) {
+	session := &fakeSession{tools: []*sdk.Tool{{Name: "send-message", InputSchema: objectSchema()}}}
+	var clientOptions *sdk.ClientOptions
+	connect := func(_ context.Context, _ ServerConfig, _ *http.Client, _ auth.OAuthHandler, options *sdk.ClientOptions) (clientSession, error) {
+		clientOptions = options
+		return session, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{
+		Name: "mail", URL: "https://mail.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096,
+		RequireApproval: []string{"send-message"},
+	}}, Options{Connect: connect, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	session.tools = append(session.tools, &sdk.Tool{Name: "list-messages", InputSchema: objectSchema()})
+	clientOptions.ToolListChangedHandler(context.Background(), nil)
+	if names := managerToolNames(manager); !slices.Equal(names, []string{"mail__list_messages", "mail__send_message"}) {
+		t.Fatalf("tools=%v", names)
+	}
+	if !manager.RequiresApproval("mail__send_message") {
+		t.Fatal("a catalog rebuild dropped the approval gate")
+	}
+	if manager.RequiresApproval("mail__list_messages") {
+		t.Fatal("a rebuild gated a tool config never named")
+	}
+}

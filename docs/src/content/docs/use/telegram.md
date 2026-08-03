@@ -18,10 +18,13 @@ Eggy's Telegram command surface is intentionally small.
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
+| `/auto` | Switch auto mode on or off for approval-gated tool calls |
 
 Unknown commands return the same command reference. Ordinary text continues to the model.
 
-`/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention.
+`/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and tells you when auto mode is enabled.
+
+`/auto` is a toggle rather than a setting: it flips the [approval gate](/eggy/use/approvals/) and replies with the state it left you in. While auto mode is enabled, tools you gated with `require_approval` run without asking.
 
 ## Managing MCP servers
 

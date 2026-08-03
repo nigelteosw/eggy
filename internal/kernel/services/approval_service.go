@@ -116,6 +116,32 @@ func (s *ApprovalService) Pending(ctx context.Context) ([]approvals.Approval, er
 	return pending, nil
 }
 
+// AutoApprove reports whether approval-gated tool calls currently run without
+// asking the owner.
+func (s *ApprovalService) AutoApprove(ctx context.Context) (bool, error) {
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return false, err
+	}
+	return state.ApprovalAutoMode, nil
+}
+
+// SetAutoApprove turns the bypass on or off. It lives here rather than on a
+// surface because the gate, the approval records, and this switch are one
+// authority: a second place that decided "does this need approval" would be a
+// second answer to the question the gate exists to answer.
+func (s *ApprovalService) SetAutoApprove(ctx context.Context, auto bool) error {
+	state, err := s.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
+		state.ApprovalAutoMode = auto
+		return nil
+	})
+	return err
+}
+
 // Invalidate marks a pending approval unusable without changing approvals
 // that were already decided or consumed.
 func (s *ApprovalService) Invalidate(ctx context.Context, id string) error {

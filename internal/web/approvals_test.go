@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 )
 
@@ -68,5 +69,70 @@ func TestWebApprovalsRouteRequiresSession(t *testing.T) {
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/approvals", nil))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", response.Code)
+	}
+}
+
+type fakeAutoMode struct{ auto bool }
+
+func (f *fakeAutoMode) AutoApprove(context.Context) (bool, error) { return f.auto, nil }
+
+func (f *fakeAutoMode) SetAutoApprove(_ context.Context, auto bool) error {
+	f.auto = auto
+	return nil
+}
+
+// The panel and /auto are one switch. POST toggles rather than setting a
+// value, so neither surface can ask for a state the other cannot express, and
+// the reported wording is the same one Telegram sends.
+func TestWebAutoModeTogglesTheSameSwitch(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	gate := &fakeAutoMode{}
+	webConfig := testWebConfig(now)
+	webConfig.AutoMode = gate
+	handler := NewWebHandler("", webConfig)
+	cookie := webLoginCookie(t, handler)
+
+	read := func(method, path string) webResult {
+		t.Helper()
+		request := httptest.NewRequest(method, path, nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var decoded webResult
+		if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		return decoded
+	}
+
+	if got := read(http.MethodGet, "/api/approvals/auto"); got.Title != commands.AutoModeMessage(false) {
+		t.Fatalf("initial read did not report the gate as on: %+v", got)
+	}
+	enabled := read(http.MethodPost, "/api/approvals/auto")
+	if !gate.auto || enabled.Title != commands.AutoModeMessage(true) {
+		t.Fatalf("toggle did not enable auto mode: auto=%v result=%+v", gate.auto, enabled)
+	}
+	// The state travels as a field, not only as prose, so the switch renders
+	// from the server's answer rather than from what the click assumed.
+	if len(enabled.Fields) != 1 || enabled.Fields[0].Label != "auto_mode" || enabled.Fields[0].Value != "enabled" {
+		t.Fatalf("toggle did not report machine-readable state: %+v", enabled.Fields)
+	}
+	if disabled := read(http.MethodPost, "/api/approvals/auto"); gate.auto || disabled.Fields[0].Value != "disabled" {
+		t.Fatalf("second toggle did not switch back: auto=%v result=%+v", gate.auto, disabled)
+	}
+}
+
+// An unauthenticated toggle would be a bypass anyone could flip.
+func TestWebAutoModeRequiresASession(t *testing.T) {
+	webConfig := testWebConfig(time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
+	webConfig.AutoMode = &fakeAutoMode{}
+	handler := NewWebHandler("", webConfig)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/approvals/auto", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

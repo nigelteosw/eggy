@@ -82,10 +82,11 @@ runner:
 #   timeout: "30s"
 #   max_output_bytes: 131072
 mcp:
-  # Anything listed here is trusted. An MCP tool call carries no per-call
-  # approval because a server can only get here by you putting it here. Reviewing the
-  # server IS the approval. Use tool_filter to narrow what a server exposes
-  # rather than expecting a prompt at call time. See the docs site under
+  # Anything listed here is trusted: a server can only get here by you putting
+  # it here, so reviewing the server IS the approval, and its tools otherwise
+  # run without asking. Use tool_filter to narrow what a server exposes at all,
+  # and require_approval to name the individual tools that must still ask you
+  # before each call -- the mutations, typically. See the docs site under
   # docs/src/content/docs/project/architecture.md.
   servers:
     # A stdio server is a local subprocess Eggy spawns and speaks to over
@@ -154,3 +155,13 @@ mcp:
           - "generate-domain"
           - "get-logs"
         exclude: []
+      # Tools that must ask before every call. Exact remote names, the same
+      # ones tool_filter uses -- a name this server does not advertise is
+      # reported as a warning rather than silently gating nothing. A gated call
+      # does not run when the model asks for it: you get an approve prompt
+      # showing the arguments, and the result comes back to you rather than to
+      # the model. `/auto` switches the gate off for everything when you want
+      # to work uninterrupted; /status tells you while it is off.
+      require_approval:
+        - "deploy"
+        - "set-variables"

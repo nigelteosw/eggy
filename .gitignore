@@ -6,5 +6,5 @@
 *.out
 .DS_Store
 plugins/webui/dist/*
-!plugins/webui/dist/index.html
+!plugins/webui/dist/placeholder.html
 website/node_modules/

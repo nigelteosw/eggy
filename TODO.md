@@ -70,13 +70,6 @@ Nothing in `internal/config` is currently a cleanup item.
 
 ## P2: Mechanical cleanups
 
-- [ ] `plugins/webui/dist/index.html` is force-tracked out of an otherwise
-      ignored `dist/`, and references content-hashed assets
-      (`/assets/index-<hash>.js`) that are **not** tracked. A fresh clone serves
-      a page pointing at files that do not exist, and every `make build`
-      rewrites the hashes and dirties the tree. Track the built assets too, or
-      track neither and build the UI as a release step. The half-measure gives
-      the worst of both.
 - [ ] 23 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26
       baseline and read as `slices.Sort`/`slices.SortFunc`. Do it when a change
       already touches those files, not as its own churn commit.

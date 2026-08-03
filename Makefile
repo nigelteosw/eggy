@@ -14,7 +14,11 @@ test:
 race:
 	$(GO) test -race ./...
 
+# vite no longer empties its output directory, because the tracked
+# placeholder.html lives there. Clearing the bundle by hand keeps that from
+# meaning every superseded hashed asset stays behind and gets embedded.
 build-web:
+	rm -rf plugins/webui/dist/assets plugins/webui/dist/index.html
 	cd website && bun install && bun run build
 
 build: build-web

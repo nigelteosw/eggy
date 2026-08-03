@@ -1,0 +1,94 @@
+import { useEffect, useState } from "react";
+import { SessionExpiredError, getRawConfig, saveRawConfig } from "./api";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
+
+// The raw config.yaml editor in normal mode. SafeModePage has had one of these
+// all along, which meant the only way to edit the file from a browser was to
+// break Eggy first -- on a container deployment config.yaml lives on a volume
+// nothing else can reach.
+//
+// The save path is the same validated one safe mode uses: a config Eggy will
+// not load is rejected and the stored file is left alone, so this cannot lock
+// the owner out. Unlike safe mode there is no reload afterwards, because Eggy
+// is already running and a restart is the owner's call.
+export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
+  const [config, setConfig] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [rejection, setRejection] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getRawConfig()
+      .then(setConfig)
+      .catch((err) => {
+        if (err instanceof SessionExpiredError) {
+          onSessionExpired();
+          return;
+        }
+        setRejection(err instanceof Error ? err.message : "Could not read config.yaml");
+      })
+      .finally(() => setLoading(false));
+  }, [onSessionExpired]);
+
+  async function handleSave() {
+    setSaving(true);
+    setRejection(null);
+    setSaved(false);
+    try {
+      await saveRawConfig(config);
+      setSaved(true);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
+      setRejection(err instanceof Error ? err.message : "Eggy refused the config");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>config.yaml</CardTitle>
+        <CardDescription>
+          Everything the forms above cover, plus the settings they do not. Saved only if Eggy can load it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <textarea
+          spellCheck={false}
+          value={config}
+          onChange={(event) => {
+            setConfig(event.target.value);
+            setSaved(false);
+          }}
+          disabled={loading}
+          className="min-h-[26rem] w-full whitespace-pre rounded-md border border-border bg-background px-3 py-2 font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        />
+        <div>
+          <Button type="button" onClick={handleSave} disabled={loading || saving}>
+            {saving ? "Checking..." : "Validate and save"}
+          </Button>
+        </div>
+        {rejection && (
+          <pre
+            className="overflow-x-auto whitespace-pre-wrap rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            {rejection}
+            {"\n\nThe stored config is unchanged."}
+          </pre>
+        )}
+        {saved && (
+          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
+            Saved. Restart Eggy for it to take effect.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -68,7 +68,9 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
-	mux.HandleFunc("GET /api/mode", writeMode(modeSafe))
+	// Safe mode reports the default theme rather than the configured one: the
+	// config that would name it is the config that failed to load.
+	mux.HandleFunc("GET /api/mode", writeMode(modeSafe, nil))
 	mux.HandleFunc("POST /api/login", handleWebLogin(mode.Web, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
 	mux.Handle("GET /api/safemode", requireWebSession(mode.Web, now, func(w http.ResponseWriter, _ *http.Request) {

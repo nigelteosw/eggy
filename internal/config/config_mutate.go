@@ -334,6 +334,30 @@ func SetGoogle(path string, input GoogleInput) error {
 	})
 }
 
+// SetAppearance writes the owner's web panel theme.
+//
+// The theme is validated against the two names the stylesheet defines rather
+// than stored as free text: an unrecognised value would render as neither
+// theme, and the failure would surface as an unstyled page instead of as a
+// rejected form.
+func SetAppearance(path, theme string) error {
+	trimmed := strings.TrimSpace(theme)
+	if trimmed != ThemeDark && trimmed != ThemeLight {
+		return fmt.Errorf("appearance.theme must be %q or %q", ThemeDark, ThemeLight)
+	}
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		cfg.Appearance.Theme = trimmed
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
 // SetHeartbeat writes the heartbeat section from the fields a surface can set.
 //
 // An empty Interval means off, and off is spelled by writing a zero interval

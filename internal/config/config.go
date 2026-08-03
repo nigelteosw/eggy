@@ -48,6 +48,35 @@ type Config struct {
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
 	Google       GoogleConfig                `yaml:"google,omitempty"`
 	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
+	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
+}
+
+// Theme names. Dark is the default: Eggy's web panel is charcoal unless the
+// owner says otherwise, so an absent appearance section needs no migration.
+const (
+	ThemeDark  = "dark"
+	ThemeLight = "light"
+)
+
+// AppearanceConfig is the owner's web panel preference. It lives in YAML
+// rather than in the browser because the owner is one person across several
+// devices: a preference kept in localStorage is a preference they set again
+// on every laptop they log in from.
+//
+// It is the one config section that changes nothing at runtime -- no adapter
+// reads it, no tool schema depends on it -- so unlike every other section it
+// takes effect on the next page load rather than on restart.
+type AppearanceConfig struct {
+	Theme string `yaml:"theme,omitempty"`
+}
+
+// ResolvedTheme is Theme with the default applied, so callers never have to
+// distinguish "unset" from "dark".
+func (a AppearanceConfig) ResolvedTheme() string {
+	if a.Theme == ThemeLight {
+		return ThemeLight
+	}
+	return ThemeDark
 }
 
 // HeartbeatConfig is the periodic check-in the owner is not present for. An

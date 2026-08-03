@@ -37,9 +37,18 @@ export function checkSession(): Promise<CommandResult> {
 // load -- and is serving only the repair surface. Asked before anything else,
 // because in safe mode every other route is absent or reporting the failure.
 export type Mode = "normal" | "safe";
+export type Theme = "dark" | "light";
 
-export function getMode(): Promise<Mode> {
-  return request<{ mode: Mode }>("/api/mode").then((result) => result.mode);
+// The probe carries the theme as well as the mode because it is the only
+// response that lands before first paint. Reading the preference any later
+// means the panel renders in one theme and then flips to the other.
+export type Probe = { mode: Mode; theme: Theme };
+
+export function getMode(): Promise<Probe> {
+  return request<Probe>("/api/mode").then((result) => ({
+    mode: result.mode ?? "normal",
+    theme: result.theme === "light" ? "light" : "dark",
+  }));
 }
 
 export function getStartupFailure(): Promise<CommandResult> {
@@ -86,7 +95,18 @@ export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "appearance";
+
+// The theme is owner config rather than browser state, so it survives logging
+// in from a different machine. Applying it locally is separate (see
+// applyTheme): the write persists the choice, the DOM change shows it.
+export function setTheme(theme: Theme): Promise<CommandResult> {
+  return setConfig("appearance", { theme });
+}
+
+export function applyTheme(theme: Theme): void {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
 
 export function getConfig(section: ConfigSection): Promise<CommandResult> {
   return request(`/api/config/${section}`);

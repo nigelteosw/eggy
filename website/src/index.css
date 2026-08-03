@@ -34,29 +34,35 @@
   }
 
   .dark {
-    --background: 165 12% 6%;
-    --foreground: 105 12% 93%;
+    /* Neutral charcoal, not a tinted near-black: hue and saturation are zero
+       everywhere except the primary, so the botanical green stays the only
+       colour in the panel and reads as Eggy's rather than as a theme accent.
+       --background is the deepest surface (the nav rail sits on it) and --card
+       is raised above it; the two must stay distinct or the rail dissolves
+       into the content beside it. */
+    --background: 0 0% 7%;
+    --foreground: 0 0% 93%;
 
-    --card: 165 10% 9%;
-    --card-foreground: 105 12% 93%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 93%;
 
     --primary: 134 61% 58%;
     --primary-foreground: 150 30% 8%;
 
-    --secondary: 165 8% 15%;
-    --secondary-foreground: 105 12% 90%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 165 8% 14%;
-    --muted-foreground: 150 6% 62%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 62%;
 
-    --accent: 150 20% 18%;
+    --accent: 0 0% 18%;
     --accent-foreground: 134 61% 72%;
 
     --destructive: 0 62% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 165 8% 18%;
-    --input: 165 8% 22%;
+    --border: 0 0% 18%;
+    --input: 0 0% 22%;
     --ring: 134 61% 58%;
   }
 

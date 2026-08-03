@@ -101,11 +101,43 @@ const (
 	modeSafe   = "safe"
 )
 
-func writeMode(mode string) http.HandlerFunc {
+// writeMode answers the unauthenticated probe the UI makes before anything
+// else. It carries the theme as well as the mode because this is the only
+// response that arrives before first paint: serving the theme any later means
+// the panel renders light and then flips to charcoal, and serving it behind
+// the session means the login page cannot honour it at all. A theme name is
+// not a secret, so there is nothing here for an anonymous caller to learn.
+func writeMode(mode string, theme func() string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(`{"mode":"` + mode + `"}`))
+		name := config.ThemeDark
+		if theme != nil {
+			name = theme()
+		}
+		body, err := json.Marshal(struct {
+			Mode  string `json:"mode"`
+			Theme string `json:"theme"`
+		}{Mode: mode, Theme: name})
+		if err != nil {
+			writeWebError(w, http.StatusInternalServerError, "could not encode mode")
+			return
+		}
+		_, _ = w.Write(body)
+	}
+}
+
+// configuredTheme reads the theme for the probe above. A config it cannot
+// read falls back to the default rather than failing the probe: the mode is
+// the load-bearing half of that response, and refusing to report it because a
+// cosmetic preference was unreadable would blank the whole panel.
+func configuredTheme(configPath string) func() string {
+	return func() string {
+		cfg, err := config.LoadDocument(configPath)
+		if err != nil {
+			return config.ThemeDark
+		}
+		return cfg.Appearance.ResolvedTheme()
 	}
 }
 
@@ -122,14 +154,14 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
 	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
-	mux.HandleFunc("GET /api/mode", writeMode(modeNormal))
+	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
 	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "appearance"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
 	}
@@ -313,6 +345,8 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 			}
 			result.TableHeaders = []string{"Interval", "Instruction"}
 			result.TableRows = append(result.TableRows, []string{interval, instruction})
+		case "appearance":
+			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
 		}
 		writeWebResult(w, result)
 	}
@@ -361,12 +395,22 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 			if strings.TrimSpace(named["interval"]) == "" {
 				title = "Heartbeat turned off."
 			}
+		case "appearance":
+			err = config.SetAppearance(configPath, named["theme"])
+			title = "Saved appearance."
 		}
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: "Restart Eggy for this to take effect."})
+		// Appearance is the one section a restart does not gate: nothing in the
+		// running process reads it, so the page the owner is looking at has
+		// already applied it by the time this response lands.
+		detail := "Restart Eggy for this to take effect."
+		if section == "appearance" {
+			detail = ""
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: detail})
 	}
 }
 

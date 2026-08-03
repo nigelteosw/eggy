@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -673,6 +674,76 @@ func TestWebHeartbeatSectionRejectsAnUnparseableInterval(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// Appearance round-trips like every other section, and the theme it stores is
+// what the pre-auth probe then reports.
+func TestWebAppearanceSectionRoundTrips(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+	cookie := webLoginCookie(t, handler)
+
+	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/appearance", strings.NewReader(`{"theme":"light"}`))
+	setRequest.AddCookie(cookie)
+	setResponse := httptest.NewRecorder()
+	handler.ServeHTTP(setResponse, setRequest)
+	if setResponse.Code != http.StatusOK {
+		t.Fatalf("set status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/appearance", nil)
+	getRequest.AddCookie(cookie)
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, getRequest)
+	var decoded webResult
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Fields) != 1 || decoded.Fields[0].Value != "light" {
+		t.Fatalf("fields=%#v", decoded.Fields)
+	}
+}
+
+// The probe carries the theme so the panel paints in it the first time rather
+// than flipping after the session check. It is unauthenticated by design --
+// the login page has to honour the theme too.
+func TestModeProbeCarriesTheConfiguredTheme(t *testing.T) {
+	path := writeConfigFile(t, validConfig()+"appearance:\n  theme: light\n")
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(path, testWebConfig(now))
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var decoded struct {
+		Mode  string `json:"mode"`
+		Theme string `json:"theme"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Mode != "normal" || decoded.Theme != "light" {
+		t.Fatalf("decoded=%#v", decoded)
+	}
+}
+
+// A config it cannot read must not fail the probe: the mode is the
+// load-bearing half, and blanking the panel over a cosmetic preference would
+// hide the one screen that could fix it.
+func TestModeProbeFallsBackToDarkWhenConfigIsUnreadable(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	handler := NewWebHandler(filepath.Join(t.TempDir(), "absent.yaml"), testWebConfig(now))
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
+
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"dark"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }

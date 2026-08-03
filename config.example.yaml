@@ -45,6 +45,13 @@ runner:
   retention: "30m"
   max_output_bytes: 1048576
   allowed_env: ["PATH", "LANG", "LC_ALL", "TERM"]
+# How the web panel looks: "dark" (charcoal, the default) or "light" (paper).
+# It lives here rather than in the browser so it follows the owner to whatever
+# machine they next log in from. This is the one section nothing at runtime
+# reads, so changing it takes effect on the next page load rather than on a
+# restart -- the Appearance page in the web panel writes it for you.
+# appearance:
+#   theme: "dark"
 # A periodic check-in the owner is not present for. Omit the section and it
 # costs nothing: no ticker, no goroutine, no model call. Each tick runs an
 # isolated read-only turn that is allowed to conclude there is nothing worth

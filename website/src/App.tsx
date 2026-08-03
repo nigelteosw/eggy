@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { checkSession, getMode, type Mode } from "./api";
+import { applyTheme, checkSession, getMode, type Mode, type Theme } from "./api";
 import { LoginPage } from "./LoginPage";
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
@@ -12,6 +12,7 @@ type View = "chat" | "config";
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
   const [mode, setMode] = useState<Mode>("normal");
+  const [theme, setTheme] = useState<Theme>("dark");
   const [view, setView] = useState<View>("chat");
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
@@ -28,8 +29,15 @@ export function App() {
     // the owner can act on. A probe that itself fails is treated as normal --
     // an old server that predates the route still runs the agent.
     getMode()
-      .then(setMode)
-      .catch(() => setMode("normal"))
+      .then((probe) => {
+        setMode(probe.mode);
+        setTheme(probe.theme);
+        applyTheme(probe.theme);
+      })
+      .catch(() => {
+        setMode("normal");
+        applyTheme("dark");
+      })
       .finally(() => {
         checkSession()
           .then(() => setStatus("authenticated"))
@@ -57,23 +65,23 @@ export function App() {
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-background">
-      <button
-        type="button"
-        onClick={() => setView(view === "chat" ? "config" : "chat")}
-        className="absolute right-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        aria-label={view === "chat" ? "Open settings" : "Back to chat"}
-      >
-        {view === "chat" ? (
+      {/*
+        Config's own rail carries the way back, so this only ever opens
+        settings -- it no longer has to double as a return arrow.
+      */}
+      {view === "chat" && (
+        <button
+          type="button"
+          onClick={() => setView("config")}
+          className="absolute right-4 top-4 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-subtle transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          aria-label="Open settings"
+        >
           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="10" cy="10" r="2.6" />
             <path d="M16.1 12.1a1.3 1.3 0 0 0 .26 1.44l.05.05a1.6 1.6 0 1 1-2.26 2.26l-.05-.05a1.3 1.3 0 0 0-1.44-.26 1.3 1.3 0 0 0-.79 1.19v.14a1.6 1.6 0 0 1-3.2 0v-.07a1.3 1.3 0 0 0-.85-1.19 1.3 1.3 0 0 0-1.44.26l-.05.05a1.6 1.6 0 1 1-2.26-2.26l.05-.05a1.3 1.3 0 0 0 .26-1.44 1.3 1.3 0 0 0-1.19-.79h-.14a1.6 1.6 0 0 1 0-3.2h.07a1.3 1.3 0 0 0 1.19-.85 1.3 1.3 0 0 0-.26-1.44l-.05-.05a1.6 1.6 0 1 1 2.26-2.26l.05.05a1.3 1.3 0 0 0 1.44.26h.07a1.3 1.3 0 0 0 .79-1.19v-.14a1.6 1.6 0 1 1 3.2 0v.07a1.3 1.3 0 0 0 .79 1.19 1.3 1.3 0 0 0 1.44-.26l.05-.05a1.6 1.6 0 1 1 2.26 2.26l-.05.05a1.3 1.3 0 0 0-.26 1.44v.07a1.3 1.3 0 0 0 1.19.79h.14a1.6 1.6 0 0 1 0 3.2h-.07a1.3 1.3 0 0 0-1.19.79Z" />
           </svg>
-        ) : (
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 12.1a1.6 1.6 0 0 1-1.6 1.6H5.8L2.6 16.9V4.3A1.6 1.6 0 0 1 4.2 2.7h11.2A1.6 1.6 0 0 1 17 4.3Z" />
-          </svg>
-        )}
-      </button>
+        </button>
+      )}
       {view === "chat" ? (
         <>
           <button
@@ -128,8 +136,13 @@ export function App() {
           )}
         </>
       ) : (
-        <div className="flex-1 overflow-y-auto">
-          <ConfigPage onSessionExpired={onSessionExpired} />
+        <div className="min-h-0 flex-1">
+          <ConfigPage
+            theme={theme}
+            onThemeChange={setTheme}
+            onSessionExpired={onSessionExpired}
+            onBackToChat={() => setView("chat")}
+          />
         </div>
       )}
     </div>

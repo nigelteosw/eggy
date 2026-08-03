@@ -531,3 +531,56 @@ func TestSetHeartbeatRefusesWithoutATelegramChannel(t *testing.T) {
 		t.Fatal("a refused heartbeat was written to config.yaml anyway")
 	}
 }
+
+func TestSetAppearanceRoundTripsATheme(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppearance(path, ThemeLight); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Appearance.ResolvedTheme(); got != ThemeLight {
+		t.Fatalf("theme=%q, want %q", got, ThemeLight)
+	}
+}
+
+// An absent section is the common case -- every config written before this
+// field existed has one -- and it must resolve to charcoal rather than to "".
+func TestAppearanceDefaultsToDark(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Appearance.ResolvedTheme(); got != ThemeDark {
+		t.Fatalf("theme=%q, want %q", got, ThemeDark)
+	}
+}
+
+// An unknown theme names no stylesheet, so it would render as neither. It is
+// refused at the write rather than stored and discovered at paint time.
+func TestSetAppearanceRefusesAnUnknownTheme(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := validConfig()
+	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppearance(path, "solarized"); err == nil {
+		t.Fatal("an unknown theme was accepted")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Fatal("a refused theme was written to config.yaml anyway")
+	}
+}

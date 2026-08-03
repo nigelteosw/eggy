@@ -196,37 +196,194 @@ config check only the shape.
 
 ---
 
-## Not this pass
+## Capability roadmap
 
-Real work, tracked so it is not lost, but not separation of concerns or
-cleanup. Each adds capability or is a deployment chore.
+Not cleanup. This section is the product half of the file, kept here so it is
+not lost, and ordered. Every item still states a deletion budget.
+
+### Where it came from
+
+Read against two comparable projects, from their primary sources on 2026-08-03
+rather than from summaries: **OpenClaw** (`github.com/openclaw/openclaw`,
+`docs.openclaw.ai`) — a self-hosted gateway fronting ~10 chat channels with
+per-agent/per-sender session isolation, node pairing, an on-demand plugin and
+skill marketplace, and paired iOS/Android companion nodes for voice and camera;
+and **Hermes Agent** (`github.com/NousResearch/hermes-agent`, its `AGENTS.md`) —
+one agent core behind a CLI, TUI, desktop app, and a ~20-platform gateway, with
+autonomously authored self-improving skills, pluggable memory providers, 40+
+built-in tools across seven terminal backends, and `delegate_task` subagents.
+
+Both are broader than Eggy and neither is a target. Eggy is one owner, one
+process, one replica; most of what they have is surface Eggy has deliberately
+declined. What is worth taking is listed below; what is not is in **Rejected
+from the comparison**, so it does not get re-proposed every time someone reads
+their READMEs.
+
+**Already matched, do not rebuild:** an adapter-per-channel port
+(`ports.Channel` + `TrackableChannel`/`TypingChannel`), MCP as the extension
+path, cron plus a silence-permitted heartbeat, FTS5 conversation search,
+owner-editable Markdown context, config-not-code model providers, and an
+approval mechanism with payload binding.
+
+**Adopt as a rule, not as code — Hermes' footprint ladder.** Before a
+capability becomes a core tool, try, in order: extend existing code; a command
+plus a skill; a tool gated off when unconfigured; an MCP server. Core tool is
+last, because every core tool ships on every API call. This is the same
+principle as this file's "a capability that is not configured costs nothing at
+runtime", stated as a decision procedure, and it decides R2 below on its own.
+
+### R1 — Approval-gated MCP tools
+
+The open safety gap, named in `AGENTS.md` and left by deleting Calendar: a
+configured MCP server is trusted wholesale, so a calendar or mail mutation
+arriving over MCP carries no per-call approval, while the same class of action
+through a native tool would. Both references gate sensitive operations
+(OpenClaw pairing/allowlists, Hermes `clarify`/`sudo`); Eggy has the machinery
+already and simply does not reach it from the MCP path.
+
+A per-server `require_approval: [tool names]` list routing a matching call
+through the existing approval flow, with one `approvals.Action` and one
+executor, per the standing safety rule.
+
+Deletion budget: +~60 production lines, +1 config key per MCP server, 0 tools,
+0 durable records, 0 background loops, 0 ports changes.
+
+### R2 — Web reach
+
+Eggy has no way to read the open web. Everything it knows arrives from the
+model's weights, the owner, a configured Google product, or a configured MCP
+server. For a personal agent that is a real hole, not a stylistic one.
+
+The footprint ladder answers it: **this is an MCP server, not a core tool.** A
+fetch/search tool in `internal/kernel` would ship its schema on every API call
+for every owner, including ones who never want Eggy reaching the internet. The
+work is therefore configuration and documentation, not Go: pick a fetch/search
+server, verify it against R1's approval list, and write it up in
+`config.example.yaml` and the docs site. If it turns out no server is
+acceptable, that is the argument for a core tool — make it explicitly.
+
+Deletion budget: 0 production lines, 0 config fields (an entry in the existing
+`mcp.servers` map), 0 tools, 0 durable records, 0 background loops.
+
+### R3 — Voice in
+
+Both references transcribe voice memos, and both are right to: the owner
+surface is a phone, and dictating is the natural input there. Eggy handles no
+audio at all today — `plugins/channels/telegram` ignores a voice message.
+
+This is ingest, not a tool: a narrow `Transcriber` port, one adapter, and the
+Telegram webhook turning a voice update into ordinary user text before it ever
+reaches the loop. It adds no tool schema and no prompt bytes, which is why it
+is cheap despite being new capability. Voice *out* is not part of this.
+
+Deletion budget: +1 narrow port, +1 plugin package (~150 lines), +2 config
+keys, 0 tools, 0 durable records, 0 background loops.
+
+### R4 — Agent-authored skills
+
+`ports.SkillsStore` already has `Write` and `Delete`; `plugins/skills` already
+implements and validates them; the web panel already reaches them. The kernel
+exposes `skill_read` and nothing else, so the agent can consume procedural
+memory but never record it. Hermes' entire self-improvement claim rests on
+closing exactly that loop — skills authored after a complex task, refined in
+use — and Eggy is one tool away from the same thing with no new port, no new
+store, and no new durable form.
+
+Two caveats that are the actual work, not the tool:
+
+- A skill the agent wrote is prompt-injection persistence. Anything reaching
+  disk must pass the same `services.NewSecretGuard(activeSecrets)` filter the
+  durable context documents already pass, and the write path must be pinned by
+  a test the way `Secrets.Values()` is.
+- Skills grow without bound and stale ones cost context on every turn, since
+  summaries are always resident. Hermes needed a background curator; Eggy
+  should instead cap the resident summary list and let the owner prune from the
+  web panel — a bound, not a loop.
+
+Deletion budget: +2 tools, +~80 production lines, 0 config keys, 0 new ports,
+0 new durable records, 0 background loops.
+
+### R5 — An Anthropic Messages adapter
+
+The one model backend that is genuinely earned rather than a `providers` entry
+(see "Adding a model backend is usually config, not code"). Different wire
+format: top-level system prompt, content blocks, required `max_tokens`.
+Roadmapped rather than merely decided, because until it exists every claim that
+Eggy is provider-neutral rests on one adapter and a switch statement with a
+single case — `newModelAdapter`'s `default` branch has never been exercised by
+a real second implementation.
+
+Deletion budget: +1 plugin package, +1 name in `config.supportedModelAdapters`,
++1 case in `bootstrap.newModelAdapter`, 0 config fields, 0 tools, 0 ports
+changes.
+
+### R6 — Pin the prompt cache
+
+Hermes treats a byte-stable cached prefix as an invariant and refuses
+mid-conversation toolset mutation to protect it; it defers even skill installs
+to the next session for the same reason. Eggy already *measures* the thing —
+`ModelUsage.CachedPromptTokens` — but nothing pins it, and the MCP manager
+reconnects at runtime, which can change the tool set inside a live
+conversation. That is a cache invalidation the owner pays for silently, and it
+is a live property of today's code rather than a hypothetical.
+
+Establish the rule, then pin it: a test that the rendered system prompt is byte
+stable across two turns with unchanged config, and a decision on whether an MCP
+reconnection may alter the tool set mid-conversation or must wait. Absorbs the
+old prompt-and-tool-budget item: re-measure the per-turn floor, report MCP
+schema bytes separately from kernel schema bytes, and do not build deferred
+tool loading until MCP schemas alone exceed ~10K tokens.
+
+Deletion budget: +2 tests, ~0 production lines, 0 config keys, 0 tools.
+
+### R7 — Does Eggy write code?
+
+Still undecided between read-only inspection and a bounded edit tool plus
+bounded shell. Both defensible, not compatible. The comparison does not settle
+it: Hermes ships seven terminal backends and treats the shell as the point,
+OpenClaw runs tools host-side by default with sandboxing optional. Eggy's
+answer has to come from its own threat model, not theirs. Until decided, do not
+reintroduce write tools opportunistically.
+
+If it becomes yes, the standing rule holds without exception: independent
+payload-bound approvals and protected-branch denial are mandatory, and no
+commit, push, or pull-request capability arrives as a side effect.
+
+### R8 — Decide the sandbox question out loud
+
+A standing constraint already says configured repositories and stdio MCP
+servers are trusted code running as Eggy's user, and that timeouts and
+environment allowlists are not a sandbox. Both references offer isolation —
+Hermes containers and remote terminal backends, OpenClaw optional tool
+sandboxing — so "we trust them" now reads as an omission unless it is argued.
+
+Argue it in `docs/src/content/docs/project/architecture.md`: single owner,
+single process, one replica, configuration reachable only by the owner. Then
+either keep trusting them on the record, or scope what a sandbox would cost.
+Do not build one first.
+
+Deletion budget: 0 production lines. This is a documentation item.
+
+### R9 — Session recall beyond keywords
+
+Hermes pairs FTS5 with LLM summarization for cross-session recall and a
+persistent user model. Eggy has the FTS5 half and `memories/USER.md` as a
+hand-curated stand-in for the other. Lowest priority on this list, and gated on
+evidence: it earns a slot only after a recorded instance of `recall_conversation`
+failing on a question the owner actually asked. Measure before building — an
+embedding store is a new durable form, and the file has exactly three.
+
+---
+
+## Chores
+
+Not roadmap, not cleanup. Tracked so they are not lost.
 
 - **Consolidate durable state in SQLite** — move approvals, processed event
   IDs, selected model, and schedules out of `state.json`/`cron/` behind the
   existing ports; keep the Markdown files as files. Needs a schema-versioned,
   retry-safe migration design written first, and preserves encrypted payloads.
   The largest net-new-code item on the list, which is why it is parked.
-- **Review the heartbeat design** —
-  `docs/superpowers/specs/2026-08-02-heartbeat-design.md`. A proactive check-in
-  on a fixed interval that is permitted to stay silent, keeping `ScheduledTurn`'s
-  isolation (`ReadOnlyTools()`, no ambient history) and adding a `HEARTBEAT_OK`
-  silence protocol. Deliberately not a cron entry: cron, reminder, and heartbeat
-  stay three separate things. Deletion budget: +75 production lines, +2 config
-  keys, 0 tools, 0 durable records, 0 background loops, 0 ports changes. Read it
-  against the standing constraints before anything is implemented — the item
-  that needs the hardest look is whether a capability that only adds is worth
-  it, given a recurring scheduled turn already exists and merely cannot stay
-  quiet.
-- **Approval-gated MCP tools** — a per-server `require_approval: [tool names]`
-  list routing a matching call through the existing approval flow. This is the
-  open safety gap left by deleting Calendar: a configured MCP server is trusted
-  wholesale, so calendar mutations now carry no per-call approval.
-- **Does Eggy write code?** — undecided between read-only inspection and a
-  bounded edit tool plus bounded shell. Both defensible, not compatible. Until
-  decided, do not reintroduce write tools opportunistically.
-- **Prompt and tool budget** — re-measure the per-turn context floor, report
-  MCP schema bytes separately from kernel schema bytes, and do not build
-  deferred tool loading until MCP schemas alone exceed ~10K tokens.
 - **Docs pass** — `README.md` becomes a short operator guide;
   `docs/src/content/docs/project/architecture.md` is the only architectural
   narrative. Audit `AGENTS.md`, the docs site, and `config.example.yaml` after
@@ -236,6 +393,64 @@ cleanup. Each adds capability or is a deployment chore.
   `scheduler`, `embeddings`, `implementation_sessions`, `calendar` sections);
   remove the `calendar` MCP server, which never authorized; keep
   `GOOGLE_CLIENT_SECRET` set to the **Desktop** client's secret.
+
+---
+
+## Rejected from the comparison — do not re-propose
+
+Each of these is something OpenClaw or Hermes has and Eggy will not build.
+Recorded with the reason so re-reading their READMEs does not restart the
+argument.
+
+**Channel breadth.** Both front 10-20+ messaging platforms. Eggy has one owner,
+who is reachable on Telegram and on the web. A tenth channel does not let the
+owner do anything an existing one does not — it multiplies adapters, webhook
+authentication, deduplication ledgers, and approval-delivery paths for zero new
+capability. `ports.Channel` stays the extension point if that ever changes;
+adding a channel should remain a plugin package plus one line of bootstrap, and
+that property is worth more than any particular channel.
+
+**Multi-agent routing and per-sender session isolation.** OpenClaw isolates
+sessions per agent, workspace, and sender because it serves groups. Eggy is
+single-owner by definition — every message is from the same person — so the
+routing key has one value and the isolation protects nothing.
+
+**Subagent delegation (`delegate_task`).** Hermes spawns isolated subagents
+with spawn-depth and concurrency bounds, an orchestrator/leaf role split, and
+an async-completion queue re-entering the parent conversation. That is an agent
+framework, which "Do not introduce" forbids by name, and it needs a second loop,
+which the standing architecture rule forbids by name. It is also the single
+largest net-new-code item either reference has. If parallelism is ever needed,
+the answer is a scheduled turn, not a child loop.
+
+**A plugin marketplace or hub.** ClawHub, Skills Hub, `hermes skills install
+official/<category>/<name>` — an on-demand installer for third-party skills and
+plugins. Eggy's skills are reviewed files placed by the owner in `skills/`, and
+that review is the security model. An installer that fetches agent-readable
+instructions from the internet deletes it. R4 lets the *agent* write skills into
+the owner's own directory, which is a different trust boundary from fetching a
+stranger's.
+
+**Runtime-loaded plugins.** Both discover plugins from directories and entry
+points at runtime. `Do not introduce` already names a runtime-loaded native
+plugin system; Go's build model makes it worse than it is for Python or Node.
+Compile-time wiring in `internal/bootstrap` plus MCP for out-of-tree capability
+covers the same ground.
+
+**A TUI, a desktop app, or companion nodes.** Hermes ships a TUI and an
+Electron app; OpenClaw pairs iOS and Android nodes for Canvas, camera, and
+voice. Each is a whole client to maintain. Eggy's surfaces are a phone the
+owner already has and a browser, and production stays a single `eggyd` process.
+
+**Pluggable memory providers.** Hermes plugs honcho, mem0, and supermemory in
+behind an ABC — and its own May 2026 policy now refuses new in-tree ones,
+because the maintenance burden is what a provider interface actually buys. Eggy
+has three durable forms on purpose. A memory provider port would be a second
+way to do a job that SQLite and Markdown already do.
+
+**Profiles / multi-instance isolation.** Hermes isolates instances by
+`HERMES_HOME` with per-profile token locks. Eggy has one home, one owner, one
+replica; `EGGY_CONFIG` already relocates it for tests and local runs.
 
 ---
 

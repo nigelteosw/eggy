@@ -207,10 +207,10 @@ func ReadOnlyTools() agent.RunOptions {
 		"skill_read": true,
 		// Reading what is scheduled is read-only, and it is the one thing a
 		// heartbeat most plausibly needs: it shares a clock with those jobs
-		// and should be able to say what else is due. schedule_exact,
-		// schedule_recurring, and schedule_cancel stay off -- an unprompted
-		// turn must not change what runs later.
-		"schedule_list": true,
+		// and should be able to say what else is due. The grant is scoped to
+		// the schedule tool's list action: create and cancel stay off, because
+		// an unprompted turn must not change what runs later.
+		"schedule:list": true,
 	}}
 }
 

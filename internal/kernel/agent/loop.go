@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -42,6 +44,11 @@ const (
 )
 
 type RunOptions struct {
+	// AllowedTools names the tools a turn may reach. An entry may also be
+	// scoped to one action of a multi-action tool as "name:action", which
+	// grants only calls whose "action" argument matches. That is what lets a
+	// read-only turn see what is scheduled without being able to change it,
+	// now that the whole scheduling subject is one tool.
 	AllowedTools map[string]bool
 	// OnEvent, if set, fires for every step of the turn so a caller can render
 	// live progress.
@@ -222,7 +229,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []p
 			if !ok {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
-			if options.AllowedTools != nil && !options.AllowedTools[call.Name] {
+			if !allowsCall(options, call) {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
 			emit(Event{Kind: EventToolStart, Call: call})
@@ -269,12 +276,69 @@ func (l *Loop) filteredTools(options RunOptions) (map[string]ports.Tool, []ports
 	if options.AllowedTools != nil {
 		filtered := make([]ports.ToolDefinition, 0, len(defs))
 		for _, d := range defs {
-			if options.AllowedTools[d.Name] {
+			switch {
+			case options.AllowedTools[d.Name]:
 				filtered = append(filtered, d)
+			case len(allowedActions(options, d.Name)) > 0:
+				// Only some actions are granted, so the model is shown a
+				// definition describing only those: a turn should never be
+				// offered a capability its allowlist would then refuse.
+				filtered = append(filtered, narrowDefinition(tools[d.Name], d, allowedActions(options, d.Name)))
 			}
 		}
 		defs = filtered
 	}
 
 	return tools, defs
+}
+
+// ScopedTool is a tool whose actions can be granted one at a time. A tool that
+// covers a whole subject behind an "action" argument implements it so a
+// restricted turn can be handed the read-only slice of it and nothing else.
+type ScopedTool interface {
+	DefinitionForActions(actions []string) ports.ToolDefinition
+}
+
+func allowsCall(options RunOptions, call ports.ToolCall) bool {
+	if options.AllowedTools == nil || options.AllowedTools[call.Name] {
+		return true
+	}
+	action := callAction(call)
+	if action == "" {
+		return false
+	}
+	return options.AllowedTools[call.Name+":"+action]
+}
+
+// callAction reads the "action" argument a scoped grant is checked against.
+// Arguments that do not parse have no action, and a scoped grant denies them.
+func callAction(call ports.ToolCall) string {
+	var arguments struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(arguments.Action)
+}
+
+func allowedActions(options RunOptions, name string) []string {
+	actions := make([]string, 0, 2)
+	for entry, allowed := range options.AllowedTools {
+		if !allowed {
+			continue
+		}
+		if action, found := strings.CutPrefix(entry, name+":"); found && action != "" {
+			actions = append(actions, action)
+		}
+	}
+	sort.Strings(actions)
+	return actions
+}
+
+func narrowDefinition(tool ports.Tool, definition ports.ToolDefinition, actions []string) ports.ToolDefinition {
+	if scoped, ok := tool.(ScopedTool); ok {
+		return scoped.DefinitionForActions(actions)
+	}
+	return definition
 }

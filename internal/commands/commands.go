@@ -131,7 +131,10 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 			model = selected
 		}
 	}
-	pending := 0
+	// A bare count answers "is anything waiting" but not "waiting for what",
+	// which is the question the owner actually has, so each pending approval
+	// is named by its summary.
+	waitingApprovals := []approvals.Approval(nil)
 	if s.store != nil {
 		state, err := s.store.Load(ctx)
 		if err != nil {
@@ -139,11 +142,28 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 		}
 		for _, approval := range state.Approvals {
 			if approval.Status == approvals.Pending {
-				pending++
+				waitingApprovals = append(waitingApprovals, approval)
 			}
 		}
 	}
+	// Oldest first: state stores approvals in a map, so without this the order
+	// would differ between two runs of the same command.
+	sort.Slice(waitingApprovals, func(i, j int) bool {
+		return waitingApprovals[i].CreatedAt.Before(waitingApprovals[j].CreatedAt)
+	})
+	pending := len(waitingApprovals)
+	waiting := make([]string, 0, pending)
+	for _, approval := range waitingApprovals {
+		summary := approval.Summary
+		if strings.TrimSpace(summary) == "" {
+			summary = string(approval.Action)
+		}
+		waiting = append(waiting, fmt.Sprintf("- %s (`%s`, requested %s)", summary, approval.ID, approval.CreatedAt.Format("2 Jan 15:04")))
+	}
 	report := fmt.Sprintf("**Eggy status**\n\n**Active model:** %s\n**Pending approvals:** %d", model, pending)
+	if len(waiting) > 0 {
+		report += "\n" + strings.Join(waiting, "\n")
+	}
 	if s.mcp != nil {
 		statuses := s.mcp.Statuses()
 		ready, tools, attention := 0, 0, []string(nil)

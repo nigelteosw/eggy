@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"sort"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -36,22 +37,51 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, err
 	}
-	pending := 0
+	// A count alone left the agent able to say only "there is one pending
+	// approval" and never what it was for, which is useless to the owner: the
+	// summary is the whole point of asking. Each pending approval is reported
+	// with what it would do and when it was requested.
+	pending := make([]pendingApproval, 0, len(state.Approvals))
 	for _, approval := range state.Approvals {
-		if approval.Status == approvals.Pending {
-			pending++
+		if approval.Status != approvals.Pending {
+			continue
 		}
+		pending = append(pending, pendingApproval{
+			ID:        approval.ID,
+			Action:    string(approval.Action),
+			Summary:   approval.Summary,
+			CreatedAt: approval.CreatedAt,
+			ExpiresAt: approval.ExpiresAt,
+		})
 	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].CreatedAt.Before(pending[j].CreatedAt) })
 	repositories := make([]string, 0, len(state.Repositories))
 	for name := range state.Repositories {
 		repositories = append(repositories, name)
 	}
 	sort.Strings(repositories)
 	return json.Marshal(struct {
-		Repositories     []string `json:"repositories,omitempty"`
-		PendingApprovals int      `json:"pending_approvals"`
-		Schedules        int      `json:"schedules"`
-	}{Repositories: repositories, PendingApprovals: pending, Schedules: scheduleCount(ctx, t.schedules)})
+		Repositories     []string          `json:"repositories,omitempty"`
+		PendingApprovals int               `json:"pending_approvals"`
+		Approvals        []pendingApproval `json:"approvals,omitempty"`
+		Schedules        int               `json:"schedules"`
+	}{
+		Repositories:     repositories,
+		PendingApprovals: len(pending),
+		Approvals:        pending,
+		Schedules:        scheduleCount(ctx, t.schedules),
+	})
+}
+
+// pendingApproval is the bounded view of an approval the status tool reports:
+// enough for the agent to say what is waiting, without the payload, which can
+// be arbitrarily large and is not the agent's to relay.
+type pendingApproval struct {
+	ID        string    `json:"id"`
+	Action    string    `json:"action"`
+	Summary   string    `json:"summary"`
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // scheduleCount treats an unreadable cron directory as zero rather than

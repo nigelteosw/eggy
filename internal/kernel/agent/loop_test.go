@@ -105,6 +105,45 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	}
 }
 
+// A tool that covers a whole subject behind an "action" argument would
+// otherwise be all-or-nothing on a restricted turn: granting a heartbeat the
+// ability to read what is scheduled would also let it schedule things. A
+// scoped grant admits the one action and refuses the rest.
+func TestLoopScopedAllowlistEntryGrantsOneActionOfATool(t *testing.T) {
+	allowed := map[string]bool{"schedule:list": true}
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "schedule", Arguments: json.RawMessage(`{"action":"list"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "nothing due"}},
+	}}
+	tool := &fakeTool{name: "schedule", result: json.RawMessage(`{"schedules":[]}`)}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
+
+	if _, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: allowed}); err != nil {
+		t.Fatal(err)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("tool calls=%d, want the granted action to run", tool.calls)
+	}
+	if len(model.requests[0].Tools) != 1 || model.requests[0].Tools[0].Name != "schedule" {
+		t.Fatalf("tools=%#v, want the scoped tool offered", model.requests[0].Tools)
+	}
+
+	for _, arguments := range []string{`{"action":"cancel","id":"x"}`, `{}`, `not json`} {
+		denied := &queuedModel{responses: []ports.ModelResponse{
+			{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "schedule", Arguments: json.RawMessage(arguments)}}}},
+		}}
+		blocked := &fakeTool{name: "schedule"}
+		loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: denied, ModelID: "id"}}, StaticTools{blocked}, ContextPolicy{})
+		_, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: allowed})
+		if !errors.Is(err, ErrUnknownTool) {
+			t.Fatalf("arguments=%s err=%v, want ErrUnknownTool", arguments, err)
+		}
+		if blocked.calls != 0 {
+			t.Fatalf("arguments=%s ran the tool anyway", arguments)
+		}
+	}
+}
+
 func TestLoopFiresToolStartBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}},

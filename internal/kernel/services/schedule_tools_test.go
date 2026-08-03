@@ -68,9 +68,9 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC) }
 	id := 0
 	newID := func() string { id++; return fmt.Sprintf("sched-%d", id) }
-	exact := NewScheduleTools(schedules, now, newID)[0]
+	tool := NewScheduleTools(schedules, now, newID)[0]
 
-	result, err := exact.Execute(context.Background(), json.RawMessage(`{"at":"2026-07-19T12:00:00Z","instruction":"Take the bins out","kind":"reminder"}`))
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Take the bins out","kind":"reminder"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 		t.Fatalf("reminder=%s err=%v", result, err)
 	}
 
-	result, err = exact.Execute(context.Background(), json.RawMessage(`{"at":"2026-07-19T12:00:00Z","instruction":"Check my calendar for conflicts"}`))
+	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Check my calendar for conflicts"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 		t.Fatalf("default schedule=%s err=%v", result, err)
 	}
 
-	if _, err := exact.Execute(context.Background(), json.RawMessage(`{"at":"2026-07-19T12:00:00Z","instruction":"x","kind":"nonsense"}`)); err == nil {
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"x","kind":"nonsense"}`)); err == nil {
 		t.Fatal("expected an unknown kind to be rejected")
 	}
 	// A rejected kind must not have reached the scheduler: the two accepted
@@ -117,20 +117,16 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 	schedules := &fakeSchedules{next: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)}
 	now := func() time.Time { return time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC) }
 	id := 0
-	tools := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) })
-	byName := map[string]ports.Tool{}
-	for _, tool := range tools {
-		byName[tool.Definition().Name] = tool
-	}
+	tool := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) })[0]
 
-	if _, err := byName["schedule_recurring"].Execute(context.Background(), json.RawMessage(`{"cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := byName["schedule_exact"].Execute(context.Background(), json.RawMessage(`{"at":"2026-08-02T18:00:00Z","instruction":"stand up"}`)); err != nil {
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-08-02T18:00:00Z","instruction":"stand up"}`)); err != nil {
 		t.Fatal(err)
 	}
 
-	raw, err := byName["schedule_list"].Execute(context.Background(), json.RawMessage(`{}`))
+	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"list"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +148,7 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 		t.Fatalf("expression lost: %#v", listed.Schedules[1])
 	}
 
-	if _, err := byName["schedule_cancel"].Execute(context.Background(), json.RawMessage(`{"id":"sched-1"}`)); err != nil {
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"cancel","id":"sched-1"}`)); err != nil {
 		t.Fatal(err)
 	}
 	remaining, err := schedules.List(context.Background())
@@ -167,29 +163,57 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 // An empty list is an empty array, not null: "nothing is scheduled" is an
 // answer, and a null would read to the model as a missing field.
 func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
-	tools := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })
-	for _, tool := range tools {
-		if tool.Definition().Name != "schedule_list" {
-			continue
-		}
-		raw, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(raw) != `{"schedules":[]}` {
-			t.Fatalf("raw=%s", raw)
-		}
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"list"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"schedules":[]}` {
+		t.Fatalf("raw=%s", raw)
 	}
 }
 
 func TestScheduleCancelRequiresAnID(t *testing.T) {
-	tools := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })
-	for _, tool := range tools {
-		if tool.Definition().Name != "schedule_cancel" {
-			continue
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"cancel","id":"  "}`)); err == nil {
+		t.Fatal("a blank id must be rejected rather than removing nothing quietly")
+	}
+}
+
+// One tool covering the whole subject has to police the field combinations a
+// schema union used to: a create with neither cron nor at, or with both, is a
+// mistake the owner would otherwise discover only when it fired (or didn't).
+func TestScheduleCreateRequiresExactlyOneOfCronOrAt(t *testing.T) {
+	schedules := &fakeSchedules{next: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)}
+	tool := NewScheduleTools(schedules, time.Now, func() string { return "id" })[0]
+	for _, arguments := range []string{
+		`{"action":"create","instruction":"x"}`,
+		`{"action":"create","instruction":"x","cron":"0 9 * * *","at":"2026-08-02T18:00:00Z"}`,
+		`{"action":"create","cron":"0 9 * * *"}`,
+		`{"action":"nonsense"}`,
+	} {
+		if _, err := tool.Execute(context.Background(), json.RawMessage(arguments)); err == nil {
+			t.Fatalf("expected %s to be rejected", arguments)
 		}
-		if _, err := tool.Execute(context.Background(), json.RawMessage(`{"id":"  "}`)); err == nil {
-			t.Fatal("a blank id must be rejected rather than removing nothing quietly")
-		}
+	}
+	if len(schedules.added) != 0 {
+		t.Fatalf("added=%#v, want no schedule written by a rejected call", schedules.added)
+	}
+}
+
+// A turn granted only the list action is shown a definition that offers only
+// that action, so the model is never tempted into a call the allowlist would
+// refuse.
+func TestScheduleDefinitionNarrowsToTheGrantedActions(t *testing.T) {
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	scoped, ok := tool.(interface {
+		DefinitionForActions([]string) ports.ToolDefinition
+	})
+	if !ok {
+		t.Fatal("the schedule tool must expose per-action definitions")
+	}
+	definition := scoped.DefinitionForActions([]string{"list"})
+	if strings.Contains(string(definition.Schema), "cancel") || strings.Contains(string(definition.Schema), "cron") {
+		t.Fatalf("schema=%s, want only the list action described", definition.Schema)
 	}
 }

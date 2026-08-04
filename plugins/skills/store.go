@@ -6,13 +6,14 @@
 package skills
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -89,7 +90,7 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 		}
 		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description})
 	}
-	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
+	slices.SortFunc(summaries, func(a, b ports.SkillSummary) int { return cmp.Compare(a.Name, b.Name) })
 	return summaries, nil
 }
 

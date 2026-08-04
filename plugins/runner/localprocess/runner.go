@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -172,7 +172,7 @@ func (r *Runner) environment(values map[string]string) []string {
 	for key := range r.allowed {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	result := make([]string, 0, len(keys))
 	for _, key := range keys {
 		value, provided := values[key]

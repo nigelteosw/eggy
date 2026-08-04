@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -381,12 +381,12 @@ func (a *App) Ready() error {
 		alias := a.config.Agent.DefaultModel
 		provider := a.config.ModelAliases[alias].Provider
 		repositories := repositoryNamesFromState(state)
-		sort.Strings(repositories)
+		slices.Sort(repositories)
 		integrations := []string{"telegram", "model_provider"}
 		if len(state.Repositories) > 0 {
 			integrations = append(integrations, "github")
 		}
-		sort.Strings(integrations)
+		slices.Sort(integrations)
 		a.logger.Info("agent runtime ready", "model_alias", alias, "provider", provider, "repositories", repositories, "integrations", integrations, "context_files", []string{"SOUL.md", "USER.md", "MEMORY.md"})
 	})
 	return nil

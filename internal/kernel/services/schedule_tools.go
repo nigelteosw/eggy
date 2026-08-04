@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -133,7 +133,7 @@ func (t scheduleTool) list(ctx context.Context) (json.RawMessage, error) {
 	}
 	// Sorted by next run so the answer reads as a timeline rather than in
 	// whatever order the store happened to walk its directory.
-	sort.Slice(schedules, func(i, j int) bool { return schedules[i].NextRun.Before(schedules[j].NextRun) })
+	slices.SortFunc(schedules, func(a, b ports.Schedule) int { return a.NextRun.Compare(b.NextRun) })
 	if schedules == nil {
 		schedules = []ports.Schedule{}
 	}

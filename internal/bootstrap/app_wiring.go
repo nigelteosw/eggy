@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -112,7 +112,7 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 			catalog.efforts[alias] = configured.ReasoningEfforts
 		}
 	}
-	sort.Strings(catalog.aliases)
+	slices.Sort(catalog.aliases)
 	return catalog, nil
 }
 

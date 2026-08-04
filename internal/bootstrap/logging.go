@@ -1,13 +1,14 @@
 package bootstrap
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -167,7 +168,10 @@ func (r *redactor) add(secrets []string) {
 			merged = append(merged, secret)
 		}
 	}
-	sort.SliceStable(merged, func(i, j int) bool { return len(merged[i]) > len(merged[j]) })
+	// Descending: b before a. Reversing these two arguments still compiles,
+	// still sorts, and silently redacts a contained secret first -- leaving the
+	// tail of the longer one in the log.
+	slices.SortStableFunc(merged, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 	r.secrets = merged
 }
 

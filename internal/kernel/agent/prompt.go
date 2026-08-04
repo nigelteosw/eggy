@@ -1,8 +1,9 @@
 package agent
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -128,7 +129,7 @@ func capacityIndicator(content string, maxBytes int64) string {
 // work, without paying for any skill's full body until skill_read fetches it.
 func renderSkills(skills []SkillDescriptor) string {
 	sorted := append([]SkillDescriptor(nil), skills...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
+	slices.SortFunc(sorted, func(a, b SkillDescriptor) int { return cmp.Compare(a.Name, b.Name) })
 	if len(sorted) == 0 {
 		return "Available skills\nNone installed."
 	}
@@ -142,8 +143,8 @@ func renderSkills(skills []SkillDescriptor) string {
 func renderCapabilityManifest(capability CapabilityManifest) string {
 	repositories := append([]string(nil), capability.Repositories...)
 	tools := append([]string(nil), capability.Tools...)
-	sort.Strings(repositories)
-	sort.Strings(tools)
+	slices.Sort(repositories)
+	slices.Sort(tools)
 	self := capability.SelfRepository
 	if self == "" {
 		self = "none"

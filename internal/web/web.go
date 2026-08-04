@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -278,7 +278,7 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 		for name := range servers {
 			names = append(names, name)
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			server := servers[name]
@@ -377,7 +377,7 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 			for name := range cfg.Providers {
 				names = append(names, name)
 			}
-			sort.Strings(names)
+			slices.Sort(names)
 			result.TableHeaders = []string{"Provider", "Adapter", "Base URL", "API key env"}
 			for _, name := range names {
 				provider := cfg.Providers[name]
@@ -388,7 +388,7 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 			for alias := range cfg.ModelAliases {
 				aliases = append(aliases, alias)
 			}
-			sort.Strings(aliases)
+			slices.Sort(aliases)
 			result.TableHeaders = []string{"Alias", "Provider", "Model", "Reasoning efforts"}
 			for _, alias := range aliases {
 				model := cfg.ModelAliases[alias]

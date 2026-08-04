@@ -1,12 +1,13 @@
 package google
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 )
@@ -126,7 +127,7 @@ func (w *Workspace) CalendarList(ctx context.Context, calendarID, start, end str
 	}
 	// Each calendar came back ordered; merged, they are not. A model reading a
 	// day's schedule out of order reports it out of order.
-	sort.SliceStable(events, func(i, j int) bool { return events[i].Start < events[j].Start })
+	slices.SortStableFunc(events, func(a, b Event) int { return cmp.Compare(a.Start, b.Start) })
 	return events, nil
 }
 

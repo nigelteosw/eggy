@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -112,7 +112,7 @@ func (s *ApprovalService) Pending(ctx context.Context) ([]approvals.Approval, er
 			pending = append(pending, approval)
 		}
 	}
-	sort.Slice(pending, func(i, j int) bool { return pending[i].CreatedAt.Before(pending[j].CreatedAt) })
+	slices.SortFunc(pending, func(a, b approvals.Approval) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	return pending, nil
 }
 

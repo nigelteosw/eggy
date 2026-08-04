@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -323,7 +323,7 @@ func SetGoogle(path string, input GoogleInput) error {
 			// Sorted on the way in so the written file has a stable order a
 			// surface can round-trip; the spelling rule itself is shared.
 			products := normalizeProducts(input.Products)
-			sort.Strings(products)
+			slices.Sort(products)
 			google.Products = products
 		}
 		cfg.Google = google
@@ -407,7 +407,7 @@ func GetProvidersConfigText(path string) (string, error) {
 	for name := range cfg.Providers {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	if len(names) == 0 {
 		return "No providers configured.", nil
 	}
@@ -428,7 +428,7 @@ func GetModelAliasesConfigText(path string) (string, error) {
 	for alias := range cfg.ModelAliases {
 		aliases = append(aliases, alias)
 	}
-	sort.Strings(aliases)
+	slices.Sort(aliases)
 	if len(aliases) == 0 {
 		return "No models configured.", nil
 	}

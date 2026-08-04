@@ -3,7 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -38,7 +38,7 @@ func newScheduleListHandler(schedules ScheduleDirectory) http.HandlerFunc {
 		// By next run, so the list reads as a timeline. A schedule with no
 		// next run sorts to the top, which is where something that has
 		// stopped firing belongs.
-		sort.Slice(all, func(i, j int) bool { return all[i].NextRun.Before(all[j].NextRun) })
+		slices.SortFunc(all, func(a, b ports.Schedule) int { return a.NextRun.Compare(b.NextRun) })
 		rows := make([][]string, 0, len(all))
 		for _, schedule := range all {
 			// Execution is folded into kind rather than given a column of its

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -154,7 +154,7 @@ func sortedTools(tools map[string]ports.Tool) []ports.Tool {
 	for name := range tools {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	result := make([]ports.Tool, 0, len(names))
 	for _, name := range names {
 		result = append(result, tools[name])

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -156,7 +156,7 @@ func (s *CommandService) mcpList() (string, bool, error) {
 	for name := range servers {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	lines := make([]string, 0, len(names)+1)
 	lines = append(lines, "**MCP servers**")
 	for _, name := range names {

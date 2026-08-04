@@ -3,9 +3,10 @@ package repo
 import (
 	"context"
 	"encoding/json"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
-	"sort"
+	"slices"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -54,12 +55,12 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 			ExpiresAt: approval.ExpiresAt,
 		})
 	}
-	sort.Slice(pending, func(i, j int) bool { return pending[i].CreatedAt.Before(pending[j].CreatedAt) })
+	slices.SortFunc(pending, func(a, b pendingApproval) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	repositories := make([]string, 0, len(state.Repositories))
 	for name := range state.Repositories {
 		repositories = append(repositories, name)
 	}
-	sort.Strings(repositories)
+	slices.Sort(repositories)
 	return json.Marshal(struct {
 		Repositories     []string          `json:"repositories,omitempty"`
 		PendingApprovals int               `json:"pending_approvals"`

@@ -6,12 +6,13 @@
 package cronfile
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -83,7 +84,7 @@ func (s *Store) List() ([]ports.Schedule, error) {
 		}
 		schedules = append(schedules, schedule)
 	}
-	sort.Slice(schedules, func(i, j int) bool { return schedules[i].ID < schedules[j].ID })
+	slices.SortFunc(schedules, func(a, b ports.Schedule) int { return cmp.Compare(a.ID, b.ID) })
 	return schedules, nil
 }
 

@@ -3,8 +3,9 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"slices"
+
 	"github.com/nigelteosw/eggy/internal/kernel/services"
-	"sort"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -45,7 +46,7 @@ func NewRepositoryTools(store ports.StateStore) []ports.Tool {
 		for name := range registered {
 			names = append(names, name)
 		}
-		sort.Strings(names)
+		slices.Sort(names)
 		result := make([]safeRepository, 0, len(names))
 		for _, name := range names {
 			repository := registered[name]

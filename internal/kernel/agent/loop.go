@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -332,7 +332,7 @@ func allowedActions(options RunOptions, name string) []string {
 			actions = append(actions, action)
 		}
 	}
-	sort.Strings(actions)
+	slices.Sort(actions)
 	return actions
 }
 

@@ -10,12 +10,6 @@ completed work is in git.
 Every item states what it costs. An item that only adds code needs an argument
 for why the thing it prevents is worse than the thing it costs.
 
-## Cleanups
-
-- [ ] 27 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26 baseline
-      and read as `slices.Sort`/`slices.SortFunc`. Do it when a change already
-      touches those files, not as its own churn commit.
-
 ## Capability roadmap
 
 Ordered. Each states a deletion budget, per the rule in `AGENTS.md`.

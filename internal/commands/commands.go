@@ -12,7 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -101,7 +101,7 @@ type CommandService struct {
 
 func New(options Options) *CommandService {
 	aliases := append([]string(nil), options.ModelAliases...)
-	sort.Strings(aliases)
+	slices.Sort(aliases)
 	return &CommandService{
 		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
 		store: options.Store, approvals: options.Approvals, conversation: options.Conversation, turns: options.Turns,
@@ -183,8 +183,8 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	}
 	// Oldest first: state stores approvals in a map, so without this the order
 	// would differ between two runs of the same command.
-	sort.Slice(waitingApprovals, func(i, j int) bool {
-		return waitingApprovals[i].CreatedAt.Before(waitingApprovals[j].CreatedAt)
+	slices.SortFunc(waitingApprovals, func(a, b approvals.Approval) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
 	})
 	pending := len(waitingApprovals)
 	waiting := make([]string, 0, pending)

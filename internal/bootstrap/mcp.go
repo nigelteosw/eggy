@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/commands"
@@ -22,7 +22,7 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 	for name := range config.MCP.Servers {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	servers := make([]mcpadapter.ServerConfig, 0, len(names))
 	needsOAuthStore := false
 	for _, name := range names {

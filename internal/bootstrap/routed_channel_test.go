@@ -20,6 +20,7 @@ type fakeChannel struct {
 	typingCalls       int
 	approvalDelivered []approvals.Approval
 	deliverErr        error
+	approvalErr       error
 }
 
 func (f *fakeChannel) Deliver(_ context.Context, text string) error {
@@ -30,6 +31,9 @@ func (f *fakeChannel) Deliver(_ context.Context, text string) error {
 	return nil
 }
 func (f *fakeChannel) DeliverApproval(_ context.Context, approval approvals.Approval) error {
+	if f.approvalErr != nil {
+		return f.approvalErr
+	}
 	f.approvalDelivered = append(f.approvalDelivered, approval)
 	return nil
 }

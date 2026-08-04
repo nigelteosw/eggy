@@ -155,6 +155,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	telegramSurface := newTelegramWiring(config, secrets, options)
 	app.channel = newRoutedChannel(telegramSurface.channel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
+	// The channel is already routed by context, so an approval asked during a
+	// Telegram turn arrives in Telegram and one asked in web chat arrives there.
+	asker := &approvalAsker{service: app.approvals, channel: app.channel}
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
 	runner, err := localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
@@ -202,17 +205,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(skillsService)...)
-	if err := registerGated(registry, app.approvals, baseTools...); err != nil {
+	if err := registerGated(registry, asker, app.approvals, baseTools...); err != nil {
 		return nil, err
 	}
 	if len(config.Repositories) > 0 {
-		if err := registerGated(registry, app.approvals, repo.NewRepositoryTools(stateStore)...); err != nil {
+		if err := registerGated(registry, asker, app.approvals, repo.NewRepositoryTools(stateStore)...); err != nil {
 			return nil, err
 		}
-		if err := registerGated(registry, app.approvals, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+		if err := registerGated(registry, asker, app.approvals, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
 			return nil, err
 		}
-		if err := registerGated(registry, app.approvals, app.workspaces.Tools()...); err != nil {
+		if err := registerGated(registry, asker, app.approvals, app.workspaces.Tools()...); err != nil {
 			return nil, err
 		}
 	}
@@ -223,11 +226,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// AddProvider below), where the same invariant holds because a registered
 	// tool always wins the name.
 	if len(config.Repositories) > 0 {
-		if err := registerGated(registry, app.approvals, primitives...); err != nil {
+		if err := registerGated(registry, asker, app.approvals, primitives...); err != nil {
 			return nil, err
 		}
 	}
-	if err := registerGated(registry, app.approvals, telegramSurface.tools()...); err != nil {
+	if err := registerGated(registry, asker, app.approvals, telegramSurface.tools()...); err != nil {
 		return nil, err
 	}
 	// One grant, several products, registered like any other kernel tool.
@@ -243,7 +246,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	if err := registerGated(registry, app.approvals, googleCatalog...); err != nil {
+	if err := registerGated(registry, asker, app.approvals, googleCatalog...); err != nil {
 		return nil, err
 	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
@@ -259,7 +262,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
-	if err := registerGated(registry, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
+	if err := registerGated(registry, asker, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
 		return nil, err
 	}
 	if app.mcp != nil {
@@ -279,7 +282,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 				tools := manager.Tools()
 				for index, tool := range tools {
 					if manager.RequiresApproval(tool.Definition().Name) {
-						tools[index] = services.NewApprovalGatedTool(tool, app.approvals, app.approvals)
+						tools[index] = services.NewApprovalGatedTool(tool, asker, app.approvals)
 					}
 				}
 				return tools

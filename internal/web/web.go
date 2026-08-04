@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -56,6 +58,13 @@ type WebUIConfig struct {
 	// ApprovalMode is which of the three approval modes is in force, the
 	// panel's half of the /mode command.
 	ApprovalMode ApprovalModeSwitch
+	// GoogleActions is what each Google product can do, keyed by product.
+	// Bootstrap fills it from the adapter, because the panel must not carry a
+	// second copy of a list that changes whenever a product gains an action --
+	// and because a require_approval entry naming an action that does not
+	// exist fails at startup, which for a config edit means the owner lands in
+	// safe mode over a typo the form could have refused.
+	GoogleActions map[string]GoogleProductActions
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -228,8 +237,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}))
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "appearance"} {
-		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section)))
-		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section)))
+		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section, webConfig)))
+		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section, webConfig)))
 	}
 
 	mux.Handle("GET /api/config/raw", requireWebSession(webConfig, now, rawConfigGetRoute(configPath)))
@@ -363,7 +372,7 @@ func webMCPRemoveRoute(configPath string) http.HandlerFunc {
 	}
 }
 
-func webConfigGetRoute(configPath, section string) http.HandlerFunc {
+func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		cfg, err := config.LoadDocument(configPath)
 		if err != nil {
@@ -403,6 +412,7 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 			}
 			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products"}
 			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", ")})
+			result.Fields = googleApprovalFields(cfg, webConfig.GoogleActions)
 		case "heartbeat":
 			// One row, like Google: there is one heartbeat. A zero interval
 			// is reported as "off" rather than as "0s", because off is the
@@ -425,6 +435,61 @@ func webConfigGetRoute(configPath, section string) http.HandlerFunc {
 	}
 }
 
+// GoogleProductActions is one product's surface as the panel needs it: every
+// action it accepts, and the subset that writes. The second is what the form
+// pre-selects, so an owner opening the card sees the default they already have
+// rather than an empty grid that would gate nothing if they saved it.
+type GoogleProductActions struct {
+	Actions   []string
+	Mutations []string
+}
+
+// googleApprovalFields describes the gate to the form.
+//
+// require_approval_mode distinguishes the two states that look alike and are
+// not: "default" means no key is stored and each tool's own classification
+// decides -- including actions added by a later version -- while "custom"
+// means the stored list is the whole of it, and an empty custom list gates
+// nothing at all.
+func googleApprovalFields(cfg config.Config, catalog map[string]GoogleProductActions) []webField {
+	mode, stored := "default", []string(nil)
+	if cfg.Google.RequireApproval != nil {
+		mode, stored = "custom", *cfg.Google.RequireApproval
+	}
+	fields := []webField{
+		{Label: "require_approval_mode", Value: mode},
+		{Label: "require_approval", Value: strings.Join(stored, ",")},
+	}
+	for _, product := range slices.Sorted(maps.Keys(catalog)) {
+		fields = append(fields,
+			webField{Label: "actions." + product, Value: strings.Join(catalog[product].Actions, ",")},
+			webField{Label: "mutations." + product, Value: strings.Join(catalog[product].Mutations, ",")},
+		)
+	}
+	return fields
+}
+
+// checkGoogleApprovals refuses an entry the adapter would refuse at startup,
+// while the existing config is still in place. The panel builds its checkboxes
+// from the same catalog, so this is unreachable through the form itself -- it
+// is here for anything else that can POST.
+func checkGoogleApprovals(entries []string, catalog map[string]GoogleProductActions) error {
+	for _, entry := range entries {
+		product, action, qualified := strings.Cut(entry, ".")
+		known, exists := catalog[product]
+		if !exists {
+			return fmt.Errorf("%q names no Google product", entry)
+		}
+		if !qualified {
+			return fmt.Errorf("%q must name an action, as in %q, or %q for all of them", entry, product+".<action>", product+".*")
+		}
+		if action != "*" && !slices.Contains(known.Actions, action) {
+			return fmt.Errorf("%q: %s has no action %q", entry, product, action)
+		}
+	}
+	return nil
+}
+
 // splitList reads a comma-separated form field into a list. The web form
 // carries flat strings, so a multi-valued field arrives as one of these rather
 // than as JSON; empty entries are dropped so a trailing comma is not a product
@@ -440,7 +505,7 @@ func splitList(value string) []string {
 	return list
 }
 
-func webConfigSetRoute(configPath, section string) http.HandlerFunc {
+func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var named map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&named); err != nil {
@@ -457,10 +522,28 @@ func webConfigSetRoute(configPath, section string) http.HandlerFunc {
 			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
 			title = "Set model " + named["alias"] + "."
 		case "google":
-			err = config.SetGoogle(configPath, config.GoogleInput{
+			input := config.GoogleInput{
 				Enabled: named["enabled"] != "false", ClientID: named["client_id"],
 				ClientSecretEnv: named["client_secret_env"], Products: splitList(named["products"]),
-			})
+			}
+			// Three states through one pointer, the same distinction the
+			// setting itself turns on: absent leaves the stored list alone, a
+			// pointer to nil restores the default by removing the key, and a
+			// pointer to a list -- empty included -- replaces it.
+			if mode, sent := named["require_approval_mode"]; sent {
+				entries := splitList(named["require_approval"])
+				if mode == "default" {
+					entries = nil
+				} else if entries == nil {
+					entries = []string{}
+				}
+				if err := checkGoogleApprovals(entries, webConfig.GoogleActions); err != nil {
+					writeWebError(w, http.StatusBadRequest, err.Error())
+					return
+				}
+				input.RequireApproval = &entries
+			}
+			err = config.SetGoogle(configPath, input)
 			title = "Saved Google Workspace."
 		case "heartbeat":
 			err = config.SetHeartbeat(configPath, named["interval"], named["instruction"])

@@ -123,9 +123,14 @@ type GoogleConfig struct {
 	// action that writes anything is gated; set to an empty list, none are.
 	// Distinguishing the two is the whole point of the field, so it must stay
 	// out of any defaulting that would fill a nil in.
-	RequireApproval []string `yaml:"require_approval,omitempty"`
-	Timeout         Duration `yaml:"timeout,omitempty"`
-	MaxOutputBytes  int64    `yaml:"max_output_bytes,omitempty"`
+	//
+	// It is a pointer because omitempty cannot tell an empty list from an
+	// absent one and would drop both -- which would turn "ask me about
+	// nothing" back into "ask me about everything that writes" the first time
+	// a surface rewrote the file.
+	RequireApproval *[]string `yaml:"require_approval,omitempty"`
+	Timeout         Duration  `yaml:"timeout,omitempty"`
+	MaxOutputBytes  int64     `yaml:"max_output_bytes,omitempty"`
 }
 
 type AgentConfig struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/web"
 	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
 
@@ -122,7 +123,7 @@ func googleApprovals(cfg config.GoogleConfig) (map[string][]string, error) {
 	// Non-nil even when the list is empty: that is what tells the caller an
 	// override was configured at all.
 	gated := map[string][]string{}
-	for _, entry := range cfg.RequireApproval {
+	for _, entry := range *cfg.RequireApproval {
 		product, action, qualified := strings.Cut(strings.TrimSpace(entry), ".")
 		// The product is checked before anything is said about its actions, so
 		// a typo in the product name is reported as one rather than as advice
@@ -159,6 +160,19 @@ func googleApprovals(cfg config.GoogleConfig) (map[string][]string, error) {
 	return gated, nil
 }
 
+// googleActionCatalog is what the web panel builds its approval checkboxes
+// from. It is assembled here because bootstrap is the one place allowed to
+// know the adapter exists, and serving it beats letting the panel keep a copy
+// of a list that changes whenever a product gains an action.
+func googleActionCatalog() map[string]web.GoogleProductActions {
+	catalog := map[string]web.GoogleProductActions{}
+	mutations := googleadapter.Mutations()
+	for tool, actions := range googleadapter.Actions() {
+		product := strings.TrimPrefix(tool, "google_")
+		catalog[product] = web.GoogleProductActions{Actions: actions, Mutations: mutations[tool]}
+	}
+	return catalog
+}
 
 // googleAdmin adapts the adapter to the command surface, so internal/commands
 // stays free of the plugin package exactly as it does for MCP.

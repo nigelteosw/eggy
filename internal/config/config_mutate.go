@@ -296,6 +296,14 @@ type GoogleInput struct {
 	ClientID        string
 	ClientSecretEnv string
 	Products        []string
+	// RequireApproval carries three states through one pointer, because the
+	// setting itself has three and collapsing any two would silently change
+	// what asks. Nil leaves the stored list alone, like every other field
+	// here. A pointer to a nil slice removes the key, so each tool's own
+	// classification decides -- including actions a later version adds. A
+	// pointer to a list replaces it, and a pointer to an empty list is the
+	// owner saying nothing should ask.
+	RequireApproval *[]string
 }
 
 // SetGoogle writes the Google section from the fields a surface can set.
@@ -325,6 +333,15 @@ func SetGoogle(path string, input GoogleInput) error {
 			products := normalizeProducts(input.Products)
 			slices.Sort(products)
 			google.Products = products
+		}
+		if input.RequireApproval != nil {
+			// A pointer to a nil slice is the request to remove the key, so it
+			// is stored as no pointer at all rather than as an empty list.
+			if *input.RequireApproval == nil {
+				google.RequireApproval = nil
+			} else {
+				google.RequireApproval = input.RequireApproval
+			}
 		}
 		cfg.Google = google
 		if err := cfg.Validate(); err != nil {

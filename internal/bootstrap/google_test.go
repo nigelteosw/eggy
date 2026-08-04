@@ -51,14 +51,14 @@ func TestGoogleGatesEveryMutationByDefault(t *testing.T) {
 // silently re-gate an owner who turned the gates off. The override has to
 // reach every Google tool, not just the ones an entry named.
 func TestGoogleEmptyApprovalListGatesNothing(t *testing.T) {
-	override, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{}})
+	override, err := googleApprovals(config.GoogleConfig{RequireApproval: ptr([]string{})})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if override == nil || len(override) != 0 {
 		t.Fatalf("an explicitly empty require_approval produced %v, want an empty override rather than none", override)
 	}
-	tools, err := googleClassifiedTools(&googleadapter.Workspace{}, config.GoogleConfig{Products: []string{"gmail"}, RequireApproval: []string{}}, nil)
+	tools, err := googleClassifiedTools(&googleadapter.Workspace{}, config.GoogleConfig{Products: []string{"gmail"}, RequireApproval: ptr([]string{})}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestGoogleEmptyApprovalListGatesNothing(t *testing.T) {
 }
 
 func TestGoogleApprovalListIsCheckedAgainstTheRealActions(t *testing.T) {
-	gated, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{"gmail.send", "calendar.delete", "drive.*"}})
+	gated, err := googleApprovals(config.GoogleConfig{RequireApproval: ptr([]string{"gmail.send", "calendar.delete", "drive.*"})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestGoogleApprovalListIsCheckedAgainstTheRealActions(t *testing.T) {
 	// Whole-product gating cannot be narrowed by a later entry, whichever
 	// order the two arrive in.
 	for _, entries := range [][]string{{"gmail.*", "gmail.send"}, {"gmail.send", "gmail.*"}} {
-		gated, err := googleApprovals(config.GoogleConfig{RequireApproval: entries})
+		gated, err := googleApprovals(config.GoogleConfig{RequireApproval: &entries})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,12 +98,12 @@ func TestGoogleApprovalListIsCheckedAgainstTheRealActions(t *testing.T) {
 		"telegram.send": "names no Google product",
 		"":              "names no Google product",
 	} {
-		_, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{entry}})
+		_, err := googleApprovals(config.GoogleConfig{RequireApproval: ptr([]string{entry})})
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("require_approval %q: error=%v, want %q", entry, err, want)
 		}
 	}
-	if _, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{"gmail.send", "gmail.send"}}); err == nil {
+	if _, err := googleApprovals(config.GoogleConfig{RequireApproval: ptr([]string{"gmail.send", "gmail.send"})}); err == nil {
 		t.Fatal("a duplicate require_approval entry was accepted")
 	}
 }
@@ -206,3 +206,5 @@ func (t stubGoogleTool) Definition() ports.ToolDefinition {
 func (t stubGoogleTool) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{}`), nil
 }
+
+func ptr[T any](value T) *T { return &value }

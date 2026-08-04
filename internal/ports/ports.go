@@ -51,9 +51,24 @@ type ToolDefinition struct {
 // require_approval list on its own configuration, which is the trust decision
 // the owner already made by configuring it.
 type ToolEffect struct {
-	// ReadOnly marks a tool that changes nothing outside Eggy, and is the one
-	// claim that lets a call through in ModeNormal.
+	// ReadOnly marks a tool that changes nothing at all, and is one of the two
+	// claims that let a call through in ModeNormal.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// Internal marks a tool whose writes land only in Eggy's own owner-visible
+	// context documents and nowhere else -- no message sent, no calendar
+	// changed, no job left running after the turn.
+	//
+	// It is the second claim ModeNormal honors, and it exists for exactly one
+	// thing: curating USER.md and MEMORY.md. Remembering a fact is not a
+	// decision an owner wants put to them; asking costs a prompt per remembered
+	// fact, which is the training-to-tap-approve failure the gate exists to
+	// avoid, and the result is a line in a file the owner can already read and
+	// correct. ModeStrict still gates it, so the owner who wants to see every
+	// call still does.
+	//
+	// Nothing that reaches outside Eggy may claim this, whatever the blast
+	// radius: "small" is not the test, "nobody but the owner can observe it" is.
+	Internal bool `json:"internal,omitempty"`
 	// Mutations names the actions that write, for a tool carrying several
 	// operations behind one schema. Empty on a tool that is not ReadOnly means
 	// every call to it writes.
@@ -67,6 +82,11 @@ const GateAllTool = "*"
 
 // ReadOnlyTool is the classification for a tool that only reads.
 func ReadOnlyTool() ToolEffect { return ToolEffect{ReadOnly: true} }
+
+// InternalTool is the classification for a tool that writes only Eggy's own
+// owner-visible context documents. See ToolEffect.Internal for why it is not
+// gated in ModeNormal, and why nothing that reaches outside Eggy may use it.
+func InternalTool() ToolEffect { return ToolEffect{Internal: true} }
 
 // MutatingActions classifies a tool whose named actions write and whose others
 // do not.

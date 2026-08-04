@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
@@ -104,5 +105,55 @@ func TestMemoryToolValidatesArguments(t *testing.T) {
 	// A miss is reported rather than silently succeeding.
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"remove","file":"memory","old_text":"never stored"}`)); err == nil {
 		t.Fatal("expected error removing an entry that does not exist")
+	}
+}
+
+// TestMemoryWritesAreSilentInNormalModeAndStillGatedByStrict is the whole
+// argument for ports.InternalTool in one test. Remembering a fact used to cost
+// the owner an approval tap and a "{"updated":true}" message for every entry,
+// which is the training-to-tap-approve failure the gate exists to avoid -- for
+// a write that lands in a file they already read in the prompt. Strict is what
+// keeps this from being a bypass: an owner who wants to see every call still
+// does.
+func TestMemoryWritesAreSilentInNormalModeAndStillGatedByStrict(t *testing.T) {
+	tool, store := memoryToolFor(t, nil)
+	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
+	gated := NewApprovalGatedToolIf(tool, service, service, RuleFor(tool.Definition()))
+	ctx := context.Background()
+
+	if _, err := gated.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"Runs Future Lawyers"}`)); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded.Memory, "Runs Future Lawyers") {
+		t.Fatalf("a memory write did not land in normal mode: %q", loaded.Memory)
+	}
+	if pending, _ := service.Pending(ctx); len(pending) != 0 {
+		t.Fatalf("a memory write asked the owner: %+v", pending)
+	}
+	// No gate, so no notice: the description must not tell the model to expect
+	// an approval that never comes.
+	if strings.Contains(gated.Definition().Description, "approval") {
+		t.Fatalf("description=%q", gated.Definition().Description)
+	}
+
+	if err := service.SetMode(ctx, ports.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gated.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"Mentors two students"}`)); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(loaded.Memory, "Mentors two students") {
+		t.Fatalf("strict mode let a memory write through: %q", loaded.Memory)
+	}
+	if pending, _ := service.Pending(ctx); len(pending) != 1 {
+		t.Fatalf("strict mode recorded no approval: %+v", pending)
 	}
 }

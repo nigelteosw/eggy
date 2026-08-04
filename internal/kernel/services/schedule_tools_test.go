@@ -68,7 +68,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 	now := func() time.Time { return time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC) }
 	id := 0
 	newID := func() string { id++; return fmt.Sprintf("sched-%d", id) }
-	tool := NewScheduleTools(schedules, now, newID)[0]
+	tool := NewScheduleTools(schedules, now, newID, time.UTC)[0]
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Take the bins out","kind":"reminder"}`))
 	if err != nil {
@@ -117,7 +117,7 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 	schedules := &fakeSchedules{next: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)}
 	now := func() time.Time { return time.Date(2026, 8, 2, 10, 0, 0, 0, time.UTC) }
 	id := 0
-	tool := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) })[0]
+	tool := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) }, time.UTC)[0]
 
 	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 // An empty list is an empty array, not null: "nothing is scheduled" is an
 // answer, and a null would read to the model as a missing field.
 func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
-	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" }, time.UTC)[0]
 	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"list"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
 }
 
 func TestScheduleCancelRequiresAnID(t *testing.T) {
-	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" }, time.UTC)[0]
 	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"cancel","id":"  "}`)); err == nil {
 		t.Fatal("a blank id must be rejected rather than removing nothing quietly")
 	}
@@ -185,7 +185,7 @@ func TestScheduleCancelRequiresAnID(t *testing.T) {
 // mistake the owner would otherwise discover only when it fired (or didn't).
 func TestScheduleCreateRequiresExactlyOneOfCronOrAt(t *testing.T) {
 	schedules := &fakeSchedules{next: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC)}
-	tool := NewScheduleTools(schedules, time.Now, func() string { return "id" })[0]
+	tool := NewScheduleTools(schedules, time.Now, func() string { return "id" }, time.UTC)[0]
 	for _, arguments := range []string{
 		`{"action":"create","instruction":"x"}`,
 		`{"action":"create","instruction":"x","cron":"0 9 * * *","at":"2026-08-02T18:00:00Z"}`,
@@ -205,7 +205,7 @@ func TestScheduleCreateRequiresExactlyOneOfCronOrAt(t *testing.T) {
 // that action, so the model is never tempted into a call the allowlist would
 // refuse.
 func TestScheduleDefinitionNarrowsToTheGrantedActions(t *testing.T) {
-	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" })[0]
+	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" }, time.UTC)[0]
 	scoped, ok := tool.(interface {
 		DefinitionForActions([]string) ports.ToolDefinition
 	})
@@ -215,5 +215,73 @@ func TestScheduleDefinitionNarrowsToTheGrantedActions(t *testing.T) {
 	definition := scoped.DefinitionForActions([]string{"list"})
 	if strings.Contains(string(definition.Schema), "cancel") || strings.Contains(string(definition.Schema), "cron") {
 		t.Fatalf("schema=%s, want only the list action described", definition.Schema)
+	}
+}
+
+// TestCreatedSchedulesReportThemselvesInOneReadableLine covers what an owner
+// actually sees after approving a schedule. The outcome message used to be the
+// marshalled record -- id, kind, enabled, and the owner's own multi-paragraph
+// instruction echoed back at them -- so the one fact worth checking, when it
+// fires, was the hardest thing in the message to find.
+func TestCreatedSchedulesReportThemselvesInOneReadableLine(t *testing.T) {
+	singapore, err := time.LoadLocation("Asia/Singapore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schedules := &fakeSchedules{next: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
+	now := func() time.Time { return time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC) }
+	tool := NewScheduleTools(schedules, now, func() string { return "180f11b61b3d" }, singapore)[0]
+	ctx := context.Background()
+
+	raw, err := tool.Execute(ctx, json.RawMessage(`{"action":"create","at":"2026-08-05T20:00:00+08:00","instruction":"Check whether the FLS website edits are done yet","kind":"reminder"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created struct {
+		Summary string `json:"summary"`
+		ID      string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatal(err)
+	}
+	// Rendered in the owner's zone, naming what it is and when, and carrying
+	// the id because cancelling needs it. The instruction stays out: it is the
+	// owner's own words and it is what made the old message unreadable.
+	for _, want := range []string{"Reminder", "Wed 5 Aug 2026", "8:00 PM", "180f11b61b3d"} {
+		if !strings.Contains(created.Summary, want) {
+			t.Fatalf("summary=%q missing %q", created.Summary, want)
+		}
+	}
+	if strings.Contains(created.Summary, "FLS website edits") {
+		t.Fatalf("summary echoed the instruction back: %q", created.Summary)
+	}
+	if created.ID != "180f11b61b3d" {
+		t.Fatalf("the summary displaced the record it describes: %s", raw)
+	}
+
+	// A recurring schedule says what makes it recurring, since a wrong cron
+	// expression is the mistake the owner is being given a chance to catch.
+	raw, err = tool.Execute(ctx, json.RawMessage(`{"action":"create","cron":"0 9 * * 1","instruction":"weekly review"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Agent run", "0 9 * * 1", "Mon 10 Aug 2026", "9:00 AM"} {
+		if !strings.Contains(created.Summary, want) {
+			t.Fatalf("summary=%q missing %q", created.Summary, want)
+		}
+	}
+
+	raw, err = tool.Execute(ctx, json.RawMessage(`{"action":"cancel","id":"180f11b61b3d"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &created); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(created.Summary, "180f11b61b3d") || !strings.Contains(created.Summary, "Cancelled") {
+		t.Fatalf("cancel summary=%q", created.Summary)
 	}
 }

@@ -17,6 +17,7 @@ package turns
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -436,7 +437,29 @@ func (s *Service) Approval(ctx context.Context, decision events.ApprovalDecision
 	if err != nil {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
-	return s.presenter.DeliverOutcome(ctx, decision.MessageID, fmt.Sprintf("Approved action completed: %v", result))
+	return s.presenter.DeliverOutcome(ctx, decision.MessageID, approvalOutcomeText(result))
+}
+
+// approvalOutcomeText renders what the owner reads after an approve tap.
+//
+// A tool that can say what it just did says it in its own result, under
+// "summary" -- in the file whoever added the action was already editing, the
+// same reason a tool declares its own effect there rather than in a table here.
+// Anything else falls back to the record itself, which is right for an MCP tool
+// this repository cannot write a sentence for, and wrong enough for the tools
+// it can that they should carry a summary.
+func approvalOutcomeText(result any) string {
+	text, isText := result.(string)
+	if !isText {
+		return fmt.Sprintf("Approved action completed: %v", result)
+	}
+	var payload struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(text), &payload); err == nil && strings.TrimSpace(payload.Summary) != "" {
+		return "Done. " + payload.Summary
+	}
+	return "Approved action completed: " + text
 }
 
 // deliverApprovalFailure tells the owner an approve/reject tap didn't go

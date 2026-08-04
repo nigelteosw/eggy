@@ -262,7 +262,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
-	if err := registerGated(registry, asker, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
+	if err := registerGated(registry, asker, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID, location)...); err != nil {
 		return nil, err
 	}
 	if app.mcp != nil {

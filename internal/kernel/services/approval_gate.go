@@ -36,9 +36,11 @@ const GateAllCalls = "*"
 // calls are gated" from drifting into two different answers.
 func RuleFor(definition ports.ToolDefinition) ApprovalRule {
 	effect := definition.Effect
-	if effect.ReadOnly {
+	if effect.ReadOnly || effect.Internal {
 		// Gated by nothing in normal mode, and still gated by strict, which is
-		// the whole reason a read-only tool is wrapped at all.
+		// the whole reason such a tool is wrapped at all. An internal write
+		// joins a read here rather than getting a branch of its own: normal
+		// mode asks about what leaves Eggy, and neither one does.
 		return ApprovalRule{Gated: func(json.RawMessage) bool { return false }}
 	}
 	if len(effect.Mutations) == 0 || slices.Contains(effect.Mutations, GateAllCalls) {
@@ -254,7 +256,31 @@ func (e *ApprovalToolExecutor) ExecuteApproved(ctx context.Context, approval app
 	if err != nil {
 		return nil, err
 	}
-	return truncateResult(string(result), e.maxBytes), nil
+	return boundApprovedResult(result, e.maxBytes), nil
+}
+
+// boundApprovedResult holds an approved call's result inside the message bound
+// without losing the part of it the owner actually reads.
+//
+// A result that carries a "summary" is saying "this line is the answer"; the
+// record around it can be far longer than a chat message should be, and a
+// schedule's is, because it embeds the instruction the owner just dictated.
+// Truncating from the front would cut the summary off mid-JSON and leave the
+// outcome message as an unparseable fragment of the owner's own words -- worst
+// exactly where the summary matters most.
+func boundApprovedResult(result json.RawMessage, maxBytes int) string {
+	if maxBytes <= 0 || len(result) <= maxBytes {
+		return string(result)
+	}
+	var payload struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(result, &payload); err == nil && strings.TrimSpace(payload.Summary) != "" {
+		if compact, err := json.Marshal(payload); err == nil {
+			return truncateResult(string(compact), maxBytes)
+		}
+	}
+	return truncateResult(string(result), maxBytes)
 }
 
 func normalizeArguments(raw json.RawMessage) json.RawMessage {

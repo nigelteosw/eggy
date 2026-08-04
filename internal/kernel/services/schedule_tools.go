@@ -36,14 +36,22 @@ type ScheduleWriter interface {
 // tool with an action keeps the whole subject in one description; the
 // read-only "list" action stays separately grantable because the allowlist
 // understands "schedule:list" (see agent.RunOptions.AllowedTools).
-func NewScheduleTools(schedules ScheduleWriter, now func() time.Time, newID func() string) []ports.Tool {
-	return []ports.Tool{scheduleTool{schedules: schedules, now: now, newID: newID}}
+// location renders a schedule's next run for the owner. A stored time carries
+// whatever zone it was created with -- the offset the model wrote into `at`, or
+// the scheduler's for a cron -- so without one place to render them, two
+// schedules made the same day report their times in two different zones.
+func NewScheduleTools(schedules ScheduleWriter, now func() time.Time, newID func() string, location *time.Location) []ports.Tool {
+	if location == nil {
+		location = time.UTC
+	}
+	return []ports.Tool{scheduleTool{schedules: schedules, now: now, newID: newID, location: location}}
 }
 
 type scheduleTool struct {
 	schedules ScheduleWriter
 	now       func() time.Time
 	newID     func() string
+	location  *time.Location
 }
 
 // ScheduleToolName is the one tool covering the whole scheduling subject.
@@ -158,7 +166,8 @@ func (t scheduleTool) cancel(ctx context.Context, id string) (json.RawMessage, e
 	}
 	return json.Marshal(struct {
 		Cancelled string `json:"cancelled"`
-	}{Cancelled: id})
+		Summary   string `json:"summary"`
+	}{Cancelled: id, Summary: fmt.Sprintf("Cancelled schedule %s. It will not run again.", id)})
 }
 
 func (t scheduleTool) create(ctx context.Context, instruction, cron, at, kind string) (json.RawMessage, error) {
@@ -190,7 +199,31 @@ func (t scheduleTool) create(ctx context.Context, instruction, cron, at, kind st
 	if err := t.schedules.Add(ctx, schedule); err != nil {
 		return nil, err
 	}
-	return json.Marshal(schedule)
+	return json.Marshal(struct {
+		ports.Schedule
+		Summary string `json:"summary"`
+	}{Schedule: schedule, Summary: scheduleSummary(schedule, t.location)})
+}
+
+// scheduleSummary is the one line an owner should read about a schedule that
+// was just made. It is carried in the tool's own result under "summary", which
+// is what the approve-tap outcome renders instead of the raw record: an owner
+// who taps approve gets "Reminder set for Wed 5 Aug 2026, 8:00 PM +08", not the
+// JSON of the instruction they just wrote.
+//
+// The instruction is deliberately left out. It is the owner's own words, often
+// several paragraphs of them, and echoing it back is what made the old outcome
+// message unreadable.
+func scheduleSummary(schedule ports.Schedule, location *time.Location) string {
+	what := "Agent run"
+	if schedule.Execution == ports.ScheduleExecutionMessage {
+		what = "Reminder"
+	}
+	when := schedule.NextRun.In(location).Format("Mon 2 Jan 2006, 3:04 PM MST")
+	if schedule.Kind == ports.ScheduleRecurring {
+		return fmt.Sprintf("%s recurring on `%s`, next %s. Cancel with id %s.", what, schedule.Expression, when, schedule.ID)
+	}
+	return fmt.Sprintf("%s set for %s. Cancel with id %s.", what, when, schedule.ID)
 }
 
 // scheduleExecution maps the optional "kind" onto an execution: a plain

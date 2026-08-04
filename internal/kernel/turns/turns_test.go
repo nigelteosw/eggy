@@ -235,3 +235,30 @@ func TestTruncateThreadTitleBoundsLongFirstMessages(t *testing.T) {
 		t.Fatalf("got %q (%d runes)", got, len([]rune(got)))
 	}
 }
+
+// TestApprovedOutcomeReadsAsASentenceWhenTheToolWroteOne is the owner-facing
+// half of an approve tap. A tool that can describe what it just did carries the
+// sentence in its own result; everything else -- an MCP tool this repository
+// cannot write a sentence for -- still reports the record, because a message
+// nobody can read is better than no message at all.
+func TestApprovedOutcomeReadsAsASentenceWhenTheToolWroteOne(t *testing.T) {
+	created := `{"id":"180f11b61b3d","instruction":"a long instruction the owner already wrote","summary":"Reminder set for Wed 5 Aug 2026, 8:00 PM +08. Cancel with id 180f11b61b3d."}`
+	outcome := approvalOutcomeText(created)
+	if !strings.HasPrefix(outcome, "Done. Reminder set for Wed 5 Aug 2026") {
+		t.Fatalf("outcome=%q", outcome)
+	}
+	if strings.Contains(outcome, "instruction") {
+		t.Fatalf("the summary did not replace the record: %q", outcome)
+	}
+
+	for name, result := range map[string]any{
+		"no summary field": `{"deployed":true}`,
+		"blank summary":    `{"summary":"   "}`,
+		"not json at all":  "plain text",
+		"not a string":     42,
+	} {
+		if outcome := approvalOutcomeText(result); !strings.HasPrefix(outcome, "Approved action completed:") {
+			t.Fatalf("%s: outcome=%q", name, outcome)
+		}
+	}
+}

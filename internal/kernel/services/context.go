@@ -86,9 +86,12 @@ func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool 
 }
 
 func (t memoryTool) Definition() ports.ToolDefinition {
-	// Every action writes: add, replace and remove are the whole surface, and
-	// both files are already in context so there is nothing to read.
-	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema, Effect: ports.MutatingActions(ports.GateAllTool)}
+	// Every action writes -- add, replace and remove are the whole surface, and
+	// both files are already in context so there is nothing to read -- but every
+	// write lands in a document the owner reads in the prompt and can edit
+	// directly, and nowhere else. That is ports.InternalTool: normal mode lets
+	// it through and strict still asks.
+	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema, Effect: ports.InternalTool()}
 }
 
 func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {

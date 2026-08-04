@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -496,4 +497,36 @@ func loadApproval(service *ApprovalService, ctx context.Context, id string) (app
 		return approvals.Approval{}, errors.New("approval not found")
 	}
 	return approval, nil
+}
+
+// A long result must not cost the owner the one line written for them. The
+// case that made this real: a schedule's record embeds the instruction the
+// owner dictated, so a paragraph-long reminder pushed the summary past the
+// bound and the outcome message became a fragment of their own words.
+func TestALongApprovedResultKeepsItsSummary(t *testing.T) {
+	long := strings.Repeat("instruction ", 400)
+	result := json.RawMessage(`{"instruction":"` + long + `","summary":"Reminder set for Wed 5 Aug 2026, 8:00 PM +08."}`)
+	bounded := boundApprovedResult(result, approvedResultLimit)
+	if len(bounded) > approvedResultLimit {
+		t.Fatalf("bounded result is %d bytes, want at most %d", len(bounded), approvedResultLimit)
+	}
+	var payload struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(bounded), &payload); err != nil {
+		t.Fatalf("bounded result no longer parses: %v (%s)", err, bounded)
+	}
+	if payload.Summary != "Reminder set for Wed 5 Aug 2026, 8:00 PM +08." {
+		t.Fatalf("summary=%q", payload.Summary)
+	}
+
+	// A result that fits is passed through whole, and one with nothing written
+	// for the owner still reports as much of itself as it can.
+	if got := boundApprovedResult(json.RawMessage(`{"ok":true}`), approvedResultLimit); got != `{"ok":true}` {
+		t.Fatalf("a short result was rewritten: %s", got)
+	}
+	plain := boundApprovedResult(json.RawMessage(`{"log":"`+long+`"}`), approvedResultLimit)
+	if len(plain) <= approvedResultLimit || !strings.Contains(plain, "truncated") {
+		t.Fatalf("a summaryless result was not reported truncated: %d bytes", len(plain))
+	}
 }

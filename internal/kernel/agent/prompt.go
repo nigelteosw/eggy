@@ -76,7 +76,8 @@ var runtimePolicyFragments = []runtimePolicyFragment{
 	},
 	{
 		tools: []string{"memory"},
-		text:  `- Curate USER.md and MEMORY.md with the memory tool, storing only stable, useful facts and never credentials. Both files have a byte budget: when one is full the tool refuses the write, so remove or consolidate entries that are stale, superseded, or duplicated rather than letting them accumulate.`,
+		text: `- Curate USER.md and MEMORY.md with the memory tool, storing only stable, useful facts and never credentials. Both files have a byte budget: when one is full the tool refuses the write, so remove or consolidate entries that are stale, superseded, or duplicated rather than letting them accumulate.
+- Curate silently. Write a fact down as it arrives, without asking first and without announcing, confirming, or listing the write in your reply; the owner reads both files whenever they want. Say something about memory only when the owner asked about it or the write failed.`,
 	},
 	{
 		tools: []string{"skill_read"},

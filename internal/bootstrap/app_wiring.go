@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
+	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
@@ -174,10 +176,46 @@ func registerAll(registry *services.ToolRegistry, tools ...ports.Tool) error {
 // MCP is excluded and keeps its own path: a remote catalog cannot be
 // classified from here, and its trust decision was made when the server was
 // configured.
-func registerGated(registry *services.ToolRegistry, approvals *services.ApprovalService, tools ...ports.Tool) error {
+func registerGated(registry *services.ToolRegistry, asker *approvalAsker, modes services.ModeReader, tools ...ports.Tool) error {
 	gated := make([]ports.Tool, 0, len(tools))
 	for _, tool := range tools {
-		gated = append(gated, services.NewApprovalGatedToolIf(tool, approvals, approvals, services.RuleFor(tool.Definition())))
+		gated = append(gated, services.NewApprovalGatedToolIf(tool, asker, modes, services.RuleFor(tool.Definition())))
 	}
 	return registerAll(registry, gated...)
+}
+
+// approvalAsker records the approval and then actually asks the owner.
+//
+// Recording and asking are two steps and only the first lived in the kernel:
+// ApprovalService writes the pending record, and the channel carries the
+// question with its approve and reject buttons. Joining them here rather than
+// inside the service is what keeps `internal/kernel` free of a channel, the
+// same reason googleAdmin exists.
+//
+// Nothing joined them for a while. The last caller of DeliverApproval went out
+// with the native Calendar tools, which left the gate writing pending records
+// nobody was ever shown -- the model was told "the owner has been asked" and
+// the owner was asked nothing. A gate that silently swallows the question is
+// worse than no gate: the call does not happen, and nobody knows why.
+type approvalAsker struct {
+	service *services.ApprovalService
+	channel ports.Channel
+}
+
+func (a *approvalAsker) Request(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
+	// Recorded first, so a delivery failure leaves an approval the owner can
+	// still find in /status and the web panel rather than losing it.
+	approval, err := a.service.Request(ctx, action, payload, summary)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
+	if a.channel == nil {
+		return approval, nil
+	}
+	if err := a.channel.DeliverApproval(ctx, approval); err != nil {
+		// Reported rather than swallowed. The model must not tell the owner
+		// their approval is waiting on a message that never arrived.
+		return approvals.Approval{}, fmt.Errorf("could not ask the owner to approve: %w", err)
+	}
+	return approval, nil
 }

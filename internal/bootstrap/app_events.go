@@ -161,15 +161,13 @@ func (a *App) onHeartbeatTick(ctx context.Context) {
 	if a.turnService.Active() {
 		return
 	}
-	a.workers.Add(1)
-	go func() {
-		defer a.workers.Done()
+	a.workers.Go(func() {
 		// Not retried: the next tick is the retry, and a heartbeat has no
 		// durable claim to release.
 		if err := a.turnService.HeartbeatTurn(destination.With(ctx, proactiveDestination()), a.heartbeatInstruction()); err != nil {
 			slog.Error("heartbeat failed", "error", err)
 		}
-	}()
+	})
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -209,13 +207,11 @@ func (a *App) Run(ctx context.Context) error {
 		case <-heartbeat:
 			a.onHeartbeatTick(ctx)
 		case event := <-a.eventQueue:
-			a.workers.Add(1)
-			go func() {
-				defer a.workers.Done()
+			a.workers.Go(func() {
 				if err := a.HandleEvent(ctx, event); err != nil {
 					slog.Error("event failed", "event_id", event.ID, "correlation_id", event.CorrelationID, "error", err)
 				}
-			}()
+			})
 		case now := <-scheduleTicker.C:
 			cutoff := now.Add(-a.config.Runner.Retention.Value())
 			// A checkout belongs to its thread, so there is exactly one
@@ -231,7 +227,6 @@ func (a *App) Run(ctx context.Context) error {
 				return err
 			}
 			for _, schedule := range due {
-				schedule := schedule
 				// A ScheduleExecutionMessage schedule is a deterministic,
 				// pre-rendered notification (reminder or watchdog): it is
 				// delivered verbatim on TypeScheduledMessage with no model
@@ -243,9 +238,7 @@ func (a *App) Run(ctx context.Context) error {
 				}
 				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
 				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
-				a.workers.Add(1)
-				go func() {
-					defer a.workers.Done()
+				a.workers.Go(func() {
 					if err := a.HandleEvent(ctx, event); err != nil {
 						if failErr := a.scheduler.Fail(ctx, schedule.ID, schedule.PendingRun); failErr != nil {
 							slog.Error("schedule failure acknowledgement failed", "schedule_id", schedule.ID, "error", failErr)
@@ -256,7 +249,7 @@ func (a *App) Run(ctx context.Context) error {
 					if err := a.scheduler.Complete(ctx, schedule.ID, schedule.PendingRun, a.now()); err != nil {
 						slog.Error("schedule completion acknowledgement failed", "schedule_id", schedule.ID, "error", err)
 					}
-				}()
+				})
 			}
 		}
 	}

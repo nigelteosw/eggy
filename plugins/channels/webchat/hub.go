@@ -45,7 +45,9 @@ type Hub struct {
 	mu          sync.Mutex
 	connections map[uint64]connection
 	nextConnID  uint64
-	nextMsgID   uint64
+	// nextMsgID is atomic, not mu-guarded, unlike nextConnID directly above
+	// it. The type carries that distinction so the two cannot be confused.
+	nextMsgID atomic.Uint64
 }
 
 func NewHub() *Hub {
@@ -93,6 +95,6 @@ func (h *Hub) Broadcast(threadID string, event Event) {
 // NextMessageID returns a unique ID for a trackable webchat message
 // (DeliverTrackable/EditText).
 func (h *Hub) NextMessageID() string {
-	id := atomic.AddUint64(&h.nextMsgID, 1)
+	id := h.nextMsgID.Add(1)
 	return strconv.FormatUint(id, 36)
 }

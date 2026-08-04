@@ -34,8 +34,12 @@ const LoopbackRedirect = "http://localhost:1"
 const pendingWindow = 10 * time.Minute
 
 // Endpoints are variables, not constants, so tests can point the flow at a
-// local server. Nothing in config may set them: a configurable token endpoint
-// is a credential exfiltration primitive, not a feature.
+// local server. They stay unexported and package-scoped deliberately, which is
+// what makes "nothing in config may set them" the compiler's job rather than a
+// review convention: a settable token host redirects the client secret and
+// every authorization code to whatever address the config names. Google's
+// endpoints are the same for every owner, so there is no caller to serve by
+// exporting them. Decided in AGENTS.md; do not promote these to Config.
 var (
 	authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
 	tokenEndpoint         = "https://oauth2.googleapis.com/token"

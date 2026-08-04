@@ -1,14 +1,14 @@
 # Compact Documentation Sidebar Design
 
 Date: 2026-07-31
-Status: shipped, except its verification
+Status: shipped
 
 The compact sidebar and the brand mark landed — `--brand-yellow` is defined in
 `docs/src/styles/global.css` and applied to the mark, separate from the mint
-documentation accent. The regression test this document requires was never
-written: `docs/tests/navigation.test.ts` covers routes, content coverage, and
-previous/next links only. Both properties this design exists to protect are
-therefore unpinned. Tracked in `TODO.md`.
+documentation accent. Both properties this design exists to protect are pinned
+by `docs/tests/design.test.ts`: the desktop sidebar is non-scrollable and still
+sticky, the mobile drawer still scrolls, and the mark reads `--brand-yellow`
+rather than any accent token.
 
 ## Goal
 

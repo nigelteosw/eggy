@@ -146,6 +146,19 @@ endpoints and one loopback constant. One adapter would carry all of that past a
 provider that never uses it, adding branches to delete ~50 lines. Revisit only if
 a *third* provider appears on the MCP side of the split.
 
+**Google's authorization and token endpoints stay unexported in
+`plugins/tools/google`.** They are `var` rather than `const` only so tests can
+point the exchange at an `httptest` server, and the question of promoting them
+to `Config` or an exported `Endpoints` type is settled: no. An operator-settable
+token host is a credential exfiltration primitive — it redirects the client
+secret and every authorization code to whatever address the config names, and it
+would look like an ordinary configurability improvement in review. Keeping them
+unexported and package-scoped makes that the compiler's job rather than a review
+convention: nothing in `internal/config` or `internal/bootstrap` can reach them.
+Google's endpoints are fixed for every owner, so there is no legitimate caller to
+serve. This is the counterpart to MCP, where endpoints *are* discovered per
+server because they genuinely vary.
+
 **`GoogleRuntime` and `MCPRuntime` stay separate.** Four lines each; collapsing
 them needs a server key Google ignores or a named-grant registry. Machinery to
 delete eight lines.

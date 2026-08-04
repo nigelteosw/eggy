@@ -15,24 +15,6 @@ for why the thing it prevents is worse than the thing it costs.
 - [ ] 27 non-test `sort.Strings`/`sort.Slice` calls predate the Go 1.26 baseline
       and read as `slices.Sort`/`slices.SortFunc`. Do it when a change already
       touches those files, not as its own churn commit.
-- [ ] Add two characterization tests to `plugins/tools/google`: that
-      `access_type=offline` + `prompt=consent` reach the authorization URL, and
-      that a mismatched state is rejected. MCP pins both; Google pins neither,
-      and both failures are silent — a grant that stops renewing weeks later.
-- [ ] Decide whether `Endpoints` stays in-package in `plugins/tools/google`. It
-      is settable only by tests today and must never become config: an
-      operator-settable API host is a credential exfiltration primitive.
-- [ ] `docs/superpowers/specs/2026-07-31-compact-docs-sidebar-design.md` shipped
-      without the regression test it requires. `docs/tests/navigation.test.ts`
-      covers routes, content coverage, and previous/next only, so neither
-      property that design exists to protect is pinned: the desktop sidebar
-      being non-scrollable, and the brand mark using `--brand-yellow` rather
-      than the mint accent. The second is one CSS variable away from silently
-      regressing into exactly the failure the spec was written to prevent.
-- [ ] Nothing pins the documented Telegram commands against `internal/commands`.
-      The docs-site spec made it a one-time manual verification step, so the
-      shipped commands and their documentation can drift apart silently.
-      `navigation.test.ts` already does this class of check for routes.
 
 ## Capability roadmap
 

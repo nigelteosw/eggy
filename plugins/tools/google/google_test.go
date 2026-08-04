@@ -139,6 +139,39 @@ func TestLoginAcceptsABareCodeAndRejectsAStaleOne(t *testing.T) {
 	}
 }
 
+// A state that does not match the pending login is a different login, and the
+// exchange must not proceed on it. Nothing else pins this: the bare-code path
+// deliberately skips the check, so a regression that dropped the comparison
+// entirely would leave every other test in this file passing.
+func TestLoginRejectsAMismatchedState(t *testing.T) {
+	endpoint := &authServer{refreshToken: "refresh-token"}
+	endpoint.start(t)
+	store := testStore(t)
+	auth := testAuth(t, store)
+	if _, err := auth.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	err := auth.CompleteLogin(context.Background(), "4/code", "state-from-another-login")
+	if err == nil {
+		t.Fatal("a redirect carrying a foreign state completed the login")
+	}
+	if !strings.Contains(err.Error(), "different login") {
+		t.Fatalf("error=%v", err)
+	}
+	// The exchange must not have happened at all, and the pending login has to
+	// survive so the owner's real redirect still works.
+	if endpoint.form != nil {
+		t.Fatalf("token endpoint was called with %v", endpoint.form)
+	}
+	record, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State == "" || record.Authorized() {
+		t.Fatalf("record=%#v", record)
+	}
+}
+
 // Without a refresh token the grant dies at the first expiry and every product
 // fails at once, so the login refuses rather than reporting success.
 func TestLoginRequiresARefreshToken(t *testing.T) {

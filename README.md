@@ -21,7 +21,7 @@ choices. Its command surface is deliberately limited to:
 - `/clear`
 - `/model [alias]`
 - `/mcp [add|remove|enable|disable|login|logout]`
-- `/auto`
+- `/mode [strict|normal|auto]`
 - `/restart`
 
 The agent can call `telegram_select` with its own prompt and 2–8 labelled

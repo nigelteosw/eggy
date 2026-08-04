@@ -19,6 +19,7 @@ func NewRepositoryMetadataTools(store ports.StateStore, reader ports.RepositoryR
 		Name:        "repository_github",
 		Description: "Read GitHub repository, issue, pull-request, or check-run metadata; never mutates GitHub state",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1},"kind":{"type":"string","enum":["repository","issue","pull_request","checks"]},"number":{"type":"integer","minimum":1},"ref":{"type":"string"}},"required":["repository","kind"],"additionalProperties":false}`),
+		Effect:      ports.ReadOnlyTool(),
 	}}
 	metadata.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {

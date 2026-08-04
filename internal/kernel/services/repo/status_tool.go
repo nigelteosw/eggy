@@ -28,7 +28,7 @@ func NewStatusTool(store ports.StateStore, schedules ScheduleCounter) ports.Tool
 	return statusTool{store: store, schedules: schedules}
 }
 func (t statusTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: "status", Description: "Read bounded Eggy operational status", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}
+	return ports.ToolDefinition{Name: "status", Description: "Read bounded Eggy operational status", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`), Effect: ports.ReadOnlyTool()}
 }
 func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 	if err := services.DecodeToolInput(raw, &struct{}{}); err != nil {

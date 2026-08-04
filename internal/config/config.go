@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +50,16 @@ type Config struct {
 	Google       GoogleConfig                `yaml:"google,omitempty"`
 	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
+	Approvals    ApprovalsConfig             `yaml:"approvals,omitempty"`
+}
+
+// ApprovalsConfig sets where a deployment starts. It is only a default: once
+// the owner has chosen with /mode, that choice is durable and config no longer
+// speaks for it. A deployment is where the software begins, not a standing
+// instruction that outranks the person operating it.
+type ApprovalsConfig struct {
+	// Mode is strict, normal or auto. Empty means normal.
+	Mode string `yaml:"mode,omitempty"`
 }
 
 // Theme names. Dark is the default: Eggy's web panel is charcoal unless the
@@ -517,6 +528,13 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateGoogle(); err != nil {
 		return err
+	}
+	// An unrecognized mode is refused rather than falling back to a working
+	// one: an owner who wrote "readonly" meant to be asked about writes, and
+	// quietly running them instead is the one failure this setting exists to
+	// prevent.
+	if mode := c.Approvals.Mode; mode != "" && !ports.ApprovalMode(mode).Valid() {
+		return fmt.Errorf("approvals.mode %q must be strict, normal or auto", mode)
 	}
 	return nil
 }

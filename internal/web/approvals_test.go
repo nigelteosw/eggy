@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 type fakeApprovalDirectory struct{ pending []approvals.Approval }
@@ -72,32 +74,48 @@ func TestWebApprovalsRouteRequiresSession(t *testing.T) {
 	}
 }
 
-type fakeAutoMode struct{ auto bool }
+type fakeApprovalMode struct{ mode ports.ApprovalMode }
 
-func (f *fakeAutoMode) AutoApprove(context.Context) (bool, error) { return f.auto, nil }
+func (f *fakeApprovalMode) Mode(context.Context) (ports.ApprovalMode, error) {
+	if f.mode == "" {
+		return ports.ModeNormal, nil
+	}
+	return f.mode, nil
+}
 
-func (f *fakeAutoMode) SetAutoApprove(_ context.Context, auto bool) error {
-	f.auto = auto
+func (f *fakeApprovalMode) SetMode(_ context.Context, mode ports.ApprovalMode) error {
+	f.mode = mode
 	return nil
 }
 
-// The panel and /auto are one switch. POST toggles rather than setting a
-// value, so neither surface can ask for a state the other cannot express, and
-// the reported wording is the same one Telegram sends.
-func TestWebAutoModeTogglesTheSameSwitch(t *testing.T) {
+// The panel and /mode are one switch. POST names the mode it wants rather than
+// advancing to the next one, so a panel and a phone starting from different
+// states cannot disagree about where they ended up, and the reported wording
+// is the same one Telegram sends.
+func TestWebApprovalModeSetsTheSameSwitch(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
-	gate := &fakeAutoMode{}
+	gate := &fakeApprovalMode{}
 	webConfig := testWebConfig(now)
-	webConfig.AutoMode = gate
+	webConfig.ApprovalMode = gate
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
 
-	read := func(method, path string) webResult {
+	call := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		request := httptest.NewRequest(method, path, nil)
+		var request *http.Request
+		if body == "" {
+			request = httptest.NewRequest(method, path, nil)
+		} else {
+			request = httptest.NewRequest(method, path, strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
 		request.AddCookie(cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
+		return response
+	}
+	decode := func(response *httptest.ResponseRecorder) webResult {
+		t.Helper()
 		if response.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
@@ -108,30 +126,35 @@ func TestWebAutoModeTogglesTheSameSwitch(t *testing.T) {
 		return decoded
 	}
 
-	if got := read(http.MethodGet, "/api/approvals/auto"); got.Title != commands.AutoModeMessage(false) {
-		t.Fatalf("initial read did not report the gate as on: %+v", got)
+	if got := decode(call(http.MethodGet, "/api/approvals/mode", "")); got.Title != commands.ModeMessage(ports.ModeNormal) {
+		t.Fatalf("initial read did not report the default mode: %+v", got)
 	}
-	enabled := read(http.MethodPost, "/api/approvals/auto")
-	if !gate.auto || enabled.Title != commands.AutoModeMessage(true) {
-		t.Fatalf("toggle did not enable auto mode: auto=%v result=%+v", gate.auto, enabled)
+	strict := decode(call(http.MethodPost, "/api/approvals/mode", "mode=strict"))
+	if gate.mode != ports.ModeStrict || strict.Title != commands.ModeMessage(ports.ModeStrict) {
+		t.Fatalf("mode=%q result=%+v", gate.mode, strict)
 	}
-	// The state travels as a field, not only as prose, so the switch renders
+	// The state travels as a field, not only as prose, so the panel renders
 	// from the server's answer rather than from what the click assumed.
-	if len(enabled.Fields) != 1 || enabled.Fields[0].Label != "auto_mode" || enabled.Fields[0].Value != "enabled" {
-		t.Fatalf("toggle did not report machine-readable state: %+v", enabled.Fields)
+	if len(strict.Fields) != 1 || strict.Fields[0].Label != "approval_mode" || strict.Fields[0].Value != "strict" {
+		t.Fatalf("no machine-readable state: %+v", strict.Fields)
 	}
-	if disabled := read(http.MethodPost, "/api/approvals/auto"); gate.auto || disabled.Fields[0].Value != "disabled" {
-		t.Fatalf("second toggle did not switch back: auto=%v result=%+v", gate.auto, disabled)
+	// An unknown mode is refused rather than resolved to a working one.
+	if response := call(http.MethodPost, "/api/approvals/mode", "mode=readonly"); response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if gate.mode != ports.ModeStrict {
+		t.Fatalf("a refused mode still changed the switch: %q", gate.mode)
 	}
 }
 
-// An unauthenticated toggle would be a bypass anyone could flip.
-func TestWebAutoModeRequiresASession(t *testing.T) {
+// An unauthenticated write would let anyone who can reach the port turn every
+// gate off.
+func TestWebApprovalModeRequiresASession(t *testing.T) {
 	webConfig := testWebConfig(time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
-	webConfig.AutoMode = &fakeAutoMode{}
+	webConfig.ApprovalMode = &fakeApprovalMode{}
 	handler := NewWebHandler("", webConfig)
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/approvals/auto", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/approvals/mode", strings.NewReader("mode=auto")))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}

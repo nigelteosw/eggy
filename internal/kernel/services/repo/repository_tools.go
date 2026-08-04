@@ -25,6 +25,7 @@ func (t repositoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.
 func NewRepositoryTools(store ports.StateStore) []ports.Tool {
 	list := repositoryTool{definition: ports.ToolDefinition{
 		Name: "repository_list", Description: "List repositories actually configured at runtime; never infer repository configuration from memory", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		Effect: ports.ReadOnlyTool(),
 	}}
 	list.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		if err := services.DecodeToolInput(raw, &struct{}{}); err != nil {

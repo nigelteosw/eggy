@@ -15,7 +15,7 @@ import (
 func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 	now := time.Date(2026, 7, 19, 1, 0, 0, 0, time.UTC)
 	store := newMemoryStateStore()
-	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute)
+	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute, ports.ModeNormal)
 	writeAction := approvalspkg.Action("write")
 	deleteAction := approvalspkg.Action("delete")
 	approval, err := service.Request(context.Background(), writeAction, map[string]any{"name": "test", "body": "abc"}, "Write skill")
@@ -46,7 +46,7 @@ func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 
 func TestApprovalRejectsChangedPayload(t *testing.T) {
 	store := newMemoryStateStore()
-	service := services.NewApprovalService(store, time.Now, time.Hour)
+	service := services.NewApprovalService(store, time.Now, time.Hour, ports.ModeNormal)
 	action := approvalspkg.Action("write")
 	approval, _ := service.Request(context.Background(), action, map[string]any{"name": "test", "body": "abc"}, "Write skill")
 	_ = service.Decide(context.Background(), approval.ID, true)

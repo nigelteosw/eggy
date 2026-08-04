@@ -465,7 +465,7 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 	if len(names) != 9 {
 		t.Fatalf("registered %d commands, want 9: %v", len(names), names)
 	}
-	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto", "restart"} {
+	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "google", "mode", "restart"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -999,9 +999,15 @@ func TestNewAppLeavesMCPToolsUngatedWhenNothingRequiresApproval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The MCP tools specifically. Native tools that write carry a notice by
+	// their own classification now, which is the point of normal mode and not
+	// a sign that this server was gated.
 	for _, listing := range app.tools.Catalog() {
+		if listing.Source != "mcp" {
+			continue
+		}
 		if strings.Contains(listing.Definition.Description, "requires the owner's approval") {
-			t.Fatalf("tool %q was gated with no require_approval configured", listing.Definition.Name)
+			t.Fatalf("MCP tool %q was gated with no require_approval configured", listing.Definition.Name)
 		}
 	}
 }

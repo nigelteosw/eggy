@@ -3,24 +3,31 @@ import {
   CommandResult,
   SessionExpiredError,
   approveChatDecision,
-  getAutoMode,
+  getApprovalMode,
   listApprovals,
-  toggleAutoMode,
+  setApprovalMode,
 } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
-import { Switch } from "./components/ui/switch";
+import { Label } from "./components/ui/label";
+import { Select } from "./components/ui/select";
 
 // Column positions in the rows /api/approvals returns.
 const ID = 0;
 const STATE = 3;
 
-// The auto-mode routes report the state in a field rather than only in prose,
-// so the switch reflects the server's answer instead of what the click assumed.
-function readAutoMode(result: CommandResult): boolean {
-  return result.fields?.some((field) => field.label === "auto_mode" && field.value === "enabled") ?? false;
+// The mode routes report the state in a field rather than only in prose, so
+// the picker reflects the server's answer instead of what the click assumed.
+function readApprovalMode(result: CommandResult): string {
+  return result.fields?.find((field) => field.label === "approval_mode")?.value ?? "";
 }
+
+const MODES = [
+  { value: "strict", label: "Strict — ask before every tool call" },
+  { value: "normal", label: "Normal — ask before anything that writes" },
+  { value: "auto", label: "Auto — never ask" },
+];
 
 /**
  * Approvals were countable and not inspectable: status reports "1 approval
@@ -32,8 +39,8 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
-  const [auto, setAuto] = useState(false);
-  const [autoMessage, setAutoMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState("");
+  const [modeMessage, setModeMessage] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
 
   const load = useCallback(() => {
@@ -46,15 +53,18 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         }
         setError(err instanceof Error ? err.message : "Failed to load");
       });
-    getAutoMode()
-      .then((mode) => setAuto(readAutoMode(mode)))
+    getApprovalMode()
+      .then((result) => {
+        setMode(readApprovalMode(result));
+        setModeMessage(result.title ?? null);
+      })
       .catch((err) => {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();
         }
-        // A gate whose state cannot be read is left showing off. Rendering it
-        // as on would tell the owner calls are being reviewed when nothing
-        // here knows that.
+        // A mode that cannot be read is left blank rather than defaulting to
+        // one. Showing "normal" would tell the owner writes are being reviewed
+        // when nothing here knows that.
       });
   }, [onSessionExpired]);
 
@@ -62,19 +72,19 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
     load();
   }, [load]);
 
-  async function switchAuto() {
+  async function chooseMode(next: string) {
     setSwitching(true);
     setError(null);
     try {
-      const mode = await toggleAutoMode();
-      setAuto(readAutoMode(mode));
-      setAutoMessage(mode.title ?? null);
+      const result = await setApprovalMode(next);
+      setMode(readApprovalMode(result));
+      setModeMessage(result.title ?? null);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not switch auto mode");
+      setError(err instanceof Error ? err.message : "Could not change the approval mode");
     } finally {
       setSwitching(false);
     }
@@ -110,13 +120,23 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-3">
-          <Switch checked={auto} disabled={switching} onCheckedChange={switchAuto} label="Auto mode" />
-          <p className="text-sm text-muted-foreground">
-            {autoMessage ??
-              (auto
-                ? "Auto mode enabled. Approval-gated tool calls now run without asking."
-                : "Auto mode disabled. Approval-gated tool calls will ask before running.")}
-          </p>
+          <Label htmlFor="approval-mode">Approval mode</Label>
+          <Select
+            id="approval-mode"
+            value={mode}
+            disabled={switching || mode === ""}
+            onChange={(event) => chooseMode(event.target.value)}
+          >
+            {/* Present only until the first read lands, so an unreadable mode
+                shows as unknown rather than as one of the three. */}
+            {mode === "" && <option value="">Loading…</option>}
+            {MODES.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          <p className="text-sm text-muted-foreground">{modeMessage ?? "Reading the current mode…"}</p>
         </div>
         <DataTable
           headers={result?.table_headers}

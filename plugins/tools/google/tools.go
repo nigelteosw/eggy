@@ -93,49 +93,43 @@ func Actions() map[string][]string {
 	return actions
 }
 
-// GateAll is the action set for a tool that has no actions to choose between.
+// GateAll is the action set for a tool whose every call writes. It matches the
+// kernel's spelling rather than importing it: a plugin depending on a kernel
+// service package would be the wrong direction, and the test that compares the
+// two constants is cheaper than the dependency.
 const GateAll = "*"
 
-// GateFor builds the per-call test for one tool: does this call name one of
-// the given actions?
-//
-// An unreadable or actionless payload is treated as gated. The failure modes
-// are not symmetrical: gating a call that did not need it costs a prompt, while
-// letting one through costs the mutation itself.
-func GateFor(actions []string) func(json.RawMessage) bool {
-	if len(actions) == 0 {
-		return func(json.RawMessage) bool { return false }
+// effectFor is what each tool reports as its own classification, so the kernel
+// gate can act on it without a table of Google knowledge living anywhere else.
+// A product with no mutating actions is genuinely read-only and says so.
+func effectFor(name string) ports.ToolEffect {
+	mutations := Mutations()[name]
+	if len(mutations) == 0 {
+		return ports.ReadOnlyTool()
 	}
-	gated := make(map[string]bool, len(actions))
-	for _, action := range actions {
-		if action == GateAll {
-			return func(json.RawMessage) bool { return true }
-		}
-		gated[action] = true
-	}
-	return func(arguments json.RawMessage) bool {
-		var call struct {
-			Action string `json:"action"`
-		}
-		if err := json.Unmarshal(arguments, &call); err != nil || call.Action == "" {
-			return true
-		}
-		return gated[call.Action]
-	}
+	return ports.MutatingActions(mutations...)
 }
 
-// GateNotice tells the model which of a tool's actions will stop for approval,
-// so it neither avoids the ungated ones nor retries a gated one while the owner
-// is being asked. An empty result means the whole tool is gated and the
-// standard notice already says everything there is to say.
-func GateNotice(actions []string) string {
-	if len(actions) == 0 || slices.Contains(actions, GateAll) {
-		return ""
+// Reclassified overrides what a tool says its writes are, which is how
+// google.require_approval narrows or widens the default without a second gate.
+// Passing no actions makes the tool read-only as far as the gate is concerned:
+// the calls still write, but the owner said not to be asked.
+func Reclassified(tool ports.Tool, actions []string) ports.Tool {
+	definition := tool.Definition()
+	if len(actions) == 0 {
+		definition.Effect = ports.ReadOnlyTool()
+	} else {
+		definition.Effect = ports.MutatingActions(actions...)
 	}
-	listed := slices.Clone(actions)
-	slices.Sort(listed)
-	return fmt.Sprintf(" These actions require the owner's approval: %s. Calling one asks them, and it runs only if they approve; the result then goes to the owner rather than back here, so do not call it again while waiting. Every other action on this tool runs normally.", strings.Join(listed, ", "))
+	return reclassifiedTool{Tool: tool, definition: definition}
 }
+
+type reclassifiedTool struct {
+	ports.Tool
+	definition ports.ToolDefinition
+}
+
+func (t reclassifiedTool) Definition() ports.ToolDefinition { return t.definition }
 
 // respond shapes both outcomes of one product call for the model, and takes
 // them positionally so a case can forward a call directly:
@@ -164,6 +158,7 @@ type gmailTool struct{ workspace *Workspace }
 func (t gmailTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_gmail",
+		Effect:      effectFor("google_gmail"),
 		Description: "Read and send mail. action=search takes Gmail query syntax (is:unread, from:, newer_than:7d, has:attachment) and returns headers only; action=get returns one message body by id, along with any attachments it carries; action=thread returns a whole conversation by thread_id; action=attachment fetches one by id and returns it only if it is text. action=send needs to/subject/body; action=draft writes the same mail without sending it, which is the safer way to offer one for review; action=drafts lists what is waiting and action=send_draft sends one by draft id; action=reply threads onto a message id; action=labels lists label ids; action=modify adds or removes them; action=trash moves a message to the trash, where Gmail keeps it for 30 days.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["search","get","thread","labels","drafts","attachment","send","reply","draft","send_draft","modify","trash"]},
@@ -238,6 +233,7 @@ type calendarTool struct {
 func (t calendarTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_calendar",
+		Effect:      effectFor("google_calendar"),
 		Description: "Read and change calendars. action=list reads every calendar the account can see over the next seven days by default, and each event names the calendar it came from; pass calendar_id to read one. action=calendars lists the available calendars and their ids; action=get reads one event by id; action=freebusy returns the busy blocks across every calendar in one call, which is the way to find a free slot. action=create needs summary, start and end; action=update changes an existing event in place and is always right for moving one, because delete-and-recreate discards every guest's reply; action=respond answers an invitation with yes, no or maybe; action=delete needs an event id. Every time must carry a timezone offset or Z — a bare datetime is read as UTC and lands hours away. Guests are emailed about events that have attendees; pass send_updates=none to change nothing but the owner's own calendar.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["list","calendars","get","freebusy","create","update","delete","respond"]},
@@ -314,6 +310,7 @@ type driveTool struct{ workspace *Workspace }
 func (t driveTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_drive",
+		Effect:      effectFor("google_drive"),
 		Description: "Find and manage files. action=search matches words in a file's full text; set raw_query to pass a Drive query expression instead, such as mimeType='application/pdf' or '<folder id>' in parents. action=get reads a file's content — Docs and Sheets are exported to text and CSV, plain text files are returned as-is, and anything else reports what it is rather than returning bytes. action=create writes a text file, or a folder with folder=true; action=update renames a file, moves it by naming a new parent, or both; action=delete puts it in the trash unless permanent=true; action=share grants access to an email address, a domain, or to anyone with the link.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["search","get","create","update","delete","share"]},
@@ -381,6 +378,7 @@ type docsTool struct{ workspace *Workspace }
 func (t docsTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_docs",
+		Effect:      effectFor("google_docs"),
 		Description: "Read and write Google Docs. action=get returns a document's title and full text by id — find the id with google_drive first. action=create makes a new one from a title and optional body text; action=append adds text at the end; action=replace substitutes every occurrence of one string and reports how many it changed, so zero means nothing matched. This handles text, not formatting.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["get","create","append","replace"]},
@@ -422,6 +420,7 @@ type sheetsTool struct{ workspace *Workspace }
 func (t sheetsTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_sheets",
+		Effect:      effectFor("google_sheets"),
 		Description: "Read and write spreadsheet cells. action=info lists the workbook's tab names and sizes and takes no range — call it first, because a tab is not always called Sheet1 and an A1 range naming the wrong one fails. action=get reads an A1 range; action=update overwrites it; action=append adds rows after the last; action=clear empties a range but leaves its formatting. action=create makes a new workbook and action=add_sheet adds a tab to one. Values are rows of cells, e.g. [[\"Name\",\"Score\"],[\"Alice\",95]].",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["info","get","create","add_sheet","update","append","clear"]},
@@ -483,6 +482,7 @@ type contactsTool struct{ workspace *Workspace }
 func (t contactsTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_contacts",
+		Effect:      effectFor("google_contacts"),
 		Description: "The owner's saved contacts, with email addresses and phone numbers. action=search finds one by name, email or phone and is the right call when looking someone up; action=list returns the first few and is only useful for browsing. action=create saves a new contact; action=update changes one, addressed by the resource name a search returns. An update replaces the fields it is given and leaves the others alone.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["list","search","create","update"]},

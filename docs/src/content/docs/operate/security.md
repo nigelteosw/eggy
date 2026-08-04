@@ -30,7 +30,7 @@ MCP servers are trusted at configuration time: a server's tools run without aski
 
 `require_approval` is how you say otherwise. Naming a tool under a server's `require_approval` routes each of its calls through the payload-bound approval mechanism: the call does not reach the server, the approval binds the exact arguments, and your decision executes it once. Eggy cannot judge which of an arbitrary server's tools are dangerous, so the list is yours to write — narrow what a server exposes with `tool_filter`, then gate the mutations that remain.
 
-`/auto` disables every gate until it is switched back on. It is durable across restarts and `status` reports it while it is on, but it is a real bypass: with auto mode enabled a gated tool is exactly as trusted as an ungated one.
+`/mode auto` disables every gate until the mode is changed back. It is durable across restarts and `status` names it, but it is a real bypass: in auto mode a gated tool is exactly as trusted as an ungated one. `/mode strict` is the other end — every tool call asks, reading included.
 
 ## Scheduled turns
 

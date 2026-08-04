@@ -83,11 +83,19 @@ runner:
 #   # every action that writes anything is gated -- Eggy reads your mail
 #   # unasked and sends none without asking. Naming actions yourself replaces
 #   # that default rather than adding to it, and an empty list turns the gates
-#   # off entirely. "gmail.*" gates a whole product. /auto turns every gate
-#   # off at once, everywhere.
+#   # off entirely. "gmail.*" gates a whole product. This narrows or widens
+#   # what the tools themselves declare; approvals.mode below decides whether
+#   # any of it is consulted at all.
 #   require_approval: ["gmail.send", "calendar.delete", "drive.share"]
 #   timeout: "30s"
 #   max_output_bytes: 131072
+# How much Eggy asks before it acts. strict asks before every tool call,
+# reading included; normal asks before anything that writes and is the
+# default; auto asks nothing. This is only where a fresh deployment starts --
+# once you set /mode, your choice is durable and outranks this file.
+approvals:
+  mode: "normal"
+
 mcp:
   # Anything listed here is trusted: a server can only get here by you putting
   # it here, so reviewing the server IS the approval, and its tools otherwise

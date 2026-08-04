@@ -6,7 +6,7 @@ eyebrow: Configure
 
 One OAuth client, one consent screen, one stored grant, and a tool for each product configured. Absent unless configured: no token store is opened, no tool schema is built, and no scope is ever requested.
 
-> **Trust model:** configuring Google authorizes the *reads*. Anything that writes — sending mail, changing an event, editing a sheet — stops and asks you first, per call, unless you say otherwise in [`require_approval`](#approvals). `/auto` turns every gate off at once, everywhere.
+> **Trust model:** configuring Google authorizes the *reads*. Anything that writes — sending mail, changing an event, editing a sheet — stops and asks you first, per call, unless you say otherwise in [`require_approval`](#approvals). `/mode auto` turns every gate off at once, everywhere; `/mode strict` makes even the reads ask.
 
 ## Before you start
 

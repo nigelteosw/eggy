@@ -32,7 +32,7 @@ var telegramCommands = []struct {
 	{Name: "model", Description: "Show or select the active model"},
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
 	{Name: "google", Description: "Authorize Google Workspace and show its status"},
-	{Name: "auto", Description: "Switch auto mode on or off for approval-gated tool calls"},
+	{Name: "mode", Description: "Show or set how much Eggy asks before tool calls: strict, normal or auto"},
 	{Name: "restart", Description: "Reload config.yaml by rebuilding the running daemon"},
 }
 
@@ -49,12 +49,12 @@ type AgentSettings interface {
 	SelectModel(context.Context, string) error
 }
 
-// ApprovalGate is the runtime switch behind /approvals. Reading and writing go
+// ApprovalGate is the runtime switch behind /mode. Reading and writing go
 // through the one approval authority rather than this package touching state
 // directly, so the gate has a single answer whoever asks.
 type ApprovalGate interface {
-	AutoApprove(context.Context) (bool, error)
-	SetAutoApprove(context.Context, bool) error
+	Mode(context.Context) (ports.ApprovalMode, error)
+	SetMode(context.Context, ports.ApprovalMode) error
 }
 
 // Restarter rebuilds the daemon around a freshly read config.yaml. It is the
@@ -146,8 +146,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.mcpCommand(ctx, args)
 	case "google":
 		return s.googleCommand(ctx, args)
-	case "auto":
-		return s.autoCommand(ctx)
+	case "mode":
+		return s.modeCommand(ctx, strings.Join(args, " "))
 	case "restart":
 		return s.restartCommand()
 	default:
@@ -199,16 +199,18 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	if len(waiting) > 0 {
 		report += "\n" + strings.Join(waiting, "\n")
 	}
-	// Reported unconditionally when on, and only when on. A bypass the owner
-	// switched on days ago and forgot is the failure mode worth a line here;
-	// the safe state does not need one.
+	// The mode is always reported now that there are three of them. A bypass
+	// the owner switched on days ago and forgot is still the failure mode worth
+	// the line, but with a middle rung "no news" no longer means one specific
+	// state, so saying nothing would leave the owner guessing which.
 	if s.approvals != nil {
-		auto, err := s.approvals.AutoApprove(ctx)
+		mode, err := s.approvals.Mode(ctx)
 		if err != nil {
 			return "", true, err
 		}
-		if auto {
-			report += "\n**Auto mode is enabled** — gated tool calls run without asking. `/auto` switches it back off."
+		report += "\n**Approvals:** " + ModeMessage(mode)
+		if mode == ports.ModeAuto {
+			report += " `/mode normal` restores the gate."
 		}
 	}
 	if s.mcp != nil {
@@ -257,22 +259,31 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 	return "Model set to " + alias + ".", true, nil
 }
 
-// autoCommand flips auto mode. It takes no argument on purpose: a toggle the
-// owner can fire from a phone without remembering a subcommand, and the reply
-// states the resulting mode so the tap is always confirmed rather than
-// assumed.
-func (s *CommandService) autoCommand(ctx context.Context) (string, bool, error) {
+// modeCommand reads or sets how much the owner is asked.
+//
+// Bare /mode reports rather than cycling. A toggle was defensible when there
+// were two states; with three, a tap that advances to whichever comes next is
+// a way to end up in auto without meaning to, and auto is the one state nobody
+// should reach by accident.
+func (s *CommandService) modeCommand(ctx context.Context, argument string) (string, bool, error) {
 	if s.approvals == nil {
 		return "Approvals are unavailable.", true, nil
 	}
-	auto, err := s.approvals.AutoApprove(ctx)
+	current, err := s.approvals.Mode(ctx)
 	if err != nil {
 		return "", true, err
 	}
-	if err := s.approvals.SetAutoApprove(ctx, !auto); err != nil {
+	requested := ports.ApprovalMode(strings.ToLower(strings.TrimSpace(argument)))
+	if requested == "" {
+		return ModeReport(current), true, nil
+	}
+	if !requested.Valid() {
+		return fmt.Sprintf("%q is not a mode. Use /mode strict, /mode normal or /mode auto.", argument), true, nil
+	}
+	if err := s.approvals.SetMode(ctx, requested); err != nil {
 		return "", true, err
 	}
-	return AutoModeMessage(!auto), true, nil
+	return ModeMessage(requested), true, nil
 }
 
 // restartCommand is /restart. The work is in Restart below, which the panel's
@@ -312,17 +323,32 @@ func Restart(restarter Restarter, configPath string, getenv func(string) string)
 	return RestartMessage, true
 }
 
-// AutoModeMessage is the one wording for the switch's new state, so Telegram
-// and the web panel cannot describe the same setting two different ways.
-func AutoModeMessage(auto bool) string {
-	if auto {
-		return "Auto mode enabled. Approval-gated tool calls now run without asking."
+// ModeMessage is the one wording for a mode's meaning, so Telegram and the web
+// panel cannot describe the same setting two different ways.
+func ModeMessage(mode ports.ApprovalMode) string {
+	switch mode {
+	case ports.ModeStrict:
+		return "Strict mode. Every tool call asks first, reading included."
+	case ports.ModeAuto:
+		return "Auto mode. Nothing asks — tool calls that change things now run unapproved."
+	default:
+		return "Normal mode. Reading runs freely; anything that writes asks first."
 	}
-	return "Auto mode disabled. Approval-gated tool calls will ask before running."
+}
+
+// ModeReport is what a bare /mode says: the mode and the way out of it.
+func ModeReport(mode ports.ApprovalMode) string {
+	others := make([]string, 0, 2)
+	for _, candidate := range []ports.ApprovalMode{ports.ModeStrict, ports.ModeNormal, ports.ModeAuto} {
+		if candidate != mode {
+			others = append(others, "/mode "+string(candidate))
+		}
+	}
+	return ModeMessage(mode) + "\n\nChange it with " + strings.Join(others, " or ") + "."
 }
 
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /auto, /restart"
+	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /mode [strict|normal|auto], /restart"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

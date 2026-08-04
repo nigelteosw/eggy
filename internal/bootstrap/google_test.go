@@ -8,40 +8,62 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
 
 // An owner who never configured approvals at all must still get one: Eggy may
-// read their mail unasked and may not send any.
+// read their mail unasked and may not send any. With no override configured
+// there is nothing for bootstrap to say, and the tools' own classification is
+// what decides.
 func TestGoogleGatesEveryMutationByDefault(t *testing.T) {
-	gated, err := googleApprovals(config.GoogleConfig{Products: []string{"gmail", "calendar", "sheets"}})
+	override, err := googleApprovals(config.GoogleConfig{Products: []string{"gmail", "calendar", "sheets"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for tool, actions := range googleadapter.Mutations() {
-		if !slices.Equal(gated[tool], actions) {
-			t.Fatalf("%s gated=%v, want every mutation %v", tool, gated[tool], actions)
-		}
+	if override != nil {
+		t.Fatalf("an unconfigured require_approval produced an override: %v", override)
 	}
-	// The reads are the other half of the claim, and the half that would make
-	// the gate useless if it were wrong.
-	for _, read := range []string{"search", "get", "labels"} {
-		if slices.Contains(gated["google_gmail"], read) {
-			t.Fatalf("reading mail requires approval by default: %v", gated["google_gmail"])
+	tools, err := googleClassifiedTools(&googleadapter.Workspace{}, config.GoogleConfig{Products: []string{"gmail", "calendar", "sheets"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 3 {
+		t.Fatalf("built %d tools", len(tools))
+	}
+	for _, tool := range tools {
+		definition := tool.Definition()
+		if !slices.Equal(definition.Effect.Mutations, googleadapter.Mutations()[definition.Name]) {
+			t.Fatalf("%s declares %v, want every mutation %v", definition.Name, definition.Effect.Mutations, googleadapter.Mutations()[definition.Name])
+		}
+		// The reads are the other half of the claim, and the half that would
+		// make the gate useless if it were wrong.
+		for _, read := range googleadapter.Reads()[definition.Name] {
+			if slices.Contains(definition.Effect.Mutations, read) {
+				t.Fatalf("%s gates %q, which only reads", definition.Name, read)
+			}
 		}
 	}
 }
 
 // Empty is a decision, absent is a default, and collapsing the two would
-// silently re-gate an owner who turned the gates off.
+// silently re-gate an owner who turned the gates off. The override has to
+// reach every Google tool, not just the ones an entry named.
 func TestGoogleEmptyApprovalListGatesNothing(t *testing.T) {
-	gated, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{}})
+	override, err := googleApprovals(config.GoogleConfig{RequireApproval: []string{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gated) != 0 {
-		t.Fatalf("an explicitly empty require_approval gated %v", gated)
+	if override == nil || len(override) != 0 {
+		t.Fatalf("an explicitly empty require_approval produced %v, want an empty override rather than none", override)
+	}
+	tools, err := googleClassifiedTools(&googleadapter.Workspace{}, config.GoogleConfig{Products: []string{"gmail"}, RequireApproval: []string{}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tools[0].Definition().Effect.ReadOnly {
+		t.Fatalf("gmail still asks after the owner turned the gates off: %+v", tools[0].Definition().Effect)
 	}
 }
 
@@ -86,24 +108,51 @@ func TestGoogleApprovalListIsCheckedAgainstTheRealActions(t *testing.T) {
 	}
 }
 
-// Wrapping is per tool: a product with nothing gated keeps its description
-// byte for byte, so the mechanism costs an ungated owner no prompt bytes.
-func TestGoogleGatesOnlyTheToolsThatNeedIt(t *testing.T) {
-	tools := []ports.Tool{stubGoogleTool{name: "google_calendar"}, stubGoogleTool{name: "google_drive"}}
-	before := tools[1].Definition().Description
-	wrapped := gateGoogleTools(tools, map[string][]string{"google_calendar": {"create", "delete"}}, nil, nil)
+// The tools classify themselves, and the notice the gate adds has to name the
+// actions that classification covers -- told the tool as a whole needs
+// approval, a model stops using the actions that never did.
+func TestGoogleToolsCarryTheirOwnClassification(t *testing.T) {
+	tools := googleadapter.Tools(nil, []string{"calendar", "drive"}, nil)
+	for _, tool := range tools {
+		effect := tool.Definition().Effect
+		if effect.ReadOnly || len(effect.Mutations) == 0 {
+			t.Fatalf("%s declares no writes: %+v", tool.Definition().Name, effect)
+		}
+		gated := services.NewApprovalGatedToolIf(tool, nil, nil, services.RuleFor(tool.Definition()))
+		description := gated.Definition().Description
+		for _, mutation := range effect.Mutations {
+			if !strings.Contains(description, mutation) {
+				t.Fatalf("%s does not announce that %q asks: %q", tool.Definition().Name, mutation, description)
+			}
+		}
+		if !strings.Contains(description, "require the owner's approval") {
+			t.Fatalf("%s announces no gate: %q", tool.Definition().Name, description)
+		}
+	}
+}
 
-	calendar := wrapped[0].Definition().Description
-	if !strings.Contains(calendar, "create, delete") || !strings.Contains(calendar, "require the owner's approval") {
-		t.Fatalf("calendar description does not name the gated actions: %q", calendar)
+// A read-only tool takes no notice at all. It is still wrapped, because strict
+// mode has to be able to close on it, but in every other mode it costs the
+// owner no prompt bytes for a gate that will not fire.
+func TestReadOnlyToolsAreWrappedSilently(t *testing.T) {
+	tool := stubGoogleTool{name: "google_reader", effect: ports.ReadOnlyTool()}
+	gated := services.NewApprovalGatedToolIf(tool, nil, nil, services.RuleFor(tool.Definition()))
+	if gated.Definition().Description != tool.Definition().Description {
+		t.Fatalf("a read-only tool was given a notice: %q", gated.Definition().Description)
 	}
-	// Naming them matters as much as gating them: told the tool as a whole
-	// needs approval, a model stops using the actions that never did.
-	if strings.Contains(calendar, "list") {
-		t.Fatalf("the notice lists an action that is not gated: %q", calendar)
+}
+
+// require_approval overrides what the tools declare, in both directions: it
+// can gate an action they call a read, and an empty list turns their own
+// writes into calls that never ask.
+func TestRequireApprovalOverridesTheDeclaredClassification(t *testing.T) {
+	tool := googleadapter.Reclassified(stubGoogleTool{name: "google_calendar"}, []string{"list"})
+	if !slices.Equal(tool.Definition().Effect.Mutations, []string{"list"}) {
+		t.Fatalf("effect=%+v", tool.Definition().Effect)
 	}
-	if wrapped[1].Definition().Description != before {
-		t.Fatalf("an ungated tool was rewritten: %q", wrapped[1].Definition().Description)
+	silent := googleadapter.Reclassified(stubGoogleTool{name: "google_calendar"}, nil)
+	if !silent.Definition().Effect.ReadOnly {
+		t.Fatalf("an empty override left the tool gated: %+v", silent.Definition().Effect)
 	}
 }
 
@@ -145,10 +194,13 @@ func TestEveryGoogleActionIsClassifiedAsReadOrWrite(t *testing.T) {
 	}
 }
 
-type stubGoogleTool struct{ name string }
+type stubGoogleTool struct {
+	name   string
+	effect ports.ToolEffect
+}
 
 func (t stubGoogleTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: t.name, Description: "does a thing", Schema: json.RawMessage(`{"type":"object"}`)}
+	return ports.ToolDefinition{Name: t.name, Description: "does a thing", Schema: json.RawMessage(`{"type":"object"}`), Effect: t.effect}
 }
 
 func (t stubGoogleTool) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {

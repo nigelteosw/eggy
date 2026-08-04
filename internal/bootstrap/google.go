@@ -11,7 +11,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
@@ -81,25 +80,47 @@ func googleScopes(cfg config.GoogleConfig) []string {
 	return scopes
 }
 
-func googleTools(workspace *googleadapter.Workspace, cfg config.GoogleConfig, now func() time.Time) []ports.Tool {
+// googleClassifiedTools builds the tools and settles what each one's writes
+// are, which is all bootstrap does here now: the gate itself is the same one
+// every native tool goes through, applied by registerGated.
+func googleClassifiedTools(workspace *googleadapter.Workspace, cfg config.GoogleConfig, now func() time.Time) ([]ports.Tool, error) {
 	if workspace == nil {
-		return nil
+		return nil, nil
 	}
-	return googleadapter.Tools(workspace, cfg.Products, now)
+	gated, err := googleApprovals(cfg)
+	if err != nil {
+		return nil, err
+	}
+	tools := googleadapter.Tools(workspace, cfg.Products, now)
+	if gated == nil {
+		return tools, nil
+	}
+	// An override applies to every Google tool, not only the ones it names.
+	// A tool the list left out is a tool the owner chose not to gate, which is
+	// exactly what require_approval: [] means and the reason it cannot be
+	// treated as "nothing was configured".
+	for index, tool := range tools {
+		tools[index] = googleadapter.Reclassified(tool, gated[tool.Definition().Name])
+	}
+	return tools, nil
 }
 
-// googleApprovals resolves config into the gated action set per tool.
+// googleApprovals resolves config into a per-tool override of what the tools
+// already declare.
 //
-// Omitted, it gates everything that writes. That default is the one an owner
-// who never read this far should get: Eggy can read their mail without asking
-// and cannot send any without being asked. An explicitly empty list means the
-// owner turned the gates off deliberately, which is why nil and empty are not
-// allowed to collapse into each other anywhere along this path.
+// Omitted, there is no override at all and each tool's own Mutations decide,
+// which is the default an owner who never read this far should get: Eggy reads
+// their mail without asking and sends none without being asked. An explicitly
+// empty list means the owner turned the Google gates off deliberately, which
+// is why nil and empty are not allowed to collapse into each other anywhere
+// along this path.
 func googleApprovals(cfg config.GoogleConfig) (map[string][]string, error) {
 	if cfg.RequireApproval == nil {
-		return googleadapter.Mutations(), nil
+		return nil, nil
 	}
 	actions := googleadapter.Actions()
+	// Non-nil even when the list is empty: that is what tells the caller an
+	// override was configured at all.
 	gated := map[string][]string{}
 	for _, entry := range cfg.RequireApproval {
 		product, action, qualified := strings.Cut(strings.TrimSpace(entry), ".")
@@ -138,21 +159,6 @@ func googleApprovals(cfg config.GoogleConfig) (map[string][]string, error) {
 	return gated, nil
 }
 
-// gateGoogleTools wraps each tool whose config names any gated action. A tool
-// with none is left exactly as it was -- unwrapped, with its description
-// unchanged -- so an owner who gates nothing pays no prompt bytes for the
-// mechanism.
-func gateGoogleTools(tools []ports.Tool, gated map[string][]string, requester services.ApprovalRequester, auto services.AutoApprover) []ports.Tool {
-	for index, tool := range tools {
-		actions := gated[tool.Definition().Name]
-		if len(actions) == 0 {
-			continue
-		}
-		rule := services.ApprovalRule{Gated: googleadapter.GateFor(actions), Notice: googleadapter.GateNotice(actions)}
-		tools[index] = services.NewApprovalGatedToolIf(tool, requester, auto, rule)
-	}
-	return tools
-}
 
 // googleAdmin adapts the adapter to the command surface, so internal/commands
 // stays free of the plugin package exactly as it does for MCP.

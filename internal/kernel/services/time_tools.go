@@ -27,6 +27,7 @@ func (t currentTimeTool) Definition() ports.ToolDefinition {
 		Name:        "current_time",
 		Description: "Return the trusted current time and owner timezone; use this instead of model knowledge for relative dates",
 		Schema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		Effect:      ports.ReadOnlyTool(),
 	}
 }
 

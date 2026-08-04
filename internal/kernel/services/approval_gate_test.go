@@ -53,7 +53,7 @@ func (l staticLookup) Lookup(name string) (ports.Tool, bool) {
 func newGateFixture(t *testing.T) (*ApprovalService, *recordingTool, ports.Tool) {
 	t.Helper()
 	store := newFakeStateStore()
-	service := NewApprovalService(store, func() time.Time { return time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC) }, 30*time.Minute)
+	service := NewApprovalService(store, func() time.Time { return time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC) }, 30*time.Minute, ports.ModeNormal)
 	inner := &recordingTool{name: "mail__send_message"}
 	return service, inner, NewApprovalGatedTool(inner, service, service)
 }
@@ -239,7 +239,7 @@ func TestApprovedCallResolvesTheLiveToolNotTheGatedOne(t *testing.T) {
 func TestAutoModeRunsTheCallAndReturnsItsResult(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
 	ctx := context.Background()
-	if err := service.SetAutoApprove(ctx, true); err != nil {
+	if err := service.SetMode(ctx, ports.ModeAuto); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`))
@@ -258,7 +258,7 @@ func TestAutoModeRunsTheCallAndReturnsItsResult(t *testing.T) {
 	}
 	// Switching it back off restores the gate on the next call, without a
 	// restart and without rebuilding the tool.
-	if err := service.SetAutoApprove(ctx, false); err != nil {
+	if err := service.SetMode(ctx, ports.ModeNormal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`)); err != nil {
@@ -274,7 +274,7 @@ func TestAutoModeRunsTheCallAndReturnsItsResult(t *testing.T) {
 // reading the calendar teaches the owner to approve without looking.
 func TestRuleGatesOnlyTheCallsItNames(t *testing.T) {
 	store := newFakeStateStore()
-	service := NewApprovalService(store, time.Now, 30*time.Minute)
+	service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeNormal)
 	inner := &recordingTool{name: "google_calendar"}
 	rule := ApprovalRule{
 		Gated: func(arguments json.RawMessage) bool {
@@ -321,7 +321,7 @@ func TestRuleGatesOnlyTheCallsItNames(t *testing.T) {
 // the gate exists to stop.
 func TestUnreadableArgumentsAreGated(t *testing.T) {
 	store := newFakeStateStore()
-	service := NewApprovalService(store, time.Now, 30*time.Minute)
+	service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeNormal)
 	inner := &recordingTool{name: "google_calendar"}
 	rule := ApprovalRule{Gated: func(arguments json.RawMessage) bool {
 		var call struct{ Action string }
@@ -336,6 +336,119 @@ func TestUnreadableArgumentsAreGated(t *testing.T) {
 	}
 	if len(inner.calls) != 0 {
 		t.Fatalf("an unreadable call ran ungated: %v", inner.calls)
+	}
+}
+
+// The three modes on one tool. Strict is the only one that stops a read, and
+// it has to stop one, or "ask me about everything" is not what it says.
+func TestModesDecideWhatStops(t *testing.T) {
+	ctx := context.Background()
+	for _, mode := range []ports.ApprovalMode{ports.ModeStrict, ports.ModeNormal, ports.ModeAuto} {
+		store := newFakeStateStore()
+		service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeNormal)
+		if err := service.SetMode(ctx, mode); err != nil {
+			t.Fatal(err)
+		}
+		reader := &recordingTool{name: "google_calendar"}
+		writer := &recordingTool{name: "google_calendar"}
+		read := NewApprovalGatedToolIf(reader, service, service, RuleFor(ports.ToolDefinition{Effect: ports.ReadOnlyTool()}))
+		write := NewApprovalGatedToolIf(writer, service, service, RuleFor(ports.ToolDefinition{Effect: ports.MutatingActions("delete")}))
+
+		if _, err := read.Execute(ctx, json.RawMessage(`{"action":"list"}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := write.Execute(ctx, json.RawMessage(`{"action":"delete"}`)); err != nil {
+			t.Fatal(err)
+		}
+		readRan, wroteRan := len(reader.calls) == 1, len(writer.calls) == 1
+		wantRead, wantWrite := mode != ports.ModeStrict, mode == ports.ModeAuto
+		if readRan != wantRead || wroteRan != wantWrite {
+			t.Fatalf("%s: read ran=%v (want %v), write ran=%v (want %v)", mode, readRan, wantRead, wroteRan, wantWrite)
+		}
+	}
+}
+
+// The mode is durable runtime state, so a tool wrapped at boot has to notice a
+// change without a restart -- otherwise tightening the setting does nothing
+// until the next one, which is the wrong direction for this particular knob.
+func TestChangingTheModeTakesEffectOnTheNextCall(t *testing.T) {
+	ctx := context.Background()
+	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
+	inner := &recordingTool{name: "read_file"}
+	tool := NewApprovalGatedToolIf(inner, service, service, RuleFor(ports.ToolDefinition{Effect: ports.ReadOnlyTool()}))
+
+	if _, err := tool.Execute(ctx, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.calls) != 1 {
+		t.Fatalf("a read did not run in normal mode: %v", inner.calls)
+	}
+	if err := service.SetMode(ctx, ports.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.Execute(ctx, json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.calls) != 1 {
+		t.Fatalf("strict mode did not close on the same tool object: %v", inner.calls)
+	}
+}
+
+// An owner who left the old boolean bypass on must not have the gate come back
+// on under them because a field was renamed.
+func TestTheRetiredAutoBooleanIsHonouredOnce(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStateStore()
+	if _, err := store.Update(ctx, 0, func(state *ports.State) error {
+		state.ApprovalAutoMode = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeNormal)
+	mode, err := service.Mode(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != ports.ModeAuto {
+		t.Fatalf("mode=%q, want the existing bypass carried forward", mode)
+	}
+	// Once the owner chooses, the retired field must not be able to contradict
+	// it later.
+	if err := service.SetMode(ctx, ports.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := service.Mode(ctx); mode != ports.ModeStrict {
+		t.Fatalf("mode=%q, want the explicit choice to win", mode)
+	}
+}
+
+// Config says where a deployment starts; the owner's choice outranks it from
+// then on, or /mode would be undone by the next restart.
+func TestConfiguredDefaultOnlyAppliesUntilTheOwnerChooses(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeStateStore()
+	service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeStrict)
+	if mode, _ := service.Mode(ctx); mode != ports.ModeStrict {
+		t.Fatalf("mode=%q, want the configured default", mode)
+	}
+	if err := service.SetMode(ctx, ports.ModeNormal); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh service over the same state is what a restart looks like.
+	restarted := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeStrict)
+	if mode, _ := restarted.Mode(ctx); mode != ports.ModeNormal {
+		t.Fatalf("mode=%q, want the owner's stored choice to survive a restart", mode)
+	}
+}
+
+func TestUnknownModesAreRefused(t *testing.T) {
+	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
+	if err := service.SetMode(context.Background(), ports.ApprovalMode("readonly")); err == nil {
+		t.Fatal("an unknown mode was stored")
+	}
+	if mode, _ := service.Mode(context.Background()); mode != ports.ModeNormal {
+		t.Fatalf("mode=%q, want the refusal to have changed nothing", mode)
 	}
 }
 
@@ -354,8 +467,8 @@ func TestUnreadableAutoModeDoesNotOpenTheGate(t *testing.T) {
 
 type failingApprovals struct{}
 
-func (failingApprovals) AutoApprove(context.Context) (bool, error) {
-	return false, errors.New("state unavailable")
+func (failingApprovals) Mode(context.Context) (ports.ApprovalMode, error) {
+	return "", errors.New("state unavailable")
 }
 
 func (failingApprovals) Request(context.Context, approvals.Action, any, string) (approvals.Approval, error) {

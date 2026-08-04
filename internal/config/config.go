@@ -105,10 +105,16 @@ type GoogleConfig struct {
 	// Products decides which tools exist at all. An unlisted product costs no
 	// schema, no prompt bytes, and no code path -- the same rule every other
 	// configurable capability follows.
-	Products       []string `yaml:"products,omitempty"`
-	Scopes         []string `yaml:"scopes,omitempty"`
-	Timeout        Duration `yaml:"timeout,omitempty"`
-	MaxOutputBytes int64    `yaml:"max_output_bytes,omitempty"`
+	Products []string `yaml:"products,omitempty"`
+	Scopes   []string `yaml:"scopes,omitempty"`
+	// RequireApproval names the actions that must ask the owner before they
+	// run, as product.action -- "gmail.send", "calendar.delete". Omitted, every
+	// action that writes anything is gated; set to an empty list, none are.
+	// Distinguishing the two is the whole point of the field, so it must stay
+	// out of any defaulting that would fill a nil in.
+	RequireApproval []string `yaml:"require_approval,omitempty"`
+	Timeout         Duration `yaml:"timeout,omitempty"`
+	MaxOutputBytes  int64    `yaml:"max_output_bytes,omitempty"`
 }
 
 type AgentConfig struct {

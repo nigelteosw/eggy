@@ -6,7 +6,7 @@ eyebrow: Configure
 
 One OAuth client, one consent screen, one stored grant, and a tool for each product configured. Absent unless configured: no token store is opened, no tool schema is built, and no scope is ever requested.
 
-> **Trust model:** configuring Google is the approval. Its tools do not receive per-call Eggy approvals, exactly like a configured MCP server.
+> **Trust model:** configuring Google authorizes the *reads*. Anything that writes — sending mail, changing an event, editing a sheet — stops and asks you first, per call, unless you say otherwise in [`require_approval`](#approvals). `/auto` turns every gate off at once, everywhere.
 
 ## Before you start
 
@@ -91,6 +91,7 @@ google:
   client_secret_env: "GOOGLE_CLIENT_SECRET"
   products: ["calendar", "gmail", "contacts"]
   scopes: []
+  require_approval: ["gmail.send", "gmail.reply", "calendar.delete"]
   timeout: "30s"
   max_output_bytes: 131072
 ```
@@ -111,6 +112,31 @@ Restart. Tools are built at startup, so a config edit takes effect on the next b
 
 Adding a product later needs a fresh `/google login`: scopes are granted once for the whole client, not per product.
 
+### Approvals
+
+Leave `require_approval` out and every action that writes anything is gated — Eggy reads your mail without asking and sends none without asking you first. A gated call does not run: it puts an approve/reject prompt in front of you showing the tool and its arguments, and the result comes back to you rather than to the model.
+
+| | Runs immediately | Asks first |
+|---|---|---|
+| `google_gmail` | `search`, `get`, `thread`, `labels`, `drafts`, `attachment` | `send`, `reply`, `draft`, `send_draft`, `modify`, `trash` |
+| `google_calendar` | `list`, `calendars`, `get`, `freebusy` | `create`, `update`, `delete`, `respond` |
+| `google_drive` | `search`, `get` | `create`, `update`, `delete`, `share` |
+| `google_docs` | `get` | `create`, `append`, `replace` |
+| `google_sheets` | `info`, `get` | `create`, `add_sheet`, `update`, `append`, `clear` |
+| `google_contacts` | `list`, `search` | `create`, `update` |
+
+Naming actions yourself **replaces** that default rather than adding to it:
+
+```yaml
+require_approval: ["gmail.send", "calendar.delete", "drive.share"]
+```
+
+That gates sending mail, cancelling events and handing out access, while letting Eggy draft, reply, relabel and move things around on its own. `"gmail.*"` gates a whole product; a bare `"gmail"` is refused, because it reads like "gate the writes" but would silently put a prompt in front of reading your inbox too — and a gate that fires on every read is one you learn to approve without looking. An empty list (`require_approval: []`) turns the gates off entirely; an unknown product or action fails at startup rather than presenting as a gate that quietly never fires.
+
+Only tools with something gated carry the notice in their description, so gating nothing costs no prompt bytes.
+
+Drafting is the pattern worth knowing: `gmail.draft` writes the mail into your Gmail drafts and sends nothing. Gate `send` and leave `draft` open and Eggy can compose freely while every outbound mail is still yours to approve.
+
 ### Scopes
 
 Leave `scopes` empty and Eggy requests what the configured products need:
@@ -119,12 +145,16 @@ Leave `scopes` empty and Eggy requests what the configured products need:
 |---|---|
 | Gmail | `gmail.modify` — read, send, and label |
 | Calendar | `calendar` — read and write |
-| Drive | `drive.readonly` |
-| Docs | `documents.readonly` |
+| Drive | `drive` — read and write |
+| Docs | `documents` — read and write |
 | Sheets | `spreadsheets` — read and write |
-| Contacts | `contacts.readonly` |
+| Contacts | `contacts` — read and write |
 
-Set `scopes` explicitly to narrow them — `calendar.readonly` instead of `calendar`, for instance. Scopes are re-consented rather than widened in place, so decide before the first login.
+Set `scopes` explicitly to narrow them: `drive.readonly`, `documents.readonly`, `contacts.readonly` and `calendar.readonly` all work, and are the supported way to run a read-only grant. The write actions then fail with Google's own 403 rather than disappearing — the tool is still advertised, because the scope is a property of your grant and not of the build.
+
+Scopes are re-consented rather than widened in place, so decide before the first login.
+
+> **Upgrading from a read-only grant:** Drive, Docs and Contacts used to request `.readonly` by default. If you authorized before they gained write actions, `/google status` will show the old scopes and every write will 403. Run `/google logout`, then `/google login` again to re-consent.
 
 ## 6. Authorize
 
@@ -180,6 +210,10 @@ Every time in `google_calendar` needs a UTC offset or `Z`:
 ```
 
 A bare datetime is ambiguous and Google resolves it as UTC, which silently moves an event by hours. Eggy refuses it before anything is created. Relative phrasing in chat resolves against `agent.timezone`, so check that setting is right before letting Eggy create events.
+
+## Guests are notified
+
+An event created with `attendees` emails them, and deleting an event tells its guests it was cancelled. Google's default is the opposite — a meeting that exists only on your own calendar while the guests never hear about it, and which its own reference warns can fail to reach external calendars at all. Pass `send_updates: "none"` to change only your own calendar, or `"externalOnly"` for guests outside the organization. An event with no attendees notifies nobody regardless.
 
 ## Troubleshooting
 

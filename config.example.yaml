@@ -79,6 +79,13 @@ runner:
 #   # Omit scopes to request what the listed products need. Set them to narrow
 #   # the consent screen -- readonly variants, for instance.
 #   scopes: []
+#   # Which calls stop and ask you first, as product.action. Leave it out and
+#   # every action that writes anything is gated -- Eggy reads your mail
+#   # unasked and sends none without asking. Naming actions yourself replaces
+#   # that default rather than adding to it, and an empty list turns the gates
+#   # off entirely. "gmail.*" gates a whole product. /auto turns every gate
+#   # off at once, everywhere.
+#   require_approval: ["gmail.send", "calendar.delete", "drive.share"]
 #   timeout: "30s"
 #   max_output_bytes: 131072
 mcp:

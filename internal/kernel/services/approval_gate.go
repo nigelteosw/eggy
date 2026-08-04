@@ -22,6 +22,23 @@ const ApprovalToolCall approvals.Action = "tool.call"
 // asked once.
 const approvalNotice = " This tool requires the owner's approval: calling it asks them to approve, and the call runs only if they do. The result is delivered to the owner rather than returned here, so do not call it again while waiting."
 
+// ApprovalRule narrows a gate to some of a tool's calls.
+//
+// A tool that carries several operations behind one schema -- the Google
+// products, where reading mail and sending it are two actions on one tool -- is
+// the case this exists for. Gating such a tool whole would put an approval
+// prompt in front of reading the calendar, which trains the owner to approve
+// without looking, and that is worse than no gate at all.
+//
+// Gated is asked per call, against the same arguments the approval would carry.
+// Notice replaces the description suffix, because a model told "this tool
+// requires approval" when only two of its actions do will avoid the other five.
+// The zero value gates every call with the standard notice.
+type ApprovalRule struct {
+	Gated  func(arguments json.RawMessage) bool
+	Notice string
+}
+
 // ApprovalRequester is the narrow view of ApprovalService a gate needs.
 type ApprovalRequester interface {
 	Request(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error)
@@ -61,15 +78,28 @@ type approvalGatedTool struct {
 	inner      ports.Tool
 	requester  ApprovalRequester
 	auto       AutoApprover
+	gated      func(json.RawMessage) bool
 	definition ports.ToolDefinition
 }
 
 // NewApprovalGatedTool wraps a tool so calling it requests the owner's
 // approval instead of running. A nil auto keeps the gate permanently on.
 func NewApprovalGatedTool(inner ports.Tool, requester ApprovalRequester, auto AutoApprover) ports.Tool {
+	return NewApprovalGatedToolIf(inner, requester, auto, ApprovalRule{})
+}
+
+// NewApprovalGatedToolIf is the same gate under a rule. It is one mechanism
+// with one wrapper type and one action, not a second approval path: an
+// ungated call runs inline exactly as it would unwrapped, and a gated one
+// takes the identical route through ApprovalToolCall.
+func NewApprovalGatedToolIf(inner ports.Tool, requester ApprovalRequester, auto AutoApprover, rule ApprovalRule) ports.Tool {
 	definition := inner.Definition()
-	definition.Description += approvalNotice
-	return &approvalGatedTool{inner: inner, requester: requester, auto: auto, definition: definition}
+	notice := rule.Notice
+	if notice == "" {
+		notice = approvalNotice
+	}
+	definition.Description += notice
+	return &approvalGatedTool{inner: inner, requester: requester, auto: auto, gated: rule.Gated, definition: definition}
 }
 
 func (t *approvalGatedTool) Definition() ports.ToolDefinition { return t.definition }
@@ -80,6 +110,12 @@ func (t *approvalGatedTool) Definition() ports.ToolDefinition { return t.definit
 func (t *approvalGatedTool) Unwrap() ports.Tool { return t.inner }
 
 func (t *approvalGatedTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
+	// A call the rule does not cover was never gated, so it runs before the
+	// bypass is even consulted: reading a calendar is not a decision the owner
+	// deferred, and it must not depend on the state store being readable.
+	if t.gated != nil && !t.gated(normalizeArguments(raw)) {
+		return t.inner.Execute(ctx, raw)
+	}
 	// Auto mode runs the call inline and returns its real result, which is the
 	// point of the bypass: the model keeps working instead of ending the turn.
 	// A failure to read the switch is not treated as "off" -- an unreadable

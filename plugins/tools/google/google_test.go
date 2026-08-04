@@ -224,7 +224,7 @@ func authorizedWorkspace(t *testing.T, handler http.Handler) *Workspace {
 		t.Fatal(err)
 	}
 	workspace := NewWorkspace(testAuth(t, store), Config{})
-	workspace.endpoints = Endpoints{Gmail: api.URL, Calendar: api.URL, Drive: api.URL, Docs: api.URL, Sheets: api.URL, People: api.URL}
+	workspace.endpoints = Endpoints{Gmail: api.URL, Calendar: api.URL, Drive: api.URL, DriveUpload: api.URL, Docs: api.URL, Sheets: api.URL, People: api.URL}
 	return workspace
 }
 
@@ -265,6 +265,100 @@ func TestCalendarRefusesAnAmbiguousTime(t *testing.T) {
 	_, err := workspace.CalendarCreate(context.Background(), NewEvent{Summary: "Lunch", Start: "2026-08-01T12:00:00", End: "2026-08-01T13:00:00"})
 	if err == nil || !strings.Contains(err.Error(), "timezone offset") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+// sendUpdates defaults to sending nothing, so an event created with attendees
+// used to invite no one: the meeting existed only on the owner's calendar and
+// the guests never heard about it.
+func TestCalendarNotifiesTheGuestsItInvites(t *testing.T) {
+	var seen url.Values
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.Query()
+		_, _ = w.Write([]byte(`{"id":"e1","summary":"Sync"}`))
+	}))
+	event := NewEvent{Summary: "Sync", Start: "2026-08-01T10:00:00Z", End: "2026-08-01T11:00:00Z", Attendees: []string{"a@b.c"}}
+	if _, err := workspace.CalendarCreate(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Get("sendUpdates") != "all" {
+		t.Fatalf("sendUpdates=%q, want the guests told about the meeting they are in", seen.Get("sendUpdates"))
+	}
+
+	// An owner who asks for silence gets it, which is the whole reason the
+	// default is not simply hardcoded.
+	event.SendUpdates = "none"
+	if _, err := workspace.CalendarCreate(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Get("sendUpdates") != "none" {
+		t.Fatalf("sendUpdates=%q, want the caller's choice honoured", seen.Get("sendUpdates"))
+	}
+
+	// A solo event asks Google to notify nobody rather than notifying an empty
+	// guest list, and a cancellation tells the guests by default.
+	if _, err := workspace.CalendarCreate(context.Background(), NewEvent{Summary: "Gym", Start: "2026-08-01T10:00:00Z", End: "2026-08-01T11:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Has("sendUpdates") {
+		t.Fatalf("sendUpdates=%q sent for an event with no attendees", seen.Get("sendUpdates"))
+	}
+	if err := workspace.CalendarDelete(context.Background(), "", "e1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Get("sendUpdates") != "all" {
+		t.Fatalf("sendUpdates=%q on delete, want the guests of a cancelled meeting told", seen.Get("sendUpdates"))
+	}
+}
+
+func TestCalendarRefusesAnUnknownSendUpdates(t *testing.T) {
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("a request was sent for an invalid sendUpdates value")
+	}))
+	event := NewEvent{Summary: "Sync", Start: "2026-08-01T10:00:00Z", End: "2026-08-01T11:00:00Z", SendUpdates: "everyone"}
+	if _, err := workspace.CalendarCreate(context.Background(), event); err == nil {
+		t.Fatal("an unknown sendUpdates value reached Google")
+	}
+}
+
+// Without the tab names a model guesses A1 ranges, and a workbook whose first
+// tab is not called Sheet1 fails every read with a 400 it cannot diagnose.
+func TestSheetsInfoNamesTheTabsWithoutReadingTheCells(t *testing.T) {
+	var seen url.Values
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.URL.Query()
+		_, _ = w.Write([]byte(`{"properties":{"title":"Budget"},"sheets":[{"properties":{"sheetId":0,"title":"2026 Q3","gridProperties":{"rowCount":500,"columnCount":12}}},{"properties":{"sheetId":7,"title":"Notes"}}]}`))
+	}))
+	spreadsheet, err := workspace.SheetsInfo(context.Background(), "sheet-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The field mask is the difference between a structural answer and every
+	// cell in the workbook arriving at once.
+	if !strings.Contains(seen.Get("fields"), "sheets.properties") || strings.Contains(seen.Get("fields"), "data") {
+		t.Fatalf("fields=%q", seen.Get("fields"))
+	}
+	if spreadsheet.Title != "Budget" || len(spreadsheet.Sheets) != 2 {
+		t.Fatalf("spreadsheet=%#v", spreadsheet)
+	}
+	if spreadsheet.Sheets[0].Title != "2026 Q3" || spreadsheet.Sheets[0].Rows != 500 || spreadsheet.Sheets[1].ID != 7 {
+		t.Fatalf("sheets=%#v", spreadsheet.Sheets)
+	}
+}
+
+// info takes no range, so range left the schema's required list; the actions
+// that still need one must say so themselves.
+func TestSheetsRangeIsRequiredForEverythingButInfo(t *testing.T) {
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"properties":{"title":"Budget"}}`))
+	}))
+	tool := sheetsTool{workspace: workspace}
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"info","spreadsheet_id":"s1"}`)); err != nil {
+		t.Fatalf("info required a range: %v", err)
+	}
+	_, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"get","spreadsheet_id":"s1"}`))
+	if err == nil || !strings.Contains(err.Error(), "action=info") {
+		t.Fatalf("error=%v, want a range demanded and info pointed at", err)
 	}
 }
 
@@ -426,8 +520,8 @@ func TestToolsPointAtTheLoginCommand(t *testing.T) {
 	calls := map[string]string{
 		"google_gmail":    `{"action":"search","query":"is:unread"}`,
 		"google_calendar": `{"action":"list"}`,
-		"google_drive":    `{"query":"notes"}`,
-		"google_docs":     `{"document_id":"d1"}`,
+		"google_drive":    `{"action":"search","query":"notes"}`,
+		"google_docs":     `{"action":"get","document_id":"d1"}`,
 		"google_sheets":   `{"action":"get","spreadsheet_id":"s1","range":"A1:B2"}`,
 		"google_contacts": `{}`,
 	}

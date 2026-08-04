@@ -269,6 +269,76 @@ func TestAutoModeRunsTheCallAndReturnsItsResult(t *testing.T) {
 	}
 }
 
+// A rule gates the calls it names and leaves the rest alone, which is what
+// makes a multi-action tool gateable at all: an approval prompt in front of
+// reading the calendar teaches the owner to approve without looking.
+func TestRuleGatesOnlyTheCallsItNames(t *testing.T) {
+	store := newFakeStateStore()
+	service := NewApprovalService(store, time.Now, 30*time.Minute)
+	inner := &recordingTool{name: "google_calendar"}
+	rule := ApprovalRule{
+		Gated: func(arguments json.RawMessage) bool {
+			var call struct{ Action string }
+			_ = json.Unmarshal(arguments, &call)
+			return call.Action == "delete"
+		},
+		Notice: " Only delete asks.",
+	}
+	gated := NewApprovalGatedToolIf(inner, service, service, rule)
+	ctx := context.Background()
+
+	raw, err := gated.Execute(ctx, json.RawMessage(`{"action":"list"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.calls) != 1 || string(raw) != `{"ok":true}` {
+		t.Fatalf("an ungated action did not run inline: calls=%v result=%s", inner.calls, raw)
+	}
+	if pending, _ := service.Pending(ctx); len(pending) != 0 {
+		t.Fatalf("an ungated action asked the owner: %+v", pending)
+	}
+
+	if _, err := gated.Execute(ctx, json.RawMessage(`{"action":"delete","event_id":"e1"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.calls) != 1 {
+		t.Fatalf("a gated action ran without approval: %v", inner.calls)
+	}
+	pending, _ := service.Pending(ctx)
+	if len(pending) != 1 || pending[0].Action != ApprovalToolCall {
+		t.Fatalf("gated action recorded no approval: %+v", pending)
+	}
+
+	// The notice must name what stops, or the model avoids the actions that
+	// were never gated in the first place.
+	if !contains(gated.Definition().Description, "Only delete asks.") {
+		t.Fatalf("description=%q", gated.Definition().Description)
+	}
+}
+
+// A rule that cannot read the call gates it. The two mistakes do not cost the
+// same: an unnecessary prompt is an annoyance, an ungated mutation is the thing
+// the gate exists to stop.
+func TestUnreadableArgumentsAreGated(t *testing.T) {
+	store := newFakeStateStore()
+	service := NewApprovalService(store, time.Now, 30*time.Minute)
+	inner := &recordingTool{name: "google_calendar"}
+	rule := ApprovalRule{Gated: func(arguments json.RawMessage) bool {
+		var call struct{ Action string }
+		return json.Unmarshal(arguments, &call) != nil || call.Action != "list"
+	}}
+	gated := NewApprovalGatedToolIf(inner, service, service, rule)
+	// Arguments that are not JSON at all fail at the approval payload rather
+	// than reaching the tool, which is the safe end of that failure. What must
+	// hold either way is that nothing executed.
+	for _, arguments := range []string{``, `not json`, `{}`} {
+		_, _ = gated.Execute(context.Background(), json.RawMessage(arguments))
+	}
+	if len(inner.calls) != 0 {
+		t.Fatalf("an unreadable call ran ungated: %v", inner.calls)
+	}
+}
+
 // An unreadable switch must leave the gate standing rather than be read as
 // "off", or a broken state store becomes a bypass.
 func TestUnreadableAutoModeDoesNotOpenTheGate(t *testing.T) {

@@ -239,8 +239,19 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	googleAdministration := newGoogleAdmin(googleAuth)
-	if err := registerAll(registry, googleTools(googleWorkspace, config.Google, options.Now)...); err != nil {
+	googleGates, err := googleApprovals(config.Google)
+	if err != nil {
 		return nil, err
+	}
+	googleCatalog := gateGoogleTools(googleTools(googleWorkspace, config.Google, options.Now), googleGates, app.approvals, app.approvals)
+	if err := registerAll(registry, googleCatalog...); err != nil {
+		return nil, err
+	}
+	// Registered rather than provided, so the gate is applied once here. The
+	// executor is shared with MCP: one action, one executor, whatever the tool
+	// came from.
+	if len(googleGates) > 0 && len(googleCatalog) > 0 {
+		approvalExecutors[services.ApprovalToolCall] = services.NewApprovalToolExecutor(registry, app.approvals)
 	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
 	if err != nil {

@@ -49,7 +49,7 @@ type ModelRequest struct {
 
 type ModelResponse struct {
 	Message Message    `json:"message"`
-	Usage   ModelUsage `json:"usage,omitempty"`
+	Usage   ModelUsage `json:"usage,omitzero"`
 	// ReasoningContent is the model's visible chain-of-thought for this
 	// response, when the provider returns one. It is never fed back into a
 	// following request's message history.
@@ -275,7 +275,7 @@ type State struct {
 	Repositories      map[string]Repository         `json:"repositories,omitempty"`
 	ProcessedEvents   map[string]time.Time          `json:"processed_events,omitempty"`
 	ProactiveMessages []time.Time                   `json:"proactive_messages,omitempty"`
-	Agent             AgentRuntimeState             `json:"agent,omitempty"`
+	Agent             AgentRuntimeState             `json:"agent,omitzero"`
 	// ApprovalAutoMode runs approval-gated tool calls without asking. It
 	// defaults to false, so state persisted before this field existed keeps
 	// the gate on, and it is durable rather than per-turn: a bypass the owner
@@ -326,8 +326,8 @@ type Schedule struct {
 	Instruction string            `json:"instruction"`
 	Expression  string            `json:"expression,omitempty"`
 	NextRun     time.Time         `json:"next_run"`
-	LastRun     time.Time         `json:"last_run,omitempty"`
-	PendingRun  time.Time         `json:"pending_run,omitempty"`
+	LastRun     time.Time         `json:"last_run,omitzero"`
+	PendingRun  time.Time         `json:"pending_run,omitzero"`
 	Enabled     bool              `json:"enabled"`
 }
 

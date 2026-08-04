@@ -27,11 +27,11 @@ type OAuthRecord struct {
 	AccessToken             string    `json:"access_token,omitempty"`
 	RefreshToken            string    `json:"refresh_token,omitempty"`
 	TokenType               string    `json:"token_type,omitempty"`
-	Expiry                  time.Time `json:"expiry,omitempty"`
+	Expiry                  time.Time `json:"expiry,omitzero"`
 	State                   string    `json:"state,omitempty"`
 	CodeVerifier            string    `json:"code_verifier,omitempty"`
 	LastAuthorizationURL    string    `json:"last_authorization_url,omitempty"`
-	StateExpires            time.Time `json:"state_expires,omitempty"`
+	StateExpires            time.Time `json:"state_expires,omitzero"`
 	TokenEndpointAuthMethod string    `json:"token_endpoint_auth_method,omitempty"`
 }
 

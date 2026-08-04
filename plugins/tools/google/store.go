@@ -24,11 +24,11 @@ type TokenRecord struct {
 	AccessToken  string    `json:"access_token,omitempty"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
 	TokenType    string    `json:"token_type,omitempty"`
-	Expiry       time.Time `json:"expiry,omitempty"`
+	Expiry       time.Time `json:"expiry,omitzero"`
 	Scopes       []string  `json:"scopes,omitempty"`
 	State        string    `json:"state,omitempty"`
 	CodeVerifier string    `json:"code_verifier,omitempty"`
-	StateExpires time.Time `json:"state_expires,omitempty"`
+	StateExpires time.Time `json:"state_expires,omitzero"`
 }
 
 // Authorized reports a grant that can still be renewed. An access token alone

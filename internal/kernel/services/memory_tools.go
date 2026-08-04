@@ -106,6 +106,6 @@ type recallResult struct {
 	ID        int64      `json:"id"`
 	Role      ports.Role `json:"role"`
 	Source    string     `json:"source"`
-	CreatedAt time.Time  `json:"created_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at,omitzero"`
 	Excerpt   string     `json:"excerpt"`
 }

@@ -161,3 +161,23 @@ func registerAll(registry *services.ToolRegistry, tools ...ports.Tool) error {
 	}
 	return nil
 }
+
+// gateAll wraps every native tool in the approval gate, reads included.
+//
+// Every one, because the mode is durable runtime state that changes without a
+// restart: if only the tools that mutate carried a gate, switching to strict
+// would gate nothing new until the next boot, which is the wrong direction for
+// a setting whose whole purpose is to tighten things now. The wrapper decides
+// per call instead, and in normal mode a read-only tool's rule passes it
+// straight through at the cost of one map lookup.
+//
+// MCP is excluded and keeps its own path: a remote catalog cannot be
+// classified from here, and its trust decision was made when the server was
+// configured.
+func registerGated(registry *services.ToolRegistry, approvals *services.ApprovalService, tools ...ports.Tool) error {
+	gated := make([]ports.Tool, 0, len(tools))
+	for _, tool := range tools {
+		gated = append(gated, services.NewApprovalGatedToolIf(tool, approvals, approvals, services.RuleFor(tool.Definition())))
+	}
+	return registerAll(registry, gated...)
+}

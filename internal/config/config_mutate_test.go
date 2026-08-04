@@ -411,6 +411,64 @@ google:
 	}
 }
 
+// require_approval has three states and a surface has to be able to reach all
+// of them: leave it alone, restore the default by removing the key, or replace
+// it -- including with an empty list, which is the owner saying nothing should
+// ask. Collapsing any two silently changes what stops.
+func TestSetGoogleCarriesAllThreeApprovalStates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + `
+google:
+  enabled: true
+  client_id: "old.apps.googleusercontent.com"
+  client_secret_env: "GOOGLE_CLIENT_SECRET"
+  products: ["gmail"]
+  require_approval: ["gmail.send"]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := testSecrets()
+	env["GOOGLE_CLIENT_SECRET"] = "secret"
+	reload := func() GoogleConfig {
+		t.Helper()
+		reloaded, _, err := LoadConfig(path, mapEnv(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return reloaded.Google
+	}
+
+	// Absent: an edit to another field leaves the stored list alone.
+	if err := SetGoogle(path, GoogleInput{Enabled: true, Products: []string{"gmail", "calendar"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reload().RequireApproval; got == nil || len(*got) != 1 || (*got)[0] != "gmail.send" {
+		t.Fatalf("require_approval=%v, want the stored list untouched", got)
+	}
+
+	// Replaced, with an empty list. It has to survive as an empty list rather
+	// than reading back as absent, or "ask me about nothing" silently becomes
+	// "ask me about everything that writes".
+	empty := []string{}
+	if err := SetGoogle(path, GoogleInput{Enabled: true, RequireApproval: &empty}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reload().RequireApproval; got == nil || len(*got) != 0 {
+		t.Fatalf("require_approval=%#v, want an empty list rather than none", got)
+	}
+
+	// Restored to the default by removing the key, which is what lets an
+	// action added by a later version be gated without another edit.
+	var cleared []string
+	if err := SetGoogle(path, GoogleInput{Enabled: true, RequireApproval: &cleared}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reload().RequireApproval; got != nil {
+		t.Fatalf("require_approval=%#v, want the key gone", got)
+	}
+}
+
 // A rejected config is never written: the owner still has the file they had.
 func TestSetGoogleRejectsAnUnknownProduct(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")

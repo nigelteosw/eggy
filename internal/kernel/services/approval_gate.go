@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -22,17 +24,77 @@ const ApprovalToolCall approvals.Action = "tool.call"
 // asked once.
 const approvalNotice = " This tool requires the owner's approval: calling it asks them to approve, and the call runs only if they do. The result is delivered to the owner rather than returned here, so do not call it again while waiting."
 
+// GateAllCalls in a ToolEffect's Mutations, or an empty Mutations on a tool
+// that is not read-only, means every call writes.
+const GateAllCalls = "*"
+
+// RuleFor turns a tool's own classification into the rule ModeNormal applies.
+//
+// This is the join between the two halves of the mechanism: a tool says what
+// its calls do, and this decides what that means for the gate. Keeping the
+// translation in one function is what stops "which calls write" and "which
+// calls are gated" from drifting into two different answers.
+func RuleFor(definition ports.ToolDefinition) ApprovalRule {
+	effect := definition.Effect
+	if effect.ReadOnly {
+		// Gated by nothing in normal mode, and still gated by strict, which is
+		// the whole reason a read-only tool is wrapped at all.
+		return ApprovalRule{Gated: func(json.RawMessage) bool { return false }}
+	}
+	if len(effect.Mutations) == 0 || slices.Contains(effect.Mutations, GateAllCalls) {
+		return ApprovalRule{}
+	}
+	gated := make(map[string]bool, len(effect.Mutations))
+	for _, action := range effect.Mutations {
+		gated[action] = true
+	}
+	listed := slices.Clone(effect.Mutations)
+	slices.Sort(listed)
+	return ApprovalRule{
+		Gated: func(arguments json.RawMessage) bool {
+			var call struct {
+				Action string `json:"action"`
+			}
+			// An unreadable or actionless payload is gated. The two mistakes
+			// do not cost the same: an unnecessary prompt is an annoyance, an
+			// ungated mutation is what the gate exists to stop.
+			if err := json.Unmarshal(arguments, &call); err != nil || call.Action == "" {
+				return true
+			}
+			return gated[call.Action]
+		},
+		Notice: fmt.Sprintf(" These actions require the owner's approval: %s. Calling one asks them, and it runs only if they approve; the result then goes to the owner rather than back here, so do not call it again while waiting. Every other action on this tool runs normally.", strings.Join(listed, ", ")),
+	}
+}
+
+// ApprovalRule narrows a gate to some of a tool's calls.
+//
+// A tool that carries several operations behind one schema -- the Google
+// products, where reading mail and sending it are two actions on one tool -- is
+// the case this exists for. Gating such a tool whole would put an approval
+// prompt in front of reading the calendar, which trains the owner to approve
+// without looking, and that is worse than no gate at all.
+//
+// Gated is asked per call, against the same arguments the approval would carry.
+// Notice replaces the description suffix, because a model told "this tool
+// requires approval" when only two of its actions do will avoid the other five.
+// The zero value gates every call with the standard notice.
+type ApprovalRule struct {
+	Gated  func(arguments json.RawMessage) bool
+	Notice string
+}
+
 // ApprovalRequester is the narrow view of ApprovalService a gate needs.
 type ApprovalRequester interface {
 	Request(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error)
 }
 
-// AutoApprover reports whether the owner has switched the gate off. It is read
-// per call rather than captured at wiring time, so turning the bypass off
-// takes effect on the very next tool call rather than at the next restart --
-// the direction that matters, since the unsafe state is the one left on.
-type AutoApprover interface {
-	AutoApprove(ctx context.Context) (bool, error)
+// ModeReader reports how much the owner is currently being asked. It is read
+// per call rather than captured at wiring time, so a mode change takes effect
+// on the very next tool call rather than at the next restart -- the direction
+// that matters, since the permissive state is the one left on.
+type ModeReader interface {
+	Mode(ctx context.Context) (ports.ApprovalMode, error)
 }
 
 // ToolLookup finds a tool by name in the live catalog. The executor resolves
@@ -60,16 +122,41 @@ type gatedCall struct {
 type approvalGatedTool struct {
 	inner      ports.Tool
 	requester  ApprovalRequester
-	auto       AutoApprover
+	modes      ModeReader
+	gated      func(json.RawMessage) bool
 	definition ports.ToolDefinition
 }
 
 // NewApprovalGatedTool wraps a tool so calling it requests the owner's
-// approval instead of running. A nil auto keeps the gate permanently on.
-func NewApprovalGatedTool(inner ports.Tool, requester ApprovalRequester, auto AutoApprover) ports.Tool {
+// approval instead of running. A nil modes reader keeps the gate permanently
+// on, whatever the owner has selected.
+func NewApprovalGatedTool(inner ports.Tool, requester ApprovalRequester, modes ModeReader) ports.Tool {
+	return NewApprovalGatedToolIf(inner, requester, modes, ApprovalRule{})
+}
+
+// NewApprovalGatedToolIf is the same gate under a rule. It is one mechanism
+// with one wrapper type and one action, not a second approval path: an
+// ungated call runs inline exactly as it would unwrapped, and a gated one
+// takes the identical route through ApprovalToolCall.
+//
+// The rule describes what ModeNormal gates. ModeStrict gates the call whatever
+// the rule says and ModeAuto gates nothing, so both are decided here rather
+// than by wrapping different tools at startup -- the mode is durable runtime
+// state and changes without a restart, so which tools carry a gate cannot
+// depend on what it was at boot.
+func NewApprovalGatedToolIf(inner ports.Tool, requester ApprovalRequester, modes ModeReader, rule ApprovalRule) ports.Tool {
 	definition := inner.Definition()
-	definition.Description += approvalNotice
-	return &approvalGatedTool{inner: inner, requester: requester, auto: auto, definition: definition}
+	// A tool nothing gates in normal mode carries no notice: it is only
+	// reachable through strict mode, where the awaiting-approval result says
+	// the same thing at the moment it becomes true, and where a notice on
+	// every read-only tool would be prompt bytes every owner pays for a mode
+	// almost none of them run.
+	if notice := rule.Notice; notice != "" {
+		definition.Description += notice
+	} else if rule.Gated == nil {
+		definition.Description += approvalNotice
+	}
+	return &approvalGatedTool{inner: inner, requester: requester, modes: modes, gated: rule.Gated, definition: definition}
 }
 
 func (t *approvalGatedTool) Definition() ports.ToolDefinition { return t.definition }
@@ -80,16 +167,29 @@ func (t *approvalGatedTool) Definition() ports.ToolDefinition { return t.definit
 func (t *approvalGatedTool) Unwrap() ports.Tool { return t.inner }
 
 func (t *approvalGatedTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	// Auto mode runs the call inline and returns its real result, which is the
-	// point of the bypass: the model keeps working instead of ending the turn.
-	// A failure to read the switch is not treated as "off" -- an unreadable
-	// state store must leave the gate standing, not open it.
-	if t.auto != nil {
-		auto, err := t.auto.AutoApprove(ctx)
+	// A nil reader is the permanently-gated case and skips the lookup, so a
+	// caller that wants an unconditional gate gets one without depending on
+	// the state store being readable.
+	mode := ports.ModeStrict
+	if t.modes != nil {
+		read, err := t.modes.Mode(ctx)
 		if err != nil {
+			// Not treated as auto: an unreadable state store must leave the
+			// gate standing, not open it.
 			return nil, err
 		}
-		if auto {
+		mode = read
+	}
+	switch mode {
+	case ports.ModeAuto:
+		// Auto runs the call inline and returns its real result, which is the
+		// point of the bypass: the model keeps working instead of ending the
+		// turn.
+		return t.inner.Execute(ctx, raw)
+	case ports.ModeNormal:
+		// A call the rule does not cover was never a decision the owner
+		// deferred -- reading a calendar is not -- so it runs inline.
+		if t.gated != nil && !t.gated(normalizeArguments(raw)) {
 			return t.inner.Execute(ctx, raw)
 		}
 	}

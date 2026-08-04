@@ -21,6 +21,7 @@ func (t skillReadTool) Definition() ports.ToolDefinition {
 		Name:        "skill_read",
 		Description: "Load one installed skill's full instructions by exact name, after its description in the Available skills list matches the current task",
 		Schema:      skillNameSchema,
+		Effect:      ports.ReadOnlyTool(),
 	}
 }
 

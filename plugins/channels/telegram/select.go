@@ -97,6 +97,9 @@ func (t selectTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "telegram_select",
 		Description: "Ask the owner a question in Telegram with 2 to 8 custom choices. Use only for ordinary choices, never for protected-action approval.",
+		// Asking the owner a question changes nothing, and putting an approval
+		// prompt in front of a prompt would be a question about a question.
+		Effect: ports.ReadOnlyTool(),
 		Schema: json.RawMessage(`{
 			"type":"object",
 			"properties":{

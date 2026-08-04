@@ -47,7 +47,7 @@ func TestApprovalServicePendingReportsUndecidedIncludingExpired(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	clock := now
 	store := newFakeStateStore()
-	service := NewApprovalService(store, func() time.Time { return clock }, 30*time.Minute)
+	service := NewApprovalService(store, func() time.Time { return clock }, 30*time.Minute, ports.ModeNormal)
 
 	older, err := service.Request(context.Background(), "calendar.create", map[string]string{"title": "standup"}, "Book standup")
 	if err != nil {
@@ -93,7 +93,7 @@ func TestApprovalServicePendingReportsUndecidedIncludingExpired(t *testing.T) {
 func TestApprovalServiceDecideRetiresAnExpiredApproval(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	clock := now
-	service := NewApprovalService(newFakeStateStore(), func() time.Time { return clock }, 30*time.Minute)
+	service := NewApprovalService(newFakeStateStore(), func() time.Time { return clock }, 30*time.Minute, ports.ModeNormal)
 
 	approval, err := service.Request(context.Background(), "calendar.delete", map[string]string{"id": "42"}, "Delete the 3pm sync")
 	if err != nil {

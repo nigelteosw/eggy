@@ -67,6 +67,10 @@ func (t scheduleTool) Definition() ports.ToolDefinition {
 		Name:        ScheduleToolName,
 		Description: "Review, create, or cancel schedules. action=list reports every schedule with its cron expression, next run, and kind; action=create takes an instruction plus either cron (recurring) or at (one-time RFC3339); action=cancel removes one by id so it never runs again",
 		Schema:      json.RawMessage(scheduleSchema),
+		// A schedule outlives the turn that made it and fires unattended,
+		// which is the whole reason creating one is a decision rather than a
+		// note to self.
+		Effect: ports.MutatingActions("create", "cancel"),
 	}
 }
 
@@ -82,6 +86,7 @@ func (t scheduleTool) DefinitionForActions(actions []string) ports.ToolDefinitio
 			Name:        ScheduleToolName,
 			Description: "List the schedules that exist, with their cron expression, next run, and kind. Only action=list is available on this turn",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["list"]}},"required":["action"],"additionalProperties":false}`),
+			Effect:      ports.ReadOnlyTool(),
 		}
 	}
 	definition := t.Definition()

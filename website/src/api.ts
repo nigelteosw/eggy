@@ -183,15 +183,20 @@ export function listApprovals(): Promise<CommandResult> {
   return request("/api/approvals");
 }
 
-// Auto mode is the approval gate's switch. Toggling takes no argument, the
-// same gesture /auto is in chat, so the panel cannot ask for a state the chat
-// command cannot express.
-export function getAutoMode(): Promise<CommandResult> {
-  return request("/api/approvals/auto");
+// The approval mode is strict, normal or auto. Setting names the mode it wants
+// rather than advancing to the next one, the same gesture /mode is in chat: a
+// panel and a phone starting from different states cannot then disagree about
+// where they ended up.
+export function getApprovalMode(): Promise<CommandResult> {
+  return request("/api/approvals/mode");
 }
 
-export function toggleAutoMode(): Promise<CommandResult> {
-  return request("/api/approvals/auto", { method: "POST" });
+export function setApprovalMode(mode: string): Promise<CommandResult> {
+  return request("/api/approvals/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ mode }).toString(),
+  });
 }
 
 // Restarting rebuilds the daemon around config.yaml as it now stands, which

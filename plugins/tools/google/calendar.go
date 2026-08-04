@@ -29,6 +29,10 @@ type Event struct {
 	Description string   `json:"description,omitempty"`
 	Attendees   []string `json:"attendees,omitempty"`
 	Link        string   `json:"link,omitempty"`
+	// Response is this account's own reply, when it is a guest. Without it a
+	// model cannot tell an invitation still waiting on the owner from one they
+	// already accepted, and both look identical in a listing.
+	Response string `json:"response,omitempty"`
 }
 
 // NewEvent is a creation request. Attendees are addresses rather than a
@@ -42,6 +46,7 @@ type NewEvent struct {
 	Location    string
 	Description string
 	Attendees   []string
+	SendUpdates string
 }
 
 const defaultCalendar = "primary"
@@ -166,7 +171,10 @@ type calendarEvent struct {
 		Date     string `json:"date"`
 	} `json:"end"`
 	Attendees []struct {
-		Email string `json:"email"`
+		Email          string `json:"email"`
+		Self           bool   `json:"self"`
+		Optional       bool   `json:"optional"`
+		ResponseStatus string `json:"responseStatus"`
 	} `json:"attendees"`
 }
 
@@ -184,6 +192,9 @@ func (e calendarEvent) event() Event {
 	}
 	for _, attendee := range e.Attendees {
 		event.Attendees = append(event.Attendees, attendee.Email)
+		if attendee.Self {
+			event.Response = attendee.ResponseStatus
+		}
 	}
 	return event
 }
@@ -214,28 +225,310 @@ func (w *Workspace) CalendarCreate(ctx context.Context, event NewEvent) (Event, 
 	if event.Description != "" {
 		request["description"] = event.Description
 	}
-	if len(event.Attendees) > 0 {
-		attendees := make([]map[string]string, 0, len(event.Attendees))
-		for _, address := range event.Attendees {
-			if trimmed := strings.TrimSpace(address); trimmed != "" {
-				attendees = append(attendees, map[string]string{"email": trimmed})
-			}
+	attendees := make([]map[string]string, 0, len(event.Attendees))
+	for _, address := range event.Attendees {
+		if trimmed := strings.TrimSpace(address); trimmed != "" {
+			attendees = append(attendees, map[string]string{"email": trimmed})
 		}
+	}
+	if len(attendees) > 0 {
 		request["attendees"] = attendees
 	}
+	// Counted after trimming, so a list of blank strings is the empty guest
+	// list it actually is rather than a reason to ask Google to notify it.
+	notify, err := sendUpdates(event.SendUpdates, len(attendees))
+	if err != nil {
+		return Event{}, err
+	}
 	var created calendarEvent
-	if err := w.call(ctx, http.MethodPost, w.endpoints.Calendar+"/calendars/"+url.PathEscape(calendarOrDefault(event.CalendarID))+"/events", nil, request, &created); err != nil {
+	endpoint := w.endpoints.Calendar + "/calendars/" + url.PathEscape(calendarOrDefault(event.CalendarID)) + "/events"
+	if err := w.call(ctx, http.MethodPost, endpoint, withSendUpdates(notify), request, &created); err != nil {
 		return Event{}, err
 	}
 	return created.event(), nil
 }
 
-func (w *Workspace) CalendarDelete(ctx context.Context, calendarID, eventID string) error {
+// CalendarGet reads one event. It exists because every change needs the event
+// as it is now: an id from a search days ago is not a reason to believe the
+// time, and CalendarRespond depends on this to avoid discarding attendees.
+func (w *Workspace) CalendarGet(ctx context.Context, calendarID, eventID string) (Event, error) {
+	event, err := w.rawEvent(ctx, calendarID, eventID)
+	if err != nil {
+		return Event{}, err
+	}
+	return event.event(), nil
+}
+
+func (w *Workspace) rawEvent(ctx context.Context, calendarID, eventID string) (calendarEvent, error) {
+	if strings.TrimSpace(eventID) == "" {
+		return calendarEvent{}, errors.New("an event id is required")
+	}
+	var event calendarEvent
+	endpoint := fmt.Sprintf("%s/calendars/%s/events/%s", w.endpoints.Calendar, url.PathEscape(calendarOrDefault(calendarID)), url.PathEscape(eventID))
+	if err := w.call(ctx, http.MethodGet, endpoint, nil, nil, &event); err != nil {
+		return calendarEvent{}, err
+	}
+	return event, nil
+}
+
+// EventChange is a partial update: only the fields set are sent, and only
+// those change. Attendees is a pointer because "leave the guest list alone"
+// and "remove every guest" are different requests and an empty slice cannot
+// mean both -- Google replaces the whole array with whatever it is sent.
+type EventChange struct {
+	CalendarID  string
+	EventID     string
+	Summary     string
+	Start       string
+	End         string
+	Location    string
+	Description string
+	Attendees   *[]string
+	SendUpdates string
+}
+
+// CalendarUpdate patches an event in place.
+//
+// This is why deleting and recreating is not an acceptable substitute for
+// moving a meeting: recreating produces a new event, so every guest's reply is
+// discarded, the invitation thread in their mail breaks, and anything else
+// holding the old id -- a reminder, a linked doc, another calendar's copy --
+// now points at something that no longer exists.
+func (w *Workspace) CalendarUpdate(ctx context.Context, change EventChange) (Event, error) {
+	if strings.TrimSpace(change.EventID) == "" {
+		return Event{}, errors.New("an event id is required")
+	}
+	start, err := rfc3339(change.Start)
+	if err != nil {
+		return Event{}, err
+	}
+	end, err := rfc3339(change.End)
+	if err != nil {
+		return Event{}, err
+	}
+	request := map[string]any{}
+	if change.Summary != "" {
+		request["summary"] = change.Summary
+	}
+	if start != "" {
+		request["start"] = map[string]string{"dateTime": start}
+	}
+	if end != "" {
+		request["end"] = map[string]string{"dateTime": end}
+	}
+	if change.Location != "" {
+		request["location"] = change.Location
+	}
+	if change.Description != "" {
+		request["description"] = change.Description
+	}
+	guests := 0
+	if change.Attendees != nil {
+		attendees := make([]map[string]string, 0, len(*change.Attendees))
+		for _, address := range *change.Attendees {
+			if trimmed := strings.TrimSpace(address); trimmed != "" {
+				attendees = append(attendees, map[string]string{"email": trimmed})
+			}
+		}
+		request["attendees"] = attendees
+		guests = len(attendees)
+	}
+	if len(request) == 0 {
+		return Event{}, errors.New("nothing to change")
+	}
+	// A time change on an existing meeting is exactly when the guests need
+	// telling, and here -- unlike create -- an unchanged guest list is still a
+	// guest list, so the event itself decides rather than the request.
+	if guests == 0 && change.SendUpdates == "" {
+		if existing, err := w.rawEvent(ctx, change.CalendarID, change.EventID); err == nil {
+			guests = len(existing.Attendees)
+		}
+	}
+	notify, err := sendUpdates(change.SendUpdates, guests)
+	if err != nil {
+		return Event{}, err
+	}
+	var updated calendarEvent
+	endpoint := fmt.Sprintf("%s/calendars/%s/events/%s", w.endpoints.Calendar, url.PathEscape(calendarOrDefault(change.CalendarID)), url.PathEscape(change.EventID))
+	if err := w.call(ctx, http.MethodPatch, endpoint, withSendUpdates(notify), request, &updated); err != nil {
+		return Event{}, err
+	}
+	return updated.event(), nil
+}
+
+// CalendarRespond answers an invitation.
+//
+// Patching attendees replaces the whole array, so the only safe way to change
+// one reply is to read the event, edit that one entry, and send them all back.
+// Sending just the owner's entry would silently uninvite everyone else, which
+// is the kind of mistake nobody notices until the meeting is empty.
+func (w *Workspace) CalendarRespond(ctx context.Context, calendarID, eventID, response string) (Event, error) {
+	status := map[string]string{
+		"yes": "accepted", "accepted": "accepted",
+		"no": "declined", "declined": "declined",
+		"maybe": "tentative", "tentative": "tentative",
+	}[strings.ToLower(strings.TrimSpace(response))]
+	if status == "" {
+		return Event{}, fmt.Errorf("response %q must be yes, no or maybe", response)
+	}
+	existing, err := w.rawEvent(ctx, calendarID, eventID)
+	if err != nil {
+		return Event{}, err
+	}
+	attendees := make([]map[string]any, 0, len(existing.Attendees))
+	answered := false
+	for _, attendee := range existing.Attendees {
+		entry := map[string]any{"email": attendee.Email}
+		// Google marks the authenticated account's own row, which is the only
+		// reliable way to find it: the grant's address is not necessarily the
+		// address the invitation was sent to, once aliases and groups exist.
+		if attendee.Self {
+			entry["responseStatus"] = status
+			answered = true
+		} else if attendee.ResponseStatus != "" {
+			// Everyone else's reply is carried back unchanged; omitting it
+			// would reset them all to "no reply yet".
+			entry["responseStatus"] = attendee.ResponseStatus
+		}
+		if attendee.Optional {
+			entry["optional"] = true
+		}
+		attendees = append(attendees, entry)
+	}
+	if !answered {
+		return Event{}, errors.New("this account is not a guest on that event, so there is nothing to respond to")
+	}
+	var updated calendarEvent
+	endpoint := fmt.Sprintf("%s/calendars/%s/events/%s", w.endpoints.Calendar, url.PathEscape(calendarOrDefault(calendarID)), url.PathEscape(eventID))
+	if err := w.call(ctx, http.MethodPatch, endpoint, url.Values{"sendUpdates": {"all"}}, map[string]any{"attendees": attendees}, &updated); err != nil {
+		return Event{}, err
+	}
+	return updated.event(), nil
+}
+
+// Busy is one occupied block on one calendar.
+type Busy struct {
+	Calendar string `json:"calendar"`
+	Start    string `json:"start"`
+	End      string `json:"end"`
+}
+
+// CalendarFreeBusy answers "when am I free" in one request across every
+// calendar, where CalendarList costs one request per calendar and returns
+// event details nobody asked for. It reports busy blocks rather than free
+// ones: the gaps depend on working hours Google does not know.
+func (w *Workspace) CalendarFreeBusy(ctx context.Context, calendarIDs []string, start, end string, now time.Time) ([]Busy, error) {
+	from, err := rfc3339(start)
+	if err != nil {
+		return nil, err
+	}
+	to, err := rfc3339(end)
+	if err != nil {
+		return nil, err
+	}
+	if from == "" {
+		from = now.Format(time.RFC3339)
+	}
+	if to == "" {
+		to = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
+	}
+	items := make([]map[string]string, 0, len(calendarIDs))
+	for _, id := range calendarIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			items = append(items, map[string]string{"id": trimmed})
+		}
+	}
+	if len(items) == 0 {
+		// Every calendar the account can see, for the same reason CalendarList
+		// reads them all: "free" that ignores the work calendar is wrong in the
+		// direction that gets a meeting booked over something.
+		calendars, err := w.Calendars(ctx)
+		if err != nil {
+			items = append(items, map[string]string{"id": defaultCalendar})
+		}
+		if len(calendars) > maxCalendars {
+			calendars = calendars[:maxCalendars]
+		}
+		for _, calendar := range calendars {
+			items = append(items, map[string]string{"id": calendar.ID})
+		}
+	}
+	var response struct {
+		Calendars map[string]struct {
+			Busy []struct {
+				Start string `json:"start"`
+				End   string `json:"end"`
+			} `json:"busy"`
+			Errors []struct {
+				Reason string `json:"reason"`
+			} `json:"errors"`
+		} `json:"calendars"`
+	}
+	request := map[string]any{"timeMin": from, "timeMax": to, "items": items}
+	if err := w.call(ctx, http.MethodPost, w.endpoints.Calendar+"/freeBusy", nil, request, &response); err != nil {
+		return nil, err
+	}
+	busy := make([]Busy, 0, len(response.Calendars))
+	for calendar, blocks := range response.Calendars {
+		// A calendar that reported an error contributes no blocks, and treating
+		// that silence as free time is how something gets booked over it.
+		for _, block := range blocks.Busy {
+			busy = append(busy, Busy{Calendar: calendar, Start: block.Start, End: block.End})
+		}
+	}
+	slices.SortFunc(busy, func(a, b Busy) int {
+		return cmp.Or(cmp.Compare(a.Start, b.Start), cmp.Compare(a.Calendar, b.Calendar))
+	})
+	return busy, nil
+}
+
+// CalendarDelete notifies by default, because the guests of a meeting that no
+// longer exists are exactly the people who need to know. Deleting an event with
+// no attendees sends nothing regardless, so this costs the solo case nothing.
+func (w *Workspace) CalendarDelete(ctx context.Context, calendarID, eventID, notify string) error {
 	if strings.TrimSpace(eventID) == "" {
 		return errors.New("an event id is required")
 	}
+	if strings.TrimSpace(notify) == "" {
+		notify = "all"
+	}
+	notify, err := sendUpdates(notify, 0)
+	if err != nil {
+		return err
+	}
 	endpoint := fmt.Sprintf("%s/calendars/%s/events/%s", w.endpoints.Calendar, url.PathEscape(calendarOrDefault(calendarID)), url.PathEscape(eventID))
-	return w.call(ctx, http.MethodDelete, endpoint, nil, nil, nil)
+	return w.call(ctx, http.MethodDelete, endpoint, withSendUpdates(notify), nil, nil)
+}
+
+// sendUpdates decides who Google tells about a change.
+//
+// The parameter defaults to sending nothing, which for an event with attendees
+// means Eggy books a meeting and invites no one -- the guests never hear about
+// it and it reaches no external calendar. Google's own reference warns that
+// "none" can lose events entirely for some users. So an event with attendees
+// notifies them unless the caller says otherwise, and an event with none omits
+// the parameter rather than asking Google to notify an empty guest list.
+func sendUpdates(explicit string, attendees int) (string, error) {
+	switch trimmed := strings.TrimSpace(explicit); trimmed {
+	case "all", "externalOnly", "none":
+		return trimmed, nil
+	case "":
+		if attendees > 0 {
+			return "all", nil
+		}
+		return "", nil
+	default:
+		return "", fmt.Errorf("send_updates %q must be all, externalOnly or none", explicit)
+	}
+}
+
+// withSendUpdates is the query form of the above. An empty value means the
+// parameter is left off entirely, which is not the same as sending "none".
+func withSendUpdates(value string) url.Values {
+	if value == "" {
+		return nil
+	}
+	return url.Values{"sendUpdates": {value}}
 }
 
 func calendarOrDefault(calendarID string) string {

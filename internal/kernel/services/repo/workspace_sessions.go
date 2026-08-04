@@ -203,6 +203,11 @@ func (s *WorkspaceSessions) Tools() []ports.Tool {
 		Name:        "workspace_open",
 		Description: "Attach a read-only checkout of a configured repository to this conversation so repository tools can inspect it. The checkout persists until workspace_close and cannot be edited or shipped.",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"repository":{"type":"string","minLength":1}},"required":["repository"],"additionalProperties":false}`),
+		// Read-only in the sense the gate cares about: it clones into Eggy's
+		// own workspace and can neither edit nor ship anything. Nothing outside
+		// Eggy changes, so asking the owner would be a prompt about a temporary
+		// directory.
+		Effect: ports.ReadOnlyTool(),
 	}}
 	open.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {
@@ -222,6 +227,7 @@ func (s *WorkspaceSessions) Tools() []ports.Tool {
 		Name:        "workspace_close",
 		Description: "Detach and destroy this conversation's read-only checkout. Call it when repository exploration is finished.",
 		Schema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
+		Effect:      ports.ReadOnlyTool(),
 	}}
 	closeTool.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		if err := services.DecodeToolInput(raw, &struct{}{}); err != nil {

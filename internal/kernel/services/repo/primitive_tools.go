@@ -36,6 +36,7 @@ func NewPrimitiveTools(workspaces WorkspaceResolver, reader ports.RepositoryRead
 		Name:        "read_file",
 		Description: "Read a bounded range of lines from a file in this session's workspace.",
 		Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}},"required":["path"],"additionalProperties":false}`),
+		Effect:      ports.ReadOnlyTool(),
 	}}
 	readFile.execute = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 		var input struct {

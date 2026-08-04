@@ -86,7 +86,9 @@ func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool 
 }
 
 func (t memoryTool) Definition() ports.ToolDefinition {
-	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema}
+	// Every action writes: add, replace and remove are the whole surface, and
+	// both files are already in context so there is nothing to read.
+	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema, Effect: ports.MutatingActions(ports.GateAllTool)}
 }
 
 func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {

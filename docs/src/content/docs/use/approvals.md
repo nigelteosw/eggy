@@ -4,7 +4,29 @@ description: Understand which Eggy actions require explicit owner approval and e
 eyebrow: Use Eggy
 ---
 
-Eggy ships no protected action today. Native Google Calendar was the only one, and it was removed on 2026-07-31 in favour of a configured MCP calendar server; the approval mechanism below survives it, unused, for the next mutating capability.
+How much Eggy asks before it does something is one setting with three positions, and it applies to every tool it has.
+
+## Modes
+
+| `/mode` | What stops | For |
+|---|---|---|
+| `strict` | every tool call, reading included | watching a new setup, or a session you want to see all of |
+| `normal` | anything that writes | the default, and where you should live |
+| `auto` | nothing | a long batch you are supervising yourself |
+
+Set it with `/mode strict`, `/mode normal` or `/mode auto`; a bare `/mode` reports the current one without changing it. The panel's Approvals card sets the same setting — it is one authority with two views, not two switches.
+
+It names the mode rather than cycling to the next one. With three positions a toggle is a way to land in `auto` without having asked for it, and `auto` is the one nobody should reach by accident.
+
+The setting is durable and survives restarts, and `/status` always names it. `approvals.mode` in `config.yaml` decides where a fresh deployment starts, but only until you choose: your choice outranks the file from then on, or `/mode` would be undone by the next restart.
+
+## What counts as a write
+
+Every tool declares it. Reading a file, searching mail, listing schedules and inspecting a repository change nothing outside Eggy and run without asking in `normal`. Sending mail, editing a document, writing cells, creating a schedule and curating memory all ask.
+
+A tool that has not been classified counts as a write. That is deliberate: forgetting costs an approval prompt, while the opposite mistake costs the mutation itself.
+
+**MCP is the exception.** A remote catalog cannot be classified from here — nothing in Eggy knows whether `deploy` writes — so an MCP server keeps its own `require_approval` list and `normal` mode does not second-guess it. `strict` still stops everything, MCP included.
 
 ## Payload-bound authorization
 
@@ -53,6 +75,6 @@ The binding is per call: approving one `deploy` authorizes that deploy's argumen
 
 ## Auto mode
 
-`/auto` switches every gate off, and `/auto` again switches it back on. The panel's Approvals card has the same toggle. Either way the reply names the resulting state — "Auto mode enabled." or "Auto mode disabled."
+While `auto` is on, gated tools run immediately and return their results to the model like any other tool; no approval is recorded. Nothing selects it on your behalf, and `/status` calls it out along with the way back — a bypass you switched on and forgot is the thing worth being told about.
 
-While it is on, gated tools run immediately and return their results to the model like any other tool; no approval is recorded. The setting is durable, so it survives a restart, and `status` reports it whenever it is on — a bypass you switched on and forgot is the thing worth being told about.
+If you upgraded from a version with `/auto`, whatever you had it set to is carried forward: on becomes `auto`, off becomes whatever `approvals.mode` says.

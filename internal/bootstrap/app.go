@@ -154,7 +154,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	webChannel := webchat.New(app.chatHub)
 	telegramSurface := newTelegramWiring(config, secrets, options)
 	app.channel = newRoutedChannel(telegramSurface.channel, webChannel)
-	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute)
+	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
 	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
 	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
 	runner, err := localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
@@ -202,17 +202,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(skillsService)...)
-	if err := registerAll(registry, baseTools...); err != nil {
+	if err := registerGated(registry, app.approvals, baseTools...); err != nil {
 		return nil, err
 	}
 	if len(config.Repositories) > 0 {
-		if err := registerAll(registry, repo.NewRepositoryTools(stateStore)...); err != nil {
+		if err := registerGated(registry, app.approvals, repo.NewRepositoryTools(stateStore)...); err != nil {
 			return nil, err
 		}
-		if err := registerAll(registry, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+		if err := registerGated(registry, app.approvals, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
 			return nil, err
 		}
-		if err := registerAll(registry, app.workspaces.Tools()...); err != nil {
+		if err := registerGated(registry, app.approvals, app.workspaces.Tools()...); err != nil {
 			return nil, err
 		}
 	}
@@ -223,11 +223,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// AddProvider below), where the same invariant holds because a registered
 	// tool always wins the name.
 	if len(config.Repositories) > 0 {
-		if err := registerAll(registry, primitives...); err != nil {
+		if err := registerGated(registry, app.approvals, primitives...); err != nil {
 			return nil, err
 		}
 	}
-	if err := registerAll(registry, telegramSurface.tools()...); err != nil {
+	if err := registerGated(registry, app.approvals, telegramSurface.tools()...); err != nil {
 		return nil, err
 	}
 	// One grant, several products, registered like any other kernel tool.
@@ -239,7 +239,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	googleAdministration := newGoogleAdmin(googleAuth)
-	if err := registerAll(registry, googleTools(googleWorkspace, config.Google, options.Now)...); err != nil {
+	googleCatalog, err := googleClassifiedTools(googleWorkspace, config.Google, options.Now)
+	if err != nil {
+		return nil, err
+	}
+	if err := registerGated(registry, app.approvals, googleCatalog...); err != nil {
 		return nil, err
 	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
@@ -255,7 +259,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
-	if err := registerAll(registry, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
+	if err := registerGated(registry, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID)...); err != nil {
 		return nil, err
 	}
 	if app.mcp != nil {
@@ -280,10 +284,14 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 				}
 				return tools
 			}
-			approvalExecutors[services.ApprovalToolCall] = services.NewApprovalToolExecutor(registry, app.approvals)
 		}
 		registry.AddProvider("mcp", provider)
 	}
+	// Registered unconditionally, because every native tool now carries a gate
+	// that strict mode can close: there is no configuration under which an
+	// approved tool call cannot arrive, so there is none under which the
+	// executor may be missing.
+	approvalExecutors[services.ApprovalToolCall] = services.NewApprovalToolExecutor(registry, app.approvals)
 	// One context budget for one loop: a turn compacts at a checkpoint rather than ending
 	// because it did a lot of work.
 	contextPolicy := agent.ContextPolicy{
@@ -348,7 +356,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Tools:            registry,
 		Schedules:        app.scheduler,
 		Approvals:        app.approvals,
-		AutoMode:         app.approvals,
+		ApprovalMode:     app.approvals,
+		GoogleActions:    googleActionCatalog(),
 		Restarter:        app,
 		Getenv:           options.Getenv,
 		TrustedProxyHops: config.Server.TrustedProxyHops,

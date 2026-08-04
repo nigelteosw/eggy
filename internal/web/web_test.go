@@ -586,6 +586,115 @@ func TestWebGoogleSectionRoundTrips(t *testing.T) {
 	}
 }
 
+// The approval list is the one Google setting where getting it wrong is a
+// safety problem rather than an inconvenience, and it has three states the
+// panel has to be able to reach and read back.
+func TestWebGoogleApprovalsRoundTripAllThreeStates(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	webConfig := testWebConfig(now)
+	webConfig.GoogleActions = map[string]GoogleProductActions{
+		"gmail":    {Actions: []string{"search", "get", "send", "reply"}, Mutations: []string{"send", "reply"}},
+		"calendar": {Actions: []string{"list", "create", "delete"}, Mutations: []string{"create", "delete"}},
+	}
+	handler := NewWebHandler(path, webConfig)
+	cookie := webLoginCookie(t, handler)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/api/config/google", strings.NewReader(body))
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	read := func() map[string]string {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "/api/config/google", nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		var decoded webResult
+		if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		fields := map[string]string{}
+		for _, field := range decoded.Fields {
+			fields[field.Label] = field.Value
+		}
+		return fields
+	}
+
+	const client = `"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"calendar,gmail"`
+	if code := post(`{` + client + `,"require_approval_mode":"custom","require_approval":"gmail.send,calendar.delete"}`).Code; code != http.StatusOK {
+		t.Fatalf("status=%d", code)
+	}
+	fields := read()
+	if fields["require_approval_mode"] != "custom" || fields["require_approval"] != "gmail.send,calendar.delete" {
+		t.Fatalf("fields=%v", fields)
+	}
+	// The catalog travels too, because the form builds its checkboxes from it
+	// rather than from a copy of the action list.
+	if fields["actions.gmail"] != "search,get,send,reply" || fields["mutations.gmail"] != "send,reply" {
+		t.Fatalf("catalog not served: %v", fields)
+	}
+
+	// Custom with nothing named is the owner saying nothing should ask, and it
+	// must not read back as the default.
+	if code := post(`{` + client + `,"require_approval_mode":"custom","require_approval":""}`).Code; code != http.StatusOK {
+		t.Fatalf("status=%d", code)
+	}
+	if fields := read(); fields["require_approval_mode"] != "custom" || fields["require_approval"] != "" {
+		t.Fatalf("an empty custom list read back as %v", fields)
+	}
+
+	// Back to the default, which stores no list at all so a later version's
+	// new actions are gated without another edit.
+	if code := post(`{` + client + `,"require_approval_mode":"default"}`).Code; code != http.StatusOK {
+		t.Fatalf("status=%d", code)
+	}
+	if fields := read(); fields["require_approval_mode"] != "default" {
+		t.Fatalf("fields=%v", fields)
+	}
+}
+
+// An action the adapter would reject at startup has to be refused here, while
+// the owner still has a working config: a bad require_approval entry fails the
+// next boot, and a config edit that lands them in safe mode is a poor way to
+// learn about a typo.
+func TestWebGoogleApprovalsRejectUnknownActions(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	webConfig := testWebConfig(now)
+	webConfig.GoogleActions = map[string]GoogleProductActions{
+		"gmail": {Actions: []string{"search", "send"}, Mutations: []string{"send"}},
+	}
+	handler := NewWebHandler(path, webConfig)
+	cookie := webLoginCookie(t, handler)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, entry := range []string{"gmail.snd", "gmail", "telegram.send"} {
+		body := `{"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"gmail","require_approval_mode":"custom","require_approval":"` + entry + `"}`
+		request := httptest.NewRequest(http.MethodPost, "/api/config/google", strings.NewReader(body))
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%q: status=%d body=%s", entry, response.Code, response.Body.String())
+		}
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("a refused approval list still rewrote the config")
+	}
+}
+
 // The same validation the chat command and the config loader apply: a rejected
 // write leaves the file the owner had.
 func TestWebGoogleSectionRejectsAnUnknownProduct(t *testing.T) {

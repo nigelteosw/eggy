@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +50,16 @@ type Config struct {
 	Google       GoogleConfig                `yaml:"google,omitempty"`
 	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
+	Approvals    ApprovalsConfig             `yaml:"approvals,omitempty"`
+}
+
+// ApprovalsConfig sets where a deployment starts. It is only a default: once
+// the owner has chosen with /mode, that choice is durable and config no longer
+// speaks for it. A deployment is where the software begins, not a standing
+// instruction that outranks the person operating it.
+type ApprovalsConfig struct {
+	// Mode is strict, normal or auto. Empty means normal.
+	Mode string `yaml:"mode,omitempty"`
 }
 
 // Theme names. Dark is the default: Eggy's web panel is charcoal unless the
@@ -105,10 +116,21 @@ type GoogleConfig struct {
 	// Products decides which tools exist at all. An unlisted product costs no
 	// schema, no prompt bytes, and no code path -- the same rule every other
 	// configurable capability follows.
-	Products       []string `yaml:"products,omitempty"`
-	Scopes         []string `yaml:"scopes,omitempty"`
-	Timeout        Duration `yaml:"timeout,omitempty"`
-	MaxOutputBytes int64    `yaml:"max_output_bytes,omitempty"`
+	Products []string `yaml:"products,omitempty"`
+	Scopes   []string `yaml:"scopes,omitempty"`
+	// RequireApproval names the actions that must ask the owner before they
+	// run, as product.action -- "gmail.send", "calendar.delete". Omitted, every
+	// action that writes anything is gated; set to an empty list, none are.
+	// Distinguishing the two is the whole point of the field, so it must stay
+	// out of any defaulting that would fill a nil in.
+	//
+	// It is a pointer because omitempty cannot tell an empty list from an
+	// absent one and would drop both -- which would turn "ask me about
+	// nothing" back into "ask me about everything that writes" the first time
+	// a surface rewrote the file.
+	RequireApproval *[]string `yaml:"require_approval,omitempty"`
+	Timeout         Duration  `yaml:"timeout,omitempty"`
+	MaxOutputBytes  int64     `yaml:"max_output_bytes,omitempty"`
 }
 
 type AgentConfig struct {
@@ -511,6 +533,13 @@ func (c Config) Validate() error {
 	}
 	if err := c.validateGoogle(); err != nil {
 		return err
+	}
+	// An unrecognized mode is refused rather than falling back to a working
+	// one: an owner who wrote "readonly" meant to be asked about writes, and
+	// quietly running them instead is the one failure this setting exists to
+	// prevent.
+	if mode := c.Approvals.Mode; mode != "" && !ports.ApprovalMode(mode).Valid() {
+		return fmt.Errorf("approvals.mode %q must be strict, normal or auto", mode)
 	}
 	return nil
 }

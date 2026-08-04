@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
+import type { CommandResult } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
@@ -17,12 +18,25 @@ const CLIENT_ID = 1;
 const SECRET_ENV = 2;
 const PRODUCT_LIST = 3;
 
+function field(result: CommandResult | null, label: string): string {
+  return result?.fields?.find((entry) => entry.label === label)?.value ?? "";
+}
+
+function list(result: CommandResult | null, label: string): string[] {
+  return field(result, label).split(",").filter(Boolean);
+}
+
 export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const { result, error, saving, save } = useConfigSection("google", onSessionExpired);
   const [clientId, setClientId] = useState("");
   const [clientSecretEnv, setClientSecretEnv] = useState("GOOGLE_CLIENT_SECRET");
   const [products, setProducts] = useState<string[]>(["calendar"]);
   const [enabled, setEnabled] = useState(true);
+  // Defaults on means no list is stored at all, which is not the same as a
+  // list that happens to match the defaults: with no list, an action added by
+  // a later version is gated automatically instead of shipping unguarded.
+  const [useDefaults, setUseDefaults] = useState(true);
+  const [gated, setGated] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   // Seed the form from what is stored, once. This is an edit surface for one
@@ -35,6 +49,9 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
     if (row[CLIENT_ID]) setClientId(row[CLIENT_ID]);
     if (row[SECRET_ENV]) setClientSecretEnv(row[SECRET_ENV]);
     if (row[PRODUCT_LIST]) setProducts(row[PRODUCT_LIST].split(", ").filter(Boolean));
+    const custom = field(result, "require_approval_mode") === "custom";
+    setUseDefaults(!custom);
+    setGated(list(result, "require_approval"));
     setLoaded(true);
   }, [result, loaded]);
 
@@ -44,6 +61,20 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
     );
   }
 
+  function toggleGated(entry: string) {
+    setGated((current) => (current.includes(entry) ? current.filter((name) => name !== entry) : [...current, entry]));
+  }
+
+  // Turning defaults off pre-selects what the defaults already were, so the
+  // owner starts from today's behaviour and narrows it rather than from an
+  // empty grid that would gate nothing if they saved it.
+  function chooseDefaults(next: boolean) {
+    setUseDefaults(next);
+    if (!next && gated.length === 0) {
+      setGated(products.flatMap((product) => list(result, `mutations.${product}`).map((a) => `${product}.${a}`)));
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     await save({
@@ -51,6 +82,8 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
       client_id: clientId,
       client_secret_env: clientSecretEnv,
       products: products.join(","),
+      require_approval_mode: useDefaults ? "default" : "custom",
+      require_approval: useDefaults ? "" : gated.join(","),
     });
   }
 
@@ -91,6 +124,47 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
               </label>
             ))}
           </fieldset>
+          <div className="flex flex-col gap-3 rounded-md border border-border px-3 py-3">
+            <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
+            <p className="text-xs text-muted-foreground">
+              The default, and it keeps up: an action a later version adds is gated without you editing anything. Turn
+              it off to choose action by action. Whatever is left unchecked runs without asking.
+            </p>
+            {!useDefaults &&
+              products.map((product) => {
+                // Rendered from what the server says the product accepts, so
+                // this cannot name an action the adapter would reject at
+                // startup — which is a config error that lands in safe mode.
+                const actions = list(result, `actions.${product}`);
+                if (actions.length === 0) return null;
+                return (
+                  <fieldset key={product} className="flex flex-wrap gap-x-3 gap-y-2">
+                    <legend className="pb-1 text-sm font-medium">{product}</legend>
+                    {actions.map((action) => {
+                      const entry = `${product}.${action}`;
+                      const writes = list(result, `mutations.${product}`).includes(action);
+                      return (
+                        <label key={entry} className="flex items-center gap-1.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={gated.includes(entry) || gated.includes(`${product}.*`)}
+                            disabled={gated.includes(`${product}.*`)}
+                            onChange={() => toggleGated(entry)}
+                            className="h-4 w-4"
+                          />
+                          <span className={writes ? "" : "text-muted-foreground"}>{action}</span>
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                );
+              })}
+            {!useDefaults && gated.length === 0 && (
+              <p className="text-xs text-destructive">
+                Nothing is checked, so Google will send mail, change events and delete files without asking.
+              </p>
+            )}
+          </div>
           <Switch checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
           <Button type="submit" disabled={saving}>
             {saving ? "Saving..." : "Save Google Workspace"}

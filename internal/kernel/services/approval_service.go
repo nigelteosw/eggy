@@ -20,10 +20,18 @@ type ApprovalService struct {
 	store ports.StateStore
 	now   func() time.Time
 	ttl   time.Duration
+	// defaultMode is what config.yaml asked for, used only until the owner
+	// chooses at runtime. A stored choice always wins: config is where the
+	// deployment starts, not a standing instruction that overrides the person
+	// operating it.
+	defaultMode ports.ApprovalMode
 }
 
-func NewApprovalService(store ports.StateStore, now func() time.Time, ttl time.Duration) *ApprovalService {
-	return &ApprovalService{store: store, now: now, ttl: ttl}
+func NewApprovalService(store ports.StateStore, now func() time.Time, ttl time.Duration, defaultMode ports.ApprovalMode) *ApprovalService {
+	if !defaultMode.Valid() {
+		defaultMode = ports.ModeNormal
+	}
+	return &ApprovalService{store: store, now: now, ttl: ttl, defaultMode: defaultMode}
 }
 
 func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, payload any, summary string) (approvals.Approval, error) {
@@ -116,27 +124,43 @@ func (s *ApprovalService) Pending(ctx context.Context) ([]approvals.Approval, er
 	return pending, nil
 }
 
-// AutoApprove reports whether approval-gated tool calls currently run without
-// asking the owner.
-func (s *ApprovalService) AutoApprove(ctx context.Context) (bool, error) {
+// Mode reports how much the owner is currently being asked.
+//
+// The stored mode wins, the configured default fills in for state written
+// before modes existed, and the retired boolean is honoured on the way past:
+// an owner who left the old bypass on must not have the gate come back on
+// under them because a field was renamed.
+func (s *ApprovalService) Mode(ctx context.Context) (ports.ApprovalMode, error) {
 	state, err := s.store.Load(ctx)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	return state.ApprovalAutoMode, nil
+	if state.ApprovalMode.Valid() {
+		return state.ApprovalMode, nil
+	}
+	if state.ApprovalAutoMode {
+		return ports.ModeAuto, nil
+	}
+	return s.defaultMode, nil
 }
 
-// SetAutoApprove turns the bypass on or off. It lives here rather than on a
-// surface because the gate, the approval records, and this switch are one
-// authority: a second place that decided "does this need approval" would be a
-// second answer to the question the gate exists to answer.
-func (s *ApprovalService) SetAutoApprove(ctx context.Context, auto bool) error {
+// SetMode changes it durably. It lives here rather than on a surface because
+// the gate, the approval records, and this switch are one authority: a second
+// place that decided "does this need approval" would be a second answer to the
+// question the gate exists to answer.
+func (s *ApprovalService) SetMode(ctx context.Context, mode ports.ApprovalMode) error {
+	if !mode.Valid() {
+		return fmt.Errorf("approval mode %q must be strict, normal or auto", mode)
+	}
 	state, err := s.store.Load(ctx)
 	if err != nil {
 		return err
 	}
 	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
-		state.ApprovalAutoMode = auto
+		state.ApprovalMode = mode
+		// Cleared as it is superseded, so the retired field cannot come back
+		// later and contradict an explicit choice.
+		state.ApprovalAutoMode = false
 		return nil
 	})
 	return err

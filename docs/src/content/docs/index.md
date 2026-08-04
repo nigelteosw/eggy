@@ -75,7 +75,7 @@ The kernel knows only provider-neutral ports. Concrete model, channel, repositor
 
 Configured repositories are trusted inputs, but repository access is read-only. Eggy can clone, open, and inspect a checkout; it cannot edit files, run an agent shell, commit, push, or open a pull request.
 
-Adding an MCP server to configuration is the trust decision, and its tools run without asking by default. Naming tools under a server's `require_approval` routes those calls through the payload-bound approval mechanism instead, and `/auto` switches every gate off when you want to work uninterrupted.
+Native tools declare whether they write, and `/mode normal` — the default — lets the reads run while everything that writes asks you first. `/mode strict` asks about all of it; `/mode auto` asks about none. Adding an MCP server to configuration is a trust decision of its own, so its tools run without asking until you name them under that server's `require_approval`.
 
 ## Quick links
 

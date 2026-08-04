@@ -18,14 +18,20 @@ Eggy's Telegram command surface is intentionally small.
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
-| `/auto` | Switch auto mode on or off for approval-gated tool calls |
+| `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
 Unknown commands return the same command reference. Ordinary text continues to the model.
 
-`/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and tells you when auto mode is enabled.
+`/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and always names the approval mode in force.
 
-`/auto` is a toggle rather than a setting: it flips the [approval gate](/eggy/use/approvals/) and replies with the state it left you in. While auto mode is enabled, tools you gated with `require_approval` run without asking.
+`/mode` sets how much the [approval gate](/eggy/use/approvals/) asks:
+
+- `/mode strict` — every tool call asks first, reading included.
+- `/mode normal` — reading runs freely; anything that writes asks first. The default.
+- `/mode auto` — nothing asks.
+
+A bare `/mode` reports the current one without changing it. It names the mode rather than cycling to the next: with three of them, a toggle is a way to land in auto without having asked for it.
 
 `/restart` applies config that was written from a chat command or the settings panel. See [Restarting to apply config](/eggy/configure/configuration/#restarting-to-apply-config) for what it does and does not restart.
 

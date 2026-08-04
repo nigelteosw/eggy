@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 type fakeTurns struct{ stopped bool }
@@ -31,7 +33,7 @@ func TestOnlyNineTelegramCommandsAreAdvertised(t *testing.T) {
 	if len(got) != 9 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google", "auto", "restart"}
+	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google", "mode", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)
@@ -63,39 +65,56 @@ func TestStopAndModelDispatchDirectly(t *testing.T) {
 }
 
 type fakeApprovalGate struct {
-	auto  bool
-	saved []bool
+	mode  ports.ApprovalMode
+	saved []ports.ApprovalMode
 }
 
-func (g *fakeApprovalGate) AutoApprove(context.Context) (bool, error) { return g.auto, nil }
+func (g *fakeApprovalGate) Mode(context.Context) (ports.ApprovalMode, error) {
+	if g.mode == "" {
+		return ports.ModeNormal, nil
+	}
+	return g.mode, nil
+}
 
-func (g *fakeApprovalGate) SetAutoApprove(_ context.Context, auto bool) error {
-	g.auto = auto
-	g.saved = append(g.saved, auto)
+func (g *fakeApprovalGate) SetMode(_ context.Context, mode ports.ApprovalMode) error {
+	g.mode = mode
+	g.saved = append(g.saved, mode)
 	return nil
 }
 
-// /auto takes no argument: it is a toggle an owner fires from a phone, and the
-// reply names the resulting mode so the tap is confirmed rather than assumed.
-func TestAutoCommandTogglesAndNamesTheResultingMode(t *testing.T) {
+// Bare /mode reports without changing anything. With three modes, a toggle
+// that advanced to whichever came next would be a way to reach auto without
+// having asked for it.
+func TestModeCommandReportsAndSets(t *testing.T) {
 	gate := &fakeApprovalGate{}
 	service := New(Options{Approvals: gate})
-	output, handled, err := service.Execute(context.Background(), "/auto")
+	output, handled, err := service.Execute(context.Background(), "/mode")
 	if err != nil || !handled {
 		t.Fatalf("handled=%v err=%v", handled, err)
 	}
-	if !gate.auto || !strings.HasPrefix(output, "Auto mode enabled.") {
-		t.Fatalf("auto=%v output=%q", gate.auto, output)
+	if !strings.HasPrefix(output, "Normal mode.") || len(gate.saved) != 0 {
+		t.Fatalf("a bare /mode changed something: output=%q saved=%v", output, gate.saved)
 	}
-	output, _, err = service.Execute(context.Background(), "/auto")
+
+	output, _, err = service.Execute(context.Background(), "/mode strict")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.auto || !strings.HasPrefix(output, "Auto mode disabled.") {
-		t.Fatalf("auto=%v output=%q", gate.auto, output)
+	if gate.mode != ports.ModeStrict || !strings.HasPrefix(output, "Strict mode.") {
+		t.Fatalf("mode=%q output=%q", gate.mode, output)
 	}
-	if len(gate.saved) != 2 {
-		t.Fatalf("expected two writes, got %v", gate.saved)
+
+	// An unrecognized mode changes nothing and says what the three are, rather
+	// than falling back to one of them.
+	output, _, err = service.Execute(context.Background(), "/mode readonly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gate.mode != ports.ModeStrict || !strings.Contains(output, "/mode strict") {
+		t.Fatalf("mode=%q output=%q", gate.mode, output)
+	}
+	if len(gate.saved) != 1 {
+		t.Fatalf("expected one write, got %v", gate.saved)
 	}
 }
 
@@ -143,24 +162,25 @@ func TestRestartRefusesAConfigThatWouldNotLoad(t *testing.T) {
 	}
 }
 
-// A bypass the owner switched on and forgot is the failure mode worth a line
-// in /status. The safe state does not get one.
-func TestStatusReportsAutoModeOnlyWhenEnabled(t *testing.T) {
+// With three modes, silence no longer identifies one state, so /status names
+// whichever is in force -- and still calls out the bypass as the one worth
+// noticing.
+func TestStatusReportsTheApprovalMode(t *testing.T) {
 	gate := &fakeApprovalGate{}
 	service := New(Options{Approvals: gate})
 	output, _, err := service.Execute(context.Background(), "/status")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(output, "Auto mode") {
-		t.Fatalf("status mentioned auto mode while it was off: %q", output)
+	if !strings.Contains(output, "Normal mode") {
+		t.Fatalf("status did not name the mode: %q", output)
 	}
-	gate.auto = true
+	gate.mode = ports.ModeAuto
 	output, _, err = service.Execute(context.Background(), "/status")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Auto mode is enabled") {
-		t.Fatalf("status did not report an enabled bypass: %q", output)
+	if !strings.Contains(output, "Auto mode") || !strings.Contains(output, "/mode normal") {
+		t.Fatalf("status did not report the bypass or the way out: %q", output)
 	}
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Thread, createThread, deleteThread, listThreads, renameThread } from "./api";
-import { Button } from "./components/ui/button";
+import { PanelIcon, PlusIcon, SettingsIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 function relativeTime(iso: string): string {
@@ -19,6 +19,8 @@ export function ThreadSidebar({
   onSelect,
   onDeleted,
   onActiveTitleChange,
+  onCollapse,
+  onOpenSettings,
   reloadKey,
 }: {
   activeThreadId: string | null;
@@ -28,6 +30,8 @@ export function ThreadSidebar({
   // It comes from here rather than from a fetch in ChatPage because this is
   // the component that already holds the list and reloads it after a rename.
   onActiveTitleChange: (title: string) => void;
+  onCollapse: () => void;
+  onOpenSettings: () => void;
   reloadKey: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -112,19 +116,36 @@ export function ThreadSidebar({
     // bg-background, not bg-card: this is the same surface the config rail
     // sits on, so the two screens read as one app rather than as two.
     <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-background">
-      <div className="flex h-14 items-center gap-2.5 border-b border-border px-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-base leading-none">🥚</span>
+      {/* The close control sits at the top left, ahead of the wordmark: it is
+          the same corner the reopen button occupies once the rail is gone, so
+          the sidebar collapses and returns under one spot on the screen. */}
+      <div className="flex h-14 items-center gap-2 px-3">
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <PanelIcon />
+        </button>
         <span className="text-base font-semibold tracking-tight">Eggy</span>
       </div>
-      <div className="h-3" />
 
-      <div className="px-3 pb-3">
-        <Button type="button" onClick={handleNew} size="sm" className="h-9 w-full">
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <path d="M10 5v10M5 10h10" />
-          </svg>
-          New chat
-        </Button>
+      {/* A section head with the new-chat control on its right, rather than a
+          full-width button above the list: the list is the thing this rail is
+          for, and a solid primary bar over it took the eye first. */}
+      <div className="flex items-center justify-between px-4 pb-1 pt-2">
+        <span className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Chats</span>
+        <button
+          type="button"
+          onClick={handleNew}
+          aria-label="New chat"
+          title="New chat"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
       </div>
 
       {error && (
@@ -232,6 +253,23 @@ export function ThreadSidebar({
             })}
           </div>
         )}
+      </div>
+
+      {/* Settings is the last thing in the rail rather than a button floating
+          over the transcript: it is a destination like every chat above it,
+          and pinning it here means the corner of the chat pane belongs to the
+          conversation. */}
+      <div className="shrink-0 border-t border-border p-2">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <SettingsIcon />
+          </span>
+          Settings
+        </button>
       </div>
     </div>
   );

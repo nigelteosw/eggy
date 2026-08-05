@@ -93,6 +93,49 @@ export const PaletteIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ChevronDownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m6 8 4 4 4-4" />
+  </Icon>
+);
+
+export const PlusIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 5v10M5 10h10" />
+  </Icon>
+);
+
+export const SettingsIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="10" cy="10" r="2.6" />
+    <path d="M10 2.6v1.6M10 15.8v1.6M17.4 10h-1.6M4.2 10H2.6M15.2 4.8l-1.1 1.1M5.9 14.1l-1.1 1.1M15.2 15.2l-1.1-1.1M5.9 5.9 4.8 4.8" />
+  </Icon>
+);
+
+// The reasoning-effort control: a dial, because the levels are ordered.
+export const GaugeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 14a7 7 0 1 1 13 0" />
+    <path d="m10 11.5 3-3" />
+  </Icon>
+);
+
+// The approval control. A closed shackle for a gate that asks; ArrowUpIcon
+// aside, this is the only icon in the composer row that changes meaning with
+// its label, so the label carries the mode and this only says "approvals".
+export const LockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4" y="8.5" width="12" height="8" rx="2" />
+    <path d="M7 8.5V6a3 3 0 0 1 6 0v2.5" />
+  </Icon>
+);
+
+export const ArrowUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" />
+  </Icon>
+);
+
 export const LogoutIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M8 17H4.5A1.5 1.5 0 0 1 3 15.5v-11A1.5 1.5 0 0 1 4.5 3H8" />

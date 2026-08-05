@@ -58,6 +58,10 @@ type WebUIConfig struct {
 	// ApprovalMode is which of the three approval modes is in force, the
 	// panel's half of the /mode command.
 	ApprovalMode ApprovalModeSwitch
+	// Agent is the model and reasoning-effort selection behind /model, which
+	// the chat composer reads and writes. Nil leaves those routes answering
+	// 404 and the composer drawing no model controls.
+	Agent AgentSwitch
 	// GoogleActions is what each Google product can do, keyed by product.
 	// Bootstrap fills it from the adapter, because the panel must not carry a
 	// second copy of a list that changes whenever a product gains an action --
@@ -266,6 +270,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/approvals", requireWebSession(webConfig, now, newApprovalListHandler(webConfig.Approvals, now)))
 	mux.Handle("GET /api/approvals/mode", requireWebSession(webConfig, now, newApprovalModeHandler(webConfig.ApprovalMode, false)))
 	mux.Handle("POST /api/approvals/mode", requireWebSession(webConfig, now, newApprovalModeHandler(webConfig.ApprovalMode, true)))
+	mux.Handle("GET /api/agent", requireWebSession(webConfig, now, newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/model", requireWebSession(webConfig, now, newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/effort", requireWebSession(webConfig, now, newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 

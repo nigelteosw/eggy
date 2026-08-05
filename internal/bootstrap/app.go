@@ -360,6 +360,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Schedules:        app.scheduler,
 		Approvals:        app.approvals,
 		ApprovalMode:     app.approvals,
+		Agent:            agentRuntime,
 		GoogleActions:    googleActionCatalog(),
 		Restarter:        app,
 		Getenv:           options.Getenv,

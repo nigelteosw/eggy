@@ -29,6 +29,19 @@ func NewAgentRuntime(store ports.StateStore, defaultAlias string, aliases []stri
 	return &AgentRuntime{store: store, defaultAlias: defaultAlias, aliases: known, efforts: efforts}
 }
 
+// Aliases returns every configured model alias, sorted. The set is fixed at
+// construction from config, so this is a read of what /model would accept --
+// which is what a picker needs in order to offer the same choices the command
+// does rather than a second list assembled somewhere else.
+func (r *AgentRuntime) Aliases() []string {
+	aliases := make([]string, 0, len(r.aliases))
+	for alias := range r.aliases {
+		aliases = append(aliases, alias)
+	}
+	slices.Sort(aliases)
+	return aliases
+}
+
 func (r *AgentRuntime) SelectedModel(ctx context.Context) (string, error) {
 	state, err := r.store.Load(ctx)
 	if err != nil {

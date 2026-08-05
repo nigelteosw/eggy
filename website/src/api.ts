@@ -199,6 +199,40 @@ export function setApprovalMode(mode: string): Promise<CommandResult> {
   });
 }
 
+// What the chat composer's controls render from: every alias the owner may
+// pick, the one in force, the effort levels that model supports, and the
+// approval mode. One read rather than three, so the row settles at once.
+export type AgentSelection = {
+  models: string[];
+  model: string;
+  efforts: string[];
+  effort: string;
+  approval_mode?: string;
+};
+
+export function getAgent(): Promise<AgentSelection> {
+  return request<AgentSelection>("/api/agent");
+}
+
+function postAgent(path: string, body: Record<string, string>): Promise<AgentSelection> {
+  return request<AgentSelection>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(body).toString(),
+  });
+}
+
+// Both writes answer with the selection they produced rather than with an
+// acknowledgement: switching models can invalidate the stored effort, and only
+// the server knows whether it did.
+export function setAgentModel(model: string): Promise<AgentSelection> {
+  return postAgent("/api/agent/model", { model });
+}
+
+export function setAgentEffort(effort: string): Promise<AgentSelection> {
+  return postAgent("/api/agent/effort", { effort });
+}
+
 // Restarting rebuilds the daemon around config.yaml as it now stands, which
 // is what every "restart to take effect" notice in this panel is asking for.
 // A config Eggy could not load comes back as a rejection with the reason and

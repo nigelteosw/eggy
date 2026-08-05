@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, getChatHistory, sendChatMessage } from "./api";
+import { Composer } from "./Composer";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
 
@@ -44,11 +45,15 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
 export function ChatPage({
   threadId,
   title,
+  sidebarOpen,
   onSessionExpired,
   onMessageResolved,
 }: {
   threadId: string;
   title: string;
+  // Only to keep the title clear of the floating reopen control, which App
+  // renders over this pane's top-left corner while the rail is closed.
+  sidebarOpen: boolean;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
 }) {
@@ -62,10 +67,8 @@ export function ChatPage({
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
-  const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const composer = useRef<HTMLTextAreaElement | null>(null);
   const messages = [...history, ...pending];
 
   function loadHistory() {
@@ -135,14 +138,7 @@ export function ChatPage({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend(event: React.SyntheticEvent) {
-    event.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    setDraft("");
-    // The grown height is inline style, so clearing the value does not undo
-    // it -- the box would stay several lines tall over a single-line draft.
-    if (composer.current) composer.current.style.height = "auto";
+  async function handleSend(text: string) {
     setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text }]);
     try {
       await sendChatMessage(threadId, text);
@@ -176,11 +172,11 @@ export function ChatPage({
       {/* The config panel heads each section with its name; this is the chat
           equivalent, and it also gives the mobile menu button a bar to sit in
           rather than floating over the first message. */}
-      <header className="flex h-14 shrink-0 items-center border-b border-border px-4 pl-16 sm:px-6 md:pl-6">
+      <header className={cn("flex h-14 shrink-0 items-center border-b border-border px-4 sm:px-6", !sidebarOpen && "pl-14 sm:pl-14")}>
         <h1 className="truncate text-sm font-medium tracking-tight">{title}</h1>
       </header>
       <div className="scrollbar-slim flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8 sm:px-6">
           {messages.length === 0 && !typing && (
             <div className="flex flex-col items-center gap-2 py-16 text-center">
               <span className="text-3xl">🥚</span>
@@ -245,45 +241,7 @@ export function ChatPage({
           <div ref={bottomRef} />
         </div>
       </div>
-      <form onSubmit={handleSend} className="shrink-0 border-t border-border px-4 py-4 sm:px-6">
-        <div
-          className={cn(
-            "mx-auto flex max-w-2xl items-end gap-2 rounded-xl border border-input bg-card p-1.5 shadow-subtle transition-shadow",
-            "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/25",
-          )}
-        >
-          {/*
-            A textarea rather than an input, because a prompt is often several
-            lines and the single-line field silently scrolled away everything
-            but the last one. It grows with the content up to a cap, then
-            scrolls -- Enter sends, Shift+Enter breaks the line.
-          */}
-          <textarea
-            ref={composer}
-            value={draft}
-            rows={1}
-            onChange={(event) => setDraft(event.target.value)}
-            onInput={(event) => {
-              const field = event.currentTarget;
-              field.style.height = "auto";
-              field.style.height = `${Math.min(field.scrollHeight, 200)}px`;
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleSend(event);
-              }
-            }}
-            placeholder="Message Eggy..."
-            className="scrollbar-slim max-h-[200px] flex-1 resize-none bg-transparent px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70"
-          />
-          <Button type="submit" size="icon" disabled={!draft.trim()} aria-label="Send message" className="shrink-0 rounded-lg">
-            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3.4 10h13.2M11 4.4 16.6 10 11 15.6" />
-            </svg>
-          </Button>
-        </div>
-      </form>
+      <Composer onSend={handleSend} onSessionExpired={onSessionExpired} />
     </div>
   );
 }

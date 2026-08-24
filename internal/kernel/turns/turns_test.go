@@ -64,6 +64,9 @@ func (fakeContextStore) ReplaceEntry(context.Context, ports.ContextDocument, str
 	return nil
 }
 func (fakeContextStore) RemoveEntry(context.Context, ports.ContextDocument, string) error { return nil }
+func (fakeContextStore) ReplaceDocument(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
 
 type fakeStore struct{}
 

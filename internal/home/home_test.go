@@ -141,3 +141,10 @@ func TestAtExpandsHomeRelativePaths(t *testing.T) {
 		t.Fatalf("root=%q", got.Root)
 	}
 }
+
+func TestWatchLivesUnderMemories(t *testing.T) {
+	layout := At("/data")
+	if got, want := layout.Watch(), "/data/memories/WATCH.md"; got != want {
+		t.Fatalf("Watch()=%q want %q", got, want)
+	}
+}

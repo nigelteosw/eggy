@@ -320,3 +320,86 @@ func TestContextStoreOverBudgetDocumentAcceptsShrinkingEdits(t *testing.T) {
 		t.Fatal("growing an over-budget document should fail")
 	}
 }
+
+func TestWatchDocumentRoundTrips(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := context.Background()
+
+	if err := store.ReplaceDocument(ctx, ports.ContextWatch, "# Eggy Watch\n\nPR #18 open since Aug 20\n"); err != nil {
+		t.Fatalf("ReplaceDocument: %v", err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.Contains(loaded.Watch, "PR #18 open since Aug 20") {
+		t.Fatalf("watch=%q", loaded.Watch)
+	}
+	if loaded.WatchMaxBytes != DefaultWatchMaxBytes {
+		t.Fatalf("WatchMaxBytes=%d want %d", loaded.WatchMaxBytes, DefaultWatchMaxBytes)
+	}
+}
+
+func TestWatchDocumentAcceptsEntryEdits(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := context.Background()
+
+	if err := store.AddEntry(ctx, ports.ContextWatch, "PR #18 open since Aug 20"); err != nil {
+		t.Fatalf("AddEntry: %v", err)
+	}
+	if err := store.ReplaceEntry(ctx, ports.ContextWatch, "PR #18", "PR #18 open since Aug 20 — mentioned Aug 22"); err != nil {
+		t.Fatalf("ReplaceEntry: %v", err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.Contains(loaded.Watch, "mentioned Aug 22") {
+		t.Fatalf("watch=%q", loaded.Watch)
+	}
+}
+
+// Soul stays load-only through every write path, ReplaceDocument included.
+func TestReplaceDocumentRefusesSoul(t *testing.T) {
+	store, _ := testStore(t)
+	err := store.ReplaceDocument(context.Background(), ports.ContextSoul, "rewritten")
+	if err == nil {
+		t.Fatal("ReplaceDocument on soul succeeded")
+	}
+	if !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestReplaceDocumentRefusesAnOverBudgetWrite(t *testing.T) {
+	store, _ := testStore(t)
+	oversized := "# Eggy Watch\n\n" + strings.Repeat("x", int(DefaultWatchMaxBytes)+1)
+	err := store.ReplaceDocument(context.Background(), ports.ContextWatch, oversized)
+	if err == nil {
+		t.Fatal("oversized ReplaceDocument succeeded")
+	}
+	if !strings.Contains(err.Error(), "is full") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// A rejected write must leave the previous content intact: the beat that
+// wrote it still has to deliver its notification against a sane document.
+func TestReplaceDocumentLeavesContentIntactOnRejection(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := context.Background()
+	if err := store.ReplaceDocument(ctx, ports.ContextWatch, "# Eggy Watch\n\nkeep me\n"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	oversized := "# Eggy Watch\n\n" + strings.Repeat("x", int(DefaultWatchMaxBytes)+1)
+	if err := store.ReplaceDocument(ctx, ports.ContextWatch, oversized); err == nil {
+		t.Fatal("oversized write succeeded")
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !strings.Contains(loaded.Watch, "keep me") {
+		t.Fatalf("watch=%q", loaded.Watch)
+	}
+}

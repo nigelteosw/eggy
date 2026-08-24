@@ -175,6 +175,25 @@ func (a *App) watchListIsEmpty(ctx context.Context) bool {
 	return true
 }
 
+// withinActiveHours reports whether now falls inside the configured window,
+// read on the owner's clock rather than the host's. An unset window is always
+// active, so an absent section changes nothing.
+func (a *App) withinActiveHours() bool {
+	hours := a.config.Heartbeat.ActiveHours
+	if !hours.Configured() {
+		return true
+	}
+	location := a.location
+	if location == nil {
+		location = time.UTC
+	}
+	now := time.Now
+	if a.now != nil {
+		now = a.now
+	}
+	return hours.Active(now().In(location))
+}
+
 // shouldWarnEmptyWatch reports whether this skip is the transition into the
 // empty state, and records that it warned.
 func (a *App) shouldWarnEmptyWatch() bool {
@@ -195,6 +214,12 @@ func (a *App) onHeartbeatTick(ctx context.Context) {
 	// heartbeat outlasts its interval, and a heartbeat never interrupts a
 	// live owner conversation.
 	if a.turnService.Active() {
+		return
+	}
+	// Outside the owner's active hours nothing beats. Checked before the
+	// watch list so a quiet-hours skip costs no store read, and before any
+	// model call so a 03:00 tick costs nothing at all.
+	if !a.withinActiveHours() {
 		return
 	}
 	// An empty watch list means the owner has asked for nothing to be

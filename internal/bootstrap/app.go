@@ -83,9 +83,14 @@ type App struct {
 	mcp         *mcpadapter.Manager
 	memory      *memorysqlite.Store
 	now         func() time.Time
-	eventQueue  chan events.Event
-	workers     sync.WaitGroup
-	readyLog    sync.Once
+	// location is the owner's timezone, resolved once at construction. The
+	// heartbeat's active-hours window is read on the owner's clock, not the
+	// host's, and a deployment in UTC serving an owner elsewhere must go
+	// quiet on theirs.
+	location   *time.Location
+	eventQueue chan events.Event
+	workers    sync.WaitGroup
+	readyLog   sync.Once
 	// warnedEmptyWatch keeps the empty-watch-list warning to the transition
 	// into that state. A deployment that never writes a watch list would
 	// otherwise log a warn line every interval forever.
@@ -136,8 +141,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}()
 	app := &App{
 		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
-		memory: memoryStore,
-		now:    options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger,
+		memory: memoryStore, location: location,
+		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger,
 		restart: make(chan struct{}),
 	}
 	configuredRepositories := map[string]ports.Repository{}

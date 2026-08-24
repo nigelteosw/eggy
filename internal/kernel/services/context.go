@@ -63,12 +63,13 @@ func (g *SecretGuard) Redact(content string) string {
 	return content
 }
 
-const memoryToolDescription = `Curate durable memory across sessions. file "memory" holds reusable knowledge and conventions; file "user" holds stable owner preferences and profile facts.
+const memoryToolDescription = `Curate durable memory across sessions. file "memory" holds reusable knowledge and conventions; file "user" holds stable owner preferences and profile facts; file "watch" holds what the owner asked you to keep an eye on between check-ins.
 Actions: "add" appends a new entry (needs text); "replace" rewrites an existing entry (needs old_text and text); "remove" deletes one (needs old_text).
-old_text matches an entry by substring and must identify exactly one. Both files are already in your context, so there is no read action.
+old_text matches an entry by substring and must identify exactly one. "memory" and "user" are already in your context, so there is no read action.
+A watch entry is a thing to look at, never a thing with its own schedule. Anything that should happen at a particular time is a schedule: use the schedule tool, not this one.
 Store only durable, verified facts. Never store credentials, transient chat, or unsupported assumptions.`
 
-var memoryToolSchema = json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["add","replace","remove"]},"file":{"type":"string","enum":["memory","user"]},"text":{"type":"string","minLength":1},"old_text":{"type":"string","minLength":1}},"required":["action","file"],"additionalProperties":false}`)
+var memoryToolSchema = json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["add","replace","remove"]},"file":{"type":"string","enum":["memory","user","watch"]},"text":{"type":"string","minLength":1},"old_text":{"type":"string","minLength":1}},"required":["action","file"],"additionalProperties":false}`)
 
 type memoryTool struct {
 	store ports.ContextStore
@@ -142,7 +143,9 @@ func writableDocument(file string) (ports.ContextDocument, error) {
 		return ports.ContextMemory, nil
 	case "user":
 		return ports.ContextUser, nil
+	case "watch":
+		return ports.ContextWatch, nil
 	default:
-		return "", errors.New("file must be memory or user")
+		return "", errors.New("file must be memory, user, or watch")
 	}
 }

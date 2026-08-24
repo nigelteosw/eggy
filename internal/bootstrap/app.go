@@ -86,7 +86,11 @@ type App struct {
 	eventQueue  chan events.Event
 	workers     sync.WaitGroup
 	readyLog    sync.Once
-	logger      *slog.Logger
+	// warnedEmptyWatch keeps the empty-watch-list warning to the transition
+	// into that state. A deployment that never writes a watch list would
+	// otherwise log a warn line every interval forever.
+	warnedEmptyWatch bool
+	logger           *slog.Logger
 	// restart is closed by Restart to ask the supervisor for a fresh App
 	// built from the current config.yaml. A channel rather than a flag
 	// because Run must notice it while parked in its select, and closed

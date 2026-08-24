@@ -97,8 +97,8 @@ must not be copied into the YAML file.
 The home directory (normally `/data` on Railway) contains:
 
 - `config.yaml` for startup configuration;
-- `SOUL.md`, `memories/USER.md`, and `memories/MEMORY.md` for owner-readable
-  context;
+- `SOUL.md`, `memories/USER.md`, `memories/MEMORY.md`, and
+  `memories/WATCH.md` for owner-readable context;
 - `eggy.db` for conversation/thread memory;
 - `state.json`, `auth.json` (encrypted MCP OAuth credentials), and
   `cron/` for remaining operational records pending the SQLite consolidation

@@ -149,6 +149,42 @@ func (a *App) heartbeatTicks() (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
+// watchListIsEmpty reports whether the watch list holds nothing to check.
+//
+// Blank lines and Markdown headings do not count: a document that is only its
+// own title is what a store returns before anyone has written to it, and
+// beating on it would run a model call to look at nothing. An unreadable
+// document is treated as non-empty so a store failure degrades into a beat
+// rather than into silence.
+func (a *App) watchListIsEmpty(ctx context.Context) bool {
+	if a.context == nil {
+		return true
+	}
+	agentContext, err := a.context.Load(ctx)
+	if err != nil {
+		slog.Error("watch list unreadable; beating anyway", "error", err)
+		return false
+	}
+	for _, line := range strings.Split(agentContext.Watch, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// shouldWarnEmptyWatch reports whether this skip is the transition into the
+// empty state, and records that it warned.
+func (a *App) shouldWarnEmptyWatch() bool {
+	if a.warnedEmptyWatch {
+		return false
+	}
+	a.warnedEmptyWatch = true
+	return true
+}
+
 // onHeartbeatTick is what one tick does. Today that is exactly one thing: run
 // an isolated turn that is allowed to say nothing. It is a named function
 // rather than an inline case so that a second thing a tick could do -- an
@@ -161,6 +197,18 @@ func (a *App) onHeartbeatTick(ctx context.Context) {
 	if a.turnService.Active() {
 		return
 	}
+	// An empty watch list means the owner has asked for nothing to be
+	// watched, so there is nothing to check and no model call to justify.
+	// Warned once on the way in, for the same reason the missing-Telegram
+	// case warns: a silent no-op is indistinguishable from a broken
+	// heartbeat.
+	if a.watchListIsEmpty(ctx) {
+		if a.shouldWarnEmptyWatch() {
+			slog.Warn("heartbeat is configured but memories/WATCH.md is empty; add what Eggy should keep an eye on, or unset heartbeat.interval")
+		}
+		return
+	}
+	a.warnedEmptyWatch = false
 	a.workers.Go(func() {
 		// Not retried: the next tick is the retry, and a heartbeat has no
 		// durable claim to release.

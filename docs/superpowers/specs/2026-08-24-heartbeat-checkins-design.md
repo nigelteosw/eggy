@@ -203,6 +203,17 @@ capability is free, which `heartbeatTicks` already honours with its nil
 channel: an owner who sets an interval but never writes a watch list pays for
 no model calls at all.
 
+A skip for an empty watch list logs once at warn level, for the reason v1
+already gives for the missing-Telegram warning at `app_events.go:143`: a silent
+no-op is indistinguishable from a broken heartbeat. Without it, a deployment
+that sets `interval` and never writes a watch list gets nothing, forever, with
+no way to tell that from a bug. The warning is what makes the aggressive skip
+safe to ship — it converts "seems broken" into "tells you what to do".
+
+It logs on transition into the skipping state rather than every tick, so a
+deployment that never adopts the watch list does not produce a warn line every
+interval indefinitely.
+
 The alternative — beat anyway and let the model roam over `status` and
 `schedule:list` — is recorded under deliberate omissions.
 
@@ -231,6 +242,36 @@ here is approximately twenty messages per beat.
 **Tools stay read-only regardless.** The allowlist is `ReadOnlyTools()` plus
 `heartbeat_respond`. History changes what a beat knows, never what it can do,
 and no unprompted allowlist names an MCP tool or a mutation tool.
+
+## Staging
+
+Two stages, each its own implementation plan. The split is by risk, not by
+size.
+
+**Stage 1 — the watch list and `heartbeat_respond`.** Sections 1 and 2:
+`ContextWatch`, `ReplaceDocument`, `memories/WATCH.md`, the `memory` tool's
+new enum value, `heartbeat_respond`, the empty-watch-list skip and its warning.
+Closes gaps 1 and 2, which are the gaps that make the heartbeat unusable.
+
+**Stage 2 — cadence.** Sections 3 and 4: `active_hours` and
+`include_recent_history`. Mechanical, and closes gap 3.
+
+Stage 1 ships alone and is worth shipping alone; stage 2 is not. The ordering
+is deliberate, because the two stages carry very different risk.
+
+Everything in stage 2 is a code property a test settles. Stage 1's load-bearing
+mechanism is not: `notify: false` works only if the model reliably calls the
+tool *and* writes an annotation good enough that the next beat reads it and
+stays quiet. A model that writes "checked, nothing new" a few times degrades
+the watch list into noise and the anti-repetition stops working, silently, with
+every test still green. No test in this spec catches that, and none cheaply
+can — it is a behavioural property.
+
+So stage 1 is followed by a real soak: run it at a short interval for a few
+days against a live model and read the resulting `WATCH.md`. Do that before
+starting stage 2. If the annotations are mushy, the fix is prompt work in
+`HeartbeatTurnMessage()` — cheap, and cheaper still for having not yet built
+the cadence work on top of a premise that did not hold.
 
 ## Changes
 
@@ -278,6 +319,7 @@ Cadence:
 - A window wrapping midnight admits the hours on both sides of it.
 - An unset `active_hours` is always active.
 - An empty or headings-only watch list makes no model call.
+- The first skip for an empty watch list warns; consecutive skips do not.
 - A beat is skipped while a turn is already active.
 
 Repetition:

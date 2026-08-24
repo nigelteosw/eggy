@@ -66,9 +66,24 @@ runner:
 #
 # An empty WATCH.md means there is nothing to check, so the tick is skipped
 # before any model call and a warning says so once.
+#
+# active_hours confines beats to a window of the owner's day, read in
+# agent.timezone. start is inclusive, end is exclusive, and "24:00" is
+# accepted as an end so a window can run to midnight. A window whose end is
+# before its start wraps midnight. Omit it and beats run at any hour.
+#
+# include_recent_history lets a beat see the recent conversation window, so it
+# can notice that the owner said they would ship something on Friday. Off by
+# default: unprompted turns carry no ambient history so an owner's earlier
+# chat cannot silently steer a turn they are not present for. Tools stay
+# read-only either way.
 # heartbeat:
 #   interval: "3h"
 #   instruction: "Check the deploy and open pull requests."
+#   active_hours:
+#     start: "08:00"
+#     end: "22:00"
+#   include_recent_history: false
 # One Google grant across every product listed. The client is a Desktop
 # (installed app) client, which Google grants an implicit loopback redirect:
 # nothing is registered in the console, nothing has to be publicly reachable,

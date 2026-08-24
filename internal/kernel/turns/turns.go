@@ -255,12 +255,17 @@ func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 // The response is attached to the context and deliberately not stored on the
 // Service: one Service instance serves every surface, so a field would be
 // shared mutable state across turns. run reads it back off the context.
-func (s *Service) HeartbeatTurn(ctx context.Context, text string) error {
+// includeRecentHistory relaxes the no-ambient-history rule, and is the
+// owner's explicit choice rather than a default: see
+// config.HeartbeatConfig.IncludeRecentHistory. The allowlist is unchanged
+// either way, so this changes what a beat knows and never what it can do.
+func (s *Service) HeartbeatTurn(ctx context.Context, text string, includeRecentHistory bool) error {
 	ctx, _ = services.WithHeartbeatResponse(ctx)
 	return s.run(ctx, text, heartbeatTools(), Policy{
 		Extra:                []ports.Message{agent.HeartbeatTurnMessage()},
 		SuppressSilentReply:  true,
 		IncludeWatchDocument: true,
+		IncludeRecentHistory: includeRecentHistory,
 	})
 }
 

@@ -433,8 +433,19 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			if strings.TrimSpace(instruction) == "" {
 				instruction = "(built-in default)"
 			}
-			result.TableHeaders = []string{"Interval", "Instruction"}
-			result.TableRows = append(result.TableRows, []string{interval, instruction})
+			// The window and the history relaxation are reported even though
+			// only the window is settable here: a setting the panel hides is
+			// one the owner cannot discover is on.
+			window := "any hour"
+			if hours := cfg.Heartbeat.ActiveHours; hours.Configured() {
+				window = hours.Start + "-" + hours.End
+			}
+			history := "isolated"
+			if cfg.Heartbeat.IncludeRecentHistory {
+				history = "recent history (config.yaml only)"
+			}
+			result.TableHeaders = []string{"Interval", "Instruction", "Active hours", "Context"}
+			result.TableRows = append(result.TableRows, []string{interval, instruction, window, history})
 		case "appearance":
 			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
 		}
@@ -553,7 +564,7 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			err = config.SetGoogle(configPath, input)
 			title = "Saved Google Workspace."
 		case "heartbeat":
-			err = config.SetHeartbeat(configPath, named["interval"], named["instruction"])
+			err = config.SetHeartbeat(configPath, named["interval"], named["instruction"], named["active_start"], named["active_end"])
 			title = "Saved heartbeat."
 			if strings.TrimSpace(named["interval"]) == "" {
 				title = "Heartbeat turned off."

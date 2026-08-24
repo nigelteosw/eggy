@@ -237,7 +237,7 @@ func (a *App) onHeartbeatTick(ctx context.Context) {
 	a.workers.Go(func() {
 		// Not retried: the next tick is the retry, and a heartbeat has no
 		// durable claim to release.
-		if err := a.turnService.HeartbeatTurn(destination.With(ctx, proactiveDestination()), a.heartbeatInstruction()); err != nil {
+		if err := a.turnService.HeartbeatTurn(destination.With(ctx, proactiveDestination()), a.heartbeatInstruction(), a.config.Heartbeat.IncludeRecentHistory); err != nil {
 			slog.Error("heartbeat failed", "error", err)
 		}
 	})

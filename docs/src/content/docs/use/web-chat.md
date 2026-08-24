@@ -40,7 +40,7 @@ The settings panel reads and updates:
 - model aliases and supported reasoning effort values;
 - MCP server definitions;
 - Google Workspace;
-- the heartbeat interval and instruction;
+- the heartbeat interval, instruction, and active hours;
 - the merged tool catalog, read-only;
 - the schedules that exist, with a cancel button on each;
 - the approvals waiting on you, with approve and reject on each;

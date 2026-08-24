@@ -204,6 +204,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		services.NewRecallConversationTool(memoryStore, services.NewSecretGuard(activeSecrets)),
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
+	baseTools = append(baseTools, services.NewHeartbeatTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(skillsService)...)
 	if err := registerGated(registry, asker, app.approvals, baseTools...); err != nil {
 		return nil, err

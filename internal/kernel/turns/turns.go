@@ -192,6 +192,11 @@ type Policy struct {
 	// Only the heartbeat sets it: every other kind of turn answers something
 	// the owner asked for and must always deliver.
 	SuppressSilentReply bool
+	// IncludeWatchDocument appends the watch list as a per-turn system
+	// message. Only the heartbeat sets it: the document is the heartbeat's
+	// own working memory and has no bearing on a turn the owner is present
+	// for.
+	IncludeWatchDocument bool
 }
 
 // ReadOnlyTools is the floor every restricted turn starts from.
@@ -244,11 +249,28 @@ func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 // isolation is ScheduledTurn's, unchanged -- the same read-only allowlist and
 // no ambient conversation history -- and the only difference is that it is
 // allowed to conclude there is nothing worth saying.
+// It carries the watch list and heartbeat_respond, which together are what
+// let it conclude that it has already said this.
+//
+// The response is attached to the context and deliberately not stored on the
+// Service: one Service instance serves every surface, so a field would be
+// shared mutable state across turns. run reads it back off the context.
 func (s *Service) HeartbeatTurn(ctx context.Context, text string) error {
-	return s.run(ctx, text, ReadOnlyTools(), Policy{
-		Extra:               []ports.Message{agent.HeartbeatTurnMessage()},
-		SuppressSilentReply: true,
+	ctx, _ = services.WithHeartbeatResponse(ctx)
+	return s.run(ctx, text, heartbeatTools(), Policy{
+		Extra:                []ports.Message{agent.HeartbeatTurnMessage()},
+		SuppressSilentReply:  true,
+		IncludeWatchDocument: true,
 	})
+}
+
+// heartbeatTools is the read-only floor plus the heartbeat's own reply
+// channel. heartbeat_respond stays out of ReadOnlyTools because a scheduled
+// turn has no beat to end and must always deliver.
+func heartbeatTools() agent.RunOptions {
+	options := ReadOnlyTools()
+	options.AllowedTools[services.HeartbeatRespondToolName] = true
+	return options
 }
 
 // silentReply reports whether a heartbeat reply amounts to "nothing to say".
@@ -321,6 +343,9 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	manifest.Tools = s.loop.ToolNames(options)
 	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: s.now().In(s.location), Timezone: s.timezone})
 	history = append(history, policy.Extra...)
+	if policy.IncludeWatchDocument && strings.TrimSpace(agentContext.Watch) != "" {
+		history = append(history, agent.WatchDocumentMessage(agentContext.Watch))
+	}
 	dest := destination.FromContext(ctx)
 	if policy.IncludeRecentHistory {
 		recent, err := s.conversation.RecentMessages(ctx, dest.ConversationID())
@@ -386,11 +411,24 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 			}
 		}
 	}
+	// A structured decision wins over the text reply: a model that called
+	// heartbeat_respond has already said what it wants delivered, and its
+	// prose is working notes. The sentinel stays as the fallback for a model
+	// that answered without calling the tool.
+	//
 	// Checked before the thinking block, not just before the reply: a silent
 	// heartbeat that still pushed its reasoning would be the notification the
 	// silence protocol exists to prevent.
-	if policy.SuppressSilentReply && silentReply(result.Message.Content) {
-		return nil
+	if policy.SuppressSilentReply {
+		if response := services.HeartbeatResponseFromContext(ctx); response != nil && response.Responded {
+			if !response.Notify {
+				return nil
+			}
+			return s.channel.Deliver(ctx, response.Text)
+		}
+		if silentReply(result.Message.Content) {
+			return nil
+		}
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
 		showThinking, err := s.runtime.ShowThinking(ctx)

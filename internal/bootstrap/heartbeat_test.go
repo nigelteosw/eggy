@@ -1,10 +1,13 @@
 package bootstrap
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // The heartbeat's clock is two decisions, and both are guards rather than
@@ -54,4 +57,81 @@ func TestHeartbeatInstructionFallsBackToTheDefault(t *testing.T) {
 	if got := app.heartbeatInstruction(); got != "watch the deploy" {
 		t.Fatalf("instruction=%q, want the configured one", got)
 	}
+}
+
+type stubContextStore struct{ watch string }
+
+func (s *stubContextStore) Load(context.Context) (ports.AgentContext, error) {
+	return ports.AgentContext{Watch: s.watch}, nil
+}
+func (s *stubContextStore) AddEntry(context.Context, ports.ContextDocument, string) error { return nil }
+func (s *stubContextStore) ReplaceEntry(context.Context, ports.ContextDocument, string, string) error {
+	return nil
+}
+func (s *stubContextStore) RemoveEntry(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
+func (s *stubContextStore) ReplaceDocument(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
+
+// An empty watch list means the owner asked for nothing to be watched, so
+// there is nothing to check and no model call to justify.
+func TestWatchListEmptiness(t *testing.T) {
+	for name, tt := range map[string]struct {
+		watch string
+		empty bool
+	}{
+		"absent":               {watch: "", empty: true},
+		"whitespace":           {watch: "   \n\n\t\n", empty: true},
+		"headings only":        {watch: "# Eggy Watch\n\n## Deploys\n", empty: true},
+		"one entry":            {watch: "# Eggy Watch\n\nPR #18 open since Aug 20\n", empty: false},
+		"entry under headings": {watch: "# Eggy Watch\n\n## Deploys\nRailway settles slowly\n", empty: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := &App{context: &stubContextStore{watch: tt.watch}}
+			if got := app.watchListIsEmpty(context.Background()); got != tt.empty {
+				t.Fatalf("watchListIsEmpty=%v want %v", got, tt.empty)
+			}
+		})
+	}
+}
+
+// A silent no-op is indistinguishable from a broken heartbeat, so the first
+// skip says so -- but only the first, or a deployment that never adopts the
+// watch list warns every interval forever.
+func TestEmptyWatchListWarnsOnce(t *testing.T) {
+	app := &App{context: &stubContextStore{watch: "# Eggy Watch\n"}}
+	if !app.shouldWarnEmptyWatch() {
+		t.Fatal("the first empty-watch skip did not warn")
+	}
+	if app.shouldWarnEmptyWatch() {
+		t.Fatal("a consecutive empty-watch skip warned again")
+	}
+}
+
+// Re-arming matters: an owner who writes a list, empties it, and forgets
+// should be told again.
+func TestEmptyWatchWarningRearmsAfterANonEmptyList(t *testing.T) {
+	app := &App{context: &stubContextStore{watch: "# Eggy Watch\n"}}
+	app.shouldWarnEmptyWatch()
+	app.warnedEmptyWatch = false
+	if !app.shouldWarnEmptyWatch() {
+		t.Fatal("the warning did not re-arm")
+	}
+}
+
+// A store failure must degrade into a beat rather than into silence: an
+// unreadable watch list is a bug to surface, not a reason to stop checking.
+func TestUnreadableWatchListStillBeats(t *testing.T) {
+	app := &App{context: &failingContextStore{}}
+	if app.watchListIsEmpty(context.Background()) {
+		t.Fatal("an unreadable watch list suppressed the beat")
+	}
+}
+
+type failingContextStore struct{ stubContextStore }
+
+func (*failingContextStore) Load(context.Context) (ports.AgentContext, error) {
+	return ports.AgentContext{}, errors.New("disk gone")
 }

@@ -16,6 +16,7 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | `SOUL.md` | Durable agent identity |
 | `memories/USER.md` | Owner context |
 | `memories/MEMORY.md` | Curated durable memory |
+| `memories/WATCH.md` | The heartbeat's watch list |
 | `eggy.db` | Conversation and thread memory |
 | `state.json` | Runtime selections, usage, and approvals |
 | `cron/` | One readable YAML file per schedule |

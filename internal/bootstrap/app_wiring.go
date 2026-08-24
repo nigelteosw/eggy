@@ -70,8 +70,8 @@ func openStores(config config.Config) (stores, error) {
 	}
 	opened.state = jsonfile.Open(layout.State())
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
-		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(),
-	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
+		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Watch: layout.Watch(),
+	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes, contextmarkdown.DefaultWatchMaxBytes)
 	memoryStore, err := memorysqlite.Open(layout.Database())
 	if err != nil {
 		return stores{}, fmt.Errorf("open conversation memory: %w", err)

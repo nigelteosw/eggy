@@ -157,3 +157,31 @@ func TestMemoryWritesAreSilentInNormalModeAndStillGatedByStrict(t *testing.T) {
 		t.Fatalf("strict mode recorded no approval: %+v", pending)
 	}
 }
+
+func TestMemoryToolWritesTheWatchList(t *testing.T) {
+	tool, store := memoryToolFor(t, nil)
+	ctx := context.Background()
+
+	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"watch","text":"deploy on Railway — check it settles"}`)); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded.Watch, "check it settles") {
+		t.Fatalf("watch=%q", loaded.Watch)
+	}
+	// The watch list is its own document: a write there must not land in the
+	// documents the owner keeps facts in.
+	if strings.Contains(loaded.Memory, "check it settles") || strings.Contains(loaded.User, "check it settles") {
+		t.Fatalf("watch entry leaked: memory=%q user=%q", loaded.Memory, loaded.User)
+	}
+}
+
+func TestMemoryToolRejectsAnUnknownFile(t *testing.T) {
+	tool, _ := memoryToolFor(t, nil)
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"add","file":"soul","text":"nope"}`)); err == nil {
+		t.Fatal("writing soul succeeded")
+	}
+}

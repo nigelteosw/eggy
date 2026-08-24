@@ -185,12 +185,19 @@ type AgentContext struct {
 	Soul   string `json:"soul"`
 	User   string `json:"user"`
 	Memory string `json:"memory"`
-	// UserMaxBytes and MemoryMaxBytes are the write budgets ContextStore
-	// enforces on the two agent-writable documents, used to render an
+	// Watch is the heartbeat's checklist: what the owner asked Eggy to keep
+	// an eye on, and what Eggy has already said about each item. Unlike the
+	// other three it is not rendered into every turn's system prompt -- a
+	// heartbeat turn appends it itself, so ordinary turns pay nothing for it
+	// and it cannot churn the prompt prefix that R6 wants byte-stable.
+	Watch string `json:"watch"`
+	// UserMaxBytes, MemoryMaxBytes, and WatchMaxBytes are the write budgets
+	// ContextStore enforces on the agent-writable documents, used to render an
 	// in-context usage indicator. Zero suppresses the indicator. Soul has no
 	// budget: it is owner-editable and never agent-written.
 	UserMaxBytes   int64 `json:"user_max_bytes,omitempty"`
 	MemoryMaxBytes int64 `json:"memory_max_bytes,omitempty"`
+	WatchMaxBytes  int64 `json:"watch_max_bytes,omitempty"`
 }
 
 type ContextDocument string
@@ -199,6 +206,12 @@ const (
 	ContextSoul   ContextDocument = "soul"
 	ContextUser   ContextDocument = "user"
 	ContextMemory ContextDocument = "memory"
+	// ContextWatch is the heartbeat's watch list. It holds things to look at,
+	// never things with their own cadence: an entry that wants a time is a
+	// schedule and belongs in the schedule store. That rule is what keeps it
+	// from becoming a second scheduler, which is what retired the last
+	// heartbeat (see retiredConfigFields in internal/config/config_init.go).
+	ContextWatch ContextDocument = "watch"
 )
 
 // ContextStore holds the agent's durable context documents. Only User and
@@ -213,6 +226,11 @@ type ContextStore interface {
 	AddEntry(ctx context.Context, document ContextDocument, text string) error
 	ReplaceEntry(ctx context.Context, document ContextDocument, oldText, text string) error
 	RemoveEntry(ctx context.Context, document ContextDocument, oldText string) error
+	// ReplaceDocument overwrites document wholesale. The entry methods above
+	// are the right shape for a document edited a fact at a time; a heartbeat
+	// rewriting its whole watch list is not that, and expressing it as N
+	// substring matches would leave the list half-updated when one missed.
+	ReplaceDocument(ctx context.Context, document ContextDocument, content string) error
 }
 
 // StoredMessage is one durable, provider-neutral conversation message.

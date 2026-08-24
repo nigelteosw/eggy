@@ -219,6 +219,23 @@ const HeartbeatSentinel = "HEARTBEAT_OK"
 // the permission that is the whole point of a heartbeat: saying nothing. The
 // protocol lives here rather than in the configured instruction so an owner
 // who overrides heartbeat.instruction cannot accidentally delete it.
+// The sentinel is kept as a fallback for a model that answers in prose
+// instead of calling heartbeat_respond, which is why both protocols are
+// described.
 func HeartbeatTurnMessage() ports.Message {
-	return ports.Message{Role: ports.RoleSystem, Content: "Heartbeat: a periodic check-in the owner is not present for. Report only what genuinely warrants interrupting them; read-only observations only, and do not imply that you can edit or ship repository changes. If there is nothing worth saying, reply with exactly " + HeartbeatSentinel + " and nothing else."}
+	return ports.Message{Role: ports.RoleSystem, Content: "Heartbeat: a periodic check-in the owner is not present for. " +
+		"Work through the watch list below, then call heartbeat_respond exactly once to end the check-in. " +
+		"Staying silent is the normal outcome: report only what genuinely warrants interrupting the owner right now. " +
+		"Before reporting anything, read what the watch list already records about that item — if you have already told them, say nothing and leave the note as it is. " +
+		"When you observe something worth remembering, write it back through heartbeat_respond's watch field so a later check-in does not repeat it. " +
+		"Read-only observations only; do not imply that you can edit or ship repository changes. " +
+		"Never put a time, interval, or cron expression in the watch list — anything that should happen at a particular time is a schedule. " +
+		"If heartbeat_respond is unavailable, reply with exactly " + HeartbeatSentinel + " and nothing else when there is nothing worth saying."}
+}
+
+// WatchDocumentMessage carries the watch list into a heartbeat turn. It is a
+// per-turn Extra rather than a slot in BuildInstructions so an ordinary owner
+// turn neither pays for it nor has its prompt prefix churned by it.
+func WatchDocumentMessage(watch string) ports.Message {
+	return ports.Message{Role: ports.RoleSystem, Content: "Watch list (memories/WATCH.md), the owner's standing list of what to keep an eye on:\n" + watch}
 }

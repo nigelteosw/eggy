@@ -7,7 +7,7 @@
 //	  .env          API keys and secrets, never read through the web API
 //	  auth.json     OAuth provider credentials for MCP servers
 //	  SOUL.md       durable agent identity, first slot in the system prompt
-//	  memories/     MEMORY.md, USER.md
+//	  memories/     MEMORY.md, USER.md, WATCH.md
 //	  skills/       reviewed procedural skills
 //	  cron/         scheduled jobs, one file per job
 //	  logs/         gateway.log, errors.log (secrets redacted)
@@ -61,6 +61,7 @@ func (l Layout) Soul() string     { return filepath.Join(l.Root, "SOUL.md") }
 func (l Layout) Memories() string { return filepath.Join(l.Root, "memories") }
 func (l Layout) Memory() string   { return filepath.Join(l.Memories(), "MEMORY.md") }
 func (l Layout) User() string     { return filepath.Join(l.Memories(), "USER.md") }
+func (l Layout) Watch() string    { return filepath.Join(l.Memories(), "WATCH.md") }
 func (l Layout) Skills() string   { return filepath.Join(l.Root, "skills") }
 func (l Layout) Cron() string     { return filepath.Join(l.Root, "cron") }
 func (l Layout) Logs() string     { return filepath.Join(l.Root, "logs") }

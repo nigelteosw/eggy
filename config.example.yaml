@@ -57,6 +57,15 @@ runner:
 # isolated read-only turn that is allowed to conclude there is nothing worth
 # saying, so it only reaches Telegram when something warrants it. Requires a
 # telegram block, since that is where unprompted output goes.
+#
+# What it checks is memories/WATCH.md: the owner's standing list of what to
+# keep an eye on, which Eggy annotates with what it has already reported so a
+# later check-in does not say the same thing twice. A watch entry is a thing
+# to look at, never a thing with its own schedule -- anything that should
+# happen at a particular time is a schedule, not a watch entry.
+#
+# An empty WATCH.md means there is nothing to check, so the tick is skipped
+# before any model call and a warning says so once.
 # heartbeat:
 #   interval: "3h"
 #   instruction: "Check the deploy and open pull requests."

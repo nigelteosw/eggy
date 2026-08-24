@@ -8,6 +8,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -20,10 +21,16 @@ type fakeLoop struct {
 	options agent.RunOptions
 	history []ports.Message
 	reply   string
+	// onRun stands in for a tool call: it runs inside Run, which is the only
+	// point at which a real tool could reach the turn's context.
+	onRun func(context.Context)
 }
 
 func (l *fakeLoop) Run(ctx context.Context, _, _, _ string, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
 	l.ctx, l.options, l.history = ctx, options, history
+	if l.onRun != nil {
+		l.onRun(ctx)
+	}
 	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply}}, nil
 }
 
@@ -54,16 +61,19 @@ func (c *fakeConversation) RecentMessages(context.Context, string) ([]ports.Mess
 	return nil, nil
 }
 
-type fakeContextStore struct{}
+type fakeContextStore struct{ watch string }
 
-func (fakeContextStore) Load(context.Context) (ports.AgentContext, error) {
-	return ports.AgentContext{}, nil
+func (s fakeContextStore) Load(context.Context) (ports.AgentContext, error) {
+	return ports.AgentContext{Watch: s.watch}, nil
 }
 func (fakeContextStore) AddEntry(context.Context, ports.ContextDocument, string) error { return nil }
 func (fakeContextStore) ReplaceEntry(context.Context, ports.ContextDocument, string, string) error {
 	return nil
 }
 func (fakeContextStore) RemoveEntry(context.Context, ports.ContextDocument, string) error { return nil }
+func (fakeContextStore) ReplaceDocument(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
 
 type fakeStore struct{}
 
@@ -94,8 +104,14 @@ func (c *fakeChannel) Deliver(_ context.Context, text string) error {
 func (c *fakeChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
 
 func newTestService(loop *fakeLoop, channel *fakeChannel) *Service {
+	return newTestServiceWithWatch(loop, channel, "")
+}
+
+// newTestServiceWithWatch is newTestService with a watch document, for the
+// heartbeat tests that need one.
+func newTestServiceWithWatch(loop *fakeLoop, channel *fakeChannel, watch string) *Service {
 	return New(Options{
-		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{watch: watch},
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
@@ -259,6 +275,114 @@ func TestApprovedOutcomeReadsAsASentenceWhenTheToolWroteOne(t *testing.T) {
 	} {
 		if outcome := approvalOutcomeText(result); !strings.HasPrefix(outcome, "Approved action completed:") {
 			t.Fatalf("%s: outcome=%q", name, outcome)
+		}
+	}
+}
+
+// notify:false is silence with a memory -- the point of the whole stage.
+func TestHeartbeatRespondSilenceDeliversNothing(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: "I looked and annotated the list.", onRun: func(ctx context.Context) {
+		response := services.HeartbeatResponseFromContext(ctx)
+		response.Responded, response.Notify = true, false
+	}}
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.delivered) != 0 {
+		t.Fatalf("delivered=%v", channel.delivered)
+	}
+}
+
+func TestHeartbeatRespondNotificationDeliversItsText(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: agent.HeartbeatSentinel, onRun: func(ctx context.Context) {
+		response := services.HeartbeatResponseFromContext(ctx)
+		response.Responded, response.Notify = true, true
+		response.Text = "PR #18 has been open three days"
+	}}
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.delivered) != 1 || channel.delivered[0] != "PR #18 has been open three days" {
+		t.Fatalf("delivered=%v", channel.delivered)
+	}
+}
+
+// The structured decision wins: a model that both calls the tool and pads its
+// prose must not deliver the prose.
+func TestHeartbeatStructuredResponseBeatsTheTextReply(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: "Everything looks fine, here is a long essay about it.", onRun: func(ctx context.Context) {
+		response := services.HeartbeatResponseFromContext(ctx)
+		response.Responded, response.Notify = true, false
+	}}
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.delivered) != 0 {
+		t.Fatalf("delivered=%v", channel.delivered)
+	}
+}
+
+// A model that ignores the tool still gets the v1 protocol.
+func TestHeartbeatFallsBackToTheSentinelWhenTheToolIsNotCalled(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: agent.HeartbeatSentinel}
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.delivered) != 0 {
+		t.Fatalf("delivered=%v", channel.delivered)
+	}
+}
+
+func TestHeartbeatCarriesTheWatchDocument(t *testing.T) {
+	loop := &fakeLoop{reply: agent.HeartbeatSentinel}
+	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, message := range loop.history {
+		if strings.Contains(message.Content, "PR #18 open since Aug 20") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the watch document never reached the model")
+	}
+}
+
+// The watch list is the heartbeat's own working memory. An owner turn must
+// neither pay for its bytes nor have its prompt prefix churned by it.
+func TestOwnerTurnDoesNotCarryTheWatchDocument(t *testing.T) {
+	loop := &fakeLoop{reply: "sure"}
+	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").OwnerMessage(context.Background(), "hello", "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range loop.history {
+		if strings.Contains(message.Content, "PR #18 open since Aug 20") {
+			t.Fatal("the watch document leaked into an owner turn")
+		}
+	}
+}
+
+func TestHeartbeatAllowsOnlyReadOnlyToolsPlusRespond(t *testing.T) {
+	if ReadOnlyTools().AllowedTools[services.HeartbeatRespondToolName] {
+		t.Fatal("heartbeat_respond must not be in the shared read-only floor")
+	}
+	options := heartbeatTools()
+	if !options.AllowedTools[services.HeartbeatRespondToolName] {
+		t.Fatal("heartbeat_respond is missing from the heartbeat allowlist")
+	}
+	for name := range options.AllowedTools {
+		if strings.Contains(name, "__") {
+			t.Fatalf("heartbeat allowlist names an MCP tool: %q", name)
+		}
+	}
+	for _, tool := range []string{"memory", "schedule", "terminal", "workspace_edit", "write_file"} {
+		if options.AllowedTools[tool] {
+			t.Fatalf("heartbeat allowlist names mutation tool %q", tool)
 		}
 	}
 }

@@ -1,7 +1,13 @@
 # Heartbeat v2: a check-in that remembers what it already said
 
 Date: 2026-08-24
-Status: designed
+Status: both stages implemented 2026-08-24.
+
+Two departures from the design below, both recorded where they apply:
+`ContextStore` gained a `ReplaceDocument` method the "0 ports changes" line
+did not anticipate (section 2), and `include_recent_history` is file-only —
+no surface writes it (section 4). Stage 1 shipped without the soak the staging
+section calls for; that check is still owed.
 
 Supersedes nothing. This extends the heartbeat shipped by
 `2026-08-02-heartbeat-design.md`, which stays accurate for everything it
@@ -224,6 +230,13 @@ beat never interrupts a live conversation.
 
 `Policy.IncludeRecentHistory` becomes `true` for heartbeat turns, gated on
 `heartbeat.include_recent_history`, **defaulting to false**.
+
+As built, no surface writes this key: `SetHeartbeat` carries the interval,
+instruction, and active-hours window, and deliberately leaves this one alone.
+Relaxing a safety invariant should cost more than a tap on a phone, so it is
+file-only for the reason a stdio MCP server's command line is. The web panel
+reports its state, because a setting the panel hides is one the owner cannot
+discover is on.
 
 The default is off even though this deployment wants it on. `AGENTS.md` and
 `turns.go:236` both record the no-ambient-history rule for unprompted turns as

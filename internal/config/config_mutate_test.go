@@ -519,7 +519,7 @@ func TestSetHeartbeatRoundTripsAnInterval(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetHeartbeat(path, "3h", "watch the deploy"); err != nil {
+	if err := SetHeartbeat(path, "3h", "watch the deploy", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -541,7 +541,7 @@ func TestSetHeartbeatWithABlankIntervalTurnsItOff(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()+"heartbeat:\n  interval: 3h\n  instruction: watch the deploy\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetHeartbeat(path, "", ""); err != nil {
+	if err := SetHeartbeat(path, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -562,7 +562,7 @@ func TestSetHeartbeatRejectsAnUnparseableInterval(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetHeartbeat(path, "every 3 hours", ""); err == nil || !strings.Contains(err.Error(), "heartbeat.interval") {
+	if err := SetHeartbeat(path, "every 3 hours", "", "", ""); err == nil || !strings.Contains(err.Error(), "heartbeat.interval") {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -576,7 +576,7 @@ func TestSetHeartbeatRefusesWithoutATelegramChannel(t *testing.T) {
 	if err := os.WriteFile(path, []byte(webOnly), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := SetHeartbeat(path, "3h", "")
+	err := SetHeartbeat(path, "3h", "", "", "")
 	if err == nil || !strings.Contains(err.Error(), "telegram") {
 		t.Fatalf("error=%v", err)
 	}
@@ -640,5 +640,52 @@ func TestSetAppearanceRefusesAnUnknownTheme(t *testing.T) {
 	}
 	if string(after) != original {
 		t.Fatal("a refused theme was written to config.yaml anyway")
+	}
+}
+
+func TestSetHeartbeatRoundTripsAnActiveHoursWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "3h", "", "08:00", "22:00"); err != nil {
+		t.Fatalf("SetHeartbeat: %v", err)
+	}
+	reloaded, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Heartbeat.ActiveHours; got.Start != "08:00" || got.End != "22:00" {
+		t.Fatalf("active_hours=%+v", got)
+	}
+}
+
+func TestSetHeartbeatRejectsAMalformedWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "3h", "", "8am", "22:00"); err == nil {
+		t.Fatal("a malformed window was saved")
+	}
+}
+
+// include_recent_history relaxes a safety invariant, so no surface writes it:
+// a panel save must leave whatever config.yaml says alone.
+func TestSetHeartbeatPreservesIncludeRecentHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	body := validConfig() + "heartbeat:\n  interval: 3h\n  include_recent_history: true\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetHeartbeat(path, "1h", "", "", ""); err != nil {
+		t.Fatalf("SetHeartbeat: %v", err)
+	}
+	reloaded, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.Heartbeat.IncludeRecentHistory {
+		t.Fatal("a panel save cleared include_recent_history")
 	}
 }

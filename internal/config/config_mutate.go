@@ -377,6 +377,16 @@ func SetAppearance(path, theme string) error {
 
 // SetHeartbeat writes the heartbeat section from the fields a surface can set.
 //
+// include_recent_history is deliberately not among them. It relaxes the
+// standing rule that an unprompted turn carries no ambient history, and a
+// safety invariant should cost more than a tap on a phone to relax: it stays
+// file-only, for the same reason a stdio MCP server's command line does.
+//
+// Blank active-hours bounds clear the window, following interval rather than
+// instruction: turning quiet hours off is a likely reason to open this form,
+// and a blank field that silently preserved the old window would be wrong in
+// exactly that case.
+//
 // An empty Interval means off, and off is spelled by writing a zero interval
 // rather than by leaving the section as it was: turning the heartbeat off is
 // the single most likely reason an owner opens this form, so a blank field
@@ -384,7 +394,7 @@ func SetAppearance(path, theme string) error {
 // exactly the case that matters. Instruction keeps the upsert shape the other
 // setters use -- blank leaves the configured wording alone, since clearing it
 // falls back to the built-in prompt anyway.
-func SetHeartbeat(path, interval, instruction string) error {
+func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) error {
 	parsed := Duration(0)
 	if trimmed := strings.TrimSpace(interval); trimmed != "" {
 		value, err := time.ParseDuration(trimmed)
@@ -401,6 +411,10 @@ func SetHeartbeat(path, interval, instruction string) error {
 		cfg.Heartbeat.Interval = parsed
 		if trimmed := strings.TrimSpace(instruction); trimmed != "" {
 			cfg.Heartbeat.Instruction = trimmed
+		}
+		cfg.Heartbeat.ActiveHours = ActiveHours{Start: strings.TrimSpace(activeStart), End: strings.TrimSpace(activeEnd)}
+		if err := cfg.Heartbeat.ActiveHours.Validate(); err != nil {
+			return err
 		}
 		// A heartbeat with nowhere to deliver is refused here rather than
 		// saved and ignored, so the owner learns it at the form instead of

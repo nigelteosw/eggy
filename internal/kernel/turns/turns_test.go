@@ -186,7 +186,7 @@ func TestHeartbeatTurnDeliversOnlyWhenItHasSomethingToSay(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			channel := &fakeChannel{}
-			if err := newTestService(&fakeLoop{reply: tt.reply}, channel).HeartbeatTurn(context.Background(), "check in"); err != nil {
+			if err := newTestService(&fakeLoop{reply: tt.reply}, channel).HeartbeatTurn(context.Background(), "check in", false); err != nil {
 				t.Fatal(err)
 			}
 			if len(channel.delivered) != len(tt.want) {
@@ -211,7 +211,7 @@ func TestHeartbeatTurnIsIsolatedLikeAScheduledTurn(t *testing.T) {
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
-	if err := service.HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := service.HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	if loop.options.AllowedTools == nil {
@@ -286,7 +286,7 @@ func TestHeartbeatRespondSilenceDeliversNothing(t *testing.T) {
 		response := services.HeartbeatResponseFromContext(ctx)
 		response.Responded, response.Notify = true, false
 	}}
-	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(channel.delivered) != 0 {
@@ -301,7 +301,7 @@ func TestHeartbeatRespondNotificationDeliversItsText(t *testing.T) {
 		response.Responded, response.Notify = true, true
 		response.Text = "PR #18 has been open three days"
 	}}
-	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(channel.delivered) != 1 || channel.delivered[0] != "PR #18 has been open three days" {
@@ -317,7 +317,7 @@ func TestHeartbeatStructuredResponseBeatsTheTextReply(t *testing.T) {
 		response := services.HeartbeatResponseFromContext(ctx)
 		response.Responded, response.Notify = true, false
 	}}
-	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(channel.delivered) != 0 {
@@ -329,7 +329,7 @@ func TestHeartbeatStructuredResponseBeatsTheTextReply(t *testing.T) {
 func TestHeartbeatFallsBackToTheSentinelWhenTheToolIsNotCalled(t *testing.T) {
 	channel := &fakeChannel{}
 	loop := &fakeLoop{reply: agent.HeartbeatSentinel}
-	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := newTestServiceWithWatch(loop, channel, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(channel.delivered) != 0 {
@@ -339,7 +339,7 @@ func TestHeartbeatFallsBackToTheSentinelWhenTheToolIsNotCalled(t *testing.T) {
 
 func TestHeartbeatCarriesTheWatchDocument(t *testing.T) {
 	loop := &fakeLoop{reply: agent.HeartbeatSentinel}
-	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").HeartbeatTurn(context.Background(), "check in"); err != nil {
+	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").HeartbeatTurn(context.Background(), "check in", false); err != nil {
 		t.Fatal(err)
 	}
 	var found bool
@@ -383,6 +383,53 @@ func TestHeartbeatAllowsOnlyReadOnlyToolsPlusRespond(t *testing.T) {
 	for _, tool := range []string{"memory", "schedule", "terminal", "workspace_edit", "write_file"} {
 		if options.AllowedTools[tool] {
 			t.Fatalf("heartbeat allowlist names mutation tool %q", tool)
+		}
+	}
+}
+
+// The isolation invariant: an owner's earlier chat must not silently steer a
+// turn they are not present for. Relaxing it is opt-in, and the default keeps
+// it intact.
+func TestHeartbeatCarriesRecentHistoryOnlyWhenAskedTo(t *testing.T) {
+	for name, tt := range map[string]struct {
+		includeHistory bool
+		wantHistory    bool
+	}{
+		"isolated by default":       {includeHistory: false, wantHistory: false},
+		"opted into recent history": {includeHistory: true, wantHistory: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			loop := &fakeLoop{reply: agent.HeartbeatSentinel}
+			service := New(Options{
+				Registry: &fakeRegistry{}, Conversation: &chattyConversation{}, Context: fakeContextStore{watch: "# Eggy Watch\n\nPR #18\n"},
+				Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+				Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+			})
+			if err := service.HeartbeatTurn(context.Background(), "check in", tt.includeHistory); err != nil {
+				t.Fatal(err)
+			}
+			var found bool
+			for _, message := range loop.history {
+				if strings.Contains(message.Content, "earlier owner chat") {
+					found = true
+				}
+			}
+			if found != tt.wantHistory {
+				t.Fatalf("recent history present=%v want %v", found, tt.wantHistory)
+			}
+		})
+	}
+}
+
+// History changes what a beat knows, never what it can do.
+func TestHeartbeatWithHistoryStaysReadOnly(t *testing.T) {
+	loop := &fakeLoop{reply: agent.HeartbeatSentinel}
+	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18\n").HeartbeatTurn(context.Background(), "check in", true); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range []string{"memory", "schedule", "terminal", "workspace_edit", "write_file"} {
+		if loop.options.AllowedTools[tool] {
+			t.Fatalf("a history-carrying heartbeat reached mutation tool %q", tool)
 		}
 	}
 }

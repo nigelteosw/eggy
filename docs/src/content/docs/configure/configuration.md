@@ -30,11 +30,33 @@ Omitted, the heartbeat costs nothing: no ticker, no model call. Set an interval 
 heartbeat:
   interval: 3h
   # instruction: "Check the deploy and open pull requests."
+  # active_hours:
+  #   start: "08:00"
+  #   end: "22:00"
+  # include_recent_history: false
 ```
 
-`3h` is the recommended starting interval. Each tick runs an isolated read-only turn with no conversation history, and delivers to Telegram only when there is something worth saying — so a heartbeat is not one message per tick. A tick is skipped while another turn is running. Without a `telegram` block there is nowhere to deliver unprompted output, so the heartbeat stays off and says so once at startup.
+`3h` is the recommended starting interval. Each tick runs an isolated read-only turn and delivers to Telegram only when there is something worth saying — so a heartbeat is not one message per tick. A tick is skipped while another turn is running. Without a `telegram` block there is nowhere to deliver unprompted output, so the heartbeat stays off and says so once at startup.
 
-The settings panel edits this section too. A blank interval there means off, rather than leaving the previous interval in place; the instruction is preserved either way, so turning the heartbeat back on does not mean retyping it. Like every other section, the panel writes `config.yaml` and the change applies on the next restart, which `/restart` in chat performs.
+### What a beat looks at
+
+A beat checks `memories/WATCH.md`, the standing list of what you have asked Eggy to keep an eye on. It annotates that list with what it has already reported, and reads those notes on the next beat — which is how it tells "already mentioned this" from "new", and what stops a finding worth reporting once from being reported every interval.
+
+A watch entry is a thing to look at, never a thing with its own cadence. Anything that should happen at a particular time is a schedule, not a watch entry.
+
+**An empty watch list skips the beat entirely, with no model call**, and warns once so the silence is distinguishable from a bug. So an interval alone does nothing until you write down something to watch.
+
+### Active hours
+
+`active_hours` confines beats to a window of your day, read in `agent.timezone` rather than the host's clock. `start` is inclusive, `end` is exclusive, and `"24:00"` is accepted as an end so a window can run to midnight without the wrapped `"00:00"` that would mean the opposite. A window whose `end` is before its `start` wraps midnight, which is how an overnight watch is written. Both bounds are required together, and a malformed window fails the config load rather than silently suppressing every beat.
+
+### Conversation history
+
+`include_recent_history` lets a beat see the recent conversation window, so it can notice that you said you would ship something on Friday. It is **off by default**: unprompted turns carry no ambient history, so your earlier chat cannot silently steer a turn you are not present for and did not review when it fired. Tools stay read-only either way — this changes what a beat knows, never what it can do.
+
+It is the one heartbeat setting no surface writes. Relaxing a safety invariant should cost more than a tap on a phone, so it lives in `config.yaml` only.
+
+The settings panel edits the rest of this section. A blank interval there means off, rather than leaving the previous interval in place; blank active hours likewise clear the window. The instruction is preserved either way, so turning the heartbeat back on does not mean retyping it. Like every other section, the panel writes `config.yaml` and the change applies on the next restart, which `/restart` in chat performs.
 
 ## Secrets
 

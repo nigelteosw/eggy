@@ -135,3 +135,58 @@ type failingContextStore struct{ stubContextStore }
 func (*failingContextStore) Load(context.Context) (ports.AgentContext, error) {
 	return ports.AgentContext{}, errors.New("disk gone")
 }
+
+// Quiet hours are the v1 spec's one deferred omission: an interval-only
+// heartbeat fires at 03:00, and muting the chat to survive that disables the
+// feature.
+func TestHeartbeatSkipsOutsideActiveHours(t *testing.T) {
+	singapore, err := time.LoadLocation("Asia/Singapore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tt := range map[string]struct {
+		hours  config.ActiveHours
+		now    time.Time
+		active bool
+	}{
+		"unset window is always active": {now: time.Date(2026, 8, 24, 3, 0, 0, 0, singapore), active: true},
+		"inside the window": {
+			hours: config.ActiveHours{Start: "08:00", End: "22:00"},
+			now:   time.Date(2026, 8, 24, 12, 0, 0, 0, singapore), active: true,
+		},
+		"the 03:00 beat quiet hours exist to stop": {
+			hours: config.ActiveHours{Start: "08:00", End: "22:00"},
+			now:   time.Date(2026, 8, 24, 3, 0, 0, 0, singapore),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			app := &App{
+				config:   config.Config{Heartbeat: config.HeartbeatConfig{ActiveHours: tt.hours}},
+				location: singapore,
+				now:      func() time.Time { return tt.now },
+			}
+			if got := app.withinActiveHours(); got != tt.active {
+				t.Fatalf("withinActiveHours=%v want %v", got, tt.active)
+			}
+		})
+	}
+}
+
+// The window is read in the owner's timezone, not the host's. A deployment in
+// UTC serving an owner in Singapore must go quiet on the owner's clock.
+func TestActiveHoursUseTheOwnerTimezone(t *testing.T) {
+	singapore, err := time.LoadLocation("Asia/Singapore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 02:00 UTC is 10:00 in Singapore: inside an 08:00-22:00 window on the
+	// owner's clock, outside it on the host's.
+	app := &App{
+		config:   config.Config{Heartbeat: config.HeartbeatConfig{ActiveHours: config.ActiveHours{Start: "08:00", End: "22:00"}}},
+		location: singapore,
+		now:      func() time.Time { return time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC) },
+	}
+	if !app.withinActiveHours() {
+		t.Fatal("the window was read in the host timezone rather than the owner's")
+	}
+}

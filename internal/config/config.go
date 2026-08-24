@@ -98,6 +98,104 @@ func (a AppearanceConfig) ResolvedTheme() string {
 type HeartbeatConfig struct {
 	Interval    Duration `yaml:"interval,omitempty"`
 	Instruction string   `yaml:"instruction,omitempty"`
+	// ActiveHours confines beats to a window of the day. An interval-only
+	// heartbeat fires at 03:00, and muting the chat to survive that disables
+	// the feature.
+	ActiveHours ActiveHours `yaml:"active_hours,omitempty"`
+	// IncludeRecentHistory lets a beat see the recent conversation window, so
+	// it can notice that the owner said they would ship something on Friday.
+	//
+	// Off by default, deliberately. Unprompted turns carry no ambient history
+	// so an owner's earlier chat cannot silently steer a turn they are not
+	// present for and did not review at fire time -- a standing invariant
+	// recorded in AGENTS.md and at turns.ScheduledTurn. Defaulting to false
+	// keeps that true for anyone who does not opt in, and makes the
+	// relaxation one auditable line in config.yaml. Tools stay read-only
+	// either way: this changes what a beat knows, never what it can do.
+	IncludeRecentHistory bool `yaml:"include_recent_history,omitempty"`
+}
+
+// ActiveHours is a window of the day, Start inclusive and End exclusive, read
+// in the owner's configured timezone (agent.timezone) rather than a zone of
+// its own.
+//
+// Either bound empty means always active, so an absent section changes
+// nothing. A window whose End is before its Start wraps midnight, which is how
+// an overnight watch is written.
+type ActiveHours struct {
+	Start string `yaml:"start,omitempty"`
+	End   string `yaml:"end,omitempty"`
+}
+
+// Configured reports whether both bounds are set. One bound alone is a
+// mistake rather than a half-window, and Validate rejects it.
+func (h ActiveHours) Configured() bool {
+	return strings.TrimSpace(h.Start) != "" && strings.TrimSpace(h.End) != ""
+}
+
+// Active reports whether when falls inside the window. An unconfigured or
+// unparseable window is always active: the parse already passed Validate at
+// load, so failing open here means a bug suppresses nothing silently.
+func (h ActiveHours) Active(when time.Time) bool {
+	if !h.Configured() {
+		return true
+	}
+	start, err := parseClock(h.Start)
+	if err != nil {
+		return true
+	}
+	end, err := parseClock(h.End)
+	if err != nil {
+		return true
+	}
+	minutes := when.Hour()*60 + when.Minute()
+	if start < end {
+		return minutes >= start && minutes < end
+	}
+	// Wrapped across midnight: inside means after the start or before the end.
+	return minutes >= start || minutes < end
+}
+
+// Validate rejects a window that cannot work, rather than letting it silently
+// suppress every beat.
+func (h ActiveHours) Validate() error {
+	start, end := strings.TrimSpace(h.Start), strings.TrimSpace(h.End)
+	if start == "" && end == "" {
+		return nil
+	}
+	if start == "" || end == "" {
+		return errors.New("heartbeat.active_hours needs both start and end")
+	}
+	startMinutes, err := parseClock(start)
+	if err != nil {
+		return fmt.Errorf("heartbeat.active_hours.start: %w", err)
+	}
+	// 24:00 is accepted as an end so a window can run to midnight without
+	// being written as the wrapped 00:00, which would mean the opposite.
+	endMinutes, err := parseClock(end)
+	if err != nil {
+		return fmt.Errorf("heartbeat.active_hours.end: %w", err)
+	}
+	if startMinutes >= 24*60 {
+		return errors.New("heartbeat.active_hours.start must be before 24:00")
+	}
+	if startMinutes == endMinutes {
+		return errors.New("heartbeat.active_hours.start and end must differ")
+	}
+	return nil
+}
+
+// parseClock reads an HH:MM clock time as minutes past midnight. 24:00 is
+// allowed, so an end bound can name midnight unambiguously.
+func parseClock(value string) (int, error) {
+	var hour, minute int
+	if _, err := fmt.Sscanf(strings.TrimSpace(value), "%d:%d", &hour, &minute); err != nil {
+		return 0, fmt.Errorf("%q is not HH:MM", value)
+	}
+	if hour < 0 || hour > 24 || minute < 0 || minute > 59 || (hour == 24 && minute != 0) {
+		return 0, fmt.Errorf("%q is not a time of day", value)
+	}
+	return hour*60 + minute, nil
 }
 
 // GoogleConfig is one grant across every Google product, which is why there is
@@ -493,6 +591,9 @@ func (c Config) Validate() error {
 	}
 	if c.Heartbeat.Interval < 0 {
 		return errors.New("heartbeat.interval must not be negative")
+	}
+	if err := c.Heartbeat.ActiveHours.Validate(); err != nil {
+		return err
 	}
 	if c.Runner.MaxOutputBytes <= 0 {
 		return errors.New("runner.max_output_bytes must be positive")

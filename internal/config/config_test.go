@@ -752,3 +752,89 @@ google:
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestActiveHoursWindow(t *testing.T) {
+	utc := time.UTC
+	at := func(hour, minute int) time.Time { return time.Date(2026, 8, 24, hour, minute, 0, 0, utc) }
+
+	for name, tt := range map[string]struct {
+		hours ActiveHours
+		when  time.Time
+		want  bool
+	}{
+		"unset is always active":       {hours: ActiveHours{}, when: at(3, 0), want: true},
+		"partial is always active":     {hours: ActiveHours{Start: "08:00"}, when: at(3, 0), want: true},
+		"inside the window":            {hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(12, 0), want: true},
+		"start is inclusive":           {hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(8, 0), want: true},
+		"end is exclusive":             {hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(22, 0), want: false},
+		"before the window":            {hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(3, 0), want: false},
+		"after the window":             {hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(23, 30), want: false},
+		"midnight to 24:00 is all day": {hours: ActiveHours{Start: "00:00", End: "24:00"}, when: at(3, 0), want: true},
+		// A window whose end is before its start wraps midnight, which is the
+		// natural way to write an overnight watch.
+		"wrapped window covers the evening": {hours: ActiveHours{Start: "22:00", End: "06:00"}, when: at(23, 0), want: true},
+		"wrapped window covers the morning": {hours: ActiveHours{Start: "22:00", End: "06:00"}, when: at(2, 0), want: true},
+		"wrapped window excludes midday":    {hours: ActiveHours{Start: "22:00", End: "06:00"}, when: at(12, 0), want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tt.hours.Active(tt.when); got != tt.want {
+				t.Fatalf("Active(%s)=%v want %v", tt.when.Format("15:04"), got, tt.want)
+			}
+		})
+	}
+}
+
+// A quiet-hours window that does not work is indistinguishable from a broken
+// heartbeat, so a malformed one is rejected at load rather than ignored.
+func TestActiveHoursValidation(t *testing.T) {
+	for name, tt := range map[string]struct {
+		hours   ActiveHours
+		wantErr bool
+	}{
+		"unset":               {hours: ActiveHours{}},
+		"valid":               {hours: ActiveHours{Start: "08:00", End: "22:00"}},
+		"end 24:00":           {hours: ActiveHours{Start: "08:00", End: "24:00"}},
+		"wrapped":             {hours: ActiveHours{Start: "22:00", End: "06:00"}},
+		"only start":          {hours: ActiveHours{Start: "08:00"}, wantErr: true},
+		"only end":            {hours: ActiveHours{End: "22:00"}, wantErr: true},
+		"unparseable":         {hours: ActiveHours{Start: "8am", End: "22:00"}, wantErr: true},
+		"hour out of range":   {hours: ActiveHours{Start: "25:00", End: "22:00"}, wantErr: true},
+		"start 24:00":         {hours: ActiveHours{Start: "24:00", End: "22:00"}, wantErr: true},
+		"minute out of range": {hours: ActiveHours{Start: "08:60", End: "22:00"}, wantErr: true},
+		// Equal bounds are ambiguous -- zero-length or all-day -- so they are
+		// refused rather than guessed at.
+		"equal bounds": {hours: ActiveHours{Start: "08:00", End: "08:00"}, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tt.hours.Validate()
+			if tt.wantErr != (err != nil) {
+				t.Fatalf("Validate()=%v wantErr=%v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// A malformed window fails the whole config load, so a heartbeat never
+// silently stops beating because of a typo in a clock time.
+func TestConfigRejectsAMalformedActiveHoursWindow(t *testing.T) {
+	body := validConfig() + "heartbeat:\n  interval: 3h\n  active_hours:\n    start: 8am\n    end: \"22:00\"\n"
+	if _, _, err := loadText(t, body, testSecrets()); err == nil {
+		t.Fatal("a malformed active_hours window loaded")
+	}
+}
+
+// The whole section is optional, and both new keys are optional within it, so
+// a config written before this existed still loads under KnownFields(true).
+func TestConfigLoadsAnActiveHoursWindow(t *testing.T) {
+	body := validConfig() + "heartbeat:\n  interval: 3h\n  include_recent_history: true\n  active_hours:\n    start: \"08:00\"\n    end: \"22:00\"\n"
+	cfg, _, err := loadText(t, body, testSecrets())
+	if err != nil {
+		t.Fatalf("loadText: %v", err)
+	}
+	if !cfg.Heartbeat.IncludeRecentHistory {
+		t.Fatal("include_recent_history did not round-trip")
+	}
+	if got := cfg.Heartbeat.ActiveHours; got.Start != "08:00" || got.End != "22:00" {
+		t.Fatalf("active_hours=%+v", got)
+	}
+}

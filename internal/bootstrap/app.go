@@ -368,6 +368,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,
+		Watch:            contextStore,
 		Approvals:        app.approvals,
 		ApprovalMode:     app.approvals,
 		Agent:            agentRuntime,

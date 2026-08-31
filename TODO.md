@@ -25,23 +25,6 @@ extension path, cron plus a silence-permitted heartbeat, FTS5 conversation
 search, owner-editable Markdown context, config-not-code model providers, and an
 approval mechanism with payload binding.
 
-### R2 — Web reach
-
-Eggy has no way to read the open web. Everything it knows arrives from the
-model's weights, the owner, a configured Google product, or a configured MCP
-server. For a personal agent that is a real hole, not a stylistic one.
-
-The footprint ladder answers it: **this is an MCP server, not a core tool.** A
-fetch/search tool in `internal/kernel` would ship its schema on every API call
-for every owner, including ones who never want Eggy reaching the internet. The
-work is therefore configuration and documentation, not Go: pick a fetch/search
-server, verify it against the approval list, and write it up in
-`config.example.yaml` and the docs site. If it turns out no server is
-acceptable, that is the argument for a core tool — make it explicitly.
-
-Deletion budget: 0 production lines, 0 config fields (an entry in the existing
-`mcp.servers` map), 0 tools, 0 durable records, 0 background loops.
-
 ### R3 — Voice in
 
 Both references transcribe voice memos, and both are right to: the owner surface

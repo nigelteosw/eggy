@@ -48,6 +48,7 @@ type Config struct {
 	Runner       RunnerConfig                `yaml:"runner"`
 	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
 	Google       GoogleConfig                `yaml:"google,omitempty"`
+	Tavily       TavilyConfig                `yaml:"tavily,omitempty"`
 	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
 	Approvals    ApprovalsConfig             `yaml:"approvals,omitempty"`
@@ -365,6 +366,7 @@ type Secrets struct {
 	MCPBearerTokens       map[string]string
 	MCPOAuthClientSecrets map[string]string
 	GoogleClientSecret    string
+	TavilyAPIKey          string
 	UIUserEmail           string
 	UIPassword            string
 }
@@ -376,6 +378,7 @@ func (s Secrets) Values() []string {
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
 		s.EncryptionKey,
 		s.GoogleClientSecret,
+		s.TavilyAPIKey,
 		s.UIPassword,
 	}
 	for _, key := range s.ProviderAPIKeys {
@@ -448,6 +451,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if cfg.Google.ClientSecretEnv != "" {
 		secrets.GoogleClientSecret = getenv(cfg.Google.ClientSecretEnv)
 	}
+	if cfg.Tavily.Enabled && cfg.Tavily.APIKeyEnv != "" {
+		secrets.TavilyAPIKey = getenv(cfg.Tavily.APIKeyEnv)
+	}
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return cfg, Secrets{}, err
 	}
@@ -512,6 +518,24 @@ func (c *Config) applyDefaults() error {
 	// those readers from disagreeing: every load path runs applyDefaults, so
 	// nothing downstream has to lowercase a product name again.
 	c.Google.Products = normalizeProducts(c.Google.Products)
+	if c.Tavily.APIKeyEnv == "" {
+		c.Tavily.APIKeyEnv = "TAVILY_API_KEY"
+	}
+	if c.Tavily.SearchDepth == "" {
+		c.Tavily.SearchDepth = "basic"
+	}
+	if c.Tavily.ExtractDepth == "" {
+		c.Tavily.ExtractDepth = "basic"
+	}
+	if c.Tavily.MaxResults == 0 {
+		c.Tavily.MaxResults = 5
+	}
+	if c.Tavily.MaxOutputBytes == 0 {
+		c.Tavily.MaxOutputBytes = 64 << 10
+	}
+	if c.Tavily.Timeout == 0 {
+		c.Tavily.Timeout = Duration(30 * time.Second)
+	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)
@@ -635,12 +659,49 @@ func (c Config) Validate() error {
 	if err := c.validateGoogle(); err != nil {
 		return err
 	}
+	if err := c.validateTavily(); err != nil {
+		return err
+	}
 	// An unrecognized mode is refused rather than falling back to a working
 	// one: an owner who wrote "readonly" meant to be asked about writes, and
 	// quietly running them instead is the one failure this setting exists to
 	// prevent.
 	if mode := c.Approvals.Mode; mode != "" && !ports.ApprovalMode(mode).Valid() {
 		return fmt.Errorf("approvals.mode %q must be strict, normal or auto", mode)
+	}
+	return nil
+}
+
+// validateTavily refuses a half-configured integration at load rather than at
+// the first search, where it would present as a tool that mysteriously always
+// fails. Defaults cover every field but the key, so in practice this catches
+// the one thing the owner has to supply.
+func (c Config) validateTavily() error {
+	tavily := c.Tavily
+	if !tavily.Enabled {
+		return nil
+	}
+	if tavily.APIKeyEnv != "" && !environmentNamePattern.MatchString(tavily.APIKeyEnv) {
+		return fmt.Errorf("tavily.api_key_env %q is not a valid environment variable name", tavily.APIKeyEnv)
+	}
+	// Validate is reachable without applyDefaults, so an empty depth is the
+	// default rather than a rejection.
+	if tavily.SearchDepth != "" && !slices.Contains(knownSearchDepths, tavily.SearchDepth) {
+		return errors.New("tavily.search_depth must be one of: " + strings.Join(knownSearchDepths, ", "))
+	}
+	if tavily.ExtractDepth != "" && !slices.Contains(knownExtractDepths, tavily.ExtractDepth) {
+		return errors.New("tavily.extract_depth must be one of: " + strings.Join(knownExtractDepths, ", "))
+	}
+	if tavily.MaxResults < 0 || tavily.MaxResults > 20 {
+		return errors.New("tavily.max_results must be between 1 and 20")
+	}
+	// A budget too small to hold a useful answer is a misconfiguration, not a
+	// preference: every result would come back truncated to nothing.
+	if tavily.MaxOutputBytes != 0 && tavily.MaxOutputBytes < 4096 {
+		return errors.New("tavily.max_output_bytes must be at least 4096")
+	}
+	if tavily.Timeout < 0 {
+		return errors.New("tavily.timeout must not be negative")
 	}
 	return nil
 }
@@ -681,6 +742,41 @@ func (c Config) validateGoogle() error {
 	}
 	return nil
 }
+
+// TavilyConfig is Eggy's reach into the open web: web_search finds pages,
+// web_extract reads them.
+//
+// It is a single on/off switch because it is a single API key. Disabled --
+// which is the default -- no client is built, no tool is registered, and the
+// two schemas cost nothing on any model call. That gate is the whole argument
+// for shipping this as a core tool rather than the MCP server TODO.md R2
+// originally called for: an owner who never wants Eggy reaching the internet
+// pays nothing for the owners who do.
+type TavilyConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// APIKeyEnv names the variable holding the key. The key itself never
+	// appears in YAML, like every other credential here.
+	APIKeyEnv string `yaml:"api_key_env,omitempty"`
+	// SearchDepth and ExtractDepth trade credits for quality: advanced costs
+	// two credits where basic, fast and ultra-fast cost one.
+	SearchDepth  string `yaml:"search_depth,omitempty"`
+	ExtractDepth string `yaml:"extract_depth,omitempty"`
+	// MaxResults is the default used when the model does not ask for a count.
+	MaxResults int `yaml:"max_results,omitempty"`
+	// MaxOutputBytes bounds a whole response. Extracted page text is
+	// unbounded at the source, and one long article can consume a turn's
+	// context on its own.
+	MaxOutputBytes int      `yaml:"max_output_bytes,omitempty"`
+	Timeout        Duration `yaml:"timeout,omitempty"`
+}
+
+// knownTavilyDepths is duplicated from the adapter rather than imported, for
+// the same reason knownGoogleProducts is: internal/config must not depend on a
+// plugin package.
+var (
+	knownSearchDepths  = []string{"basic", "advanced", "fast", "ultra-fast"}
+	knownExtractDepths = []string{"basic", "advanced"}
+)
 
 // knownGoogleProducts is duplicated from the adapter's own list rather than
 // imported: internal/config must not depend on a plugin package, and the
@@ -939,6 +1035,9 @@ func (c Config) validateSecrets(s Secrets) error {
 		if c.Google.ClientSecretEnv != "" {
 			require(c.Google.ClientSecretEnv, s.GoogleClientSecret)
 		}
+	}
+	if c.Tavily.Enabled && c.Tavily.APIKeyEnv != "" {
+		require(c.Tavily.APIKeyEnv, s.TavilyAPIKey)
 	}
 	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {
 		require("EGGY_UI_USER_EMAIL", s.UIUserEmail)

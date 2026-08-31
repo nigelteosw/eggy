@@ -34,6 +34,7 @@ export const navigation: readonly DocNavGroup[] = [
       { title: "Model providers", path: "/configure/model-providers", description: "Connect OpenAI-compatible model providers." },
       { title: "MCP servers", path: "/configure/mcp-servers", description: "Connect trusted HTTP or stdio MCP servers." },
       { title: "Google Workspace", path: "/configure/google-workspace", description: "Gmail, Calendar, Drive, Docs, Sheets and Contacts through one grant." },
+      { title: "Web search", path: "/configure/web-search", description: "Search the open web and read pages with Tavily." },
       { title: "Repository inspection", path: "/configure/repositories", description: "Configure trusted read-only repository access." },
     ],
   },

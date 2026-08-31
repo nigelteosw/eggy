@@ -268,9 +268,11 @@ registers exactly `web_search` and `web_extract`.
 - `README.md` -- web reach in the capability list
 - `docs/src/content/docs/` -- a page covering setup, the two-call pattern, and
   credit cost
-- `TODO.md` R2 -- rewritten, not deleted. R2 currently argues the opposite of
-  what ships; a stale roadmap item is worse than the code. The replacement
-  records that the MCP path was not taken, why, and the budget actually spent.
+- `TODO.md` R2 -- deleted. The design first called for rewriting it in place,
+  but the file's own rule is "Unfinished work only. Delete an item once it
+  lands", and completed work lives in git. The reversal argument is recorded
+  here in this spec and in the package comment on plugins/tools/tavily, which
+  is where someone asking "why is this a core tool?" will actually look.
 
 ## Out of scope
 

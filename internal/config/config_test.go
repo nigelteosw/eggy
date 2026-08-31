@@ -838,3 +838,90 @@ func TestConfigLoadsAnActiveHoursWindow(t *testing.T) {
 		t.Fatalf("active_hours=%+v", got)
 	}
 }
+
+// The same property the Google section is held to: a section that decodes but
+// never reaches Config makes the capability silently absent, and the next
+// config write from any surface erases what the owner wrote.
+func TestTavilySectionSurvivesLoadAndWrite(t *testing.T) {
+	body := validConfig() + `
+tavily:
+  enabled: true
+  api_key_env: TAVILY_API_KEY
+  search_depth: advanced
+  max_results: 9
+`
+	env := testSecrets()
+	env["TAVILY_API_KEY"] = "tvly-secret"
+	cfg, secrets, err := loadText(t, body, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Tavily.Enabled || cfg.Tavily.SearchDepth != "advanced" || cfg.Tavily.MaxResults != 9 {
+		t.Fatalf("tavily=%#v", cfg.Tavily)
+	}
+	if secrets.TavilyAPIKey != "tvly-secret" {
+		t.Fatal("Tavily API key was not resolved from its environment variable")
+	}
+	marshalled, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(marshalled), "search_depth: advanced") {
+		t.Fatalf("tavily section dropped on write:\n%s", marshalled)
+	}
+}
+
+// Every field but the key has a default, so an owner enabling web reach should
+// have to supply exactly one thing.
+func TestTavilyDefaultsCoverEverythingButTheKey(t *testing.T) {
+	env := testSecrets()
+	env["TAVILY_API_KEY"] = "tvly-secret"
+	cfg, _, err := loadText(t, validConfig()+"\ntavily:\n  enabled: true\n", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tavily.APIKeyEnv != "TAVILY_API_KEY" || cfg.Tavily.SearchDepth != "basic" ||
+		cfg.Tavily.ExtractDepth != "basic" || cfg.Tavily.MaxResults != 5 ||
+		cfg.Tavily.MaxOutputBytes != 64<<10 || cfg.Tavily.Timeout.Value() != 30*time.Second {
+		t.Fatalf("tavily=%#v", cfg.Tavily)
+	}
+}
+
+// An enabled Tavily with no key in the environment fails at boot rather than
+// at the first search, where it would present as a tool that mysteriously
+// always fails.
+func TestEnabledTavilyRequiresItsKey(t *testing.T) {
+	_, _, err := loadText(t, validConfig()+"\ntavily:\n  enabled: true\n", testSecrets())
+	if err == nil || !strings.Contains(err.Error(), "TAVILY_API_KEY") {
+		t.Fatalf("error=%v, want a complaint naming the missing variable", err)
+	}
+}
+
+func TestTavilyRejectsUnusableSettings(t *testing.T) {
+	env := testSecrets()
+	env["TAVILY_API_KEY"] = "tvly-secret"
+	for _, testCase := range []struct{ section, want string }{
+		{"tavily:\n  enabled: true\n  search_depth: deep\n", "tavily.search_depth"},
+		{"tavily:\n  enabled: true\n  extract_depth: fast\n", "tavily.extract_depth"},
+		{"tavily:\n  enabled: true\n  max_results: 50\n", "tavily.max_results"},
+		{"tavily:\n  enabled: true\n  max_output_bytes: 512\n", "tavily.max_output_bytes"},
+		{"tavily:\n  enabled: true\n  api_key_env: \"not a var\"\n", "tavily.api_key_env"},
+	} {
+		_, _, err := loadText(t, validConfig()+"\n"+testCase.section, env)
+		if err == nil || !strings.Contains(err.Error(), testCase.want) {
+			t.Errorf("%s: error=%v, want a complaint about %s", testCase.section, err, testCase.want)
+		}
+	}
+}
+
+// Disabled, the key is not even read: an owner who is not using web reach
+// should not have a variable requirement they cannot see the reason for.
+func TestDisabledTavilyNeedsNoKey(t *testing.T) {
+	cfg, secrets, err := loadText(t, validConfig()+"\ntavily:\n  enabled: false\n", testSecrets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tavily.Enabled || secrets.TavilyAPIKey != "" {
+		t.Fatalf("tavily=%#v secret=%q", cfg.Tavily, secrets.TavilyAPIKey)
+	}
+}

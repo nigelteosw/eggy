@@ -259,6 +259,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := registerGated(registry, asker, app.approvals, googleCatalog...); err != nil {
 		return nil, err
 	}
+	// Web reach, gated the same way: unconfigured, this registers nothing and
+	// costs no schema bytes on any call.
+	if err := registerGated(registry, asker, app.approvals, newTavilyTools(config, secrets, options)...); err != nil {
+		return nil, err
+	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
 	if err != nil {
 		return nil, err

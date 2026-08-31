@@ -113,6 +113,28 @@ runner:
 #   require_approval: ["gmail.send", "calendar.delete", "drive.share"]
 #   timeout: "30s"
 #   max_output_bytes: 131072
+# Web reach: web_search finds pages, web_extract reads them. Search returns
+# ranked snippets, not the page, so reading a result is the second call --
+# that pairing is stated in the tool descriptions so the model chains them.
+#
+# Leave the whole section out and none of it exists: no client is built, no
+# tool is registered, and the two schemas cost nothing on any model call.
+# tavily:
+#   enabled: true
+#   # The key never appears in this file, only the variable holding it.
+#   api_key_env: "TAVILY_API_KEY"
+#   # advanced costs two credits per search; basic, fast and ultra-fast cost
+#   # one. Extraction is one credit per five pages at basic, two at advanced.
+#   search_depth: "basic"
+#   extract_depth: "basic"
+#   # Used when the model does not ask for a result count itself.
+#   max_results: 5
+#   # Bounds a whole response. Page text is unbounded at the source, and one
+#   # long article would otherwise consume a turn's context on its own. The
+#   # budget is split evenly across results, so a long page cannot starve the
+#   # others; anything cut is marked truncated so the model knows.
+#   max_output_bytes: 65536
+#   timeout: "30s"
 # How much Eggy asks before it acts. strict asks before every tool call,
 # reading included; normal asks before anything that writes and is the
 # default; auto asks nothing. This is only where a fresh deployment starts --

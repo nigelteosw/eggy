@@ -70,6 +70,22 @@ Available repository tools are read-only:
 Configured GitHub credentials remain inside the adapter. There is no
 agent-callable terminal through which they can leak.
 
+## Web reach
+
+Set `tavily.enabled` in `config.yaml` with a Tavily API key and Eggy gains two
+read-only tools:
+
+- `web_search` finds pages and returns ranked snippets;
+- `web_extract` reads up to five of those pages as markdown.
+
+Search returns snippets rather than pages, so reading a result is a second
+call. Responses are bounded by `tavily.max_output_bytes`, split evenly across
+results so one long page cannot starve the others.
+
+Left out of `config.yaml`, the capability does not exist: no client is built,
+no tool is registered, and neither schema reaches a model request. See
+`docs/src/content/docs/configure/web-search.md`.
+
 ## Development
 
 Eggy requires Go 1.26 and Bun for the embedded web asset build.

@@ -293,14 +293,16 @@ func silentReply(content string) bool {
 	if trimmed == "" {
 		return true
 	}
-	remainder, found := strings.CutPrefix(trimmed, agent.HeartbeatSentinel)
-	if !found {
-		remainder, found = strings.CutSuffix(trimmed, agent.HeartbeatSentinel)
+	for _, sentinel := range agent.HeartbeatSentinels {
+		remainder, found := strings.CutPrefix(trimmed, sentinel)
+		if !found {
+			remainder, found = strings.CutSuffix(trimmed, sentinel)
+		}
+		if found && len(strings.TrimSpace(remainder)) <= pleasantryLimit {
+			return true
+		}
 	}
-	if !found {
-		return false
-	}
-	return len(strings.TrimSpace(remainder)) <= pleasantryLimit
+	return false
 }
 
 // run is one turn, whatever kind. Everything above differs only in the tool

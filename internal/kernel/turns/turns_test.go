@@ -179,7 +179,11 @@ func TestHeartbeatTurnDeliversOnlyWhenItHasSomethingToSay(t *testing.T) {
 		"trailing pleasantry": {reply: agent.HeartbeatSentinel + " — all quiet!", want: nil},
 		"leading sentinel":    {reply: "HEARTBEAT_OK\n\nNothing to report.", want: nil},
 		"empty reply":         {reply: "   ", want: nil},
-		"a real finding":      {reply: "The deploy has been failing for an hour.", want: []string{"The deploy has been failing for an hour."}},
+		// Models trained on other harnesses reach for NO_REPLY unprompted;
+		// an unrecognised sentinel would be delivered as a notification.
+		"alias sentinel":          {reply: "NO_REPLY", want: nil},
+		"alias with a pleasantry": {reply: "NO_REPLY — nothing new.", want: nil},
+		"a real finding":          {reply: "The deploy has been failing for an hour.", want: []string{"The deploy has been failing for an hour."}},
 		// The leniency only applies once the model has declared nothing to
 		// report, so a genuine short alert is never swallowed.
 		"short alert without the sentinel": {reply: "Disk is full.", want: []string{"Disk is full."}},

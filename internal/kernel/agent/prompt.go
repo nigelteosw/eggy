@@ -215,6 +215,13 @@ func ScheduledTurnMessage() ports.Message {
 // nothing worth interrupting the owner for.
 const HeartbeatSentinel = "HEARTBEAT_OK"
 
+// HeartbeatSentinels are every token a beat may use to mean "nothing to
+// report". HeartbeatSentinel is the one the prompt asks for; NO_REPLY is
+// recognised too because models trained on other agent harnesses reach for it
+// unprompted, and an unrecognised sentinel is delivered to the owner's phone
+// as the exact notification the heartbeat exists to avoid.
+var HeartbeatSentinels = []string{HeartbeatSentinel, "NO_REPLY"}
+
 // HeartbeatTurnMessage carries ScheduledTurnMessage's read-only framing plus
 // the permission that is the whole point of a heartbeat: saying nothing. The
 // protocol lives here rather than in the configured instruction so an owner

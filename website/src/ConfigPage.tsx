@@ -5,6 +5,7 @@ import { ModelsCard } from "./ModelsCard";
 import { McpCard } from "./McpCard";
 import { GoogleCard } from "./GoogleCard";
 import { HeartbeatCard } from "./HeartbeatCard";
+import { WatchCard } from "./WatchCard";
 import { ToolsCard } from "./ToolsCard";
 import { SchedulesCard } from "./SchedulesCard";
 import { ApprovalsCard } from "./ApprovalsCard";
@@ -126,6 +127,7 @@ export function ConfigPage({
             <>
               <SchedulesCard onSessionExpired={onSessionExpired} />
               <HeartbeatCard onSessionExpired={onSessionExpired} />
+              <WatchCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "approvals" && <ApprovalsCard onSessionExpired={onSessionExpired} />}

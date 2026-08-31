@@ -247,6 +247,17 @@ export function listSchedules(): Promise<CommandResult> {
   return request("/api/schedules");
 }
 
+// The watch list is the heartbeat's checklist. It is a document rather than a
+// config section, so it has its own routes instead of a ConfigSection: the
+// heartbeat reads it live, and saving one needs no restart.
+export function getWatchList(): Promise<CommandResult> {
+  return request("/api/context/watch");
+}
+
+export function saveWatchList(content: string): Promise<CommandResult> {
+  return request("/api/context/watch", { method: "POST", body: JSON.stringify({ content }) });
+}
+
 export function cancelSchedule(id: string): Promise<CommandResult> {
   return request(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

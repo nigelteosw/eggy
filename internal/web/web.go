@@ -69,6 +69,9 @@ type WebUIConfig struct {
 	// exist fails at startup, which for a config edit means the owner lands in
 	// safe mode over a typo the form could have refused.
 	GoogleActions map[string]GoogleProductActions
+	// Watch is the heartbeat's watch list, the one context document the
+	// panel edits. Nil leaves its routes answering 404 and the card absent.
+	Watch WatchList
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -273,6 +276,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/agent", requireWebSession(webConfig, now, newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/model", requireWebSession(webConfig, now, newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/effort", requireWebSession(webConfig, now, newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("GET /api/context/watch", requireWebSession(webConfig, now, newWatchGetRoute(webConfig.Watch)))
+	mux.Handle("POST /api/context/watch", requireWebSession(webConfig, now, newWatchSetRoute(webConfig.Watch)))
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 

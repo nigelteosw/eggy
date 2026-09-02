@@ -79,6 +79,10 @@ Bodies are recorded in full, which is the point — a truncated prompt is exactl
 
 A prompt is the most sensitive document Eggy holds — it carries SOUL.md, USER.md, MEMORY.md and your recent conversation — so traces are stored in the same SQLite database as your messages, served only behind the owner session, and passed through the same secret redaction that guards durable context before they are written. Nothing in the agent's own context ever reads a trace back, so a recorded prompt cannot feed itself into the next one.
 
+The settings panel has a **Tracing** page that edits this section as a form, including a **Restore defaults** button — a blank field there means "use the default", so restoring is the ordinary save with the fields emptied rather than a separate reset path. Like every other section, it writes `config.yaml` and applies on the next restart.
+
+A config written before this section existed gains it, at these defaults, the next time Eggy loads — the same mechanism that removes settings a build has stopped reading, run in the other direction. Backfilling never changes what a config means: it writes the defaults the absence already implied, so the file starts describing a setting that was already in force.
+
 Setting `enabled: false` removes the whole capability: no recorder, no model wrapper, no stored rows, and the panel's Traces view is absent rather than empty.
 
 ## Secrets

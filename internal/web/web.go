@@ -248,7 +248,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "appearance"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section, webConfig)))
 	}
@@ -460,6 +460,21 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			}
 			result.TableHeaders = []string{"Interval", "Instruction", "Active hours", "Context"}
 			result.TableRows = append(result.TableRows, []string{interval, instruction, window, history})
+		case "tracing":
+			// One row: there is one trace recorder. Off is reported as off
+			// rather than as a set of limits that never apply, because that
+			// is the state the owner is looking for.
+			state := "on"
+			if !cfg.Tracing.Active() {
+				state = "off"
+			}
+			result.TableHeaders = []string{"Tracing", "Turns kept", "Kept for", "Max body"}
+			result.TableRows = append(result.TableRows, []string{
+				state,
+				strconv.Itoa(cfg.Tracing.KeepTurns),
+				cfg.Tracing.Retention.Value().String(),
+				strconv.FormatInt(cfg.Tracing.MaxBodyBytes, 10),
+			})
 		case "appearance":
 			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
 		}
@@ -582,6 +597,12 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			title = "Saved heartbeat."
 			if strings.TrimSpace(named["interval"]) == "" {
 				title = "Heartbeat turned off."
+			}
+		case "tracing":
+			err = config.SetTracing(configPath, named["enabled"], named["keep_turns"], named["retention"], named["max_body_bytes"])
+			title = "Saved tracing."
+			if named["enabled"] == "false" {
+				title = "Tracing turned off."
 			}
 		case "appearance":
 			err = config.SetAppearance(configPath, named["theme"])

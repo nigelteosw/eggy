@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -423,6 +424,65 @@ func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) er
 			return errors.New("heartbeat needs a configured telegram channel, since that is where unprompted output goes")
 		}
 		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
+// SetTracing saves the tracing section from the panel's form. Every field
+// arrives as the text the owner typed, and a blank one means "leave the
+// default in place" rather than zero -- a blank retention box must not be a
+// request to keep traces for no time at all.
+//
+// There is no separate reset entry point: restoring defaults is this function
+// called with blanks, which is what the card's button sends. A second path
+// that wrote defaults could disagree with this one about what a default is.
+func SetTracing(path, enabled, keepTurns, retention, maxBodyBytes string) error {
+	parsedKeep := 0
+	if trimmed := strings.TrimSpace(keepTurns); trimmed != "" {
+		value, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return fmt.Errorf("tracing.keep_turns: %w", err)
+		}
+		parsedKeep = value
+	}
+	parsedRetention := Duration(0)
+	if trimmed := strings.TrimSpace(retention); trimmed != "" {
+		value, err := time.ParseDuration(trimmed)
+		if err != nil {
+			return fmt.Errorf("tracing.retention: %w", err)
+		}
+		parsedRetention = Duration(value)
+	}
+	parsedBytes := int64(0)
+	if trimmed := strings.TrimSpace(maxBodyBytes); trimmed != "" {
+		value, err := strconv.ParseInt(trimmed, 10, 64)
+		if err != nil {
+			return fmt.Errorf("tracing.max_body_bytes: %w", err)
+		}
+		parsedBytes = value
+	}
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		// Written out rather than left absent, so the file says what the
+		// owner chose. Absent and true mean the same thing to the loader, but
+		// only one of them survives the owner reading their own config later.
+		on := strings.TrimSpace(enabled) != "false"
+		cfg.Tracing.Enabled = &on
+		cfg.Tracing.KeepTurns = parsedKeep
+		cfg.Tracing.Retention = parsedRetention
+		cfg.Tracing.MaxBodyBytes = parsedBytes
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		// A blank field is a request for the default, and applyDefaults is
+		// where every default already lives, so the zeroes left above are
+		// filled in by the one function that knows them.
+		if err := cfg.applyDefaults(); err != nil {
 			return err
 		}
 		return writeConfigUnlocked(path, cfg)

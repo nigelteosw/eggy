@@ -608,6 +608,8 @@ runner:
   retention: 15m
   max_output_bytes: 1048576
   allowed_env: [PATH]
+tracing:
+  keep_turns: 500
 `
 }
 

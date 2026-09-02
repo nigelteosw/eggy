@@ -95,7 +95,7 @@ export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "appearance";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see

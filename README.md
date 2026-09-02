@@ -40,8 +40,10 @@ stdio servers stay file-only, since a subprocess command line is not a chat
 argument.
 
 The authenticated web UI provides chat and a settings panel for providers,
-model aliases, and MCP servers, plus `/auth/mcp/{server}` to start an OAuth
-flow in the browser.
+model aliases, MCP servers, and tracing, plus `/auth/mcp/{server}` to start an
+OAuth flow in the browser. Its Traces view shows each turn as it ran: the
+prompt behind every model call, and the arguments and output of every tool
+call.
 
 Both surfaces are views onto one administration authority: every config write
 goes through `internal/config` under the same file lock with the same
@@ -115,7 +117,7 @@ The home directory (normally `/data` on Railway) contains:
 - `config.yaml` for startup configuration;
 - `SOUL.md`, `memories/USER.md`, `memories/MEMORY.md`, and
   `memories/WATCH.md` for owner-readable context;
-- `eggy.db` for conversation/thread memory;
+- `eggy.db` for conversation/thread memory and turn traces;
 - `state.json`, `auth.json` (encrypted MCP OAuth credentials), and
   `cron/` for remaining operational records pending the SQLite consolidation
   tracked in `TODO.md`;
@@ -123,10 +125,14 @@ The home directory (normally `/data` on Railway) contains:
 - `runs/` for bounded, read-only repository checkouts;
 - `logs/` for runtime logs.
 
-A `config.yaml` written by an older build is upgraded in place on load:
-settings whose behaviour has been removed are dropped, and `calendar.timezone`
-is carried over to `agent.timezone`. Each drop is logged. A config with nothing
-retired in it is left exactly as written.
+A `config.yaml` written by an older build is upgraded in place on load, in both
+directions: settings whose behaviour has been removed are dropped, and
+`calendar.timezone` is carried over to `agent.timezone`; sections this build
+has started reading that the file never named are added at their defaults, with
+a comment introducing each one. Every change is logged. A backfill never
+changes what a config means -- it writes the defaults the absence already
+implied -- and a section the owner wrote is left alone, an empty block
+included. A config that is already current is left exactly as written.
 
 ## Safe mode
 

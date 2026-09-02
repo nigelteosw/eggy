@@ -196,9 +196,33 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	approvalExecutors := map[approvals.Action]ApprovalExecutor{}
 	conversation := services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
 
+	// The recorder is built before the model catalog because it wraps it:
+	// tracing is applied at the ports.Model boundary, so every backend --
+	// including one added later -- is traced by being a model, not by anyone
+	// remembering to instrument it. Switched off, this is nil, no model is
+	// wrapped, and nothing downstream carries a branch for it.
+	var tracer *services.TraceRecorder
+	if config.Tracing.Active() {
+		tracer = services.NewTraceRecorder(memoryStore, services.NewSecretGuard(activeSecrets), services.TraceOptions{
+			Keep:         config.Tracing.KeepTurns,
+			Retention:    config.Tracing.Retention.Value(),
+			MaxBodyBytes: int(config.Tracing.MaxBodyBytes),
+			Now:          options.Now,
+			Logger:       options.Logger,
+		})
+	}
 	catalog, err := buildModelCatalog(config, secrets, options)
 	if err != nil {
 		return nil, err
+	}
+	catalog.trace(tracer)
+	// The panel reads traces through the same nil the recorder already
+	// decided: deriving it from tracer rather than re-reading the config
+	// means the read side and the write side cannot disagree about whether
+	// this deployment traces.
+	var traceReader web.TraceDirectory
+	if tracer != nil {
+		traceReader = memoryStore
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
@@ -362,6 +386,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Skills: skillsService, Loop: app.loop, Channel: app.channel,
 		Threads: memoryStore, Approvals: app.approvals, Executors: approvalExecutors,
 		Presenter: turnPresenter{channel: app.channel},
+		Traces:    tracer,
 		Manifest:  manifest, Logger: app.logger, Now: app.now,
 		// The owner's timezone, not the scheduler's quiet-hours one: this is
 		// what renders the turn's trusted temporal context.
@@ -379,6 +404,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Tools:            registry,
 		Schedules:        app.scheduler,
 		Watch:            contextStore,
+		Traces:           traceReader,
 		Approvals:        app.approvals,
 		ApprovalMode:     app.approvals,
 		Agent:            agentRuntime,

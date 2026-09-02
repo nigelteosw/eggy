@@ -23,11 +23,18 @@ func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secret
 		if err := migrateLegacyRunnerRoot(path); err != nil {
 			return Config{}, Secrets{}, err
 		}
-		return LoadConfig(path, getenv)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Config{}, Secrets{}, fmt.Errorf("stat config: %w", err)
+	} else if err := initializeConfig(path, getenv); err != nil {
+		return Config{}, Secrets{}, err
 	}
-	if err := initializeConfig(path, getenv); err != nil {
+	// After both paths, and after the prune: a config that is upgraded and one
+	// that is generated should end up describing the same settings, and a
+	// section cannot be both retired and backfilled without the order saying
+	// which wins. Adding a section never changes what the config means -- it
+	// writes the defaults the absence already implied -- so this is safe to do
+	// on the way into every boot.
+	if err := backfillDefaultedSections(path); err != nil {
 		return Config{}, Secrets{}, err
 	}
 	return LoadConfig(path, getenv)

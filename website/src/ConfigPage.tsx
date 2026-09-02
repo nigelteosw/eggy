@@ -7,6 +7,7 @@ import { GoogleCard } from "./GoogleCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { WatchCard } from "./WatchCard";
 import { ToolsCard } from "./ToolsCard";
+import { TracingCard } from "./TracingCard";
 import { SchedulesCard } from "./SchedulesCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
@@ -24,10 +25,11 @@ import {
   PaletteIcon,
   PanelIcon,
   PlugIcon,
+  TraceIcon,
   WrenchIcon,
 } from "./components/ui/icons";
 
-type SectionId = "models" | "mcp" | "google" | "tools" | "automation" | "approvals" | "appearance" | "advanced";
+type SectionId = "models" | "mcp" | "google" | "tools" | "automation" | "tracing" | "approvals" | "appearance" | "advanced";
 
 type Section = {
   id: SectionId;
@@ -37,8 +39,7 @@ type Section = {
   icon: ReactNode;
 };
 
-// The eight destinations the old single-column scroll had as eight stacked
-// cards. Two cards share a page where they answer the same question:
+// The destinations the old single-column scroll had as stacked cards. Two cards share a page where they answer the same question:
 // Providers and Models are both "which backend", and Schedules and Heartbeat
 // are both "what fires on a timer".
 const SECTIONS: Section[] = [
@@ -47,6 +48,7 @@ const SECTIONS: Section[] = [
   { id: "google", label: "Google", title: "Google Workspace", description: "One grant across every enabled product.", icon: <GoogleIcon /> },
   { id: "tools", label: "Tools", title: "Tools", description: "Every tool a turn can call, kernel and MCP alike.", icon: <WrenchIcon /> },
   { id: "automation", label: "Automation", title: "Automation", description: "Scheduled runs and the periodic check-in.", icon: <ClockIcon /> },
+  { id: "tracing", label: "Tracing", title: "Tracing", description: "What gets recorded about each turn, and for how long.", icon: <TraceIcon /> },
   { id: "approvals", label: "Approvals", title: "Approvals", description: "Protected actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "appearance", label: "Appearance", title: "Appearance", description: "How the panel looks.", icon: <PaletteIcon /> },
   { id: "advanced", label: "Advanced", title: "Advanced", description: "The config file behind every form here, and the restart that applies it.", icon: <FileCodeIcon /> },
@@ -130,6 +132,7 @@ export function ConfigPage({
               <WatchCard onSessionExpired={onSessionExpired} />
             </>
           )}
+          {active === "tracing" && <TracingCard onSessionExpired={onSessionExpired} />}
           {active === "approvals" && <ApprovalsCard onSessionExpired={onSessionExpired} />}
           {active === "appearance" && (
             <AppearanceCard theme={theme} onThemeChange={onThemeChange} onSessionExpired={onSessionExpired} />

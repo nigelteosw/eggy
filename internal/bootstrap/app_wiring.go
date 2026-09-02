@@ -118,6 +118,23 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 	return catalog, nil
 }
 
+// trace wraps every resolved target's model in the recorder, in place. It is
+// applied to the catalog rather than inside newModelAdapter so that a new
+// adapter case cannot be added without tracing: the wrapping happens after
+// the switch, to whatever the switch returned.
+func (c *modelCatalog) trace(recorder *services.TraceRecorder) {
+	if recorder == nil {
+		return
+	}
+	// Only the targets are wrapped: they are what the loop runs on, and
+	// providers is the intermediate map they were resolved from. Wrapping
+	// both would put two recorders on one call path.
+	for alias, target := range c.targets {
+		target.Model = services.NewTracedModel(target.Model, recorder)
+		c.targets[alias] = target
+	}
+}
+
 // newModelAdapter is the one place a provider's configured adapter name
 // becomes a running implementation. This is the extension point for a new
 // model backend: add the plugin package, add its name to

@@ -95,7 +95,7 @@ export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "appearance";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see
@@ -272,4 +272,75 @@ export function approveChatDecision(approvalId: string, approved: boolean): Prom
 
 export function getChatHistory(threadId: string): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}/history`);
+}
+
+// A trace is one turn as it actually ran: every model call with the prompt
+// that produced it, every tool call with its arguments and its output. It is
+// nested rather than tabular, so unlike every list route above these answer
+// with JSON documents instead of table_headers/table_rows.
+export type TraceSummary = {
+  id: string;
+  conversation_id: string;
+  channel: string;
+  source: string;
+  kind: string;
+  model: string;
+  effort?: string;
+  input: string;
+  output: string;
+  error?: string;
+  spans: number;
+  started_at: string;
+  duration_ms: number;
+  complete: boolean;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_prompt_tokens?: number;
+};
+
+export type TraceSpan = {
+  sequence: number;
+  kind: "model_call" | "tool_call";
+  name: string;
+  call_id?: string;
+  // Request and response are stored as text so a trace records what actually
+  // crossed the boundary. They are JSON in practice, and the viewer pretty-
+  // prints what parses and shows the rest verbatim.
+  request: string;
+  response: string;
+  error?: string;
+  started_at: string;
+  duration_ms: number;
+  total_tokens?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+};
+
+export type TraceDetail = { trace: TraceSummary; spans: TraceSpan[] };
+
+// Tracing switched off leaves the routes unmounted, so the list 404s with the
+// mux's own plain-text body rather than with a JSON result. That is a
+// different fact from "no turns yet" and the panel says so, which means it
+// cannot go through request(): the shared parser would fail on the body
+// before the status could be read.
+export class TracingDisabledError extends Error {}
+
+export async function listTraces(limit = 50): Promise<TraceSummary[]> {
+  const response = await fetch(`/api/traces?limit=${limit}`, { credentials: "same-origin" });
+  if (response.status === 401) {
+    throw new SessionExpiredError("Not authenticated");
+  }
+  if (response.status === 404) {
+    throw new TracingDisabledError("Tracing is switched off");
+  }
+  if (!response.ok) {
+    throw new Error("Could not load traces");
+  }
+  const body = (await response.json()) as { traces?: TraceSummary[] };
+  return body.traces ?? [];
+}
+
+export function getTrace(id: string): Promise<TraceDetail> {
+  return request<TraceDetail>(`/api/traces/${encodeURIComponent(id)}`);
 }

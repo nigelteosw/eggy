@@ -21,6 +21,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `runner` | Checkout root, timeout, retention, output, and environment bounds |
 | `mcp` | Optional trusted remote or local servers |
 | `heartbeat` | Optional periodic check-in that speaks only when warranted |
+| `tracing` | Turn traces: the prompt behind every model call and every tool call |
 
 ## Heartbeat
 
@@ -59,6 +60,30 @@ A beat that would fall inside quiet hours is moved to the window opening rather 
 It is the one heartbeat setting no surface writes. Relaxing a safety invariant should cost more than a tap on a phone, so it lives in `config.yaml` only.
 
 The settings panel edits the rest of this section. A blank interval there means off, rather than leaving the previous interval in place; blank active hours likewise clear the window. The instruction is preserved either way, so turning the heartbeat back on does not mean retyping it. Like every other section, the panel writes `config.yaml` and the change applies on the next restart, which `/restart` in chat performs.
+
+## Tracing
+
+A trace is one turn as it actually ran: every model call with the exact prompt that produced it, every tool call with its arguments and its output, in the order they happened. The transcript shows what Eggy said; a trace shows what it did to get there. Read them in the web panel under **Traces**.
+
+Tracing is **on unless you turn it off**:
+
+```yaml
+tracing:
+  enabled: true
+  keep_turns: 500
+  retention: "168h"
+  max_body_bytes: 1048576
+```
+
+Bodies are recorded in full, which is the point — a truncated prompt is exactly the part you wanted to read. The two ceilings are what make that affordable, and both are enforced: `keep_turns` bounds how many traces are retained regardless of age, `retention` drops older ones even when the count is under that cap, and pruning runs as each turn completes rather than on a background timer. `max_body_bytes` is a safety valve on one recorded prompt or tool output, not a budget: a truncated body says so in the record.
+
+A prompt is the most sensitive document Eggy holds — it carries SOUL.md, USER.md, MEMORY.md and your recent conversation — so traces are stored in the same SQLite database as your messages, served only behind the owner session, and passed through the same secret redaction that guards durable context before they are written. Nothing in the agent's own context ever reads a trace back, so a recorded prompt cannot feed itself into the next one.
+
+The settings panel has a **Tracing** page that edits this section as a form, including a **Restore defaults** button — a blank field there means "use the default", so restoring is the ordinary save with the fields emptied rather than a separate reset path. Like every other section, it writes `config.yaml` and applies on the next restart.
+
+A config written before this section existed gains it, at these defaults, the next time Eggy loads — the same mechanism that removes settings a build has stopped reading, run in the other direction. Backfilling never changes what a config means: it writes the defaults the absence already implied, so the file starts describing a setting that was already in force.
+
+Setting `enabled: false` removes the whole capability: no recorder, no model wrapper, no stored rows, and the panel's Traces view is absent rather than empty.
 
 ## Secrets
 

@@ -72,6 +72,11 @@ type WebUIConfig struct {
 	// Watch is the heartbeat's watch list, the one context document the
 	// panel edits. Nil leaves its routes answering 404 and the card absent.
 	Watch WatchList
+	// Traces is the recorded turn log: every model call with the prompt that
+	// produced it, every tool call with its arguments and output. Nil when
+	// tracing is switched off, which leaves the routes unmounted and the
+	// panel's Traces view absent rather than empty.
+	Traces TraceDirectory
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -243,7 +248,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "appearance"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
 		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section, webConfig)))
 	}
@@ -278,6 +283,10 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/agent/effort", requireWebSession(webConfig, now, newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/context/watch", requireWebSession(webConfig, now, newWatchGetRoute(webConfig.Watch)))
 	mux.Handle("POST /api/context/watch", requireWebSession(webConfig, now, newWatchSetRoute(webConfig.Watch)))
+	if webConfig.Traces != nil {
+		mux.Handle("GET /api/traces", requireWebSession(webConfig, now, newTraceListHandler(webConfig.Traces)))
+		mux.Handle("GET /api/traces/{id}", requireWebSession(webConfig, now, newTraceDetailHandler(webConfig.Traces)))
+	}
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 
@@ -451,6 +460,21 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			}
 			result.TableHeaders = []string{"Interval", "Instruction", "Active hours", "Context"}
 			result.TableRows = append(result.TableRows, []string{interval, instruction, window, history})
+		case "tracing":
+			// One row: there is one trace recorder. Off is reported as off
+			// rather than as a set of limits that never apply, because that
+			// is the state the owner is looking for.
+			state := "on"
+			if !cfg.Tracing.Active() {
+				state = "off"
+			}
+			result.TableHeaders = []string{"Tracing", "Turns kept", "Kept for", "Max body"}
+			result.TableRows = append(result.TableRows, []string{
+				state,
+				strconv.Itoa(cfg.Tracing.KeepTurns),
+				cfg.Tracing.Retention.Value().String(),
+				strconv.FormatInt(cfg.Tracing.MaxBodyBytes, 10),
+			})
 		case "appearance":
 			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
 		}
@@ -573,6 +597,12 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			title = "Saved heartbeat."
 			if strings.TrimSpace(named["interval"]) == "" {
 				title = "Heartbeat turned off."
+			}
+		case "tracing":
+			err = config.SetTracing(configPath, named["enabled"], named["keep_turns"], named["retention"], named["max_body_bytes"])
+			title = "Saved tracing."
+			if named["enabled"] == "false" {
+				title = "Tracing turned off."
 			}
 		case "appearance":
 			err = config.SetAppearance(configPath, named["theme"])

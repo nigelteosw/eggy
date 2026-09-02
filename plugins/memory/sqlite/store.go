@@ -50,6 +50,40 @@ CREATE TABLE IF NOT EXISTS conversation_resets (
     conversation_id TEXT    PRIMARY KEY,
     cleared_at      INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS traces (
+    id              TEXT    PRIMARY KEY,
+    conversation_id TEXT    NOT NULL,
+    channel         TEXT    NOT NULL,
+    source          TEXT    NOT NULL,
+    kind            TEXT    NOT NULL,
+    model           TEXT    NOT NULL,
+    effort          TEXT    NOT NULL,
+    input           TEXT    NOT NULL,
+    output          TEXT    NOT NULL,
+    error           TEXT    NOT NULL,
+    usage           TEXT    NOT NULL,
+    started_at      INTEGER NOT NULL,
+    duration_ns     INTEGER NOT NULL,
+    complete        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_traces_started_at ON traces(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS trace_spans (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    trace_id    TEXT    NOT NULL,
+    sequence    INTEGER NOT NULL,
+    kind        TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    call_id     TEXT    NOT NULL,
+    request     TEXT    NOT NULL,
+    response    TEXT    NOT NULL,
+    error       TEXT    NOT NULL,
+    usage       TEXT    NOT NULL,
+    started_at  INTEGER NOT NULL,
+    duration_ns INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, sequence);
 `
 
 // Store is a SQLite-backed durable message store.

@@ -142,3 +142,12 @@ export const LogoutIcon = (p: IconProps) => (
     <path d="M13 13.5 16.5 10 13 6.5M16.5 10H7.5" />
   </Icon>
 );
+
+// The traces destination: a step sequence, which is what a trace is.
+export const TraceIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 15.5h3.5v-4H10v-4h3.5v-3" />
+    <circle cx="16" cy="4.5" r="1.5" />
+    <circle cx="3" cy="15.5" r="1.5" />
+  </Icon>
+);

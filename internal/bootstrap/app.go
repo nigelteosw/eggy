@@ -91,6 +91,11 @@ type App struct {
 	eventQueue chan events.Event
 	workers    sync.WaitGroup
 	readyLog   sync.Once
+	// heartbeatWake carries a finished beat's next wake from the worker
+	// goroutine that ran it to the daemon loop that owns the clock. Buffered
+	// by one, which is always enough: one beat runs at a time and the clock
+	// is not re-armed until the send lands.
+	heartbeatWake chan time.Duration
 	// warnedEmptyWatch keeps the empty-watch-list warning to the transition
 	// into that state. A deployment that never writes a watch list would
 	// otherwise log a warn line every interval forever.
@@ -142,7 +147,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app := &App{
 		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
 		memory: memoryStore, location: location,
-		now: options.Now, eventQueue: make(chan events.Event, 64), logger: options.Logger,
+		now: options.Now, eventQueue: make(chan events.Event, 64), heartbeatWake: make(chan time.Duration, 1), logger: options.Logger,
 		restart: make(chan struct{}),
 	}
 	configuredRepositories := map[string]ports.Repository{}

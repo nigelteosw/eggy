@@ -235,6 +235,9 @@ func HeartbeatTurnMessage() ports.Message {
 		"Staying silent is the normal outcome: report only what genuinely warrants interrupting the owner right now. " +
 		"Before reporting anything, read what the watch list already records about that item — if you have already told them, say nothing and leave the note as it is. " +
 		"When you observe something worth remembering, write it back through heartbeat_respond's watch field so a later check-in does not repeat it. " +
+		"A watched thing finishing is worth saying once: if you reported a problem and it is now resolved, or something the owner was waiting on has landed, tell them and drop the item from the watch list. Something that is only ever reported when it breaks teaches the owner to distrust the silence. " +
+		"Look ahead, not just around: list what is scheduled so you know what is coming, and speak while there is still time to act on it rather than once it has already happened. " +
+		"You decide when to check in next. End every check-in by saying when to come back, aimed at the next moment something could change or the owner could need you -- if a reminder is due at 15:00 and needs an hour of preparation, come back at 14:00. " +
 		"Read-only observations only; do not imply that you can edit or ship repository changes. " +
 		"Never put a time, interval, or cron expression in the watch list — anything that should happen at a particular time is a schedule. " +
 		"If heartbeat_respond is unavailable, reply with exactly " + HeartbeatSentinel + " and nothing else when there is nothing worth saying."}

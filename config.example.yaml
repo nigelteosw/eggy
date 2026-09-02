@@ -78,6 +78,8 @@ runner:
 # chat cannot silently steer a turn they are not present for. Tools stay
 # read-only either way.
 # heartbeat:
+#   # The rhythm to start from, not a fixed cadence: each check-in decides when
+#   # to come back next, within five minutes and eight times this value.
 #   interval: "3h"
 #   instruction: "Check the deploy and open pull requests."
 #   active_hours:

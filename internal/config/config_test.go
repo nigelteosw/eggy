@@ -784,6 +784,81 @@ func TestActiveHoursWindow(t *testing.T) {
 	}
 }
 
+// A beat scheduled into quiet hours is moved to the window opening rather
+// than dropped, which is what stops the first beat of the day being up to a
+// whole interval late.
+func TestActiveHoursNextOpen(t *testing.T) {
+	utc := time.UTC
+	at := func(hour, minute int) time.Time { return time.Date(2026, 8, 24, hour, minute, 0, 0, utc) }
+
+	for name, tt := range map[string]struct {
+		hours          ActiveHours
+		when           time.Time
+		want           time.Duration
+		wantConfigured bool
+	}{
+		"unset window constrains nothing":   {hours: ActiveHours{}, when: at(3, 0)},
+		"partial window constrains nothing": {hours: ActiveHours{Start: "08:00"}, when: at(3, 0)},
+		"inside the window waits no time": {
+			hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(12, 0),
+			want: 0, wantConfigured: true,
+		},
+		"before the opening waits until it": {
+			hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(3, 0),
+			want: 5 * time.Hour, wantConfigured: true,
+		},
+		// The case the whole method exists for: a wake computed for 23:00
+		// against an 08:00 window becomes tomorrow's opening, so the owner
+		// gets a beat at 08:00 rather than whenever the phase happens to land.
+		"after the window waits for tomorrow": {
+			hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(23, 0),
+			want: 9 * time.Hour, wantConfigured: true,
+		},
+		"a minute before the opening": {
+			hours: ActiveHours{Start: "08:00", End: "22:00"}, when: at(7, 59),
+			want: time.Minute, wantConfigured: true,
+		},
+		"a wrapped window is active at midday's far side": {
+			hours: ActiveHours{Start: "22:00", End: "06:00"}, when: at(12, 0),
+			want: 10 * time.Hour, wantConfigured: true,
+		},
+		"a wrapped window needs no wait overnight": {
+			hours: ActiveHours{Start: "22:00", End: "06:00"}, when: at(2, 0),
+			want: 0, wantConfigured: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, configured := tt.hours.NextOpen(tt.when)
+			if configured != tt.wantConfigured {
+				t.Fatalf("configured=%v want %v", configured, tt.wantConfigured)
+			}
+			if got != tt.want {
+				t.Fatalf("NextOpen(%s)=%s want %s", tt.when.Format("15:04"), got, tt.want)
+			}
+		})
+	}
+}
+
+// The opening is a wall-clock time on the owner's calendar, so a window that
+// straddles a daylight-saving change opens at the hour the owner wrote rather
+// than an hour either side of it. New York springs forward at 02:00 on
+// 2026-03-08, so 23:00 to 08:00 reads as nine hours on the wall but only
+// eight elapse -- and it is the wall that the owner set the window by.
+func TestNextOpenIsWallClockAcrossADaylightSavingChange(t *testing.T) {
+	newYork, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hours := ActiveHours{Start: "08:00", End: "22:00"}
+	got, configured := hours.NextOpen(time.Date(2026, 3, 7, 23, 0, 0, 0, newYork))
+	if !configured {
+		t.Fatal("a configured window reported none")
+	}
+	if want := 8 * time.Hour; got != want {
+		t.Fatalf("NextOpen=%s want %s -- the opening drifted with the clock change", got, want)
+	}
+}
+
 // A quiet-hours window that does not work is indistinguishable from a broken
 // heartbeat, so a malformed one is rejected at load rather than ignored.
 func TestActiveHoursValidation(t *testing.T) {

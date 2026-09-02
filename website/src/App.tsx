@@ -3,13 +3,14 @@ import { applyTheme, checkSession, getMode, type Mode, type Theme } from "./api"
 import { LoginPage } from "./LoginPage";
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
+import { TracesPage } from "./TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 
 type Status = "checking" | "authenticated" | "unauthenticated";
-type View = "chat" | "config";
+type View = "chat" | "config" | "traces";
 
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
@@ -112,6 +113,7 @@ export function App() {
               onActiveTitleChange={setActiveThreadTitle}
               onCollapse={() => setSidebarOpen(false)}
               onOpenSettings={() => setView("config")}
+              onOpenTraces={() => setView("traces")}
               onDeleted={(id) => {
                 // Only the open chat needs clearing; deleting some other row
                 // should leave the current conversation alone.
@@ -137,6 +139,10 @@ export function App() {
             </div>
           )}
         </>
+      ) : view === "traces" ? (
+        <div className="min-h-0 flex-1">
+          <TracesPage onSessionExpired={onSessionExpired} onBackToChat={() => setView("chat")} />
+        </div>
       ) : (
         <div className="min-h-0 flex-1">
           <ConfigPage

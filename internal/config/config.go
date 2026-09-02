@@ -52,12 +52,45 @@ type Config struct {
 	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
 	Approvals    ApprovalsConfig             `yaml:"approvals,omitempty"`
+	Tracing      TracingConfig               `yaml:"tracing,omitempty"`
 }
 
 // ApprovalsConfig sets where a deployment starts. It is only a default: once
 // the owner has chosen with /mode, that choice is durable and config no longer
 // speaks for it. A deployment is where the software begins, not a standing
 // instruction that outranks the person operating it.
+// TracingConfig governs the turn trace: every model call with the prompt that
+// produced it, every tool call with its arguments and output, kept so the
+// owner can see what Eggy actually did rather than only what it replied.
+//
+// It is on unless switched off, which is the one place this section departs
+// from "a capability that is not configured costs nothing at runtime". The
+// rule is about cost, and the cost here is bounded by keep_turns and
+// retention; a trace nobody switched on is a trace that is missing exactly
+// when it is wanted, because the thing worth tracing has already happened.
+type TracingConfig struct {
+	// Enabled is a pointer so that absent and false are distinguishable: the
+	// default is on, and a plain bool would make every config written before
+	// this section existed silently opt out.
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// KeepTurns is how many traces are retained regardless of age. Full
+	// prompt bodies are the largest thing Eggy writes, so this is the ceiling
+	// that makes recording them affordable.
+	KeepTurns int `yaml:"keep_turns,omitempty"`
+	// Retention drops traces older than this even when the count is under
+	// KeepTurns. A prompt is the most sensitive document Eggy holds -- it
+	// carries USER.md, MEMORY.md and the recent conversation -- so it should
+	// not sit on disk indefinitely for the sake of a turn nobody will revisit.
+	Retention Duration `yaml:"retention,omitempty"`
+	// MaxBodyBytes caps one recorded prompt or tool output. A safety valve
+	// rather than a budget: a tool returning a hundred megabytes must not be
+	// able to take the database with it.
+	MaxBodyBytes int64 `yaml:"max_body_bytes,omitempty"`
+}
+
+// Active reports whether traces are recorded. Absent means on.
+func (t TracingConfig) Active() bool { return t.Enabled == nil || *t.Enabled }
+
 type ApprovalsConfig struct {
 	// Mode is strict, normal or auto. Empty means normal.
 	Mode string `yaml:"mode,omitempty"`
@@ -575,6 +608,15 @@ func (c *Config) applyDefaults() error {
 	if c.Tavily.Timeout == 0 {
 		c.Tavily.Timeout = Duration(30 * time.Second)
 	}
+	if c.Tracing.KeepTurns == 0 {
+		c.Tracing.KeepTurns = 500
+	}
+	if c.Tracing.Retention == 0 {
+		c.Tracing.Retention = Duration(7 * 24 * time.Hour)
+	}
+	if c.Tracing.MaxBodyBytes == 0 {
+		c.Tracing.MaxBodyBytes = 1 << 20
+	}
 	for name, server := range c.MCP.Servers {
 		if server.ConnectTimeout == 0 {
 			server.ConnectTimeout = Duration(10 * time.Second)
@@ -707,6 +749,20 @@ func (c Config) Validate() error {
 	// prevent.
 	if mode := c.Approvals.Mode; mode != "" && !ports.ApprovalMode(mode).Valid() {
 		return fmt.Errorf("approvals.mode %q must be strict, normal or auto", mode)
+	}
+	// Every tracing limit is a ceiling on durable state, so a stated one that
+	// removes the ceiling is refused: the failure it would produce is a full
+	// disk hours later, nowhere near the edit. Zero is "not stated" and picks
+	// up the default in applyDefaults, exactly as every other optional
+	// setting here does.
+	if c.Tracing.KeepTurns < 0 {
+		return errors.New("tracing.keep_turns must be at least 1")
+	}
+	if c.Tracing.Retention.Value() < 0 {
+		return errors.New("tracing.retention must be positive")
+	}
+	if bytes := c.Tracing.MaxBodyBytes; bytes != 0 && bytes < 1024 {
+		return errors.New("tracing.max_body_bytes must be at least 1024")
 	}
 	return nil
 }

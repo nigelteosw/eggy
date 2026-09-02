@@ -72,6 +72,11 @@ type WebUIConfig struct {
 	// Watch is the heartbeat's watch list, the one context document the
 	// panel edits. Nil leaves its routes answering 404 and the card absent.
 	Watch WatchList
+	// Traces is the recorded turn log: every model call with the prompt that
+	// produced it, every tool call with its arguments and output. Nil when
+	// tracing is switched off, which leaves the routes unmounted and the
+	// panel's Traces view absent rather than empty.
+	Traces TraceDirectory
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -278,6 +283,10 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/agent/effort", requireWebSession(webConfig, now, newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/context/watch", requireWebSession(webConfig, now, newWatchGetRoute(webConfig.Watch)))
 	mux.Handle("POST /api/context/watch", requireWebSession(webConfig, now, newWatchSetRoute(webConfig.Watch)))
+	if webConfig.Traces != nil {
+		mux.Handle("GET /api/traces", requireWebSession(webConfig, now, newTraceListHandler(webConfig.Traces)))
+		mux.Handle("GET /api/traces/{id}", requireWebSession(webConfig, now, newTraceDetailHandler(webConfig.Traces)))
+	}
 	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
 

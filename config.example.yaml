@@ -144,6 +144,25 @@ runner:
 approvals:
   mode: "normal"
 
+# The turn trace: every model call with the prompt that produced it, every
+# tool call with its arguments and output, kept so you can see what Eggy
+# actually did rather than only what it replied. Read it in the web panel
+# under Traces.
+#
+# On unless you turn it off. Full prompt bodies are the largest thing Eggy
+# writes, so the two ceilings below are what make that affordable -- and a
+# prompt carries USER.md, MEMORY.md and your recent conversation, so it should
+# not sit on disk forever either.
+tracing:
+  enabled: true
+  # Traces kept regardless of age.
+  keep_turns: 500
+  # Traces older than this are dropped even when the count is under the cap.
+  retention: "168h"
+  # Ceiling on one recorded prompt or tool output. A safety valve against a
+  # tool that returns something enormous, not a budget.
+  max_body_bytes: 1048576
+
 mcp:
   # Anything listed here is trusted: a server can only get here by you putting
   # it here, so reviewing the server IS the approval, and its tools otherwise

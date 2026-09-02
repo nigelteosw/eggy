@@ -123,11 +123,16 @@ type Options struct {
 	Approvals    ApprovalDecider
 	Executors    map[approvals.Action]ApprovalExecutor
 	Presenter    Presenter
-	Manifest     agent.CapabilityManifest
-	Logger       *slog.Logger
-	Now          func() time.Time
-	Location     *time.Location
-	Timezone     string
+	// Traces records what a turn actually did -- every model call with its
+	// prompt, every tool call with its arguments and output. Nil when
+	// tracing is switched off, and every method on the returned turn
+	// tolerates that, so the turn path carries no branch for it.
+	Traces   *services.TraceRecorder
+	Manifest agent.CapabilityManifest
+	Logger   *slog.Logger
+	Now      func() time.Time
+	Location *time.Location
+	Timezone string
 }
 
 // Service runs turns. One instance serves every surface: Telegram and web are
@@ -146,6 +151,7 @@ type Service struct {
 	approvals    ApprovalDecider
 	executors    map[approvals.Action]ApprovalExecutor
 	presenter    Presenter
+	traces       *services.TraceRecorder
 	manifest     agent.CapabilityManifest
 	logger       *slog.Logger
 	now          func() time.Time
@@ -171,7 +177,7 @@ func New(options Options) *Service {
 		context: options.Context, store: options.Store, runtime: options.Runtime,
 		skills: options.Skills, loop: options.Loop, channel: options.Channel,
 		threads: options.Threads, approvals: options.Approvals, executors: options.Executors,
-		presenter: options.Presenter, manifest: options.Manifest,
+		presenter: options.Presenter, traces: options.Traces, manifest: options.Manifest,
 		logger: logger, now: now, location: location, timezone: options.Timezone,
 	}
 }
@@ -197,6 +203,11 @@ type Policy struct {
 	// own working memory and has no bearing on a turn the owner is present
 	// for.
 	IncludeWatchDocument bool
+	// Kind labels the turn in its trace: ports.TraceKindOwner,
+	// TraceKindScheduled or TraceKindHeartbeat. It records which entry point
+	// ran, which is the first thing worth knowing about a turn nobody
+	// remembers asking for.
+	Kind string
 }
 
 // ReadOnlyTools is the floor every restricted turn starts from.
@@ -231,6 +242,7 @@ func (s *Service) OwnerMessage(ctx context.Context, text, source string) error {
 		IncludeRecentHistory: true,
 		RecordConversation:   true,
 		Source:               source,
+		Kind:                 ports.TraceKindOwner,
 	})
 }
 
@@ -242,6 +254,7 @@ func (s *Service) OwnerMessage(ctx context.Context, text, source string) error {
 func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 	return s.run(ctx, text, ReadOnlyTools(), Policy{
 		Extra: []ports.Message{agent.ScheduledTurnMessage()},
+		Kind:  ports.TraceKindScheduled,
 	})
 }
 
@@ -269,6 +282,7 @@ func (s *Service) HeartbeatTurn(ctx context.Context, text string, includeRecentH
 		SuppressSilentReply:  true,
 		IncludeWatchDocument: true,
 		IncludeRecentHistory: includeRecentHistory,
+		Kind:                 ports.TraceKindHeartbeat,
 	})
 	return *response, err
 }
@@ -371,7 +385,21 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	if policy.RecordConversation && s.presenter != nil {
 		onToolCall, finishToolProgress = s.presenter.ShowToolCalls(ctx)
 	}
-	options.OnEvent = turnEvents(onToolCall)
+	// The trace opens here, before the loop's context is derived, so every
+	// model call and tool call the loop makes carries the trace ID. Reassigning
+	// ctx is deliberate: everything downstream -- the loop, its tools, and the
+	// delivery that follows -- must be on the traced context, and a second
+	// variable would be a way to forget one of them.
+	ctx, trace := s.traces.Begin(ctx, ports.Trace{
+		ConversationID: dest.ConversationID(),
+		Channel:        string(dest.Kind),
+		Source:         policy.Source,
+		Kind:           policy.Kind,
+		Model:          alias,
+		Effort:         effort,
+		Input:          text,
+	})
+	options.OnEvent = turnEvents(onToolCall, trace)
 	// Only a direct owner turn is steerable: a scheduled turn is deliberately
 	// self-contained, and folding an owner message into one would hand it the
 	// ambient instruction that isolation exists to prevent.
@@ -387,6 +415,10 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	stopTyping()
 	finishToolProgress()
 	endTurn()
+	// Completed here rather than in a defer, and before any of the branches
+	// below can return: a turn that hit the step limit or that the owner
+	// stopped is the one whose trace is most worth having.
+	trace.Complete(ctx, result.Message.Content, runErr, result.Usage)
 	if errors.Is(runErr, context.Canceled) && ctx.Err() == nil {
 		// The turn was stopped by the owner, not by the surface going away:
 		// the milestone is reported on ctx so it still reaches them.
@@ -525,10 +557,19 @@ func (s *Service) deliverApprovalFailure(ctx context.Context, messageID string, 
 
 // turnEvents fans the loop's event stream out to the live "Calling <tool>..."
 // indicator.
-func turnEvents(onToolCall func(string)) func(agent.Event) {
+// turnEvents is the one subscriber to the loop's event stream. It feeds two
+// consumers that want the same moments for different reasons: the surface's
+// live "Calling X..." indicator, and the trace. Keeping them on one
+// subscription is what guarantees the record and what the owner watched
+// describe the same turn.
+func turnEvents(onToolCall func(string), trace *services.TraceTurn) func(agent.Event) {
 	return func(event agent.Event) {
-		if event.Kind == agent.EventToolStart {
+		switch event.Kind {
+		case agent.EventToolStart:
 			onToolCall(event.Call.Name)
+			trace.ToolStarted(event.Call)
+		case agent.EventToolEnd, agent.EventToolError:
+			trace.ToolFinished(event.Call, event.Output, event.Err)
 		}
 	}
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Thread, createThread, deleteThread, listThreads, renameThread } from "./api";
-import { PanelIcon, PlusIcon, SettingsIcon } from "./components/ui/icons";
+import { PanelIcon, PlusIcon, SettingsIcon, TraceIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 function relativeTime(iso: string): string {
@@ -21,6 +21,7 @@ export function ThreadSidebar({
   onActiveTitleChange,
   onCollapse,
   onOpenSettings,
+  onOpenTraces,
   reloadKey,
 }: {
   activeThreadId: string | null;
@@ -32,6 +33,7 @@ export function ThreadSidebar({
   onActiveTitleChange: (title: string) => void;
   onCollapse: () => void;
   onOpenSettings: () => void;
+  onOpenTraces: () => void;
   reloadKey: number;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -260,6 +262,18 @@ export function ThreadSidebar({
           and pinning it here means the corner of the chat pane belongs to the
           conversation. */}
       <div className="shrink-0 border-t border-border p-2">
+        {/* Traces sits beside Settings rather than inside it: it is a
+            destination about the conversations above it, not a setting. */}
+        <button
+          type="button"
+          onClick={onOpenTraces}
+          className="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+            <TraceIcon />
+          </span>
+          Traces
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}

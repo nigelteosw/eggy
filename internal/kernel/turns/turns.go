@@ -259,14 +259,18 @@ func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 // owner's explicit choice rather than a default: see
 // config.HeartbeatConfig.IncludeRecentHistory. The allowlist is unchanged
 // either way, so this changes what a beat knows and never what it can do.
-func (s *Service) HeartbeatTurn(ctx context.Context, text string, includeRecentHistory bool) error {
-	ctx, _ = services.WithHeartbeatResponse(ctx)
-	return s.run(ctx, text, heartbeatTools(), Policy{
+// The response is returned so the caller can act on what the beat decided --
+// today, when it asked to be woken next. A beat that failed or never called
+// the tool returns a zero response, which the caller reads as "no decision".
+func (s *Service) HeartbeatTurn(ctx context.Context, text string, includeRecentHistory bool) (services.HeartbeatResponse, error) {
+	ctx, response := services.WithHeartbeatResponse(ctx)
+	err := s.run(ctx, text, heartbeatTools(), Policy{
 		Extra:                []ports.Message{agent.HeartbeatTurnMessage()},
 		SuppressSilentReply:  true,
 		IncludeWatchDocument: true,
 		IncludeRecentHistory: includeRecentHistory,
 	})
+	return *response, err
 }
 
 // heartbeatTools is the read-only floor plus the heartbeat's own reply

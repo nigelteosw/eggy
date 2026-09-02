@@ -50,6 +50,8 @@ A watch entry is a thing to look at, never a thing with its own cadence. Anythin
 
 `active_hours` confines beats to a window of your day, read in `agent.timezone` rather than the host's clock. `start` is inclusive, `end` is exclusive, and `"24:00"` is accepted as an end so a window can run to midnight without the wrapped `"00:00"` that would mean the opposite. A window whose `end` is before its `start` wraps midnight, which is how an overnight watch is written. Both bounds are required together, and a malformed window fails the config load rather than silently suppressing every beat.
 
+A beat that would fall inside quiet hours is moved to the window opening rather than dropped, so the first beat of the day arrives at `start` instead of whenever the interval happens to land after it. The gap between beats is also measured from the end of one beat to the start of the next, so a slow check-in does not shorten the interval that follows it.
+
 ### Conversation history
 
 `include_recent_history` lets a beat see the recent conversation window, so it can notice that you said you would ship something on Friday. It is **off by default**: unprompted turns carry no ambient history, so your earlier chat cannot silently steer a turn you are not present for and did not review when it fired. Tools stay read-only either way — this changes what a beat knows, never what it can do.

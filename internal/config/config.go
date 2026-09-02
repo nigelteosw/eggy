@@ -157,6 +157,45 @@ func (h ActiveHours) Active(when time.Time) bool {
 	return minutes >= start || minutes < end
 }
 
+// NextOpen reports how long after when the window is next active, and whether
+// there is a window at all.
+//
+// It exists so a beat scheduled into quiet hours can be moved to the window
+// opening instead of being dropped. Dropping it is what a fixed ticker does,
+// and it costs the owner up to a whole interval every morning: a wake computed
+// for 07:00 against an 08:00 window is skipped, and the next one does not
+// arrive until 10:00.
+//
+// Zero means when is already inside the window, so a caller can add the result
+// unconditionally. The bool distinguishes that from an unconfigured window,
+// where there is nothing to move to.
+//
+// The opening is built with time.Date in when's own location rather than by
+// adding 24h, so a window that crosses a daylight-saving change opens at the
+// wall-clock time the owner wrote rather than an hour either side of it.
+func (h ActiveHours) NextOpen(when time.Time) (time.Duration, bool) {
+	if !h.Configured() {
+		return 0, false
+	}
+	start, err := parseClock(h.Start)
+	if err != nil {
+		// Unparseable fails open, as Active does and for the same reason: the
+		// parse already passed Validate at load, so a bug here must not
+		// silently defer every beat to a window it cannot read.
+		return 0, false
+	}
+	if h.Active(when) {
+		return 0, true
+	}
+	open := time.Date(when.Year(), when.Month(), when.Day(), start/60, start%60, 0, 0, when.Location())
+	if !open.After(when) {
+		// Today's opening has passed, so the next one is tomorrow's. Day+1
+		// is normalized by time.Date across month and year ends.
+		open = time.Date(when.Year(), when.Month(), when.Day()+1, start/60, start%60, 0, 0, when.Location())
+	}
+	return open.Sub(when), true
+}
+
 // Validate rejects a window that cannot work, rather than letting it silently
 // suppress every beat.
 func (h ActiveHours) Validate() error {

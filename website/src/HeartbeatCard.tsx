@@ -25,8 +25,10 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
         <CardDescription>
           A periodic check-in that runs on its own and messages you on Telegram only when something is worth saying.
           It checks memories/WATCH.md, the list of what you have asked it to keep an eye on, and notes what it has
-          already told you so it does not repeat itself. Leave the interval blank to turn it off; 3h is a good starting
-          point. Leave both active hours blank to let it run at any hour.
+          already told you so it does not repeat itself. Each check-in decides when to come back next, aiming at when
+          something could change rather than at a fixed rate, so the interval is the rhythm it starts from rather than
+          the gap between every check. Leave it blank to turn the heartbeat off; 3h is a good starting point. Leave both
+          active hours blank to let it run at any hour.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

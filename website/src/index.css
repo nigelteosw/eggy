@@ -18,7 +18,7 @@
     --secondary-foreground: 150 12% 20%;
 
     --muted: 105 14% 95%;
-    --muted-foreground: 150 6% 45%;
+    --muted-foreground: 150 6% 40%;
 
     --accent: 105 30% 92%;
     --accent-foreground: 107 55% 24%;
@@ -26,8 +26,8 @@
     --destructive: 0 65% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 120 8% 89%;
-    --input: 120 8% 87%;
+    --border: 120 8% 86%;
+    --input: 120 8% 83%;
     --ring: 107 55% 33%;
 
     --radius: 0.75rem;
@@ -40,29 +40,29 @@
        --background is the deepest surface (the nav rail sits on it) and --card
        is raised above it; the two must stay distinct or the rail dissolves
        into the content beside it. */
-    --background: 0 0% 7%;
-    --foreground: 0 0% 93%;
+    --background: 0 0% 6%;
+    --foreground: 0 0% 95%;
 
-    --card: 0 0% 11%;
-    --card-foreground: 0 0% 93%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 95%;
 
     --primary: 134 61% 58%;
     --primary-foreground: 150 30% 8%;
 
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 90%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 94%;
 
-    --muted: 0 0% 15%;
-    --muted-foreground: 0 0% 62%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 68%;
 
-    --accent: 0 0% 18%;
+    --accent: 0 0% 17%;
     --accent-foreground: 134 61% 72%;
 
     --destructive: 0 62% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 18%;
-    --input: 0 0% 22%;
+    --border: 0 0% 21%;
+    --input: 0 0% 25%;
     --ring: 134 61% 58%;
   }
 
@@ -86,6 +86,84 @@
   pre,
   kbd {
     @apply font-mono;
+  }
+}
+
+@layer components {
+  /* One canvas and one raised surface across chat, settings, traces, login,
+     and safe mode. The very soft glow keeps the large empty regions from
+     reading as a flat slab without adding another decorative colour. */
+  .app-canvas {
+    @apply bg-background;
+    background-image: radial-gradient(circle at 50% -20%, hsl(var(--primary) / 0.07), transparent 38rem);
+  }
+
+  .page-shell {
+    @apply mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10;
+  }
+
+  .surface-panel {
+    @apply rounded-xl border border-border bg-card shadow-card;
+  }
+
+  .section-eyebrow {
+    @apply text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-primary;
+  }
+
+  .code-panel {
+    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background/70 p-4 font-mono text-xs leading-relaxed text-foreground/90;
+  }
+
+  /* Typography owns its own colour variables. Setting text on only <p> and
+     headings leaves list contents on the plugin's fixed light-theme slate,
+     which is the dark-on-dark regression this boundary prevents. */
+  .assistant-message {
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--foreground));
+    --tw-prose-lead: hsl(var(--muted-foreground));
+    --tw-prose-links: hsl(var(--primary));
+    --tw-prose-bold: hsl(var(--foreground));
+    --tw-prose-counters: hsl(var(--muted-foreground));
+    --tw-prose-bullets: hsl(var(--muted-foreground));
+    --tw-prose-hr: hsl(var(--border));
+    --tw-prose-quotes: hsl(var(--foreground));
+    --tw-prose-quote-borders: hsl(var(--primary));
+    --tw-prose-captions: hsl(var(--muted-foreground));
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-pre-code: hsl(var(--foreground));
+    --tw-prose-pre-bg: hsl(var(--background));
+    --tw-prose-th-borders: hsl(var(--border));
+    --tw-prose-td-borders: hsl(var(--border));
+  }
+
+  .user-message {
+    --tw-prose-body: hsl(var(--primary-foreground));
+    --tw-prose-headings: hsl(var(--primary-foreground));
+    --tw-prose-lead: hsl(var(--primary-foreground));
+    --tw-prose-links: hsl(var(--primary-foreground));
+    --tw-prose-bold: hsl(var(--primary-foreground));
+    --tw-prose-counters: hsl(var(--primary-foreground) / 0.75);
+    --tw-prose-bullets: hsl(var(--primary-foreground) / 0.75);
+    --tw-prose-hr: hsl(var(--primary-foreground) / 0.3);
+    --tw-prose-quotes: hsl(var(--primary-foreground));
+    --tw-prose-quote-borders: hsl(var(--primary-foreground) / 0.45);
+    --tw-prose-captions: hsl(var(--primary-foreground) / 0.75);
+    --tw-prose-kbd: hsl(var(--primary-foreground));
+    --tw-prose-kbd-shadows: hsl(var(--primary-foreground) / 0.2);
+    --tw-prose-code: hsl(var(--primary-foreground));
+    --tw-prose-pre-code: hsl(var(--primary-foreground));
+    --tw-prose-pre-bg: hsl(var(--primary-foreground) / 0.12);
+    --tw-prose-th-borders: hsl(var(--primary-foreground) / 0.35);
+    --tw-prose-td-borders: hsl(var(--primary-foreground) / 0.25);
+  }
+
+  .composer-dock {
+    background: linear-gradient(to top, hsl(var(--background)) 58%, hsl(var(--background) / 0));
+  }
+
+  .trace-detail-panel {
+    @apply border-t border-border bg-background/45 px-4 py-5 sm:px-6;
+    box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.7);
   }
 }
 

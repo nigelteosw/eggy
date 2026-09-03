@@ -117,11 +117,11 @@ export function ThreadSidebar({
   return (
     // bg-background, not bg-card: this is the same surface the config rail
     // sits on, so the two screens read as one app rather than as two.
-    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border bg-background">
+    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border/80 bg-background/95">
       {/* The close control sits at the top left, ahead of the wordmark: it is
           the same corner the reopen button occupies once the rail is gone, so
           the sidebar collapses and returns under one spot on the screen. */}
-      <div className="flex h-14 items-center gap-2 px-3">
+      <div className="flex h-16 items-center gap-2 border-b border-border/60 px-3">
         <button
           type="button"
           onClick={onCollapse}
@@ -137,7 +137,7 @@ export function ThreadSidebar({
       {/* A section head with the new-chat control on its right, rather than a
           full-width button above the list: the list is the thing this rail is
           for, and a solid primary bar over it took the eye first. */}
-      <div className="flex items-center justify-between px-4 pb-1 pt-2">
+      <div className="flex items-center justify-between px-4 pb-2 pt-5">
         <span className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Chats</span>
         <button
           type="button"
@@ -160,7 +160,7 @@ export function ThreadSidebar({
         {threads.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
         ) : (
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             {threads.map((thread) => {
               const active = thread.id === activeThreadId;
               if (thread.id === renamingId) {
@@ -187,8 +187,8 @@ export function ThreadSidebar({
                     type="button"
                     onClick={() => onSelect(thread.id)}
                     className={cn(
-                      "w-full rounded-md py-2.5 pl-3 pr-9 text-left transition-colors",
-                      active ? "bg-accent text-accent-foreground" : "text-foreground/80 hover:bg-muted",
+                      "w-full rounded-lg py-3 pl-3 pr-9 text-left transition-colors",
+                      active ? "bg-accent text-accent-foreground shadow-subtle" : "text-foreground/80 hover:bg-muted/70",
                     )}
                   >
                     {/* Active marker: a short rule in the primary, rather than

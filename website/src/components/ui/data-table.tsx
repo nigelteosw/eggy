@@ -28,14 +28,14 @@ export function DataTable({
   }
 
   return (
-    <div className={cn("scrollbar-slim overflow-x-auto rounded-md border border-border", className)}>
+    <div className={cn("scrollbar-slim overflow-x-auto rounded-lg border border-border bg-background/35", className)}>
       <table className="w-full border-collapse text-left text-sm">
-        <thead className="bg-muted/60">
+        <thead className="bg-muted/80">
           <tr>
             {headers?.map((header) => (
               <th
                 key={header}
-                className="whitespace-nowrap px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                className="whitespace-nowrap px-4 py-3 text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
               >
                 {header}
               </th>
@@ -45,12 +45,12 @@ export function DataTable({
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={row[0] ?? index} className="border-t border-border transition-colors hover:bg-muted/40">
+            <tr key={row[0] ?? index} className="border-t border-border transition-colors hover:bg-muted/50">
               {row.map((cell, cellIndex) => (
                 <td
                   key={cellIndex}
                   className={cn(
-                    "px-4 py-2.5 align-middle",
+                    "px-4 py-3 align-middle",
                     cellIndex === 0 ? "font-medium text-foreground" : "text-muted-foreground",
                   )}
                 >

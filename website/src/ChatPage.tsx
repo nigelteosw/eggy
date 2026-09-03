@@ -18,12 +18,12 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   return (
     <div
       className={cn(
-        "prose prose-sm max-w-none break-words leading-relaxed",
+        "prose max-w-none break-words text-[0.9375rem] leading-7",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "prose-pre:rounded-md prose-pre:text-[0.8125rem] prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
         isUserBubble
-          ? "prose-invert prose-a:text-primary-foreground prose-pre:bg-black/25 prose-code:text-primary-foreground"
-          : "prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-a:text-primary prose-pre:bg-muted prose-pre:text-foreground prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
+          ? "user-message prose-pre:bg-black/20"
+          : "assistant-message prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
       )}
     >
       <Markdown
@@ -168,15 +168,18 @@ export function ChatPage({
     // bg-card/40 over the sidebar's bg-background, matching the config
     // panel's raised content column, so both screens are the same two
     // surfaces in the same order.
-    <div className="flex h-full flex-col bg-card/40">
+    <div className="app-canvas flex h-full flex-col">
       {/* The config panel heads each section with its name; this is the chat
           equivalent, and it also gives the mobile menu button a bar to sit in
           rather than floating over the first message. */}
-      <header className={cn("flex h-14 shrink-0 items-center border-b border-border px-4 sm:px-6", !sidebarOpen && "pl-14 sm:pl-14")}>
-        <h1 className="truncate text-sm font-medium tracking-tight">{title}</h1>
+      <header className={cn("flex h-16 shrink-0 items-center border-b border-border/80 bg-background/80 px-4 backdrop-blur sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
+        <div className="min-w-0">
+          <p className="section-eyebrow mb-0.5">Conversation</p>
+          <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
+        </div>
       </header>
       <div className="scrollbar-slim flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8 sm:px-6">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
             <div className="flex flex-col items-center gap-2 py-16 text-center">
               <span className="text-3xl">🥚</span>
@@ -189,13 +192,20 @@ export function ChatPage({
               <div key={message.id} className={cn("flex animate-fade-in-up", isUser ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
-                    "max-w-[85%] px-4 py-2.5 text-sm sm:max-w-[80%]",
+                    "text-sm",
                     isUser
-                      ? "rounded-2xl rounded-br-md bg-primary text-primary-foreground shadow-subtle"
-                      : "rounded-2xl rounded-bl-md border border-border bg-card text-card-foreground shadow-card",
+                      ? "max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-primary-foreground shadow-subtle sm:max-w-[72%] sm:px-5"
+                      : "flex w-full items-start gap-3 sm:gap-4",
                   )}
                 >
-                  <MessageBody text={message.text} isUserBubble={isUser} />
+                  {!isUser && (
+                    <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-xs font-bold text-primary">
+                      E
+                    </span>
+                  )}
+                  <div className={cn(!isUser && "min-w-0 flex-1 pt-0.5")}>
+                    <MessageBody text={message.text} isUserBubble={isUser} />
+                  </div>
                 </div>
               </div>
             );

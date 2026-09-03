@@ -179,8 +179,8 @@ export function Composer({
   }
 
   return (
-    <form onSubmit={submit} className="shrink-0 px-4 pb-4 pt-2 sm:px-6">
-      <div className="mx-auto w-full max-w-3xl">
+    <form onSubmit={submit} className="composer-dock shrink-0 px-4 pb-5 pt-6 sm:px-8 sm:pb-7">
+      <div className="mx-auto w-full max-w-4xl">
         {note && (
           <p className="mb-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
             {note}
@@ -191,7 +191,7 @@ export function Composer({
             otherwise the same two greys top to bottom. */}
         <div
           className={cn(
-            "rounded-2xl border border-primary/50 bg-card shadow-lift transition-shadow",
+            "rounded-2xl border border-border bg-card shadow-lift transition-shadow",
             "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25",
           )}
         >
@@ -212,7 +212,7 @@ export function Composer({
               }
             }}
             placeholder="Ask Eggy anything..."
-            className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/70"
+            className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
           <div className="flex items-center gap-1 px-2.5 pb-2.5">
             {agent && agent.models.length > 0 && (

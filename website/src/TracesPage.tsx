@@ -102,9 +102,9 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
 function Body({ label, text }: { label: string; text: string }) {
   if (!text) return null;
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-      <pre className="scrollbar-slim max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed">
+    <div className="flex flex-col gap-2">
+      <span className="section-eyebrow">{label}</span>
+      <pre className="code-panel max-h-96">
         {prettyBody(text)}
       </pre>
     </div>
@@ -119,42 +119,42 @@ function Prompt({ request }: { request: string }) {
   const prompt = parsePrompt(request);
   if (!prompt || raw) {
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Request</span>
+          <span className="section-eyebrow">Request</span>
           {prompt && (
             <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(false)}>
               Show as conversation
             </button>
           )}
         </div>
-        <pre className="scrollbar-slim max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed">
+        <pre className="code-panel max-h-96">
           {prettyBody(request)}
         </pre>
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="section-eyebrow">
           Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
         </span>
         <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(true)}>
           Show raw JSON
         </button>
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
-          <div key={index} className="rounded-md border border-border bg-muted/30 p-2.5">
-            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div key={index} className="rounded-lg border border-border bg-card/70 p-3.5 shadow-subtle">
+            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
               {Array.isArray(message.tool_calls) && message.tool_calls.length > 0 && (
                 <span className="font-normal normal-case">{message.tool_calls.length} tool call(s)</span>
               )}
             </div>
-            <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed">
+            <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
               {message.content || (Array.isArray(message.tool_calls) ? JSON.stringify(message.tool_calls, null, 2) : "")}
             </pre>
           </div>
@@ -194,6 +194,16 @@ function tickStep(window: number): number {
   return magnitude * 10;
 }
 
+export function timelineTicks(window: number): number[] {
+  const step = tickStep(window);
+  const ticks: number[] = [];
+  // The duration is always printed at the far edge. Leave at least half one
+  // tick interval before it so a near-round duration (15.2s) does not print
+  // on top of the final round tick (15.0s).
+  for (let at = step; at <= window - step / 2; at += step) ticks.push(at);
+  return ticks;
+}
+
 function layoutSpans(trace: TraceSummary, spans: TraceSpan[]): Layout {
   const starts = spans.map(spanStart).filter((at) => at > 0);
   const traceStart = new Date(trace.started_at).getTime();
@@ -210,9 +220,7 @@ function layoutSpans(trace: TraceSummary, spans: TraceSpan[]): Layout {
   // them -- so the axis runs to whichever ends last.
   const spanEnd = placed.reduce((furthest, item) => Math.max(furthest, item.offset + item.duration), 0);
   const window = Math.max(spanEnd, trace.duration_ms, 1);
-  const step = tickStep(window);
-  const ticks: number[] = [];
-  for (let at = step; at < window; at += step) ticks.push(at);
+  const ticks = timelineTicks(window);
   return { placed, window, ticks };
 }
 
@@ -270,11 +278,11 @@ function SpanRow({ item, window }: { item: Placed; window: number }) {
   const span = item.span;
   const model = span.kind === "model_call";
   return (
-    <div className="border-t border-border first:border-t-0">
+    <div className="border-t border-border/80 first:border-t-0">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
       >
         <span className="flex w-[15rem] shrink-0 items-center gap-2 sm:w-[19rem]">
           <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
@@ -295,7 +303,7 @@ function SpanRow({ item, window }: { item: Placed; window: number }) {
         </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-3 border-t border-border bg-muted/20 p-4">
+        <div className="flex flex-col gap-4 border-t border-border bg-background/60 p-5">
           {span.error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{span.error}</div>
           )}
@@ -324,11 +332,11 @@ function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }
     );
   }
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
       {/* The axis header carries the tick labels; the same tick positions are
           repeated as hairlines behind every bar so a bar can be read against
           the ruler without tracing back up to it. */}
-      <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-3 py-1.5">
+      <div className="flex items-center gap-3 border-b border-border bg-muted/80 px-4 py-2.5">
         <span className="w-[15rem] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:w-[19rem]">
           Step
         </span>
@@ -357,7 +365,7 @@ function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }
           <SpanRow key={item.span.sequence} item={item} window={window} />
         ))}
       </div>
-      <div className="flex items-center gap-4 border-t border-border bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground">
+      <div className="flex items-center gap-4 border-t border-border bg-muted/40 px-4 py-2.5 text-[10px] text-muted-foreground">
         <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-primary" /> LLM generation</span>
         <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-sky-500 dark:bg-sky-400" /> Tool call</span>
         <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-destructive" /> Failed</span>
@@ -371,29 +379,41 @@ function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }
 function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
-    <div className="flex flex-col gap-3 border-l-2 border-primary/60 bg-muted/20 px-4 py-4 sm:px-6">
+    <div className="trace-detail-panel flex flex-col gap-5">
       {trace.error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{trace.error}</div>
       )}
+      <div className="flex flex-col gap-2 border-b border-border/70 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="section-eyebrow mb-1">Turn breakdown</p>
+          <p className="text-sm font-medium text-foreground">{trace.model || "Unknown model"}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{trace.spans} {trace.spans === 1 ? "step" : "steps"}</span>
+          <span className="text-border">/</span>
+          <span>{formatDuration(trace.duration_ms)}</span>
+          <span className="text-border">/</span>
+          <span>{formatTokens(trace.total_tokens)} tokens</span>
+          {!trace.complete && (
+            <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              incomplete
+            </span>
+          )}
+        </div>
+      </div>
       {/* The turn's own message and reply are not repeated here: the row above
           already shows the message, and the transcript is where the reply is
           read. What the transcript cannot show is the shape of the run, so
           that is all this panel is. */}
       <Waterfall trace={trace} spans={spans} />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>Replied on {trace.channel || "an unknown surface"}</span>
-        {trace.model && <><span className="text-border">/</span><span>{trace.model}</span></>}
         {trace.effort && <><span className="text-border">/</span><span>{trace.effort} effort</span></>}
         <span className="text-border">/</span>
         <span>{formatTokens(trace.prompt_tokens)} tok prompt</span>
         {trace.cached_prompt_tokens ? <><span className="text-border">/</span><span>{formatTokens(trace.cached_prompt_tokens)} tok cached</span></> : null}
         <span className="text-border">/</span>
         <span>{formatTokens(trace.completion_tokens)} tok completion</span>
-        {!trace.complete && (
-          <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-            incomplete
-          </span>
-        )}
       </div>
     </div>
   );
@@ -432,20 +452,20 @@ function TraceRow({
   }, [open, detail, trace.id, onSessionExpired]);
 
   return (
-    <tbody className="border-t border-border">
+    <tbody className="border-t border-border/80">
       <tr
         onClick={onToggle}
-        className={`cursor-pointer transition-colors ${open ? "bg-muted/50" : "hover:bg-muted/30"}`}
+        className={`cursor-pointer transition-colors ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}
       >
         <td className="w-8 pl-3 align-middle">
           <span className={`inline-flex text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
             <ChevronDownIcon />
           </span>
         </td>
-        <td className="px-3 py-2.5 align-middle"><SourceBadge trace={trace} /></td>
-        <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs text-muted-foreground">{formatTime(trace.started_at)}</td>
-        <td className="w-full max-w-0 px-3 py-2.5 align-middle">
-          <div className="truncate text-sm text-foreground">{trace.input || trace.output || "(no message)"}</div>
+        <td className="px-3 py-3.5 align-middle"><SourceBadge trace={trace} /></td>
+        <td className="whitespace-nowrap px-3 py-3.5 align-middle text-xs text-muted-foreground">{formatTime(trace.started_at)}</td>
+        <td className="w-full max-w-0 px-3 py-3.5 align-middle">
+          <div className="truncate text-sm font-medium text-foreground">{trace.input || trace.output || "(no message)"}</div>
         </td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">{trace.spans}</td>
         <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">
@@ -531,8 +551,8 @@ export function TracesPage({
   useEffect(reload, [reload]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
+    <div className="app-canvas flex h-full min-h-0 flex-col">
+      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border/80 bg-background/80 px-3 backdrop-blur sm:px-5">
         <button
           type="button"
           onClick={onBackToChat}
@@ -547,11 +567,12 @@ export function TracesPage({
           </Button>
         </div>
       </div>
-      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto bg-card/40 px-4 py-6 sm:px-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4">
-          <header className="flex flex-col gap-1">
-            <h1 className="text-2xl font-semibold tracking-tight">Traces</h1>
-            <p className="text-sm text-muted-foreground">
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-8 sm:py-10">
+          <header className="flex max-w-3xl flex-col gap-1.5">
+            <p className="section-eyebrow">Observability</p>
+            <h1 className="text-3xl font-semibold tracking-tight">Traces</h1>
+            <p className="text-sm leading-6 text-muted-foreground">
               Every turn as it ran: open one for the prompt behind each model call, the arguments and output of every tool call, and
               where its time went.
             </p>
@@ -564,10 +585,10 @@ export function TracesPage({
               </div>
             )
           ) : (
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
-              <table className="w-full border-collapse text-left">
-                <thead className="bg-muted/60">
-                  <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="surface-panel scrollbar-slim overflow-x-auto">
+              <table className="w-full min-w-[58rem] border-collapse text-left">
+                <thead className="bg-muted/80">
+                  <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                     <th className="w-8" />
                     <th className="px-3 py-2">Source</th>
                     <th className="px-3 py-2">Started</th>

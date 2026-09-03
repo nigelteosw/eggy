@@ -26,7 +26,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
+    <div className="app-canvas relative flex min-h-screen items-center justify-center overflow-hidden px-4">
       {/* A soft wash of the primary behind the card, so the otherwise empty
           login screen isn't a flat expanse of off-white. */}
       <div

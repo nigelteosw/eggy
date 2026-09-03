@@ -110,11 +110,12 @@ export function ConfigPage({
         <SidebarItem icon={<LogoutIcon />} label="Log out" collapsed={collapsed} onClick={handleLogout} />
       </Sidebar>
 
-      <div className="min-w-0 flex-1 overflow-y-auto scrollbar-slim bg-card/40 px-4 py-8 sm:px-8">
-        <div className="mx-auto flex max-w-2xl flex-col gap-6">
-          <header className="flex flex-col gap-1 pb-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{section.title}</h1>
-            <p className="text-sm text-muted-foreground">{section.description}</p>
+      <div className="app-canvas scrollbar-slim min-w-0 flex-1 overflow-y-auto">
+        <div className="page-shell max-w-3xl">
+          <header className="flex flex-col gap-1.5 pb-1">
+            <p className="section-eyebrow">Settings</p>
+            <h1 className="text-3xl font-semibold tracking-tight">{section.title}</h1>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{section.description}</p>
           </header>
           {active === "models" && (
             <>

@@ -53,7 +53,7 @@ export function App() {
 
   if (status === "checking") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-muted-foreground">
+      <div className="app-canvas flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
         <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
         <span className="text-sm">Loading...</span>
       </div>
@@ -133,7 +133,7 @@ export function App() {
               />
             </div>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 bg-card/40 px-6 text-center">
+            <div className="app-canvas flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
               <span className="text-3xl">🥚</span>
               <p className="text-sm text-muted-foreground">Select a chat, or start a new one.</p>
             </div>

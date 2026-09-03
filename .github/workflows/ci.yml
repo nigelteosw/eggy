@@ -60,6 +60,10 @@ jobs:
         working-directory: website
         run: bun install --frozen-lockfile
 
+      - name: Test website
+        working-directory: website
+        run: bun run test
+
       # `bun run build` is `tsc && vite build`, so this type-checks too.
       - name: Build
         working-directory: website

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getTrace,
   listTraces,
@@ -17,9 +17,11 @@ import { ChevronLeftIcon, ChevronDownIcon } from "./components/ui/icons";
 // tool output the model was reacting to, which is everything you want the
 // moment a turn surprises you.
 //
-// It is a two-pane layout rather than a card, because the payloads are
-// prompt-sized: a list narrow enough to scan on the left, and the whole
-// remaining width for one turn's steps on the right.
+// Turns are a log, so they are a table: one row per turn, newest first,
+// expanding in place into that turn's steps. The steps are drawn as a
+// waterfall against a shared clock, because the second question after "what
+// did it do" is always "where did the 37 seconds go" -- and a stack of
+// durations cannot answer that while a bar chart of them can.
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -70,7 +72,7 @@ const KIND_LABEL: Record<string, string> = {
 
 function KindBadge({ kind }: { kind: string }) {
   return (
-    <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <span className="whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
       {KIND_LABEL[kind] ?? kind ?? "turn"}
     </span>
   );
@@ -144,35 +146,136 @@ function Prompt({ request }: { request: string }) {
   );
 }
 
-function SpanRow({ span }: { span: TraceSpan }) {
+// --- The waterfall -------------------------------------------------------
+//
+// Spans carry a wall-clock start and a duration, so they can be laid against
+// one shared axis the way a browser's network panel lays out requests. Model
+// calls and tool calls are drawn in different colours because the whole point
+// of the picture is which of the two is eating the turn.
+
+type Placed = { span: TraceSpan; offset: number; duration: number };
+
+type Layout = { placed: Placed[]; window: number; ticks: number[] };
+
+function spanStart(span: TraceSpan): number {
+  const at = new Date(span.started_at).getTime();
+  return Number.isNaN(at) ? 0 : at;
+}
+
+// Ticks land on a 1/2/5 x 10^n step so the axis reads in round numbers at any
+// zoom, the same rule a chart axis uses.
+function tickStep(window: number): number {
+  const rough = window / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(rough, 1)));
+  for (const factor of [1, 2, 5]) {
+    if (magnitude * factor >= rough) return magnitude * factor;
+  }
+  return magnitude * 10;
+}
+
+function layoutSpans(trace: TraceSummary, spans: TraceSpan[]): Layout {
+  const starts = spans.map(spanStart).filter((at) => at > 0);
+  const traceStart = new Date(trace.started_at).getTime();
+  const origin = Math.min(...(Number.isNaN(traceStart) ? starts : [traceStart, ...starts]));
+  const placed = spans.map((span) => {
+    const at = spanStart(span);
+    return {
+      span,
+      offset: at > 0 && origin > 0 ? Math.max(at - origin, 0) : 0,
+      duration: Math.max(span.duration_ms, 0),
+    };
+  });
+  // The turn is wider than its steps -- there is orchestration either side of
+  // them -- so the axis runs to whichever ends last.
+  const spanEnd = placed.reduce((furthest, item) => Math.max(furthest, item.offset + item.duration), 0);
+  const window = Math.max(spanEnd, trace.duration_ms, 1);
+  const step = tickStep(window);
+  const ticks: number[] = [];
+  for (let at = step; at < window; at += step) ticks.push(at);
+  return { placed, window, ticks };
+}
+
+function barColor(span: TraceSpan): string {
+  if (span.error) return "bg-destructive";
+  return span.kind === "model_call" ? "bg-primary" : "bg-sky-500 dark:bg-sky-400";
+}
+
+function TickLines({ ticks, window }: { ticks: number[]; window: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      {ticks.map((at) => (
+        <div key={at} className="absolute top-0 bottom-0 w-px bg-border/70" style={{ left: `${(at / window) * 100}%` }} />
+      ))}
+    </div>
+  );
+}
+
+// The label sits inside the bar when the bar is wide enough to hold it and
+// outside when it is not, so a 12ms tool call is still readable next to a
+// 31s model call.
+function WaterfallBar({ item, window }: { item: Placed; window: number }) {
+  const left = (item.offset / window) * 100;
+  const width = Math.max((item.duration / window) * 100, 0.6);
+  const inside = width > 12;
+  return (
+    <div className="relative h-4 flex-1">
+      <div
+        className={`absolute top-0 h-full rounded-sm ${barColor(item.span)}`}
+        style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+        title={`${item.span.name}: ${formatDuration(item.duration)} at +${formatDuration(item.offset)}`}
+      />
+      <span
+        className={`absolute top-0 flex h-full items-center px-1.5 text-[10px] tabular-nums ${
+          inside ? "text-primary-foreground" : "text-muted-foreground"
+        }`}
+        style={inside ? { left: `${left}%` } : { left: `min(${left + width}%, calc(100% - 3.5rem))` }}
+      >
+        {formatDuration(item.duration)}
+      </span>
+    </div>
+  );
+}
+
+function SpanRow({ item, window }: { item: Placed; window: number }) {
   const [open, setOpen] = useState(false);
+  const span = item.span;
   const model = span.kind === "model_call";
   return (
-    <div className="rounded-lg border border-border bg-card">
+    <div className="border-t border-border first:border-t-0">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/40"
+        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40"
       >
-        <span className={`h-2 w-2 shrink-0 rounded-full ${span.error ? "bg-destructive" : model ? "bg-primary" : "bg-muted-foreground"}`} />
-        <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {model ? "model" : "tool"}
+        <span className="flex w-[15rem] shrink-0 items-center gap-2 sm:w-[19rem]">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
+          <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {model ? "model" : "tool"}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">{span.name}</span>
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{span.name}</span>
-        {span.total_tokens ? (
-          <span className="shrink-0 text-xs text-muted-foreground">{formatTokens(span.total_tokens)} tok</span>
-        ) : null}
-        <span className="shrink-0 text-xs text-muted-foreground">{formatDuration(span.duration_ms)}</span>
-        <span className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}>
+        <span className="relative flex min-w-0 flex-1 items-center">
+          <WaterfallBar item={item} window={window} />
+        </span>
+        <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+          {span.total_tokens ? `${formatTokens(span.total_tokens)} tok` : ""}
+        </span>
+        <span className={`inline-flex shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
           <ChevronDownIcon />
         </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-3 border-t border-border p-4">
+        <div className="flex flex-col gap-3 border-t border-border bg-muted/20 p-4">
           {span.error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{span.error}</div>
           )}
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-muted-foreground">
+            <span>Started +{formatDuration(item.offset)} into the turn</span>
+            <span>Took {formatDuration(item.duration)}</span>
+            {span.prompt_tokens ? <span>Prompt {formatTokens(span.prompt_tokens)} tok</span> : null}
+            {span.completion_tokens ? <span>Completion {formatTokens(span.completion_tokens)} tok</span> : null}
+          </div>
           {model ? <Prompt request={span.request} /> : <Body label="Arguments" text={span.request} />}
           <Body label={model ? "Response" : "Output"} text={span.response} />
         </div>
@@ -181,30 +284,76 @@ function SpanRow({ span }: { span: TraceSpan }) {
   );
 }
 
-function TraceDetailPane({ detail }: { detail: TraceDetail }) {
+function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }) {
+  const { placed, window, ticks } = useMemo(() => layoutSpans(trace, spans), [trace, spans]);
+  if (spans.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+        This turn recorded no steps.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      {/* The axis header carries the tick labels; the same tick positions are
+          repeated as hairlines behind every bar so a bar can be read against
+          the ruler without tracing back up to it. */}
+      <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-3 py-1.5">
+        <span className="w-[15rem] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:w-[19rem]">
+          Step
+        </span>
+        <span className="relative h-4 min-w-0 flex-1">
+          {ticks.map((at) => (
+            <span
+              key={at}
+              className="absolute top-0 -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground"
+              style={{ left: `${(at / window) * 100}%` }}
+            >
+              {formatDuration(at)}
+            </span>
+          ))}
+          <span className="absolute top-0 right-0 text-[10px] tabular-nums text-muted-foreground">{formatDuration(window)}</span>
+        </span>
+        <span className="w-16 shrink-0" />
+        <span className="w-4 shrink-0" />
+      </div>
+      <div className="relative">
+        {/* Hairlines are inset to match the track column, which starts after
+            the step label and stops before the token and chevron columns. */}
+        <div className="pointer-events-none absolute inset-y-0 left-[16.5rem] right-[7.25rem] sm:left-[20.5rem]">
+          <TickLines ticks={ticks} window={window} />
+        </div>
+        {placed.map((item) => (
+          <SpanRow key={item.span.sequence} item={item} window={window} />
+        ))}
+      </div>
+      <div className="flex items-center gap-4 border-t border-border bg-muted/20 px-3 py-1.5 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-primary" /> LLM generation</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-sky-500 dark:bg-sky-400" /> Tool call</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-destructive" /> Failed</span>
+      </div>
+    </div>
+  );
+}
+
+// --- The expanded turn ---------------------------------------------------
+
+function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <KindBadge kind={trace.kind} />
-          <span className="text-xs text-muted-foreground">{formatTime(trace.started_at)}</span>
-          <span className="text-xs text-muted-foreground">· {trace.channel || "unknown surface"}</span>
-          {trace.model && <span className="text-xs text-muted-foreground">· {trace.model}</span>}
-          {trace.effort && <span className="text-xs text-muted-foreground">· {trace.effort} effort</span>}
-          {!trace.complete && (
-            <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-              incomplete
-            </span>
-          )}
-        </div>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-muted-foreground sm:grid-cols-4">
-          <div><dt className="inline">Steps: </dt><dd className="inline text-foreground">{spans.length}</dd></div>
-          <div><dt className="inline">Duration: </dt><dd className="inline text-foreground">{formatDuration(trace.duration_ms)}</dd></div>
-          <div><dt className="inline">Prompt: </dt><dd className="inline text-foreground">{formatTokens(trace.prompt_tokens)} tok</dd></div>
-          <div><dt className="inline">Completion: </dt><dd className="inline text-foreground">{formatTokens(trace.completion_tokens)} tok</dd></div>
-        </dl>
-      </header>
+    <div className="flex flex-col gap-4 border-l-2 border-primary/60 bg-muted/20 px-4 py-4 sm:px-6">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+        <span>{trace.channel || "unknown surface"}</span>
+        {trace.model && <span>{trace.model}</span>}
+        {trace.effort && <span>{trace.effort} effort</span>}
+        <span>Prompt <span className="text-foreground">{formatTokens(trace.prompt_tokens)} tok</span></span>
+        <span>Completion <span className="text-foreground">{formatTokens(trace.completion_tokens)} tok</span></span>
+        {!trace.complete && (
+          <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
+            incomplete
+          </span>
+        )}
+      </div>
       {trace.error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{trace.error}</div>
       )}
@@ -212,15 +361,85 @@ function TraceDetailPane({ detail }: { detail: TraceDetail }) {
       <Body label="Reply" text={trace.output} />
       <div className="flex flex-col gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Timeline</span>
-        {spans.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            This turn recorded no steps.
-          </div>
-        ) : (
-          spans.map((span) => <SpanRow key={span.sequence} span={span} />)
-        )}
+        <Waterfall trace={trace} spans={spans} />
       </div>
     </div>
+  );
+}
+
+// The expanded turn loads its own detail. Fetching on expand rather than on
+// selection keeps a collapsed table cheap however many turns are listed.
+function TraceRow({
+  trace,
+  open,
+  onToggle,
+  onSessionExpired,
+}: {
+  trace: TraceSummary;
+  open: boolean;
+  onToggle: () => void;
+  onSessionExpired: (reason: unknown) => void;
+}) {
+  const [detail, setDetail] = useState<TraceDetail | null>(null);
+  const [failed, setFailed] = useState("");
+
+  useEffect(() => {
+    if (!open || detail) return;
+    let current = true;
+    getTrace(trace.id)
+      .then((loaded) => {
+        if (current) setDetail(loaded);
+      })
+      .catch((reason) => {
+        if (current) setFailed(reason instanceof Error ? reason.message : "Could not load this turn");
+        onSessionExpired(reason);
+      });
+    return () => {
+      current = false;
+    };
+  }, [open, detail, trace.id, onSessionExpired]);
+
+  return (
+    <tbody className="border-t border-border">
+      <tr
+        onClick={onToggle}
+        className={`cursor-pointer transition-colors ${open ? "bg-muted/50" : "hover:bg-muted/30"}`}
+      >
+        <td className="w-8 pl-3 align-middle">
+          <span className={`inline-flex text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
+            <ChevronDownIcon />
+          </span>
+        </td>
+        <td className="px-3 py-2.5 align-middle"><KindBadge kind={trace.kind} /></td>
+        <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs text-muted-foreground">{formatTime(trace.started_at)}</td>
+        <td className="w-full max-w-0 px-3 py-2.5 align-middle">
+          <div className="truncate text-sm text-foreground">{trace.input || trace.output || "(no message)"}</div>
+        </td>
+        <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">{trace.spans}</td>
+        <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">
+          {formatDuration(trace.duration_ms)}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2.5 pr-4 text-right align-middle text-xs tabular-nums text-muted-foreground">
+          {formatTokens(trace.total_tokens)}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2.5 pr-4 align-middle text-xs">
+          {trace.error ? <span className="text-destructive">error</span> : null}
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={8} className="p-0">
+            {failed ? (
+              <div className="border-l-2 border-destructive/60 bg-destructive/10 px-4 py-3 text-sm text-destructive">{failed}</div>
+            ) : detail ? (
+              <TraceDetailPanel detail={detail} />
+            ) : (
+              <div className="border-l-2 border-border px-4 py-4 text-sm text-muted-foreground">Loading this turn...</div>
+            )}
+          </td>
+        </tr>
+      )}
+    </tbody>
   );
 }
 
@@ -232,8 +451,7 @@ export function TracesPage({
   onBackToChat: () => void;
 }) {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [detail, setDetail] = useState<TraceDetail | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -248,15 +466,21 @@ export function TracesPage({
     [onSessionExpired],
   );
 
+  // A row that fails on its own reports the failure inline; only an expired
+  // session has to reach the app, so the row handler passes through the rest.
+  const rowFailed = useCallback(
+    (reason: unknown) => {
+      if (reason instanceof SessionExpiredError) onSessionExpired();
+    },
+    [onSessionExpired],
+  );
+
   const reload = useCallback(() => {
     setLoading(true);
     listTraces()
       .then((rows) => {
         setTraces(rows);
         setError("");
-        // Landing on the newest turn is the common case: the trace you want
-        // is almost always the one that just ran.
-        setSelected((current) => current ?? rows[0]?.id ?? null);
       })
       .catch((reason) => {
         // The routes are absent, not empty, when tracing is off in
@@ -274,82 +498,65 @@ export function TracesPage({
 
   useEffect(reload, [reload]);
 
-  useEffect(() => {
-    if (!selected) {
-      setDetail(null);
-      return;
-    }
-    let current = true;
-    getTrace(selected)
-      .then((loaded) => {
-        if (current) setDetail(loaded);
-      })
-      .catch(fail);
-    return () => {
-      current = false;
-    };
-  }, [selected, fail]);
-
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card/60 md:w-80">
-        <div className="flex items-center gap-2 border-b border-border p-2">
-          <button
-            type="button"
-            onClick={onBackToChat}
-            className="flex h-9 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <ChevronLeftIcon />
-            Back to chat
-          </button>
-          <div className="ml-auto">
-            <Button variant="ghost" onClick={reload} disabled={loading}>
-              {loading ? "Loading..." : "Refresh"}
-            </Button>
-          </div>
-        </div>
-        <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto p-2">
-          {traces.length === 0 && !loading ? (
-            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-              No turns recorded yet. Send a message and it will appear here.
-            </p>
-          ) : (
-            traces.map((trace) => (
-              <button
-                key={trace.id}
-                type="button"
-                onClick={() => setSelected(trace.id)}
-                className={`mb-1 flex w-full flex-col gap-1 rounded-md px-2.5 py-2 text-left transition-colors ${
-                  trace.id === selected ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <KindBadge kind={trace.kind} />
-                  <span className="text-[11px]">{formatTime(trace.started_at)}</span>
-                  {trace.error && <span className="ml-auto text-[11px] text-destructive">error</span>}
-                </div>
-                <span className="truncate text-sm text-foreground">{trace.input || trace.output || "(no message)"}</span>
-                <span className="text-[11px]">
-                  {trace.spans} steps · {formatDuration(trace.duration_ms)} · {formatTokens(trace.total_tokens)} tok
-                </span>
-              </button>
-            ))
-          )}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
+        <button
+          type="button"
+          onClick={onBackToChat}
+          className="flex h-9 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeftIcon />
+          Back to chat
+        </button>
+        <div className="ml-auto">
+          <Button variant="ghost" onClick={reload} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </Button>
         </div>
       </div>
-      <div className="scrollbar-slim min-w-0 flex-1 overflow-y-auto bg-card/40 px-4 py-6 sm:px-8">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto bg-card/40 px-4 py-6 sm:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4">
           <header className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold tracking-tight">Traces</h1>
             <p className="text-sm text-muted-foreground">
-              Every turn as it ran: the prompt behind each model call, and the arguments and output of every tool call.
+              Every turn as it ran: open one for the prompt behind each model call, the arguments and output of every tool call, and
+              where its time went.
             </p>
           </header>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-          {detail ? (
-            <TraceDetailPane detail={detail} />
+          {traces.length === 0 ? (
+            !error && (
+              <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                {loading ? "Loading turns..." : "No turns recorded yet. Send a message and it will appear here."}
+              </div>
+            )
           ) : (
-            !error && <p className="text-sm text-muted-foreground">Select a turn to see what it did.</p>
+            <div className="overflow-hidden rounded-lg border border-border bg-card">
+              <table className="w-full border-collapse text-left">
+                <thead className="bg-muted/60">
+                  <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <th className="w-8" />
+                    <th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2">Started</th>
+                    <th className="px-3 py-2">Turn</th>
+                    <th className="px-3 py-2 text-right">Steps</th>
+                    <th className="px-3 py-2 text-right">Duration</th>
+                    <th className="px-3 py-2 pr-4 text-right">Tokens</th>
+                    <th className="px-3 py-2 pr-4" />
+                  </tr>
+                </thead>
+                {traces.map((trace) => (
+                  <TraceRow
+                    key={trace.id}
+                    trace={trace}
+                    open={expanded === trace.id}
+                    onToggle={() => setExpanded((current) => (current === trace.id ? null : trace.id))}
+                    onSessionExpired={rowFailed}
+                  />
+                ))}
+              </table>
+            </div>
           )}
         </div>
       </div>

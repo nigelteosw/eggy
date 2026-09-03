@@ -273,7 +273,7 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
   );
 }
 
-function SpanRow({ item, window }: { item: Placed; window: number }) {
+function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks: number[] }) {
   const [open, setOpen] = useState(false);
   const span = item.span;
   const model = span.kind === "model_call";
@@ -293,6 +293,7 @@ function SpanRow({ item, window }: { item: Placed; window: number }) {
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{span.name}</span>
         </span>
         <span className="relative flex min-w-0 flex-1 items-center">
+          <TickLines ticks={ticks} window={window} />
           <WaterfallBar item={item} window={window} />
         </span>
         <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
@@ -322,7 +323,7 @@ function SpanRow({ item, window }: { item: Placed; window: number }) {
   );
 }
 
-function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }) {
+export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }) {
   const { placed, window, ticks } = useMemo(() => layoutSpans(trace, spans), [trace, spans]);
   if (spans.length === 0) {
     return (
@@ -356,13 +357,8 @@ function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }
         <span className="w-4 shrink-0" />
       </div>
       <div className="relative">
-        {/* Hairlines are inset to match the track column, which starts after
-            the step label and stops before the token and chevron columns. */}
-        <div className="pointer-events-none absolute inset-y-0 left-[16.5rem] right-[7.25rem] sm:left-[20.5rem]">
-          <TickLines ticks={ticks} window={window} />
-        </div>
         {placed.map((item) => (
-          <SpanRow key={item.span.sequence} item={item} window={window} />
+          <SpanRow key={item.span.sequence} item={item} window={window} ticks={ticks} />
         ))}
       </div>
       <div className="flex items-center gap-4 border-t border-border bg-muted/40 px-4 py-2.5 text-[10px] text-muted-foreground">

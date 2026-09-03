@@ -64,16 +64,37 @@ function parsePrompt(request: string): PromptRecord | null {
   }
 }
 
-const KIND_LABEL: Record<string, string> = {
-  owner: "Owner",
+// What set a turn off is one question, and a trace answers it with two
+// fields: kind is why it ran and source is where the owner typed. "Owner" on
+// its own is not the answer anyone wants -- every owner turn is from the
+// owner, and what distinguishes them is whether it arrived from Telegram or
+// from this panel. So an owner turn is labelled by its surface and an
+// unprompted turn by what woke it, which makes one column that always names
+// the thing that started the turn.
+const SOURCE_LABEL: Record<string, string> = {
+  telegram: "Telegram",
+  web: "Web",
   scheduled: "Scheduled",
   heartbeat: "Heartbeat",
 };
 
-function KindBadge({ kind }: { kind: string }) {
+function sourceOf(trace: TraceSummary): string {
+  const origin = trace.kind === "owner" ? trace.source || trace.channel : trace.kind;
+  return SOURCE_LABEL[origin] ?? origin ?? "turn";
+}
+
+// Owner turns are the ones somebody is waiting on, so they carry the primary
+// tint; the unprompted ones stay muted. The colour is the fastest way to skim
+// the column for "which of these did I ask for".
+function SourceBadge({ trace }: { trace: TraceSummary }) {
+  const prompted = trace.kind === "owner";
   return (
-    <span className="whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-      {KIND_LABEL[kind] ?? kind ?? "turn"}
+    <span
+      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+        prompted ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground"
+      }`}
+    >
+      {sourceOf(trace)}
     </span>
   );
 }
@@ -210,27 +231,35 @@ function TickLines({ ticks, window }: { ticks: number[]; window: number }) {
   );
 }
 
-// The label sits inside the bar when the bar is wide enough to hold it and
-// outside when it is not, so a 12ms tool call is still readable next to a
-// 31s model call.
+// A duration has three places it can go and only one of them is right for a
+// given bar: inside it when the bar is wide enough to hold the text, after it
+// when there is room to the right, and before it when the bar ends at the far
+// edge of the axis. Anything simpler puts a number on top of a bar.
 function WaterfallBar({ item, window }: { item: Placed; window: number }) {
   const left = (item.offset / window) * 100;
   const width = Math.max((item.duration / window) * 100, 0.6);
-  const inside = width > 12;
+  const label = formatDuration(item.duration);
+  const placement = width > 14 ? "inside" : left + width > 82 ? "before" : "after";
+  const labelStyle =
+    placement === "inside"
+      ? { left: `${left}%` }
+      : placement === "after"
+        ? { left: `${left + width}%` }
+        : { right: `${100 - left}%` };
   return (
-    <div className="relative h-4 flex-1">
+    <div className="relative h-5 flex-1">
       <div
-        className={`absolute top-0 h-full rounded-sm ${barColor(item.span)}`}
+        className={`absolute top-0.5 h-4 rounded-sm ${barColor(item.span)}`}
         style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
-        title={`${item.span.name}: ${formatDuration(item.duration)} at +${formatDuration(item.offset)}`}
+        title={`${item.span.name}: ${label} at +${formatDuration(item.offset)}`}
       />
       <span
-        className={`absolute top-0 flex h-full items-center px-1.5 text-[10px] tabular-nums ${
-          inside ? "text-primary-foreground" : "text-muted-foreground"
+        className={`absolute top-0 flex h-full items-center whitespace-nowrap text-[10px] tabular-nums ${
+          placement === "inside" ? "px-2 font-medium text-primary-foreground" : "px-1.5 text-muted-foreground"
         }`}
-        style={inside ? { left: `${left}%` } : { left: `min(${left + width}%, calc(100% - 3.5rem))` }}
+        style={labelStyle}
       >
-        {formatDuration(item.duration)}
+        {label}
       </span>
     </div>
   );
@@ -341,27 +370,28 @@ function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }
 function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
-    <div className="flex flex-col gap-4 border-l-2 border-primary/60 bg-muted/20 px-4 py-4 sm:px-6">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <span>{trace.channel || "unknown surface"}</span>
-        {trace.model && <span>{trace.model}</span>}
-        {trace.effort && <span>{trace.effort} effort</span>}
-        <span>Prompt <span className="text-foreground">{formatTokens(trace.prompt_tokens)} tok</span></span>
-        <span>Completion <span className="text-foreground">{formatTokens(trace.completion_tokens)} tok</span></span>
+    <div className="flex flex-col gap-3 border-l-2 border-primary/60 bg-muted/20 px-4 py-4 sm:px-6">
+      {trace.error && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{trace.error}</div>
+      )}
+      {/* The turn's own message and reply are not repeated here: the row above
+          already shows the message, and the transcript is where the reply is
+          read. What the transcript cannot show is the shape of the run, so
+          that is all this panel is. */}
+      <Waterfall trace={trace} spans={spans} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span>Replied on {trace.channel || "an unknown surface"}</span>
+        {trace.model && <><span className="text-border">/</span><span>{trace.model}</span></>}
+        {trace.effort && <><span className="text-border">/</span><span>{trace.effort} effort</span></>}
+        <span className="text-border">/</span>
+        <span>{formatTokens(trace.prompt_tokens)} tok prompt</span>
+        <span className="text-border">/</span>
+        <span>{formatTokens(trace.completion_tokens)} tok completion</span>
         {!trace.complete && (
           <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
             incomplete
           </span>
         )}
-      </div>
-      {trace.error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{trace.error}</div>
-      )}
-      <Body label="Owner message" text={trace.input} />
-      <Body label="Reply" text={trace.output} />
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Timeline</span>
-        <Waterfall trace={trace} spans={spans} />
       </div>
     </div>
   );
@@ -410,7 +440,7 @@ function TraceRow({
             <ChevronDownIcon />
           </span>
         </td>
-        <td className="px-3 py-2.5 align-middle"><KindBadge kind={trace.kind} /></td>
+        <td className="px-3 py-2.5 align-middle"><SourceBadge trace={trace} /></td>
         <td className="whitespace-nowrap px-3 py-2.5 align-middle text-xs text-muted-foreground">{formatTime(trace.started_at)}</td>
         <td className="w-full max-w-0 px-3 py-2.5 align-middle">
           <div className="truncate text-sm text-foreground">{trace.input || trace.output || "(no message)"}</div>
@@ -537,7 +567,7 @@ export function TracesPage({
                 <thead className="bg-muted/60">
                   <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <th className="w-8" />
-                    <th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2">Source</th>
                     <th className="px-3 py-2">Started</th>
                     <th className="px-3 py-2">Turn</th>
                     <th className="px-3 py-2 text-right">Steps</th>

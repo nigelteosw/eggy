@@ -25,7 +25,7 @@ type currentTimeTool struct {
 func (t currentTimeTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "current_time",
-		Description: "Return the trusted current time and owner timezone; use this instead of model knowledge for relative dates",
+		Description: "Refresh the trusted current time and owner timezone during a long-running turn. The turn-start time is already in the system context, so do not call this merely to answer with the current date or time",
 		Schema:      json.RawMessage(`{"type":"object","additionalProperties":false}`),
 		Effect:      ports.ReadOnlyTool(),
 	}

@@ -303,6 +303,7 @@ function SpanRow({ item, window }: { item: Placed; window: number }) {
             <span>Started +{formatDuration(item.offset)} into the turn</span>
             <span>Took {formatDuration(item.duration)}</span>
             {span.prompt_tokens ? <span>Prompt {formatTokens(span.prompt_tokens)} tok</span> : null}
+            {span.cached_prompt_tokens ? <span>Cached {formatTokens(span.cached_prompt_tokens)} tok</span> : null}
             {span.completion_tokens ? <span>Completion {formatTokens(span.completion_tokens)} tok</span> : null}
           </div>
           {model ? <Prompt request={span.request} /> : <Body label="Arguments" text={span.request} />}
@@ -385,6 +386,7 @@ function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
         {trace.effort && <><span className="text-border">/</span><span>{trace.effort} effort</span></>}
         <span className="text-border">/</span>
         <span>{formatTokens(trace.prompt_tokens)} tok prompt</span>
+        {trace.cached_prompt_tokens ? <><span className="text-border">/</span><span>{formatTokens(trace.cached_prompt_tokens)} tok cached</span></> : null}
         <span className="text-border">/</span>
         <span>{formatTokens(trace.completion_tokens)} tok completion</span>
         {!trace.complete && (

@@ -38,6 +38,24 @@ func TestModelTranslatesChatCompletionAndUsage(t *testing.T) {
 	}
 }
 
+// DeepSeek speaks the same chat-completions wire format but reports context
+// cache hits at usage.prompt_cache_hit_tokens rather than in OpenAI's nested
+// prompt_tokens_details object. Losing that field makes an automatic cache
+// hit look like a miss everywhere Eggy reports usage.
+func TestModelTranslatesDeepSeekCacheUsage(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"cached"}}],"usage":{"prompt_tokens":100,"completion_tokens":4,"total_tokens":104,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20}}`), nil
+	})}
+
+	result, err := New("https://api.deepseek.com", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "deepseek-chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.CachedPromptTokens != 80 {
+		t.Fatalf("cached prompt tokens = %d, want 80", result.Usage.CachedPromptTokens)
+	}
+}
+
 func TestModelParsesReasoningContentAndNeverReplaysIt(t *testing.T) {
 	var bodies [][]byte
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {

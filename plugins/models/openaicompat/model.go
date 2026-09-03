@@ -95,10 +95,11 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 			Message providerMessage `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens        int64 `json:"prompt_tokens"`
-			CompletionTokens    int64 `json:"completion_tokens"`
-			TotalTokens         int64 `json:"total_tokens"`
-			PromptTokensDetails struct {
+			PromptTokens         int64 `json:"prompt_tokens"`
+			CompletionTokens     int64 `json:"completion_tokens"`
+			TotalTokens          int64 `json:"total_tokens"`
+			PromptCacheHitTokens int64 `json:"prompt_cache_hit_tokens"`
+			PromptTokensDetails  struct {
 				CachedTokens int64 `json:"cached_tokens"`
 			} `json:"prompt_tokens_details"`
 			CompletionTokenDetails struct {
@@ -123,7 +124,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}
 	return ports.ModelResponse{Message: message, ReasoningContent: providerResult.ReasoningContent, Usage: ports.ModelUsage{
 		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
-		CachedPromptTokens: result.Usage.PromptTokensDetails.CachedTokens, ReasoningTokens: result.Usage.CompletionTokenDetails.ReasoningTokens,
+		CachedPromptTokens: max(result.Usage.PromptTokensDetails.CachedTokens, result.Usage.PromptCacheHitTokens), ReasoningTokens: result.Usage.CompletionTokenDetails.ReasoningTokens,
 	}}, nil
 }
 

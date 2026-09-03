@@ -101,7 +101,11 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 func TestCurrentTimeToolReturnsTrustedZonedClock(t *testing.T) {
 	location, _ := time.LoadLocation("Asia/Singapore")
 	now := func() time.Time { return time.Date(2026, 7, 19, 12, 34, 56, 0, location) }
-	result, err := NewCurrentTimeTool(now, location, "Asia/Singapore").Execute(context.Background(), json.RawMessage(`{}`))
+	tool := NewCurrentTimeTool(now, location, "Asia/Singapore")
+	if description := tool.Definition().Description; !strings.Contains(description, "turn-start time is already in the system context") || !strings.Contains(description, "long-running turn") {
+		t.Fatalf("description encourages a redundant clock call: %s", description)
+	}
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}

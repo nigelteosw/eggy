@@ -64,6 +64,7 @@ type traceSpanJSON struct {
 	TotalTokens  int64  `json:"total_tokens,omitempty"`
 	PromptTokens int64  `json:"prompt_tokens,omitempty"`
 	OutputTokens int64  `json:"completion_tokens,omitempty"`
+	CachedTokens int64  `json:"cached_prompt_tokens,omitempty"`
 }
 
 type traceDetailJSON struct {
@@ -121,6 +122,7 @@ func newTraceDetailHandler(traces TraceDirectory) http.HandlerFunc {
 				TotalTokens:  span.Usage.TotalTokens,
 				PromptTokens: span.Usage.PromptTokens,
 				OutputTokens: span.Usage.CompletionTokens,
+				CachedTokens: span.Usage.CachedPromptTokens,
 			})
 		}
 		writeTraceJSON(w, traceDetailJSON{Trace: traceSummary(trace), Spans: rendered})

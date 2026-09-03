@@ -105,7 +105,7 @@ func TestTraceDetailReturnsSpansInOrder(t *testing.T) {
 	directory := &fakeTraceDirectory{
 		traces: []ports.Trace{{ID: "trace-1", Kind: ports.TraceKindOwner, StartedAt: time.Unix(1700000000, 0).UTC()}},
 		spans: []ports.TraceSpan{
-			{Sequence: 1, Kind: ports.TraceSpanModelCall, Name: "gpt", Request: `{"messages":[]}`, Response: `{"message":{}}`, Duration: 900 * time.Millisecond, Usage: ports.ModelUsage{TotalTokens: 50}},
+			{Sequence: 1, Kind: ports.TraceSpanModelCall, Name: "gpt", Request: `{"messages":[]}`, Response: `{"message":{}}`, Duration: 900 * time.Millisecond, Usage: ports.ModelUsage{TotalTokens: 50, CachedPromptTokens: 40}},
 			{Sequence: 2, Kind: ports.TraceSpanToolCall, Name: "status", CallID: "call-1", Request: `{}`, Response: `{"ok":true}`},
 		},
 	}
@@ -118,7 +118,7 @@ func TestTraceDetailReturnsSpansInOrder(t *testing.T) {
 	if len(body.Spans) != 2 {
 		t.Fatalf("spans = %d, want 2", len(body.Spans))
 	}
-	if body.Spans[0].Kind != string(ports.TraceSpanModelCall) || body.Spans[0].DurationMS != 900 || body.Spans[0].TotalTokens != 50 {
+	if body.Spans[0].Kind != string(ports.TraceSpanModelCall) || body.Spans[0].DurationMS != 900 || body.Spans[0].TotalTokens != 50 || body.Spans[0].CachedTokens != 40 {
 		t.Fatalf("model span = %+v", body.Spans[0])
 	}
 	if body.Spans[1].CallID != "call-1" || body.Spans[1].Request != `{}` {

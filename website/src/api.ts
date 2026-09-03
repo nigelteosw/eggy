@@ -315,6 +315,7 @@ export type TraceSpan = {
   total_tokens?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
+  cached_prompt_tokens?: number;
 };
 
 export type TraceDetail = { trace: TraceSummary; spans: TraceSpan[] };

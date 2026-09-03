@@ -62,6 +62,8 @@ func TestRuntimePolicyAlwaysCarriesTheCore(t *testing.T) {
 		for _, required := range []string{
 			"Hard runtime policy",
 			"Be truthful about configured capabilities",
+			"Direct owner turns include bounded recent conversation",
+			"Do not describe Eggy as stateless",
 			"Never ask the owner to send credentials in chat",
 			"Never claim a repository, integration, or tool exists",
 			"Never infer the current date or time",

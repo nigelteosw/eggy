@@ -310,10 +310,3 @@ func splitSlug(value string) (string, string, error) {
 	}
 	return parts[0], parts[1], nil
 }
-
-func validBranch(branch string) bool {
-	if branch == "" || strings.ContainsAny(branch, " ~^:?*[\\") || strings.Contains(branch, "..") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") {
-		return false
-	}
-	return true
-}

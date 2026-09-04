@@ -1,12 +1,18 @@
 GO ?= go
 
-.PHONY: fmt vet test race build build-web smoke clean
+.PHONY: fmt vet lint test race build build-web smoke clean
 
 fmt:
 	gofmt -w cmd internal plugins
 
 vet:
 	$(GO) vet ./...
+
+# staticcheck finds what go vet does not: unexported dead code and dead stores.
+# It is pinned rather than floating so a new release cannot fail CI on a change
+# nobody made.
+lint:
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
 test:
 	$(GO) test ./...

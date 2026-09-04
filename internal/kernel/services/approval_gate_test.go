@@ -87,7 +87,7 @@ func TestGatedToolDoesNotCallTheServerWithoutApproval(t *testing.T) {
 	if len(pending) != 1 || pending[0].Action != ApprovalToolCall {
 		t.Fatalf("expected one pending tool.call approval, got %+v", pending)
 	}
-	if !contains(pending[0].Summary, "mail__send_message") || !contains(pending[0].Summary, "someone@example.com") {
+	if !strings.Contains(pending[0].Summary, "mail__send_message") || !strings.Contains(pending[0].Summary, "someone@example.com") {
 		t.Fatalf("summary does not show the owner what they are approving: %q", pending[0].Summary)
 	}
 }
@@ -96,10 +96,10 @@ func TestGatedToolDoesNotCallTheServerWithoutApproval(t *testing.T) {
 // transient failure and calls the tool again.
 func TestGatedToolDescriptionAnnouncesTheGate(t *testing.T) {
 	_, inner, gated := newGateFixture(t)
-	if !contains(gated.Definition().Description, "requires the owner's approval") {
+	if !strings.Contains(gated.Definition().Description, "requires the owner's approval") {
 		t.Fatalf("gated description does not announce the gate: %q", gated.Definition().Description)
 	}
-	if !contains(gated.Definition().Description, inner.Definition().Description) {
+	if !strings.Contains(gated.Definition().Description, inner.Definition().Description) {
 		t.Fatal("gated description dropped the tool's own description")
 	}
 	if string(gated.Definition().Schema) != string(inner.Definition().Schema) {
@@ -312,7 +312,7 @@ func TestRuleGatesOnlyTheCallsItNames(t *testing.T) {
 
 	// The notice must name what stops, or the model avoids the actions that
 	// were never gated in the first place.
-	if !contains(gated.Definition().Description, "Only delete asks.") {
+	if !strings.Contains(gated.Definition().Description, "Only delete asks.") {
 		t.Fatalf("description=%q", gated.Definition().Description)
 	}
 }

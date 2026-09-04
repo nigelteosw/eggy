@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
@@ -238,6 +239,29 @@ const (
 	// heartbeat (see retiredConfigFields in internal/config/config_init.go).
 	ContextWatch ContextDocument = "watch"
 )
+
+// WatchListIsEmpty reports whether a watch list holds nothing to check.
+//
+// Blank lines and Markdown headings do not count: a document that is only its
+// own title is what a store returns before anyone has written to it, and
+// beating on it would run a model call to look at nothing.
+//
+// It lives here because two packages that may not import each other both need
+// the same answer -- the daemon, deciding whether to skip a heartbeat tick,
+// and the web panel, telling the owner whether their heartbeat is armed. When
+// each had its own copy the panel could report an armed heartbeat while the
+// daemon skipped every beat, and the only thing keeping them in agreement was
+// a comment asking the next editor to change both.
+func WatchListIsEmpty(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 // ContextStore holds the agent's durable context documents. Only User and
 // Memory are writable; Soul is owner-editable and load-only.

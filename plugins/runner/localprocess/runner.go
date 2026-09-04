@@ -141,7 +141,10 @@ func (r *Runner) Execute(ctx context.Context, command ports.Command) (ports.Comm
 	case waitErr = <-done:
 	case <-runContext.Done():
 		terminateProcessGroup(cmd)
-		waitErr = <-done
+		// Received to reap the process, not to report it: this path always
+		// returns ErrTimedOut or context.Canceled, so the exit error the
+		// killed child produces is not the answer the caller wants.
+		<-done
 		result := commandResult(cmd, stdout, stderr)
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return result, context.Canceled

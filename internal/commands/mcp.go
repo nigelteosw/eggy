@@ -2,8 +2,8 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -39,7 +39,7 @@ type MCPStatus struct {
 const restartNotice = "Restart Eggy to apply — send /restart."
 
 func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string, bool, error) {
-	if s.configPath == "" {
+	if s.ConfigPath == "" {
 		return "MCP configuration is unavailable.", true, nil
 	}
 	if len(args) == 0 {
@@ -53,7 +53,7 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 		return s.mcpAdd(rest)
 	case "remove":
 		return s.mcpNamed(rest, "remove", func(name string) (string, error) {
-			if err := config.RemoveMCPServer(s.configPath, name); err != nil {
+			if err := config.RemoveMCPServer(s.ConfigPath, name); err != nil {
 				return "", err
 			}
 			return "Removed MCP server " + name + ". Stored credentials are kept. " + restartNotice, nil
@@ -61,7 +61,7 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 	case "enable", "disable":
 		enabled := action == "enable"
 		return s.mcpNamed(rest, action, func(name string) (string, error) {
-			if err := config.SetMCPServerEnabled(s.configPath, name, enabled); err != nil {
+			if err := config.SetMCPServerEnabled(s.ConfigPath, name, enabled); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("MCP server %s %sd. %s", name, action, restartNotice), nil
@@ -70,10 +70,10 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 		return s.mcpLogin(ctx, rest)
 	case "logout":
 		return s.mcpNamed(rest, "logout", func(name string) (string, error) {
-			if s.mcp == nil {
+			if s.MCP == nil {
 				return "", fmt.Errorf("no MCP server is running")
 			}
-			if err := s.mcp.Logout(name); err != nil {
+			if err := s.MCP.Logout(name); err != nil {
 				return "", err
 			}
 			return "Signed out of " + name + ". Use /mcp login " + name + " to authorize it again.", nil
@@ -97,11 +97,11 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 		return "Usage: /mcp login <name> [pasted redirect URL or code]", true, nil
 	}
 	name := args[0]
-	if s.mcp == nil {
+	if s.MCP == nil {
 		return "Could not login MCP server " + name + ": no MCP server is running", true, nil
 	}
 	if len(args) == 1 {
-		authorizationURL, err := s.mcp.BeginLogin(ctx, name)
+		authorizationURL, err := s.MCP.BeginLogin(ctx, name)
 		if err != nil {
 			return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 		}
@@ -117,7 +117,7 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 	if err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
-	if err := s.mcp.CompleteLogin(ctx, name, code, state); err != nil {
+	if err := s.MCP.CompleteLogin(ctx, name, code, state); err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
 	return "Authorized " + name + ". Its tools are available on the next turn.", true, nil
@@ -139,7 +139,7 @@ func (s *CommandService) mcpNamed(args []string, action string, run func(string)
 }
 
 func (s *CommandService) mcpList() (string, bool, error) {
-	servers, err := config.GetMCPServersConfig(s.configPath)
+	servers, err := config.GetMCPServersConfig(s.ConfigPath)
 	if err != nil {
 		return "", true, err
 	}
@@ -147,8 +147,8 @@ func (s *CommandService) mcpList() (string, bool, error) {
 		return "No MCP servers are configured.\n\n" + mcpUsage(), true, nil
 	}
 	live := map[string]MCPStatus{}
-	if s.mcp != nil {
-		for _, status := range s.mcp.Statuses() {
+	if s.MCP != nil {
+		for _, status := range s.MCP.Statuses() {
 			live[status.Name] = status
 		}
 	}
@@ -211,45 +211,15 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	if len(args) == 0 {
 		return mcpAddUsage, true, nil
 	}
-	input := config.MCPServerInput{Name: args[0], Auth: "none", Enabled: true}
-	for _, argument := range args[1:] {
-		key, value, ok := strings.Cut(argument, "=")
-		if !ok {
-			return "Arguments after the name are key=value pairs. " + mcpUsage(), true, nil
-		}
-		switch key {
-		case "url":
-			input.URL = value
-		case "transport":
-			input.Transport = value
-		case "auth":
-			input.Auth = value
-		case "bearer_env":
-			if !environmentName.MatchString(value) {
-				return secretNameHint(key), true, nil
-			}
-			input.BearerTokenEnv = value
-		case "client_id":
-			input.OAuthClientID = value
-		case "client_secret_env":
-			if !environmentName.MatchString(value) {
-				return secretNameHint(key), true, nil
-			}
-			input.OAuthClientSecretEnv = value
-		case "enabled":
-			switch value {
-			case "true":
-				input.Enabled = true
-			case "false":
-				input.Enabled = false
-			default:
-				return "enabled must be true or false.", true, nil
-			}
-		default:
-			return fmt.Sprintf("Unknown field %q. %s", key, mcpUsage()), true, nil
-		}
+	values, ok := namedArguments(args[1:])
+	if !ok {
+		return "Arguments after the name are key=value pairs. " + mcpUsage(), true, nil
 	}
-	if err := config.SetMCPServer(s.configPath, input); err != nil {
+	input, err := values.MCPServerInput(args[0])
+	if err != nil {
+		return fieldErrorReply(err, mcpUsage()), true, nil
+	}
+	if err := config.SetMCPServer(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not save MCP server %s: %v", input.Name, err), true, nil
 	}
 	message := "Saved MCP server " + input.Name + ". " + restartNotice
@@ -271,11 +241,41 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	return message, true, nil
 }
 
-// environmentName is the shape internal/config accepts for a variable name.
-// It is checked here as well so the reply can say what went wrong: a value
-// pasted where a name belongs is almost always the secret itself, and the
-// config layer's "is invalid" cannot know that.
-var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+// namedArguments turns "key=value key=value" into the bag internal/config
+// decodes. Both /mcp add and /google set take their fields this way, so the
+// splitting is written once and the field names themselves live in config,
+// where the panel reads the same list.
+func namedArguments(args []string) (config.Values, bool) {
+	values := make(config.Values, len(args))
+	for _, argument := range args {
+		key, value, ok := strings.Cut(argument, "=")
+		if !ok {
+			return nil, false
+		}
+		values[key] = value
+	}
+	return values, true
+}
+
+// fieldErrorReply renders a decode failure in the chat surface's own words.
+// This is why config reports the field and the reason rather than a finished
+// sentence: an *_env field holding something that is not a variable name is
+// almost always the secret itself, and only this surface knows the value just
+// went into a message history that needs it rotated.
+func fieldErrorReply(err error, usage string) string {
+	var fieldErr config.FieldError
+	if !errors.As(err, &fieldErr) {
+		return err.Error()
+	}
+	switch fieldErr.Kind {
+	case config.NotAnEnvironmentName:
+		return secretNameHint(fieldErr.Field)
+	case config.NotABoolean:
+		return fieldErr.Field + " must be true or false."
+	default:
+		return fmt.Sprintf("Unknown field %q. %s", fieldErr.Field, usage)
+	}
+}
 
 // secretNameHint never echoes the offending value. The whole reason to reach
 // this branch is that the owner pasted a credential into a chat message;

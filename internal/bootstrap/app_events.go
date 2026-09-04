@@ -284,14 +284,7 @@ func (a *App) watchListIsEmpty(ctx context.Context) bool {
 		slog.Error("watch list unreadable; beating anyway", "error", err)
 		return false
 	}
-	for _, line := range strings.Split(agentContext.Watch, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		return false
-	}
-	return true
+	return ports.WatchListIsEmpty(agentContext.Watch)
 }
 
 // withinActiveHours reports whether now falls inside the configured window,

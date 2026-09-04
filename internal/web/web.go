@@ -396,34 +396,30 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 
 func webMCPSetRoute(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var input struct {
-			Name                 string `json:"name"`
-			URL                  string `json:"url"`
-			Transport            string `json:"transport"`
-			Auth                 string `json:"auth"`
-			BearerTokenEnv       string `json:"bearer_token_env"`
-			OAuthClientID        string `json:"oauth_client_id"`
-			OAuthClientSecretEnv string `json:"oauth_client_secret_env"`
-			Enabled              bool   `json:"enabled"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		// The panel posts booleans as JSON booleans and the chat surface posts
+		// them as words, so the body is taken loosely and normalized before it
+		// reaches the one decoder both surfaces share.
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if input.Name == "" || input.URL == "" || input.Auth == "" {
+		values := stringValues(body)
+		name := values["name"]
+		if name == "" || values["url"] == "" || values["auth"] == "" {
 			writeWebError(w, http.StatusBadRequest, "name, url, and auth are required")
 			return
 		}
-		if err := config.SetMCPServer(configPath, config.MCPServerInput{
-			Name: input.Name, URL: input.URL, Transport: input.Transport,
-			Auth: input.Auth, BearerTokenEnv: input.BearerTokenEnv,
-			OAuthClientID: input.OAuthClientID, OAuthClientSecretEnv: input.OAuthClientSecretEnv,
-			Enabled: input.Enabled,
-		}); err != nil {
+		input, decodeErr := values.MCPServerInput(name)
+		if decodeErr != nil {
+			writeWebError(w, http.StatusBadRequest, decodeErr.Error())
+			return
+		}
+		if err := config.SetMCPServer(configPath, input); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + input.Name + ".", Detail: restartToApply})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + name + ".", Detail: restartToApply})
 	}
 }
 
@@ -620,15 +616,23 @@ func checkGoogleApprovals(entries []string, catalog map[string]GoogleProductActi
 // carries flat strings, so a multi-valued field arrives as one of these rather
 // than as JSON; empty entries are dropped so a trailing comma is not a product
 // named "".
-func splitList(value string) []string {
-	parts := strings.Split(value, ",")
-	list := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			list = append(list, trimmed)
+// stringValues flattens a decoded JSON object into the string bag
+// internal/config decodes. The panel's forms are string-valued apart from
+// enabled, which arrives as a real boolean; rendering each value with %v gives
+// the one spelling -- "true"/"false" -- the shared decoder expects.
+func stringValues(body map[string]any) config.Values {
+	values := make(config.Values, len(body))
+	for key, value := range body {
+		if value == nil {
+			continue
 		}
+		if text, ok := value.(string); ok {
+			values[key] = text
+			continue
+		}
+		values[key] = fmt.Sprintf("%v", value)
 	}
-	return list
+	return values
 }
 
 func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.HandlerFunc {
@@ -658,16 +662,20 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
 			title = "Set model " + named["alias"] + "."
 		case "google":
-			input := config.GoogleInput{
-				Enabled: named["enabled"] != "false", ClientID: named["client_id"],
-				ClientSecretEnv: named["client_secret_env"], Products: splitList(named["products"]),
+			// Decoded by internal/config, not mapped field by field here: the
+			// chat surface decodes the same keys through the same function, so
+			// neither surface can grow a field the other does not know about.
+			input, decodeErr := config.Values(named).GoogleInput()
+			if decodeErr != nil {
+				writeWebError(w, http.StatusBadRequest, decodeErr.Error())
+				return
 			}
 			// Three states through one pointer, the same distinction the
 			// setting itself turns on: absent leaves the stored list alone, a
 			// pointer to nil restores the default by removing the key, and a
 			// pointer to a list -- empty included -- replaces it.
 			if mode, sent := named["require_approval_mode"]; sent {
-				entries := splitList(named["require_approval"])
+				entries := config.SplitCommaList(named["require_approval"])
 				if mode == "default" {
 					entries = nil
 				} else if entries == nil {

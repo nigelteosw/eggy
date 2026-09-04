@@ -245,7 +245,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}
 	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
-	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
+	mux.Handle("GET /", webUIHandler())
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
@@ -302,6 +302,23 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
 
 	return mux
+}
+
+func webUIHandler() http.Handler {
+	fileServer := http.FileServer(http.FS(webui.Assets()))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && isApplicationRoute(r.URL.Path) {
+			request := r.Clone(r.Context())
+			request.URL.Path = "/"
+			fileServer.ServeHTTP(w, request)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+func isApplicationRoute(path string) bool {
+	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/"
 }
 
 func webMCPListRoute(configPath string) http.HandlerFunc {

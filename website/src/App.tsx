@@ -8,15 +8,17 @@ import { SafeModePage } from "./SafeModePage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
+import { pathForView, viewForPath, type View } from "./routing";
 
 type Status = "checking" | "authenticated" | "unauthenticated";
-type View = "chat" | "config" | "traces";
 
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
   const [mode, setMode] = useState<Mode>("normal");
   const [theme, setTheme] = useState<Theme>("dark");
-  const [view, setView] = useState<View>("chat");
+  const [view, setView] = useState<View>(() =>
+    viewForPath(typeof window === "undefined" ? "/" : window.location.pathname),
+  );
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
@@ -27,6 +29,18 @@ export function App() {
   // the transcript the whole window. The stored default is open, so a first
   // visit lands on the list rather than on an empty pane.
   const [sidebarOpen, setSidebarOpen] = useStoredFlag("eggy.chat.sidebar", true);
+
+  useEffect(() => {
+    const handlePopState = () => setView(viewForPath(window.location.pathname));
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function navigate(next: View) {
+    const path = pathForView(next);
+    if (window.location.pathname !== path) window.history.pushState({}, "", path);
+    setView(next);
+  }
 
   useEffect(() => {
     // The mode probe decides which app this is before the session decides
@@ -112,8 +126,8 @@ export function App() {
               }}
               onActiveTitleChange={setActiveThreadTitle}
               onCollapse={() => setSidebarOpen(false)}
-              onOpenSettings={() => setView("config")}
-              onOpenTraces={() => setView("traces")}
+              onOpenSettings={() => navigate("config")}
+              onOpenTraces={() => navigate("traces")}
               onDeleted={(id) => {
                 // Only the open chat needs clearing; deleting some other row
                 // should leave the current conversation alone.
@@ -141,7 +155,7 @@ export function App() {
         </>
       ) : view === "traces" ? (
         <div className="min-h-0 flex-1">
-          <TracesPage onSessionExpired={onSessionExpired} onBackToChat={() => setView("chat")} />
+          <TracesPage onSessionExpired={onSessionExpired} onBackToChat={() => navigate("chat")} />
         </div>
       ) : (
         <div className="min-h-0 flex-1">
@@ -149,7 +163,7 @@ export function App() {
             theme={theme}
             onThemeChange={setTheme}
             onSessionExpired={onSessionExpired}
-            onBackToChat={() => setView("chat")}
+            onBackToChat={() => navigate("chat")}
           />
         </div>
       )}

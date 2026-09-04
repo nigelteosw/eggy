@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/plugins/auth/session"
-	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
 // Safe mode is what Eggy serves when it could not start: a config.yaml that
@@ -65,7 +64,7 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 	// attacker without locking the owner out of the repair page.
 	throttle := session.NewLoginThrottle(now)
 	mux := http.NewServeMux()
-	mux.Handle("GET /", http.FileServer(http.FS(webui.Assets())))
+	mux.Handle("GET /", webUIHandler())
 	// Safe mode reports the default theme rather than the configured one: the
 	// config that would name it is the config that failed to load.
 	mux.HandleFunc("GET /api/mode", writeMode(modeSafe, nil))

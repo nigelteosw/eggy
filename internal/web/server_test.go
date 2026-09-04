@@ -68,3 +68,14 @@ func TestHTTPHandlerMountsWebHandlerAsFallback(t *testing.T) {
 		t.Fatalf("healthz status=%d", health.Code)
 	}
 }
+
+func TestWebHandlerServesApplicationRoutes(t *testing.T) {
+	handler := NewWebHandler("", WebUIConfig{})
+	for _, path := range []string{"/settings", "/traces"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status=%d, want the SPA entrypoint", path, response.Code)
+		}
+	}
+}

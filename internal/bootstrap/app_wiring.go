@@ -118,6 +118,49 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 	return catalog, nil
 }
 
+// modelDiscovery answers "what does this provider say it serves?" for the
+// settings panel. It is built from the same adapters the turn path runs on, so
+// a browse listing is authenticated by the provider's own configured key and
+// no second credential path exists.
+//
+// A provider appears here only if it opted in (discover_models, on by default)
+// and its adapter can actually list. Everything else is simply absent, which
+// the panel renders as "this provider cannot be browsed" -- not an error,
+// because a provider with no catalog is a normal, working provider.
+type modelDiscovery struct {
+	providers map[string]ports.ModelCatalog
+}
+
+func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *modelDiscovery {
+	discovery := &modelDiscovery{providers: map[string]ports.ModelCatalog{}}
+	for name, provider := range cfg.Providers {
+		if !provider.DiscoversModels() {
+			continue
+		}
+		if listable, ok := adapters[name].(ports.ModelCatalog); ok {
+			discovery.providers[name] = listable
+		}
+	}
+	return discovery
+}
+
+func (d *modelDiscovery) DiscoverableProviders() []string {
+	names := make([]string, 0, len(d.providers))
+	for name := range d.providers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func (d *modelDiscovery) DiscoverModels(ctx context.Context, provider string) ([]ports.CatalogModel, error) {
+	listable, ok := d.providers[provider]
+	if !ok {
+		return nil, fmt.Errorf("provider %q cannot list models", provider)
+	}
+	return listable.ListModels(ctx)
+}
+
 // trace wraps every resolved target's model in the recorder, in place. It is
 // applied to the catalog rather than inside newModelAdapter so that a new
 // adapter case cannot be added without tracing: the wrapping happens after

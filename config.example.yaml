@@ -24,6 +24,13 @@ providers:
     base_url: "https://api.deepseek.com"
     # This names an environment variable. Never place the key itself in YAML.
     api_key_env: "DEEPSEEK_API_KEY"
+    # Optional, default true. Lets the Models settings card and
+    # /model available browse this provider's own /models listing, so an
+    # alias can be filled in from what the provider actually serves rather
+    # than typed from memory. Browsing never enables anything: the models
+    # block below is still the only thing Eggy will run. Set false for a
+    # provider that serves no catalog or that you would rather not query.
+    discover_models: true
 models:
   deepseek-pro:
     provider: "deepseek"

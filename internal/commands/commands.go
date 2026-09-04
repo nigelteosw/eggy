@@ -29,7 +29,7 @@ var telegramCommands = []struct {
 	{Name: "status", Description: "Show brief operational status"},
 	{Name: "stop", Description: "Stop the current turn"},
 	{Name: "clear", Description: "Clear recent conversation history"},
-	{Name: "model", Description: "Show or select the active model"},
+	{Name: "model", Description: "Show or select the active model; browse and add with providers/available/add"},
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
 	{Name: "google", Description: "Authorize Google Workspace and show its status"},
 	{Name: "mode", Description: "Show or set how much Eggy asks before tool calls: strict, normal or auto"},
@@ -78,6 +78,10 @@ type Options struct {
 	AgentRuntime AgentSettings
 	DefaultModel string
 	ModelAliases []string
+	// ModelDiscovery browses a provider's catalog for /model available. Nil
+	// leaves that subcommand saying so, which is what a deployment whose
+	// providers all opted out of discovery gets.
+	ModelDiscovery ModelDiscoverer
 	// Getenv is the daemon's own environment lookup, including .env, which
 	// the process environment does not carry. /restart pre-flights the config
 	// with it so the check answers the same question startup will.
@@ -97,16 +101,36 @@ type CommandService struct {
 	agentRuntime AgentSettings
 	defaultModel string
 	modelAliases []string
+	// aliasSet is modelAliases as a lookup, so /model can tell a subcommand
+	// from an alias that happens to share its name without a linear scan on
+	// every invocation.
+	aliasSet  map[string]struct{}
+	discovery ModelDiscoverer
+}
+
+// ModelDiscoverer is the listing side of the configured providers, as /model
+// needs it. It mirrors the web panel's interface of the same shape rather than
+// sharing one: both are two-method views onto bootstrap's discovery, and a
+// shared interface would only put internal/commands and internal/web in each
+// other's import path to save four lines.
+type ModelDiscoverer interface {
+	DiscoverableProviders() []string
+	DiscoverModels(ctx context.Context, provider string) ([]ports.CatalogModel, error)
 }
 
 func New(options Options) *CommandService {
 	aliases := append([]string(nil), options.ModelAliases...)
 	slices.Sort(aliases)
+	aliasSet := make(map[string]struct{}, len(aliases))
+	for _, alias := range aliases {
+		aliasSet[alias] = struct{}{}
+	}
 	return &CommandService{
 		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
 		store: options.Store, approvals: options.Approvals, conversation: options.Conversation, turns: options.Turns,
 		restarter: options.Restarter, getenv: options.Getenv,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
+		aliasSet: aliasSet, discovery: options.ModelDiscovery,
 	}
 }
 
@@ -243,8 +267,20 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		}
 		return fmt.Sprintf("**Active model:** %s\n**Available:** %s", selected, strings.Join(s.modelAliases, ", ")), true, nil
 	}
+	// A subcommand only wins when no configured alias answers to that name, so
+	// adding these words cannot make an existing alias unselectable.
+	if _, taken := s.aliasSet[args[0]]; !taken {
+		switch args[0] {
+		case "providers":
+			return s.modelProviders(), true, nil
+		case "available":
+			return s.modelAvailable(ctx, args[1:]), true, nil
+		case "add":
+			return s.modelAdd(args[1:]), true, nil
+		}
+	}
 	if len(args) != 1 {
-		return "Usage: /model <alias>", true, nil
+		return "Usage: /model <alias> | /model providers | /model available <provider> [filter] | /model add <alias> <provider> <model>", true, nil
 	}
 	alias := args[0]
 	if alias == "default" {
@@ -257,6 +293,102 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		alias = s.defaultModel
 	}
 	return "Model set to " + alias + ".", true, nil
+}
+
+// modelProviders names the providers a catalog can be asked for. It reports
+// the ones that cannot be browsed too, because "openrouter is missing from
+// this list" is the question an owner actually has, and silence answers it
+// badly.
+func (s *CommandService) modelProviders() string {
+	names, err := config.ProviderNames(s.configPath)
+	if err != nil {
+		return fmt.Sprintf("Could not read providers: %v", err)
+	}
+	if len(names) == 0 {
+		return "No providers configured."
+	}
+	browsable := map[string]bool{}
+	if s.discovery != nil {
+		for _, name := range s.discovery.DiscoverableProviders() {
+			browsable[name] = true
+		}
+	}
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		note := "cannot be browsed"
+		if browsable[name] {
+			note = "browsable -- /model available " + name
+		}
+		lines = append(lines, fmt.Sprintf("- %s (%s)", name, note))
+	}
+	return "**Providers:**\n" + strings.Join(lines, "\n")
+}
+
+// modelAvailable browses one provider's catalog. The filter argument is not a
+// convenience: OpenRouter answers with several hundred entries, and a chat
+// surface that dumped all of them would be unusable, so an unfiltered listing
+// is capped and says so rather than being silently cut.
+func (s *CommandService) modelAvailable(ctx context.Context, args []string) string {
+	if s.discovery == nil {
+		return "Model discovery is unavailable."
+	}
+	if len(args) == 0 {
+		return "Usage: /model available <provider> [filter]\n\n" + s.modelProviders()
+	}
+	provider := args[0]
+	filter := strings.ToLower(strings.Join(args[1:], " "))
+	models, err := s.discovery.DiscoverModels(ctx, provider)
+	if err != nil {
+		return fmt.Sprintf("Could not list %s models: %v", provider, err)
+	}
+	matched := make([]string, 0, len(models))
+	for _, model := range models {
+		if filter != "" && !strings.Contains(strings.ToLower(model.ID), filter) && !strings.Contains(strings.ToLower(model.Name), filter) {
+			continue
+		}
+		matched = append(matched, model.ID)
+	}
+	if len(matched) == 0 {
+		if filter != "" {
+			return fmt.Sprintf("No %s model matches %q.", provider, filter)
+		}
+		return provider + " reported no models."
+	}
+	slices.Sort(matched)
+	const cap = 40
+	header := fmt.Sprintf("**%s models** (%d", provider, len(matched))
+	if filter != "" {
+		header += fmt.Sprintf(" matching %q", filter)
+	}
+	header += ")"
+	truncated := ""
+	if len(matched) > cap {
+		truncated = fmt.Sprintf("\n\n...and %d more. Narrow it with /model available %s <filter>.", len(matched)-cap, provider)
+		matched = matched[:cap]
+	}
+	// The reminder is the point of the whole listing: seeing a model here is
+	// not the same as being able to run it.
+	return header + "\n" + strings.Join(matched, "\n") +
+		truncated + "\n\nAdd one with /model add <alias> " + provider + " <model>."
+}
+
+// modelAdd writes an alias. It is the one command here that changes config,
+// and it deliberately does not select the new alias: the running daemon is
+// still holding the old catalog, so selecting it would fail on an alias the
+// owner can see in config.yaml, which is worse than being told to restart.
+func (s *CommandService) modelAdd(args []string) string {
+	if len(args) < 3 || len(args) > 4 {
+		return "Usage: /model add <alias> <provider> <model> [efforts]\n\nefforts is an optional comma-separated list such as low,medium,high."
+	}
+	alias, provider, modelID := args[0], args[1], args[2]
+	efforts := ""
+	if len(args) == 4 {
+		efforts = args[3]
+	}
+	if err := config.SetModelAlias(s.configPath, alias, provider, modelID, efforts); err != nil {
+		return fmt.Sprintf("Could not add %s: %v", alias, err)
+	}
+	return fmt.Sprintf("Added **%s** -> %s %s.\n\nRestart for it to become selectable: /restart", alias, provider, modelID)
 }
 
 // modeCommand reads or sets how much the owner is asked.

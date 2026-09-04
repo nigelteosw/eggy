@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -82,7 +83,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	if err != nil {
 		return ports.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
 	}
-	response, err := m.request(ctx, "/chat/completions", encoded)
+	response, err := m.request(ctx, http.MethodPost, "/chat/completions", encoded)
 	if err != nil {
 		return ports.ModelResponse{}, err
 	}
@@ -128,14 +129,63 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}}, nil
 }
 
-func (m *Model) request(ctx context.Context, endpoint string, body []byte) (*http.Response, error) {
+// ListModels reports the provider's own catalog from the same /models listing
+// OpenAI defines, which every service speaking this wire format serves. It
+// satisfies ports.ModelCatalog.
+//
+// The listing is returned as the provider gives it, minus entries with no id:
+// deciding which of them are worth running is the owner's call at the moment
+// they write an alias, and a filter here would only be this package guessing
+// on their behalf. OpenRouter alone returns several hundred entries including
+// image and audio models, so callers are expected to offer a search box.
+func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
+	response, err := m.request(ctx, http.MethodGet, "/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, statusError(response.StatusCode)
+	}
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+			// Name and context_length are OpenRouter's additions rather than
+			// part of OpenAI's own response, so both stay optional.
+			Name          string `json:"name"`
+			ContextLength int64  `json:"context_length"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode provider model list: %w", err)
+	}
+	models := make([]ports.CatalogModel, 0, len(result.Data))
+	for _, entry := range result.Data {
+		if strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		models = append(models, ports.CatalogModel{ID: entry.ID, Name: entry.Name, ContextLength: entry.ContextLength})
+	}
+	return models, nil
+}
+
+// request retries transient failures. body may be nil, which is how a GET is
+// spelled; a nil body must stay a nil io.Reader rather than an empty one, so
+// that the request carries no Content-Length and reads as a plain GET.
+func (m *Model) request(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+endpoint, bytes.NewReader(body))
+		var reader io.Reader
+		if body != nil {
+			reader = bytes.NewReader(body)
+		}
+		request, err := http.NewRequestWithContext(ctx, method, m.baseURL+endpoint, reader)
 		if err != nil {
 			return nil, err
 		}
 		request.Header.Set("Authorization", "Bearer "+m.apiKey)
-		request.Header.Set("Content-Type", "application/json")
+		if body != nil {
+			request.Header.Set("Content-Type", "application/json")
+		}
 		response, err := m.http.Do(request)
 		transient := err != nil || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
 		if !transient || attempt == 2 {

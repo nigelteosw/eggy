@@ -116,6 +116,13 @@ export function setConfig(section: ConfigSection, values: Record<string, string>
   return request(`/api/config/${section}`, { method: "POST", body: JSON.stringify(values) });
 }
 
+// discoverModels browses one provider's own catalog. It is not a config
+// section: nothing is written, and what comes back is a suggestion until the
+// owner turns a row into an alias.
+export function discoverModels(provider: string): Promise<CommandResult> {
+  return request(`/api/config/models/available?provider=${encodeURIComponent(provider)}`);
+}
+
 export type MCPServerInput = {
   name: string;
   url: string;

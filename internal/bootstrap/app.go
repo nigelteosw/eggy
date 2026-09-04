@@ -363,19 +363,24 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	manifest := agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
 	mcpAdministration := newMCPAdmin(app.mcp)
+	// One discovery, shared by both surfaces: the panel's browse control and
+	// /model available must not be able to disagree about what a provider
+	// serves or about which providers opted in.
+	discovery := newModelDiscovery(config, catalog.providers)
 	app.commands = commands.New(commands.Options{
-		ConfigPath:   options.ConfigPath,
-		MCP:          mcpAdministration.commandsView(),
-		Google:       googleAdministration.commandsView(),
-		Turns:        activeTurns,
-		Store:        stateStore,
-		Approvals:    app.approvals,
-		Conversation: conversation,
-		Restarter:    app,
-		Getenv:       options.Getenv,
-		AgentRuntime: agentRuntime,
-		DefaultModel: config.Agent.DefaultModel,
-		ModelAliases: aliases,
+		ConfigPath:     options.ConfigPath,
+		MCP:            mcpAdministration.commandsView(),
+		Google:         googleAdministration.commandsView(),
+		Turns:          activeTurns,
+		Store:          stateStore,
+		Approvals:      app.approvals,
+		Conversation:   conversation,
+		Restarter:      app,
+		Getenv:         options.Getenv,
+		AgentRuntime:   agentRuntime,
+		DefaultModel:   config.Agent.DefaultModel,
+		ModelAliases:   aliases,
+		ModelDiscovery: discovery,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
@@ -408,6 +413,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Approvals:        app.approvals,
 		ApprovalMode:     app.approvals,
 		Agent:            agentRuntime,
+		ModelDiscovery:   discovery,
 		GoogleActions:    googleActionCatalog(),
 		Restarter:        app,
 		Getenv:           options.Getenv,

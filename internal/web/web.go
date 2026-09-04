@@ -69,6 +69,11 @@ type WebUIConfig struct {
 	// exist fails at startup, which for a config edit means the owner lands in
 	// safe mode over a typo the form could have refused.
 	GoogleActions map[string]GoogleProductActions
+	// ModelDiscovery browses a provider's catalog so the models card can offer
+	// what is on sale instead of asking the owner to type an ID from memory.
+	// Nil leaves the route answering 404 and the card's browse control absent,
+	// which is also what every provider opting out of discovery produces.
+	ModelDiscovery ModelDiscoverer
 	// Watch is the heartbeat's watch list, the one context document the
 	// panel edits. Nil leaves its routes answering 404 and the card absent.
 	Watch WatchList
@@ -253,6 +258,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section, webConfig)))
 	}
 
+	mux.Handle("GET /api/config/models/available", requireWebSession(webConfig, now, newModelDiscoveryHandler(webConfig.ModelDiscovery)))
+
 	mux.Handle("GET /api/config/raw", requireWebSession(webConfig, now, rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", requireWebSession(webConfig, now, rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
 
@@ -408,10 +415,14 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 				names = append(names, name)
 			}
 			slices.Sort(names)
-			result.TableHeaders = []string{"Provider", "Adapter", "Base URL", "API key env"}
+			result.TableHeaders = []string{"Provider", "Adapter", "Base URL", "API key env", "Discover models"}
 			for _, name := range names {
 				provider := cfg.Providers[name]
-				result.TableRows = append(result.TableRows, []string{name, provider.Adapter, provider.BaseURL, provider.APIKeyEnv})
+				discover := "no"
+				if provider.DiscoversModels() {
+					discover = "yes"
+				}
+				result.TableRows = append(result.TableRows, []string{name, provider.Adapter, provider.BaseURL, provider.APIKeyEnv, discover})
 			}
 		case "models":
 			aliases := make([]string, 0, len(cfg.ModelAliases))
@@ -423,6 +434,12 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			for _, alias := range aliases {
 				model := cfg.ModelAliases[alias]
 				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", ")})
+			}
+			// Which providers can be browsed rides along with the section the
+			// card already fetches, rather than costing a second round trip to
+			// answer a question that only changes when config does.
+			if webConfig.ModelDiscovery != nil {
+				result.Lines = webConfig.ModelDiscovery.DiscoverableProviders()
 			}
 		case "google":
 			// One row, because there is one grant. A second row would suggest
@@ -563,7 +580,17 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 		var title string
 		switch section {
 		case "providers":
-			err = config.SetProvider(configPath, named["name"], named["adapter"], named["base_url"], named["api_key_env"])
+			input := config.ProviderInput{
+				Name: named["name"], Adapter: named["adapter"],
+				BaseURL: named["base_url"], APIKeyEnv: named["api_key_env"],
+			}
+			// Absent leaves the key out and takes the default; only a form that
+			// actually carried the control writes a choice down.
+			if sent, ok := named["discover_models"]; ok {
+				discover := sent != "false"
+				input.DiscoverModels = &discover
+			}
+			err = config.SetProvider(configPath, input)
 			title = "Set provider " + named["name"] + "."
 		case "models":
 			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])

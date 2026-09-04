@@ -13,7 +13,7 @@ func TestSetProviderAddsEntryAndRejectsInvalidURL(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProvider(path, "openrouter", "openai_compatible", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"); err != nil {
+	if err := SetProvider(path, ProviderInput{Name: "openrouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY"}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -32,7 +32,7 @@ func TestSetProviderAddsEntryAndRejectsInvalidURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = SetProvider(path, "broken", "openai_compatible", "not-a-url", "BROKEN_API_KEY")
+	err = SetProvider(path, ProviderInput{Name: "broken", Adapter: "openai_compatible", BaseURL: "not-a-url", APIKeyEnv: "BROKEN_API_KEY"})
 	if err == nil || !strings.Contains(err.Error(), "base_url") {
 		t.Fatalf("error = %v", err)
 	}
@@ -687,5 +687,47 @@ func TestSetHeartbeatPreservesIncludeRecentHistory(t *testing.T) {
 	}
 	if !reloaded.Heartbeat.IncludeRecentHistory {
 		t.Fatal("a panel save cleared include_recent_history")
+	}
+}
+
+// discover_models defaults to on, and the default is written as an absent key
+// rather than an explicit true: every config that predates the field has to
+// keep behaving the same way, and a provider nobody opted out of is browsable.
+func TestProviderDiscoveryDefaultsOnAndRoundTripsAnOptOut(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProvider(path, ProviderInput{Name: "quiet", Adapter: "openai_compatible", BaseURL: "https://api.example/v1", APIKeyEnv: "DEEPSEEK_API_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.Providers["quiet"].DiscoversModels() || !reloaded.Providers["deepseek"].DiscoversModels() {
+		t.Fatal("an unset discover_models must mean discovery is on")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "discover_models") {
+		t.Fatalf("the default must not be written out:\n%s", body)
+	}
+
+	off := false
+	if err := SetProvider(path, ProviderInput{Name: "quiet", Adapter: "openai_compatible", BaseURL: "https://api.example/v1", APIKeyEnv: "DEEPSEEK_API_KEY", DiscoverModels: &off}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err = LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Providers["quiet"].DiscoversModels() {
+		t.Fatal("an explicit discover_models: false must survive a round trip")
+	}
+	if !reloaded.Providers["deepseek"].DiscoversModels() {
+		t.Fatal("one provider opting out must not opt the others out")
 	}
 }

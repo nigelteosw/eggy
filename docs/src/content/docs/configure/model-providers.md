@@ -41,6 +41,52 @@ DEEPSEEK_API_KEY=...
 
 Provider names and base URLs are non-secret. The key itself must not appear in YAML.
 
+OpenRouter is the same shape again, and is the provider discovery was built for:
+
+```yaml
+providers:
+  openrouter:
+    adapter: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+```
+
+## Discover what a provider serves
+
+`discover_models` is **on unless switched off**. It lets a surface ask the
+provider for its own `/models` listing, so an alias can be filled in from what
+the provider actually serves instead of from an ID copied out of a vendor's web
+page.
+
+```yaml
+providers:
+  openrouter:
+    adapter: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    discover_models: false   # never query this provider's catalog
+```
+
+Two surfaces read it:
+
+- **Settings → Models** lists the browsable providers, fetches the catalog on
+  demand, filters it as you type, and fills the alias form from the row you
+  pick.
+- **`/model providers`** names every provider and says which can be browsed.
+  **`/model available <provider> [filter]`** lists its catalog — the filter is
+  worth using, since OpenRouter answers with several hundred entries.
+  **`/model add <alias> <provider> <model> [efforts]`** writes the alias, and
+  `/restart` makes it selectable.
+
+**Discovery is a browse list, never an allowlist.** What Eggy will run stays
+exactly what `models` names, and a discovered model becomes selectable only
+once it is written down as an alias. That separation is the point: a provider's
+catalog is provider-controlled and changes without warning, so it may inform a
+choice but must not be one.
+
+A provider whose adapter cannot list, or that opted out, simply does not appear
+as browsable. That is a normal, working provider — not an error.
+
 ## Add aliases
 
 ```yaml

@@ -313,7 +313,23 @@ type ProviderConfig struct {
 	Adapter   string `yaml:"adapter"`
 	BaseURL   string `yaml:"base_url"`
 	APIKeyEnv string `yaml:"api_key_env"`
+	// DiscoverModels allows a surface to ask the provider what it serves,
+	// through the adapter's /models listing. It is a pointer so that absent
+	// and false are distinguishable: the default is on, and a plain bool
+	// would silently opt every config written before this field out of it.
+	//
+	// Discovery is a browse list, never an allowlist. What Eggy will actually
+	// run stays exactly what ModelAliases names -- a discovered model becomes
+	// selectable only once an owner has written it down as an alias. That
+	// separation is the whole point: the catalog is provider-controlled and
+	// changes without warning, so it may inform a choice but must not be one.
+	DiscoverModels *bool `yaml:"discover_models,omitempty"`
 }
+
+// DiscoversModels reports whether this provider may be asked for its catalog.
+// Absent means yes, which is what makes the field an opt-out rather than a
+// setting every existing provider entry has to learn about.
+func (p ProviderConfig) DiscoversModels() bool { return p.DiscoverModels == nil || *p.DiscoverModels }
 
 type ModelAliasConfig struct {
 	Provider         string   `yaml:"provider"`

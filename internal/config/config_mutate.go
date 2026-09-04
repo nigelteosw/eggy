@@ -108,7 +108,22 @@ func ReplaceConfig(path string, body []byte, getenv func(string) string) error {
 	})
 }
 
-func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
+// ProviderInput is the set of provider fields a surface can set. It is a
+// struct for the same reason MCPServerInput is: adding discovery made this the
+// fifth positional string, and a run of same-typed strings is how a base URL
+// ends up in the api_key_env field.
+type ProviderInput struct {
+	Name      string
+	Adapter   string
+	BaseURL   string
+	APIKeyEnv string
+	// DiscoverModels carries the same three states the field itself has:
+	// nil leaves the key out entirely and takes the default (on), and a
+	// pointer writes the owner's explicit choice down.
+	DiscoverModels *bool
+}
+
+func SetProvider(path string, input ProviderInput) error {
 	return filelock.With(path, func() error {
 		cfg, err := LoadDocument(path)
 		if err != nil {
@@ -117,7 +132,10 @@ func SetProvider(path, name, adapter, baseURL, apiKeyEnv string) error {
 		if cfg.Providers == nil {
 			cfg.Providers = map[string]ProviderConfig{}
 		}
-		cfg.Providers[name] = ProviderConfig{Adapter: adapter, BaseURL: baseURL, APIKeyEnv: apiKeyEnv}
+		cfg.Providers[input.Name] = ProviderConfig{
+			Adapter: input.Adapter, BaseURL: input.BaseURL, APIKeyEnv: input.APIKeyEnv,
+			DiscoverModels: input.DiscoverModels,
+		}
 		if err := cfg.Validate(); err != nil {
 			return err
 		}
@@ -508,6 +526,22 @@ func GetProvidersConfigText(path string) (string, error) {
 		lines = append(lines, fmt.Sprintf("%s  adapter=%s  base_url=%s  api_key_env=%s", name, provider.Adapter, provider.BaseURL, provider.APIKeyEnv))
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// ProviderNames is the configured provider names, sorted. It exists so a
+// surface can offer the owner a choice among them without re-deriving the
+// sort or holding a second copy of the config.
+func ProviderNames(path string) ([]string, error) {
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(cfg.Providers))
+	for name := range cfg.Providers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 func GetModelAliasesConfigText(path string) (string, error) {

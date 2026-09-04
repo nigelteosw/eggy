@@ -136,6 +136,31 @@ type Model interface {
 	Generate(context.Context, ModelRequest) (ModelResponse, error)
 }
 
+// ModelCatalog is the listing side of a model provider: what it says it
+// serves. It is deliberately separate from Model rather than folded into it,
+// because generating and listing are not the same capability -- a provider
+// may serve one model at a fixed URL and have no catalog to offer, and a
+// backend that cannot answer this should fail to satisfy the interface rather
+// than have to implement a stub. Callers type-assert for it and treat its
+// absence as "this provider cannot be browsed", never as an error.
+//
+// Nothing in the turn path depends on this. It exists so an owner choosing a
+// model alias can see what is on offer instead of copying IDs out of a
+// vendor's web page; the alias they write is still what governs.
+type ModelCatalog interface {
+	ListModels(context.Context) ([]CatalogModel, error)
+}
+
+// CatalogModel is one entry from a provider's catalog, narrowed to what a
+// picker actually shows. ID is the only field a provider must supply -- it is
+// what goes in a model alias -- and the rest are hints that providers report
+// inconsistently, so every consumer must render them as optional.
+type CatalogModel struct {
+	ID            string `json:"id"`
+	Name          string `json:"name,omitempty"`
+	ContextLength int64  `json:"context_length,omitempty"`
+}
+
 type Tool interface {
 	Definition() ToolDefinition
 	Execute(context.Context, json.RawMessage) (json.RawMessage, error)

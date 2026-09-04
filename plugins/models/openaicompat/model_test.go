@@ -154,3 +154,55 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 func jsonResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}
 }
+
+func TestListModelsReadsCatalogAsAnAuthenticatedGET(t *testing.T) {
+	var method, requestURL, authorization string
+	var hasContentType bool
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		method, requestURL = request.Method, request.URL.String()
+		authorization = request.Header.Get("Authorization")
+		_, hasContentType = request.Header["Content-Type"]
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"anthropic/claude-sonnet-5","name":"Claude Sonnet 5","context_length":200000},{"id":"openai/gpt-5"},{"id":"   "}]}`), nil
+	})}
+	models, err := New("https://openrouter.ai/api/v1/", "top-secret-key", client).ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodGet || requestURL != "https://openrouter.ai/api/v1/models" || authorization != "Bearer top-secret-key" {
+		t.Fatalf("method=%q url=%q authorization=%q", method, requestURL, authorization)
+	}
+	// A GET carrying a JSON content type describes a body it does not have.
+	if hasContentType {
+		t.Fatal("GET must not declare a Content-Type")
+	}
+	// The entry with a blank id is dropped; nothing else is filtered, because
+	// which models are worth running is the owner's call.
+	want := []ports.CatalogModel{
+		{ID: "anthropic/claude-sonnet-5", Name: "Claude Sonnet 5", ContextLength: 200000},
+		{ID: "openai/gpt-5"},
+	}
+	if len(models) != len(want) {
+		t.Fatalf("models=%#v want=%#v", models, want)
+	}
+	for i := range want {
+		if models[i] != want[i] {
+			t.Fatalf("models[%d]=%#v want=%#v", i, models[i], want[i])
+		}
+	}
+}
+
+func TestListModelsReportsAuthenticationFailure(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusUnauthorized, `{"error":"bad key"}`), nil
+	})}
+	if _, err := New("https://openrouter.ai/api/v1", "wrong-key", client).ListModels(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+// The adapter is what makes a provider browsable, so the panel's type
+// assertion has to keep finding it.
+func TestModelSatisfiesCatalogPort(t *testing.T) {
+	var _ ports.ModelCatalog = New("https://api.example/v1", "key", nil)
+}

@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -183,4 +185,146 @@ func TestStatusReportsTheApprovalMode(t *testing.T) {
 	if !strings.Contains(output, "Auto mode") || !strings.Contains(output, "/mode normal") {
 		t.Fatalf("status did not report the bypass or the way out: %q", output)
 	}
+}
+
+type fakeDiscovery struct {
+	providers []string
+	models    []ports.CatalogModel
+	err       error
+	asked     string
+}
+
+func (d *fakeDiscovery) DiscoverableProviders() []string { return d.providers }
+
+func (d *fakeDiscovery) DiscoverModels(_ context.Context, provider string) ([]ports.CatalogModel, error) {
+	d.asked = provider
+	return d.models, d.err
+}
+
+func modelBrowseService(t *testing.T, discovery ModelDiscoverer, aliases []string) (*CommandService, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(browsableConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return New(Options{
+		ConfigPath: path, AgentRuntime: &fakeModels{selected: "fast"}, DefaultModel: "fast",
+		ModelAliases: aliases, ModelDiscovery: discovery,
+	}), path
+}
+
+func TestModelAvailableListsAndFiltersACatalog(t *testing.T) {
+	discovery := &fakeDiscovery{
+		providers: []string{"openrouter"},
+		models: []ports.CatalogModel{
+			{ID: "anthropic/claude-sonnet-5"}, {ID: "openai/gpt-5"}, {ID: "meta-llama/llama-4"},
+		},
+	}
+	service, _ := modelBrowseService(t, discovery, []string{"fast"})
+
+	output, handled, err := service.Execute(context.Background(), "/model available openrouter")
+	if err != nil || !handled || discovery.asked != "openrouter" {
+		t.Fatalf("output=%q handled=%v asked=%q err=%v", output, handled, discovery.asked, err)
+	}
+	for _, want := range []string{"anthropic/claude-sonnet-5", "openai/gpt-5", "/model add"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("output missing %q:\n%s", want, output)
+		}
+	}
+
+	filtered, _, err := service.Execute(context.Background(), "/model available openrouter gpt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filtered, "openai/gpt-5") || strings.Contains(filtered, "claude-sonnet-5") {
+		t.Fatalf("filtered output:\n%s", filtered)
+	}
+}
+
+// Browsing must never look like selecting: a provider that will not answer is
+// a credential or an outage, and the owner needs to be told which.
+func TestModelAvailableReportsProviderFailure(t *testing.T) {
+	service, _ := modelBrowseService(t, &fakeDiscovery{providers: []string{"openrouter"}, err: errors.New("provider authentication failed (HTTP 401)")}, []string{"fast"})
+	output, _, err := service.Execute(context.Background(), "/model available openrouter")
+	if err != nil || !strings.Contains(output, "authentication failed") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
+func TestModelAddWritesAnAliasAndAsksForARestart(t *testing.T) {
+	service, path := modelBrowseService(t, &fakeDiscovery{providers: []string{"openrouter"}}, []string{"fast"})
+	output, handled, err := service.Execute(context.Background(), "/model add sonnet openrouter anthropic/claude-sonnet-5")
+	if err != nil || !handled {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	if !strings.Contains(output, "/restart") {
+		t.Fatalf("output must point at /restart:\n%s", output)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "anthropic/claude-sonnet-5") {
+		t.Fatalf("alias was not written:\n%s", body)
+	}
+	// A rejected write must say so rather than report success.
+	rejected, _, err := service.Execute(context.Background(), "/model add nope missing anthropic/claude-sonnet-5")
+	if err != nil || !strings.Contains(rejected, "Could not add nope") {
+		t.Fatalf("output=%q err=%v", rejected, err)
+	}
+}
+
+// The subcommands are words an owner could plausibly have used as an alias.
+// An existing alias must keep winning, or adding these names would quietly
+// make somebody's model unselectable.
+func TestModelSubcommandNeverShadowsAConfiguredAlias(t *testing.T) {
+	models := &fakeModels{selected: "fast"}
+	service := New(Options{
+		AgentRuntime: models, DefaultModel: "fast", ModelAliases: []string{"fast", "available"},
+		ModelDiscovery: &fakeDiscovery{providers: []string{"openrouter"}},
+	})
+	output, _, err := service.Execute(context.Background(), "/model available")
+	if err != nil || models.selected != "available" {
+		t.Fatalf("output=%q selected=%q err=%v", output, models.selected, err)
+	}
+}
+
+func TestModelProvidersSaysWhichCanBeBrowsed(t *testing.T) {
+	service, _ := modelBrowseService(t, &fakeDiscovery{providers: []string{"openrouter"}}, []string{"fast"})
+	output, _, err := service.Execute(context.Background(), "/model providers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "openrouter (browsable") || !strings.Contains(output, "quiet (cannot be browsed)") {
+		t.Fatalf("output:\n%s", output)
+	}
+}
+
+func browsableConfig() string {
+	return `server:
+  listen: ":8080"
+  public_base_url: "https://eggy.example"
+data_dir: "./data"
+owner:
+  id: "12345"
+agent:
+  default_model: "fast"
+  timezone: "UTC"
+providers:
+  openrouter:
+    adapter: "openai_compatible"
+    base_url: "https://openrouter.ai/api/v1"
+    api_key_env: "OPENROUTER_API_KEY"
+  quiet:
+    adapter: "openai_compatible"
+    base_url: "https://api.example/v1"
+    api_key_env: "QUIET_API_KEY"
+    discover_models: false
+models:
+  fast:
+    provider: "openrouter"
+    model: "openai/gpt-5"
+runner:
+  root: "./data/work"
+`
 }

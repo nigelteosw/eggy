@@ -48,7 +48,7 @@ func (r *AgentRuntime) SelectedModel(ctx context.Context) (string, error) {
 		return r.defaultAlias, nil
 	}
 	if _, ok := r.aliases[state.Agent.SelectedModel]; !ok {
-		return "", fmt.Errorf("selected model alias %q is not configured", state.Agent.SelectedModel)
+		return r.defaultAlias, nil
 	}
 	return state.Agent.SelectedModel, nil
 }

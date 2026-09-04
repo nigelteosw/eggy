@@ -32,6 +32,18 @@ func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeFallsBackWhenTheSelectedAliasWasRemoved(t *testing.T) {
+	store := jsonfile.Open(t.TempDir() + "/state.json")
+	before := NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro", "retired"}, nil)
+	if err := before.SelectModel(context.Background(), "retired"); err != nil {
+		t.Fatal(err)
+	}
+	after := NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro"}, nil)
+	if got, err := after.SelectedModel(context.Background()); err != nil || got != "deepseek-pro" {
+		t.Fatalf("selected model = %q, err=%v", got, err)
+	}
+}
+
 func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
 	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
 	ctx := context.Background()

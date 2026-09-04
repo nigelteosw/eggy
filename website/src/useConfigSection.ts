@@ -30,12 +30,14 @@ export function useConfigSection(section: ConfigSection, onSessionExpired: () =>
         const saved = await setConfig(section, values);
         setResult(saved);
         load();
+        return saved;
       } catch (err) {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();
-          return;
+          return null;
         }
         setError(err instanceof Error ? err.message : "Failed to save");
+        return null;
       } finally {
         setSaving(false);
       }
@@ -43,5 +45,5 @@ export function useConfigSection(section: ConfigSection, onSessionExpired: () =>
     [section, load, onSessionExpired],
   );
 
-  return { result, error, saving, save };
+  return { result, error, saving, save, load };
 }

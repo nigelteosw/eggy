@@ -139,6 +139,8 @@ export function ConfigPage({
             <>
               <ProvidersCard onSessionExpired={onSessionExpired} />
               <ModelsCard onSessionExpired={onSessionExpired} />
+              <p className="text-sm text-muted-foreground">New model choices appear in chat after restart.</p>
+              <RestartCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "connections" && (

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
-import { CommandResult, SessionExpiredError, discoverModels } from "./api";
+import { CommandResult, SessionExpiredError, discoverModels, removeModelAlias } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
@@ -16,12 +16,42 @@ function aliasFor(modelId: string): string {
   return tail.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+export function modelDraftForRow(row: string[]) {
+  return { alias: row[0] ?? "", provider: row[1] ?? "", model: row[2] ?? "", reasoningEfforts: row[3] ?? "" };
+}
+
+export function ModelRowActions({
+  alias,
+  onEdit,
+  onRemove,
+  removing = false,
+}: {
+  alias: string;
+  onEdit: () => void;
+  onRemove: () => void;
+  removing?: boolean;
+}) {
+  return (
+    <div className="flex justify-end gap-1">
+      <Button type="button" variant="ghost" size="sm" aria-label={`Edit ${alias}`} onClick={onEdit}>Edit</Button>
+      <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${alias}`} onClick={onRemove} disabled={removing} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+        {removing ? "Removing..." : "Remove"}
+      </Button>
+    </div>
+  );
+}
+
 export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void }) {
-  const { result, error, saving, save } = useConfigSection("models", onSessionExpired);
+  const { result, error, saving, save, load } = useConfigSection("models", onSessionExpired);
   const [alias, setAlias] = useState("");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [reasoningEfforts, setReasoningEfforts] = useState("");
+  const [editingAlias, setEditingAlias] = useState<string | null>(null);
+  const [removingAlias, setRemovingAlias] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [restartRequired, setRestartRequired] = useState(false);
+  const form = useRef<HTMLDetailsElement | null>(null);
 
   // The browse state is deliberately separate from the form's: browsing is a
   // way to fill the form in, so picking a row must not be the same event as
@@ -69,13 +99,51 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     if (!alias) setAlias(aliasFor(modelId));
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    await save({ alias, provider, model, reasoning_efforts: reasoningEfforts });
+  function resetForm() {
     setAlias("");
     setProvider("");
     setModel("");
     setReasoningEfforts("");
+    setEditingAlias(null);
+  }
+
+  function startEdit(row: string[]) {
+    const draft = modelDraftForRow(row);
+    setAlias(draft.alias);
+    setProvider(draft.provider);
+    setModel(draft.model);
+    setReasoningEfforts(draft.reasoningEfforts);
+    setEditingAlias(draft.alias);
+    setActionError(null);
+    if (form.current) form.current.open = true;
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const saved = await save({ alias, provider, model, reasoning_efforts: reasoningEfforts });
+    if (!saved) return;
+    resetForm();
+    setRestartRequired(true);
+  }
+
+  async function handleRemove(aliasToRemove: string) {
+    if (!window.confirm(`Remove ${aliasToRemove}? It remains available until Eggy restarts.`)) return;
+    setRemovingAlias(aliasToRemove);
+    setActionError(null);
+    try {
+      await removeModelAlias(aliasToRemove);
+      if (editingAlias === aliasToRemove) resetForm();
+      setRestartRequired(true);
+      load();
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
+      setActionError(err instanceof Error ? err.message : "Could not remove model");
+    } finally {
+      setRemovingAlias(null);
+    }
   }
 
   return (
@@ -88,7 +156,19 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No models configured yet." />
+        <DataTable
+          headers={result?.table_headers}
+          rows={result?.table_rows}
+          empty="No models configured yet."
+          renderRowAction={(row) => (
+            <ModelRowActions
+              alias={row[0]}
+              onEdit={() => startEdit(row)}
+              onRemove={() => handleRemove(row[0])}
+              removing={removingAlias === row[0]}
+            />
+          )}
+        />
 
         {browsable.length > 0 && (
           <div className="flex flex-col gap-3 rounded-md border border-border p-3">
@@ -160,10 +240,10 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </div>
         )}
 
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Add model alias</summary>
+        <details ref={form} className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
           <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} required />
+            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required />
             <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required />
             <Input placeholder="model" value={model} onChange={(e) => setModel(e.target.value)} required className="sm:col-span-2 font-mono" />
             <details className="sm:col-span-2">
@@ -175,15 +255,21 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                 className="mt-3"
               />
             </details>
-            <Button type="submit" disabled={saving} className="sm:col-span-2">
-              {saving ? "Saving..." : "Save model"}
-            </Button>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : editingAlias ? "Update model" : "Save model"}</Button>
+              {editingAlias && <Button type="button" variant="ghost" onClick={resetForm}>Cancel</Button>}
+            </div>
           </form>
         </details>
+        {restartRequired && (
+          <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm" role="status">
+            Restart Eggy before using these model changes in chat.
+          </p>
+        )}
         {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
-        {error && (
+        {(actionError || error) && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
+            {actionError || error}
           </p>
         )}
       </CardContent>

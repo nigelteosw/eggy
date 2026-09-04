@@ -40,7 +40,7 @@ export function DataTable({
                 {header}
               </th>
             ))}
-            {renderRowAction && <th className="px-4 py-2.5" />}
+            {renderRowAction && <th className="sticky right-0 z-10 bg-muted px-4 py-2.5" />}
           </tr>
         </thead>
         <tbody>
@@ -57,7 +57,7 @@ export function DataTable({
                   {cell}
                 </td>
               ))}
-              {renderRowAction && <td className="px-4 py-2.5 text-right">{renderRowAction(row)}</td>}
+              {renderRowAction && <td className="sticky right-0 z-10 bg-card px-4 py-2.5 text-right">{renderRowAction(row)}</td>}
             </tr>
           ))}
         </tbody>

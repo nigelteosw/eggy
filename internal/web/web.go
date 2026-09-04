@@ -304,6 +304,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}
 
 	mux.Handle("GET /api/config/models/available", guard(newModelDiscoveryHandler(webConfig.ModelDiscovery)))
+	mux.Handle("DELETE /api/config/models/{alias}", guard(webModelRemoveRoute(configPath)))
 
 	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
@@ -447,6 +448,17 @@ func webMCPRemoveRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Removed MCP server " + name + ".", Detail: restartToApply})
+	}
+}
+
+func webModelRemoveRoute(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		alias := r.PathValue("alias")
+		if err := config.RemoveModelAlias(configPath, alias); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Removed model " + alias + ".", Detail: restartToApply})
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
@@ -294,6 +295,30 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", setResponse.Code, setResponse.Body.String())
+	}
+}
+
+func TestWebModelRouteRemovesANonDefaultAlias(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	if err := config.SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWebHandler(path, testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/config/models/deepseek-fast", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", response.Code, response.Body.String())
+	}
+	loaded, err := config.LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := loaded.ModelAliases["deepseek-fast"]; exists {
+		t.Fatal("deleted alias remains in config")
 	}
 }
 

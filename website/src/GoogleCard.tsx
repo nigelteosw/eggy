@@ -98,78 +98,80 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="Google is not configured yet." />
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <Input
-            placeholder="client_id (xxxx.apps.googleusercontent.com)"
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            required
-          />
-          <Input
-            placeholder="client_secret_env"
-            value={clientSecretEnv}
-            onChange={(e) => setClientSecretEnv(e.target.value)}
-          />
-          <fieldset className="flex flex-wrap gap-3">
-            <legend className="pb-2 text-sm text-muted-foreground">Products</legend>
-            {PRODUCTS.map((product) => (
-              <label key={product} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={products.includes(product)}
-                  onChange={() => toggleProduct(product)}
-                  className="h-4 w-4"
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Configure Google Workspace</summary>
+          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
+            <Input
+              placeholder="client_id (xxxx.apps.googleusercontent.com)"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              required
+            />
+            <fieldset className="flex flex-wrap gap-3">
+              <legend className="pb-2 text-sm text-muted-foreground">Products</legend>
+              {PRODUCTS.map((product) => (
+                <label key={product} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={products.includes(product)}
+                    onChange={() => toggleProduct(product)}
+                    className="h-4 w-4"
+                  />
+                  {product}
+                </label>
+              ))}
+            </fieldset>
+            <details>
+              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
+              <div className="mt-3 flex flex-col gap-3">
+                <Input
+                  placeholder="client_secret_env"
+                  value={clientSecretEnv}
+                  onChange={(e) => setClientSecretEnv(e.target.value)}
                 />
-                {product}
-              </label>
-            ))}
-          </fieldset>
-          <div className="flex flex-col gap-3 rounded-md border border-border px-3 py-3">
-            <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
-            <p className="text-xs text-muted-foreground">
-              The default, and it keeps up: an action a later version adds is gated without you editing anything. Turn
-              it off to choose action by action. Whatever is left unchecked runs without asking.
-            </p>
-            {!useDefaults &&
-              products.map((product) => {
-                // Rendered from what the server says the product accepts, so
-                // this cannot name an action the adapter would reject at
-                // startup — which is a config error that lands in safe mode.
-                const actions = list(result, `actions.${product}`);
-                if (actions.length === 0) return null;
-                return (
-                  <fieldset key={product} className="flex flex-wrap gap-x-3 gap-y-2">
-                    <legend className="pb-1 text-sm font-medium">{product}</legend>
-                    {actions.map((action) => {
-                      const entry = `${product}.${action}`;
-                      const writes = list(result, `mutations.${product}`).includes(action);
+                <div className="flex flex-col gap-3 rounded-md border border-border px-3 py-3">
+                  <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
+                  <p className="text-xs text-muted-foreground">
+                    New write actions are gated automatically. Turn this off to choose action by action.
+                  </p>
+                  {!useDefaults &&
+                    products.map((product) => {
+                      const actions = list(result, `actions.${product}`);
+                      if (actions.length === 0) return null;
                       return (
-                        <label key={entry} className="flex items-center gap-1.5 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={gated.includes(entry) || gated.includes(`${product}.*`)}
-                            disabled={gated.includes(`${product}.*`)}
-                            onChange={() => toggleGated(entry)}
-                            className="h-4 w-4"
-                          />
-                          <span className={writes ? "" : "text-muted-foreground"}>{action}</span>
-                        </label>
+                        <fieldset key={product} className="flex flex-wrap gap-x-3 gap-y-2">
+                          <legend className="pb-1 text-sm font-medium">{product}</legend>
+                          {actions.map((action) => {
+                            const entry = `${product}.${action}`;
+                            const writes = list(result, `mutations.${product}`).includes(action);
+                            return (
+                              <label key={entry} className="flex items-center gap-1.5 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={gated.includes(entry) || gated.includes(`${product}.*`)}
+                                  disabled={gated.includes(`${product}.*`)}
+                                  onChange={() => toggleGated(entry)}
+                                  className="h-4 w-4"
+                                />
+                                <span className={writes ? "" : "text-muted-foreground"}>{action}</span>
+                              </label>
+                            );
+                          })}
+                        </fieldset>
                       );
                     })}
-                  </fieldset>
-                );
-              })}
-            {!useDefaults && gated.length === 0 && (
-              <p className="text-xs text-destructive">
-                Nothing is checked, so Google will send mail, change events and delete files without asking.
-              </p>
-            )}
-          </div>
-          <Switch checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving..." : "Save Google Workspace"}
-          </Button>
-        </form>
+                  {!useDefaults && gated.length === 0 && (
+                    <p className="text-xs text-destructive">Nothing is checked, so Google writes will run without asking.</p>
+                  )}
+                </div>
+              </div>
+            </details>
+            <Switch checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
+            <Button type="submit" disabled={saving}>
+              {saving ? "Saving..." : "Save Google Workspace"}
+            </Button>
+          </form>
+        </details>
         <p className="text-xs text-muted-foreground">
           The client secret itself is never stored here — name the environment variable that holds it. After saving,
           restart Eggy and run <code>/google login</code> in chat to authorize.

@@ -100,15 +100,13 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
   );
 }
 
-function Body({ label, text }: { label: string; text: string }) {
+export function Body({ label, text }: { label: string; text: string }) {
   if (!text) return null;
   return (
-    <div className="flex flex-col gap-2">
-      <span className="section-eyebrow">{label}</span>
-      <pre className="code-panel max-h-96">
-        {prettyBody(text)}
-      </pre>
-    </div>
+    <details className="rounded-md border bg-card">
+      <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-medium">{label}</summary>
+      <div className="border-t p-3"><pre className="code-panel max-h-96">{prettyBody(text)}</pre></div>
+    </details>
   );
 }
 
@@ -122,7 +120,7 @@ function Prompt({ request }: { request: string }) {
     return (
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="section-eyebrow">Request</span>
+          <span className="text-xs font-medium text-muted-foreground">Request</span>
           {prompt && (
             <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(false)}>
               Show as conversation
@@ -138,7 +136,7 @@ function Prompt({ request }: { request: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="section-eyebrow">
+        <span className="text-xs font-medium text-muted-foreground">
           Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
         </span>
         <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(true)}>
@@ -147,7 +145,7 @@ function Prompt({ request }: { request: string }) {
       </div>
       <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
-          <div key={index} className="rounded-lg border border-border bg-card/70 p-3.5 shadow-subtle">
+          <div key={index} className="rounded-md border bg-card p-3.5">
             <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
@@ -283,6 +281,8 @@ function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks:
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={`span-${span.sequence}-detail`}
         className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-nowrap"
       >
         <span className="order-1 flex min-w-0 w-full items-center gap-2 sm:order-none sm:w-[19rem] sm:shrink-0">
@@ -306,7 +306,7 @@ function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks:
         </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border bg-background/60 p-4 sm:p-5">
+        <div id={`span-${span.sequence}-detail`} className="flex flex-col gap-4 border-t bg-background/60 p-4 sm:p-5">
           {span.error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{span.error}</div>
           )}
@@ -317,7 +317,12 @@ function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks:
             {span.cached_prompt_tokens ? <span>Cached {formatTokens(span.cached_prompt_tokens)} tok</span> : null}
             {span.completion_tokens ? <span>Completion {formatTokens(span.completion_tokens)} tok</span> : null}
           </div>
-          {model ? <Prompt request={span.request} /> : <Body label="Arguments" text={span.request} />}
+          {model ? (
+            <details className="rounded-md border bg-card">
+              <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-medium">Prompt</summary>
+              <div className="border-t p-3"><Prompt request={span.request} /></div>
+            </details>
+          ) : <Body label="Arguments" text={span.request} />}
           <Body label={model ? "Response" : "Output"} text={span.response} />
         </div>
       )}
@@ -335,7 +340,7 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
     );
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
+    <div className="overflow-hidden rounded-md border bg-card">
       {/* The axis header carries the tick labels; the same tick positions are
           repeated as hairlines behind every bar so a bar can be read against
           the ruler without tracing back up to it. */}
@@ -383,7 +388,6 @@ function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
       )}
       <div className="flex flex-col gap-2 border-b border-border/70 pb-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="section-eyebrow mb-1">Turn breakdown</p>
           <p className="text-sm font-medium text-foreground">{trace.model || "Unknown model"}</p>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -451,21 +455,25 @@ function TraceRow({
 
   return (
     <tbody className="block border-t border-border/80 sm:table-row-group">
-      <tr
-        onClick={onToggle}
-        className={`relative block cursor-pointer transition-colors sm:table-row ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}
-      >
+      <tr className={`relative block transition-colors sm:table-row ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}>
         <td className="absolute left-3 top-4 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
-          <span className={`inline-flex text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
-            <ChevronDownIcon />
-          </span>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={`${open ? "Collapse" : "Expand"} turn ${trace.input || trace.output || "without a message"}`}
+            aria-expanded={open}
+            aria-controls={`trace-${trace.id}-detail`}
+            className="flex h-11 w-8 items-center justify-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <span className={`inline-flex transition-transform ${open ? "rotate-180" : ""}`}><ChevronDownIcon /></span>
+          </button>
         </td>
-        <td className="inline-block px-3 pb-1 pl-9 pt-4 align-middle sm:table-cell sm:px-3 sm:py-3.5 sm:pl-3"><SourceBadge trace={trace} /></td>
+        <td className="inline-block px-3 pb-1 pl-14 pt-4 align-middle sm:table-cell sm:px-3 sm:py-3.5 sm:pl-3"><SourceBadge trace={trace} /></td>
         <td className="inline-block whitespace-nowrap px-3 pb-1 pt-4 align-middle text-xs text-muted-foreground sm:table-cell sm:px-3 sm:py-3.5">{formatTime(trace.started_at)}</td>
-        <td className="block max-w-none px-3 pb-1 pl-9 pt-1 align-middle sm:table-cell sm:w-full sm:max-w-0 sm:px-3 sm:py-3.5">
+        <td className="block max-w-none px-3 pb-1 pl-14 pt-1 align-middle sm:table-cell sm:w-full sm:max-w-0 sm:px-3 sm:py-3.5">
           <div className="line-clamp-2 text-sm font-medium text-foreground sm:truncate">{trace.input || trace.output || "(no message)"}</div>
         </td>
-        <td className="inline-block whitespace-nowrap px-3 pb-3 pl-9 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
+        <td className="inline-block whitespace-nowrap px-3 pb-3 pl-14 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
           <span className="mr-1 sm:hidden">Steps</span>{trace.spans}
         </td>
         <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
@@ -481,7 +489,7 @@ function TraceRow({
         </td>
       </tr>
       {open && (
-        <tr className="block sm:table-row">
+        <tr id={`trace-${trace.id}-detail`} className="block sm:table-row">
           <td colSpan={8} className="block p-0 sm:table-cell">
             {failed ? (
               <div className="border-l-2 border-destructive/60 bg-destructive/10 px-4 py-3 text-sm text-destructive">{failed}</div>
@@ -573,16 +581,19 @@ function ConversationHeader({
   onToggle: () => void;
 }) {
   return (
-    <tr
-      onClick={onToggle}
-      className="block cursor-pointer border-t border-border bg-muted/50 transition-colors hover:bg-muted sm:table-row"
-    >
+    <tr className="block border-t bg-muted/50 transition-colors hover:bg-muted sm:table-row">
       <td className="absolute left-3 top-3 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
-        <span className={`inline-flex text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}>
-          <ChevronDownIcon />
-        </span>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} conversation ${label}`}
+          aria-expanded={!collapsed}
+          className="flex h-11 w-8 items-center justify-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className={`inline-flex transition-transform ${collapsed ? "-rotate-90" : ""}`}><ChevronDownIcon /></span>
+        </button>
       </td>
-      <td colSpan={3} className="block px-3 pb-1 pl-9 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-3">
+      <td colSpan={3} className="block px-3 pb-1 pl-14 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-sm font-semibold text-foreground">{label}</span>
           <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -596,7 +607,7 @@ function ConversationHeader({
         </div>
         <div className="mt-0.5 text-[11px] text-muted-foreground">Last turn {formatTime(group.lastAt)}</div>
       </td>
-      <td className="inline-block px-3 pb-3 pl-9 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pl-3">
+      <td className="inline-block px-3 pb-3 pl-14 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pl-3">
         <span className="mr-1 sm:hidden">Steps</span>
         {group.spans}
       </td>
@@ -631,7 +642,7 @@ export function TraceTable({
   // you have read away, not a wall the turns start behind.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   return (
-    <div className="surface-panel scrollbar-slim overflow-x-auto">
+    <div className="scrollbar-slim overflow-x-auto rounded-md border bg-card">
       <table className="block w-full min-w-0 border-collapse text-left sm:table">
         <thead className="hidden bg-muted/80 sm:table-header-group">
           <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
@@ -741,11 +752,11 @@ export function TracesPage({
 
   return (
     <div className="app-canvas flex h-full min-h-0 flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border/80 bg-background/80 px-3 backdrop-blur sm:px-5">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-5">
         <button
           type="button"
           onClick={onBackToChat}
-          className="flex h-9 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-11 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <ChevronLeftIcon />
           Back to chat
@@ -759,11 +770,9 @@ export function TracesPage({
       <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-8 sm:py-10">
           <header className="flex max-w-3xl flex-col gap-1.5">
-            <p className="section-eyebrow">Observability</p>
             <h1 className="text-3xl font-semibold tracking-tight">Traces</h1>
             <p className="text-sm leading-6 text-muted-foreground">
-              Every conversation and the turns it ran: open a turn for the prompt behind each model call, the arguments and output of
-              every tool call, and where its time went.
+              Inspect model calls, tool activity, timing, and token use by conversation.
             </p>
           </header>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
@@ -774,13 +783,25 @@ export function TracesPage({
               </div>
             )
           ) : (
-            <TraceTable
-              traces={traces}
-              expanded={expanded}
-              titles={titles}
-              onToggle={(traceId) => setExpanded((current) => (current === traceId ? null : traceId))}
-              onSessionExpired={rowFailed}
-            />
+            <>
+              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4">
+                {[
+                  ["Conversations", groupTracesByConversation(traces).length],
+                  ["Turns", traces.length],
+                  ["Tokens", formatTokens(traces.reduce((sum, trace) => sum + trace.total_tokens, 0))],
+                  ["Failed", traces.filter((trace) => trace.error).length],
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-card px-4 py-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-medium tabular-nums">{value}</p></div>
+                ))}
+              </div>
+              <TraceTable
+                traces={traces}
+                expanded={expanded}
+                titles={titles}
+                onToggle={(traceId) => setExpanded((current) => (current === traceId ? null : traceId))}
+                onSessionExpired={rowFailed}
+              />
+            </>
           )}
         </div>
       </div>

@@ -94,7 +94,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="absolute left-3 top-3 z-40 flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="absolute left-2 top-1.5 z-40 flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               aria-label="Open sidebar"
               title="Open sidebar"
             >
@@ -147,9 +147,8 @@ export function App() {
               />
             </div>
           ) : (
-            <div className="app-canvas flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-              <span className="text-3xl">🥚</span>
-              <p className="text-sm text-muted-foreground">Select a chat, or start a new one.</p>
+            <div className="app-canvas flex flex-1 items-center justify-center px-6 text-center">
+              <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
             </div>
           )}
         </>

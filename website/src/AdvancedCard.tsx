@@ -3,16 +3,6 @@ import { SessionExpiredError, getRawConfig, saveRawConfig } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
-// The raw config.yaml editor in normal mode. SafeModePage has had one of these
-// all along, which meant the only way to edit the file from a browser was to
-// break Eggy first -- on a container deployment config.yaml lives on a volume
-// nothing else can reach.
-//
-// The save path is the same validated one safe mode uses: a config Eggy will
-// not load is rejected and the stored file is left alone, so this cannot lock
-// the owner out. Unlike safe mode there is no reload afterwards, because Eggy
-// is already running and a restart is the owner's call -- RestartCard, sitting
-// directly below this one, is where they make it.
 export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [config, setConfig] = useState("");
   const [loading, setLoading] = useState(true);
@@ -60,21 +50,22 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <textarea
-          spellCheck={false}
-          value={config}
-          onChange={(event) => {
-            setConfig(event.target.value);
-            setSaved(false);
-          }}
-          disabled={loading}
-          className="min-h-[26rem] w-full whitespace-pre rounded-md border border-border bg-background px-3 py-2 font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        />
-        <div>
-          <Button type="button" onClick={handleSave} disabled={loading || saving}>
-            {saving ? "Checking..." : "Validate and save"}
-          </Button>
-        </div>
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Edit config.yaml</summary>
+          <div className="mt-4 flex flex-col gap-3">
+            <textarea
+              spellCheck={false}
+              value={config}
+              onChange={(event) => {
+                setConfig(event.target.value);
+                setSaved(false);
+              }}
+              disabled={loading}
+              className="min-h-[26rem] w-full whitespace-pre rounded-md border bg-background px-3 py-2 font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            />
+            <div><Button type="button" onClick={handleSave} disabled={loading || saving}>{saving ? "Checking..." : "Validate and save"}</Button></div>
+          </div>
+        </details>
         {rejection && (
           <pre
             className="overflow-x-auto whitespace-pre-wrap rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"

@@ -1,9 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { Thread, createThread, deleteThread, listThreads, renameThread } from "./api";
 import { PanelIcon, PlusIcon, SettingsIcon, TraceIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 const initialThreadMaxAgeMs = 5 * 60 * 1000;
+
+export const SIDEBAR_MIN_WIDTH = 240;
+export const SIDEBAR_DEFAULT_WIDTH = 288;
+export const SIDEBAR_MAX_WIDTH = 420;
+const sidebarWidthKey = "eggy.chat.sidebar.width";
+
+export function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
+export function sidebarWidthForKey(width: number, key: string): number {
+  if (key === "Home") return SIDEBAR_MIN_WIDTH;
+  if (key === "End") return SIDEBAR_MAX_WIDTH;
+  if (key === "ArrowLeft") return clampSidebarWidth(width - 8);
+  if (key === "ArrowRight") return clampSidebarWidth(width + 8);
+  return width;
+}
+
+function storedSidebarWidth(): number {
+  if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+  try {
+    const stored = Number(window.localStorage.getItem(sidebarWidthKey));
+    return Number.isFinite(stored) && stored > 0 ? clampSidebarWidth(stored) : SIDEBAR_DEFAULT_WIDTH;
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
+function rememberSidebarWidth(width: number) {
+  try {
+    window.localStorage.setItem(sidebarWidthKey, String(width));
+  } catch {
+    // Resizing still works when storage is unavailable.
+  }
+}
 
 export function initialThreadSelection(threads: Thread[], now = Date.now()): string | "create" {
   const recent = threads
@@ -67,6 +102,35 @@ export function ThreadSidebar({
   const [error, setError] = useState<string | null>(null);
   const renameInput = useRef<HTMLInputElement | null>(null);
   const initialSelectionStarted = useRef(false);
+  const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const dragStart = useRef({ x: 0, width: SIDEBAR_DEFAULT_WIDTH });
+  const [resizing, setResizing] = useState(false);
+
+  function updateSidebarWidth(width: number) {
+    const next = clampSidebarWidth(width);
+    sidebarWidthRef.current = next;
+    setSidebarWidth(next);
+  }
+
+  useEffect(() => {
+    if (!resizing) return;
+    const move = (event: globalThis.PointerEvent) => {
+      updateSidebarWidth(dragStart.current.width + event.clientX - dragStart.current.x);
+    };
+    const stop = () => {
+      setResizing(false);
+      rememberSidebarWidth(sidebarWidthRef.current);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+    window.addEventListener("pointercancel", stop, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [resizing]);
 
   useEffect(() => {
     listThreads()
@@ -163,40 +227,53 @@ export function ThreadSidebar({
     onDeleted(thread.id);
   }
 
+  function beginResize(event: PointerEvent<HTMLButtonElement>) {
+    dragStart.current = { x: event.clientX, width: sidebarWidth };
+    setResizing(true);
+  }
+
+  function resizeWithKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
+    const next = sidebarWidthForKey(sidebarWidth, event.key);
+    if (next === sidebarWidth) return;
+    event.preventDefault();
+    updateSidebarWidth(next);
+    rememberSidebarWidth(next);
+  }
+
+  function resetSidebarWidth() {
+    updateSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+    rememberSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+  }
+
   return (
-    // bg-background, not bg-card: this is the same surface the config rail
-    // sits on, so the two screens read as one app rather than as two.
-    <div className="flex h-full w-72 shrink-0 flex-col border-r border-border/80 bg-background/95">
-      {/* The close control sits at the top left, ahead of the wordmark: it is
-          the same corner the reopen button occupies once the rail is gone, so
-          the sidebar collapses and returns under one spot on the screen. */}
+    <div
+      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col border-r bg-background md:w-[var(--sidebar-width)]"
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+    >
       <div className="flex h-16 items-center gap-2 border-b border-border/60 px-3">
         <button
           type="button"
           onClick={onCollapse}
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <PanelIcon />
         </button>
         <span className="text-base font-semibold tracking-tight">Eggy</span>
       </div>
 
-      {/* A section head with the new-chat control on its right, rather than a
-          full-width button above the list: the list is the thing this rail is
-          for, and a solid primary bar over it took the eye first. */}
       <div className="flex items-center justify-between px-4 pb-2 pt-5">
-        <span className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground">Chats</span>
+        <span className="text-sm font-medium">Chats</span>
         <button
           type="button"
           onClick={handleNew}
           disabled={!newChatAvailable}
-          aria-label="New chat"
           title={newChatAvailable ? "New chat" : "You are already in a new chat"}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+          className="flex h-11 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
         >
           <PlusIcon className="h-4 w-4" />
+          New chat
         </button>
       </div>
 
@@ -227,7 +304,7 @@ export function ThreadSidebar({
                       if (event.key === "Enter") commitRename(thread.id);
                       if (event.key === "Escape") setRenamingId(null);
                     }}
-                    className="w-full rounded-md border border-ring bg-background px-3 py-2.5 text-sm outline-none ring-2 ring-ring/25"
+                    className="h-11 w-full rounded-md border border-ring bg-background px-3 text-sm outline-none ring-2 ring-ring/25"
                   />
                 );
               }
@@ -268,7 +345,7 @@ export function ThreadSidebar({
                       setMenuFor((current) => (current === thread.id ? null : thread.id));
                     }}
                     className={cn(
-                      "absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
+                      "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
                       menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                     )}
                   >
@@ -287,14 +364,14 @@ export function ThreadSidebar({
                       <button
                         type="button"
                         onClick={() => startRename(thread)}
-                        className="w-full px-3 py-1.5 text-left text-sm text-foreground/90 hover:bg-muted"
+                        className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-muted"
                       >
                         Rename
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDelete(thread)}
-                        className="w-full px-3 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                        className="h-11 w-full px-3 text-left text-sm text-destructive hover:bg-destructive/10"
                       >
                         Delete
                       </button>
@@ -312,12 +389,10 @@ export function ThreadSidebar({
           and pinning it here means the corner of the chat pane belongs to the
           conversation. */}
       <div className="shrink-0 border-t border-border p-2">
-        {/* Traces sits beside Settings rather than inside it: it is a
-            destination about the conversations above it, not a setting. */}
         <button
           type="button"
           onClick={onOpenTraces}
-          className="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex h-11 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <span className="flex h-4 w-4 shrink-0 items-center justify-center">
             <TraceIcon />
@@ -327,7 +402,7 @@ export function ThreadSidebar({
         <button
           type="button"
           onClick={onOpenSettings}
-          className="flex h-9 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex h-11 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <span className="flex h-4 w-4 shrink-0 items-center justify-center">
             <SettingsIcon />
@@ -335,6 +410,19 @@ export function ThreadSidebar({
           Settings
         </button>
       </div>
+      <button
+        type="button"
+        role="separator"
+        aria-label="Resize chat sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={SIDEBAR_MIN_WIDTH}
+        aria-valuemax={SIDEBAR_MAX_WIDTH}
+        aria-valuenow={sidebarWidth}
+        onPointerDown={beginResize}
+        onKeyDown={resizeWithKeyboard}
+        onDoubleClick={resetSidebarWidth}
+        className="absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-transparent hover:after:bg-primary/50 focus-visible:after:bg-primary md:block"
+      />
     </div>
   );
 }

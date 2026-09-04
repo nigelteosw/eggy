@@ -9,11 +9,6 @@ import { cn } from "./lib/utils";
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
 type PendingApproval = { id: string; summary: string };
 
-// Eggy's replies (and often what a user types back) are markdown -- bold,
-// lists, code blocks, links. Rendering it raw is what made the web chat
-// hard to read; this renders it properly instead, styled to fit a compact
-// chat bubble rather than a full article (see tailwind.config.js's
-// @tailwindcss/typography plugin for the prose classes below).
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
   return (
     <div
@@ -51,8 +46,6 @@ export function ChatPage({
 }: {
   threadId: string;
   title: string;
-  // Only to keep the title clear of the floating reopen control, which App
-  // renders over this pane's top-left corner while the rail is closed.
   sidebarOpen: boolean;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
@@ -165,25 +158,17 @@ export function ChatPage({
   }
 
   return (
-    // bg-card/40 over the sidebar's bg-background, matching the config
-    // panel's raised content column, so both screens are the same two
-    // surfaces in the same order.
     <div className="app-canvas flex h-full flex-col">
-      {/* The config panel heads each section with its name; this is the chat
-          equivalent, and it also gives the mobile menu button a bar to sit in
-          rather than floating over the first message. */}
-      <header className={cn("flex h-16 shrink-0 items-center border-b border-border/80 bg-background/80 px-4 backdrop-blur sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
+      <header className={cn("flex h-14 shrink-0 items-center border-b bg-background px-4 sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
         <div className="min-w-0">
-          <p className="section-eyebrow mb-0.5">Conversation</p>
-          <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
+          <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
         </div>
       </header>
       <div className="scrollbar-slim flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
-            <div className="flex flex-col items-center gap-2 py-16 text-center">
-              <span className="text-3xl">🥚</span>
-              <p className="text-sm text-muted-foreground">Ask Eggy anything to get started.</p>
+            <div className="py-16 text-center">
+              <p className="text-sm text-muted-foreground">Start by asking a question or describing a task.</p>
             </div>
           )}
           {messages.map((message) => {
@@ -194,16 +179,11 @@ export function ChatPage({
                   className={cn(
                     "text-sm",
                     isUser
-                      ? "max-w-[88%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-primary-foreground shadow-subtle sm:max-w-[72%] sm:px-5"
-                      : "flex w-full items-start gap-3 sm:gap-4",
+                      ? "max-w-[88%] rounded-lg bg-primary px-4 py-3 text-primary-foreground sm:max-w-[72%] sm:px-5"
+                      : "w-full",
                   )}
                 >
-                  {!isUser && (
-                    <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-xs font-bold text-primary">
-                      E
-                    </span>
-                  )}
-                  <div className={cn(!isUser && "min-w-0 flex-1 pt-0.5")}>
+                  <div className={cn(!isUser && "min-w-0")}>
                     <MessageBody text={message.text} isUserBubble={isUser} />
                   </div>
                 </div>
@@ -223,16 +203,9 @@ export function ChatPage({
           {approvals.map((approval) => (
             <div
               key={approval.id}
-              // Amber as a translucent wash over whatever surface is behind
-              // it, rather than the fixed amber-50/amber-950 pair this had:
-              // those were picked for the paper theme and turn into a glaring
-              // light patch with unreadable text on charcoal.
-              className="animate-fade-in-up self-start rounded-2xl rounded-bl-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm shadow-card"
+              className="animate-fade-in-up self-start rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
             >
-              <div className="mb-3 flex items-start gap-2">
-                <span className="mt-0.5 text-base leading-none">⚠️</span>
-                <p className="text-foreground">{approval.summary}</p>
-              </div>
+              <p className="mb-3 text-foreground">{approval.summary}</p>
               <div className="flex gap-2">
                 <Button type="button" size="sm" onClick={() => handleApproval(approval.id, true)}>
                   Approve

@@ -3,6 +3,18 @@ import { Thread, createThread, deleteThread, listThreads, renameThread } from ".
 import { PanelIcon, PlusIcon, SettingsIcon, TraceIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
+const initialThreadMaxAgeMs = 5 * 60 * 1000;
+
+export function initialThreadSelection(threads: Thread[], now = Date.now()): string | "create" {
+  const recent = threads
+    .filter((thread) => {
+      const age = now - Date.parse(thread.updatedAt);
+      return age >= 0 && age <= initialThreadMaxAgeMs;
+    })
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  return recent[0]?.id ?? "create";
+}
+
 function relativeTime(iso: string): string {
   const deltaMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.round(deltaMs / 60000);
@@ -44,10 +56,29 @@ export function ThreadSidebar({
   const [draftTitle, setDraftTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const renameInput = useRef<HTMLInputElement | null>(null);
+  const initialSelectionStarted = useRef(false);
 
   useEffect(() => {
     listThreads()
-      .then(setThreads)
+      .then(async (loaded) => {
+        setThreads(loaded);
+        if (initialSelectionStarted.current) return;
+        initialSelectionStarted.current = true;
+
+        const selection = initialThreadSelection(loaded);
+        if (selection !== "create") {
+          onSelect(selection);
+          return;
+        }
+
+        try {
+          const id = await createThread();
+          setThreads((current) => [{ id, title: "", updatedAt: new Date().toISOString() }, ...current]);
+          onSelect(id);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not create chat");
+        }
+      })
       .catch(() => setThreads([]));
   }, [reloadKey]);
 

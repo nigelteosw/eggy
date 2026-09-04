@@ -15,6 +15,16 @@ export function initialThreadSelection(threads: Thread[], now = Date.now()): str
   return recent[0]?.id ?? "create";
 }
 
+// An untitled chat is one nobody has written in yet: the server auto-titles a
+// thread from its first message, so a blank title is the one reliable mark of
+// an unused chat. Sitting in one and pressing "+" should do nothing -- without
+// this the button mints another empty thread on every press, and the rail
+// fills with untitled rows nobody asked for.
+export function canStartNewChat(threads: Thread[], activeThreadId: string | null): boolean {
+  const active = threads.find((thread) => thread.id === activeThreadId);
+  return !active || active.title !== "";
+}
+
 function relativeTime(iso: string): string {
   const deltaMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.round(deltaMs / 60000);
@@ -101,10 +111,18 @@ export function ThreadSidebar({
     if (renamingId) renameInput.current?.focus();
   }, [renamingId]);
 
+  const newChatAvailable = canStartNewChat(threads, activeThreadId);
+
   async function handleNew() {
-    const id = await createThread();
-    setThreads((current) => [{ id, title: "", updatedAt: new Date().toISOString() }, ...current]);
-    onSelect(id);
+    if (!newChatAvailable) return;
+    setError(null);
+    try {
+      const id = await createThread();
+      setThreads((current) => [{ id, title: "", updatedAt: new Date().toISOString() }, ...current]);
+      onSelect(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create chat");
+    }
   }
 
   function startRename(thread: Thread) {
@@ -173,9 +191,10 @@ export function ThreadSidebar({
         <button
           type="button"
           onClick={handleNew}
+          disabled={!newChatAvailable}
           aria-label="New chat"
-          title="New chat"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          title={newChatAvailable ? "New chat" : "You are already in a new chat"}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
         >
           <PlusIcon className="h-4 w-4" />
         </button>

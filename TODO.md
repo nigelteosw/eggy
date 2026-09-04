@@ -89,6 +89,9 @@ until MCP schemas alone exceed ~10K tokens.
 
 Deletion budget: +2 tests, ~0 production lines, 0 config keys, 0 tools.
 
+R10 is the other half of this and is cheaper: R6 stops invalidating the cache,
+R10 makes the cache more likely to be hit in the first place. Do them together.
+
 ### R7 — Does Eggy write code?
 
 Still undecided between read-only inspection and a bounded edit tool plus bounded
@@ -130,6 +133,62 @@ evidence: it earns a slot only after a recorded instance of
 `recall_conversation` failing on a question the owner actually asked. Measure
 before building — an embedding store is a new durable form, and there are
 exactly three.
+
+### R10 — Make the prompt cache actually hit on OpenRouter
+
+R6 stops Eggy from invalidating its own cache. This is the other half: making a
+hit likelier to begin with. Eggy already *measures* it — `CachedPromptTokens` is
+recorded per turn and visible in traces — so the effect of anything here is
+observable rather than argued.
+
+Stay on Chat Completions. OpenRouter routes across many underlying providers, so
+provider-held conversation state is less predictable than it would be against a
+single vendor, and `plugins/models/openaicompat` is the adapter every
+`openai_compatible` provider shares.
+
+Two changes, in order:
+
+1. **Send the thread ID as OpenRouter's `session_id`.** It keeps a conversation
+   pinned to the same provider endpoint and model, which is what makes a prompt
+   cache hit possible at all. It does not stop Eggy resending the conversation —
+   nothing here does — it reduces what that resend costs to process. Eggy already
+   has the identifier: the conversation ID a turn carries.
+2. **Then `cache_control`, only where a model needs it.** OpenAI, DeepSeek and
+   Gemini cache automatically through OpenRouter. Claude generally needs an
+   explicit top-level `cache_control`, and adding it narrows which Claude
+   endpoints OpenRouter may select — so it is per-provider configuration, not a
+   default, and it is the second step because the first one costs nothing.
+
+Verify against `cached_tokens` in traces before and after. If the number does not
+move, the change did not work, whatever the documentation says.
+
+**Not the Responses API, and not response caching.** OpenRouter serves
+`/api/v1/responses` with `previous_response_id`, which would be a genuinely
+separate adapter persisting the latest response ID per chat. Rejected as a
+starting point, for reasons that are structural rather than effort: system
+instructions still generally have to be supplied on each response, so the saving
+is smaller than it looks; response IDs are external conversation state Eggy would
+have to keep in step with SQLite, which is the sole conversation authority and
+should stay that way; model changes, provider fallback, deleted responses and
+expired state each need a recovery path; and it makes a conversation less
+portable between models. OpenRouter's separate "response caching" feature is for
+identical retries and tests — every new message changes the request, so an
+ordinary chat should produce a fresh response and never hit it. If either is ever
+declined outright rather than deferred, move it to `AGENTS.md`.
+
+The specifics above are from OpenRouter's own documentation and should be re-read
+at implementation time rather than trusted from here — this records the decision,
+not the current shape of someone else's API:
+
+- <https://openrouter.ai/docs/guides/best-practices/prompt-caching>
+- <https://openrouter.ai/docs/api/api-reference/responses/create-responses>
+- <https://openrouter.ai/docs/guides/features/response-caching>
+
+Deletion budget: +~30 production lines in `plugins/models/openaicompat`, +1
+optional provider config key for `cache_control`, 0 tools, 0 durable records,
+0 background loops, 0 new ports, 0 new durable forms — SQLite stays the only
+conversation authority, which is the whole reason the Responses API is not step
+one.
 
 ## Chores
 

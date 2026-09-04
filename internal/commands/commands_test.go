@@ -3,12 +3,15 @@ package commands
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 )
 
 type fakeTurns struct{ stopped bool }
@@ -30,12 +33,12 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // administration commands, and they are here because what they reach lives on
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
-func TestOnlyNineTelegramCommandsAreAdvertised(t *testing.T) {
+func TestOnlyTenTelegramCommandsAreAdvertised(t *testing.T) {
 	got := TelegramAutocomplete()
-	if len(got) != 9 {
+	if len(got) != 10 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "model", "mcp", "google", "mode", "restart"}
+	want := []string{"help", "status", "stop", "clear", "model", "mcp", "web", "google", "mode", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)
@@ -327,4 +330,51 @@ models:
 runner:
   root: "./data/work"
 `
+}
+
+func TestWebCommandSendsAVerifiableSignInLink(t *testing.T) {
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	service := New(Options{
+		PublicBaseURL: "https://eggy.test/",
+		SigningKey:    []byte("signing-key"),
+		Now:           func() time.Time { return now },
+	})
+	reply, handled, err := service.Execute(context.Background(), "/web")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	prefix := "https://eggy.test/auth/link?token="
+	index := strings.Index(reply, prefix)
+	if index < 0 {
+		t.Fatalf("reply=%q", reply)
+	}
+	token, err := url.QueryUnescape(strings.Fields(reply[index+len(prefix):])[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !session.VerifyLoginLink([]byte("signing-key"), token, now) {
+		t.Fatalf("link token does not verify: %q", token)
+	}
+	if session.VerifyLoginLink([]byte("signing-key"), token, now.Add(webLoginLinkTTL+time.Second)) {
+		t.Fatal("link token outlives its TTL")
+	}
+}
+
+// Without an address there is nothing to send, and saying so beats sending a
+// link to nowhere.
+func TestWebCommandWithoutAPublicAddress(t *testing.T) {
+	reply, handled, err := New(Options{SigningKey: []byte("k")}).Execute(context.Background(), "/web")
+	if err != nil || !handled || !strings.Contains(reply, "public_base_url") {
+		t.Fatalf("reply=%q handled=%v err=%v", reply, handled, err)
+	}
+}
+
+func TestWebCommandWithoutASigningKeyFallsBackToTheBareAddress(t *testing.T) {
+	reply, _, err := New(Options{PublicBaseURL: "https://eggy.test"}).Execute(context.Background(), "/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(reply, "/auth/link") || !strings.Contains(reply, "https://eggy.test") {
+		t.Fatalf("reply=%q", reply)
+	}
 }

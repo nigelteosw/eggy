@@ -11,15 +11,24 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 )
+
+// webLoginLinkTTL matches internal/web's own expiry for the link it accepts.
+// The two are stated separately rather than shared, because a command package
+// importing the HTTP server to read one duration would invert the dependency
+// the whole package layout rests on.
+const webLoginLinkTTL = 5 * time.Minute
 
 var telegramCommands = []struct {
 	Name        string
@@ -31,6 +40,7 @@ var telegramCommands = []struct {
 	{Name: "clear", Description: "Clear recent conversation history"},
 	{Name: "model", Description: "Show or select the active model; browse and add with providers/available/add"},
 	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
+	{Name: "web", Description: "Send a one-tap sign-in link to the web panel"},
 	{Name: "google", Description: "Authorize Google Workspace and show its status"},
 	{Name: "mode", Description: "Show or set how much Eggy asks before tool calls: strict, normal or auto"},
 	{Name: "restart", Description: "Reload config.yaml by rebuilding the running daemon"},
@@ -82,6 +92,16 @@ type Options struct {
 	// leaves that subcommand saying so, which is what a deployment whose
 	// providers all opted out of discovery gets.
 	ModelDiscovery ModelDiscoverer
+	// PublicBaseURL is where the owner's browser reaches this deployment
+	// (server.public_base_url). /web has nothing to hand out without it.
+	PublicBaseURL string
+	// SigningKey signs the one-tap login link /web sends, the same key the
+	// web panel signs session cookies with. Empty leaves /web sending a bare
+	// URL and an instruction to log in by hand.
+	SigningKey []byte
+	// Now is the clock the login link's expiry is measured against. Defaults
+	// to time.Now.
+	Now func() time.Time
 	// Getenv is the daemon's own environment lookup, including .env, which
 	// the process environment does not carry. /restart pre-flights the config
 	// with it so the check answers the same question startup will.
@@ -104,8 +124,11 @@ type CommandService struct {
 	// aliasSet is modelAliases as a lookup, so /model can tell a subcommand
 	// from an alias that happens to share its name without a linear scan on
 	// every invocation.
-	aliasSet  map[string]struct{}
-	discovery ModelDiscoverer
+	aliasSet      map[string]struct{}
+	discovery     ModelDiscoverer
+	publicBaseURL string
+	signingKey    []byte
+	now           func() time.Time
 }
 
 // ModelDiscoverer is the listing side of the configured providers, as /model
@@ -119,6 +142,10 @@ type ModelDiscoverer interface {
 }
 
 func New(options Options) *CommandService {
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
 	aliases := append([]string(nil), options.ModelAliases...)
 	slices.Sort(aliases)
 	aliasSet := make(map[string]struct{}, len(aliases))
@@ -131,6 +158,9 @@ func New(options Options) *CommandService {
 		restarter: options.Restarter, getenv: options.Getenv,
 		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
 		aliasSet: aliasSet, discovery: options.ModelDiscovery,
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(options.PublicBaseURL), "/"),
+		signingKey:    options.SigningKey,
+		now:           now,
 	}
 }
 
@@ -168,6 +198,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.model(ctx, args)
 	case "mcp":
 		return s.mcpCommand(ctx, args)
+	case "web":
+		return s.webCommand()
 	case "google":
 		return s.googleCommand(ctx, args)
 	case "mode":
@@ -479,8 +511,23 @@ func ModeReport(mode ports.ApprovalMode) string {
 	return ModeMessage(mode) + "\n\nChange it with " + strings.Join(others, " or ") + "."
 }
 
+// webCommand hands the owner a link that opens the panel already signed in.
+// A phone is the reason it exists: the panel's password is the one credential
+// that cannot be pasted from the chat that needs it, and typing it on a phone
+// keyboard is how an owner ends up not opening the panel at all.
+func (s *CommandService) webCommand() (string, bool, error) {
+	if s.publicBaseURL == "" {
+		return "The web panel address is unknown. Set `server.public_base_url` in config.yaml (or `EGGY_PUBLIC_BASE_URL`) and restart.", true, nil
+	}
+	if len(s.signingKey) == 0 {
+		return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nSign in with the panel email and password: no signing key is configured, so I cannot send a one-tap link.", s.publicBaseURL), true, nil
+	}
+	link := s.publicBaseURL + "/auth/link?token=" + url.QueryEscape(session.SignLoginLink(s.signingKey, s.now().Add(webLoginLinkTTL)))
+	return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nOpening it signs you in for 12 hours. The link works once and expires in 5 minutes -- anyone who opens it first is in, so treat it like the password.", link), true, nil
+}
+
 func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /mode [strict|normal|auto], /restart"
+	return "Commands: /help, /status, /stop, /clear, /web, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /mode [strict|normal|auto], /restart"
 }
 
 func TelegramAutocomplete() []struct{ Name, Description string } {

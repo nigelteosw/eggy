@@ -381,6 +381,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		DefaultModel:   config.Agent.DefaultModel,
 		ModelAliases:   aliases,
 		ModelDiscovery: discovery,
+		PublicBaseURL:  config.Server.PublicBaseURL,
+		SigningKey:     []byte(secrets.EncryptionKey),
+		Now:            options.Now,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn

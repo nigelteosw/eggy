@@ -49,3 +49,32 @@ func TestVerifySessionRejectsMalformedToken(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginLinkVerifiesAndExpires(t *testing.T) {
+	key := []byte("k")
+	now := time.Unix(1000, 0)
+	token := SignLoginLink(key, now.Add(5*time.Minute))
+	if !VerifyLoginLink(key, token, now) {
+		t.Fatal("fresh login link rejected")
+	}
+	if VerifyLoginLink(key, token, now.Add(6*time.Minute)) {
+		t.Fatal("expired login link accepted")
+	}
+	if VerifyLoginLink([]byte("other"), token, now) {
+		t.Fatal("login link accepted under the wrong key")
+	}
+}
+
+// A link travels through a chat transcript and a cookie sits in a browser.
+// Neither may stand in for the other, or reading one place would hand over
+// the other.
+func TestLoginLinkAndSessionTokensAreNotInterchangeable(t *testing.T) {
+	key := []byte("k")
+	now := time.Unix(1000, 0)
+	if VerifySession(key, SignLoginLink(key, now.Add(time.Minute)), now) {
+		t.Fatal("login link accepted as a session cookie")
+	}
+	if VerifyLoginLink(key, SignSession(key, now.Add(time.Minute)), now) {
+		t.Fatal("session cookie accepted as a login link")
+	}
+}

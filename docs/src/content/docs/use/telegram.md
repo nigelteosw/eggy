@@ -18,12 +18,15 @@ Eggy's Telegram command surface is intentionally small.
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
+| `/web` | Send a one-tap sign-in link to the web panel |
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
 Unknown commands return the same command reference. Ordinary text continues to the model.
 
 `/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and always names the approval mode in force.
+
+`/web` replies with a link to the [web panel](/eggy/use/web-chat/) that signs you in on the way through, so opening the panel on a phone does not mean typing the panel password into one. The link is a credential: it works once, expires five minutes after it is sent, and gives whoever opens it first a twelve-hour session. It needs `server.public_base_url` and `EGGY_ENCRYPTION_KEY` to be set; without the key Eggy sends the plain address and you sign in by hand.
 
 `/mode` sets how much the [approval gate](/eggy/use/approvals/) asks:
 

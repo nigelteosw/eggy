@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/commands"
@@ -108,7 +109,41 @@ type WebUIConfig struct {
 const (
 	webSessionCookie = "eggy_session"
 	webSessionTTL    = 12 * time.Hour
+	// webLoginLinkTTL bounds how long a /web link is worth stealing. It is
+	// minutes rather than hours because the link travels through a chat
+	// transcript, which is a place credentials linger.
+	webLoginLinkTTL = 5 * time.Minute
 )
+
+// spentLinks remembers the login links already exchanged for a session, so a
+// link left behind in a chat transcript cannot be replayed by whoever reads it
+// later. Entries are dropped once their token could no longer verify anyway,
+// which bounds the map by the link TTL rather than by uptime.
+type spentLinks struct {
+	mu    sync.Mutex
+	spent map[string]time.Time
+}
+
+func newSpentLinks() *spentLinks {
+	return &spentLinks{spent: make(map[string]time.Time)}
+}
+
+// claim records token as spent and reports whether this caller is the one that
+// spent it. A second call with the same token returns false.
+func (s *spentLinks) claim(token string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for spent, at := range s.spent {
+		if now.Sub(at) > webLoginLinkTTL {
+			delete(s.spent, spent)
+		}
+	}
+	if _, used := s.spent[token]; used {
+		return false
+	}
+	s.spent[token] = now
+	return true
+}
 
 type webResult struct {
 	State        string     `json:"state"`
@@ -244,11 +279,13 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		now = time.Now
 	}
 	throttle := session.NewLoginThrottle(now)
+	links := newSpentLinks()
 	mux := http.NewServeMux()
 	mux.Handle("GET /", webUIHandler())
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
+	mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
 	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
@@ -702,6 +739,29 @@ func handleWebLogin(webConfig WebUIConfig, throttle *session.LoginThrottle, now 
 			Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, Expires: expiresAt,
 		})
 		writeWebResult(w, webResult{State: webSuccess, Title: "Logged in."})
+	}
+}
+
+// handleWebLoginLink spends a token minted by /web and lands the owner in the
+// panel already signed in. It is the same authority as a password login --
+// there is one account -- so it issues the same cookie and nothing more.
+func handleWebLoginLink(webConfig WebUIConfig, links *spentLinks, now func() time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("token")
+		if len(webConfig.SigningKey) == 0 || !session.VerifyLoginLink(webConfig.SigningKey, token, now()) {
+			writeWebError(w, http.StatusUnauthorized, "this sign-in link is invalid or has expired -- send /web again")
+			return
+		}
+		if !links.claim(token, now()) {
+			writeWebError(w, http.StatusUnauthorized, "this sign-in link has already been used -- send /web again")
+			return
+		}
+		expiresAt := now().Add(webSessionTTL)
+		http.SetCookie(w, &http.Cookie{
+			Name: webSessionCookie, Value: session.SignSession(webConfig.SigningKey, expiresAt),
+			Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, Expires: expiresAt,
+		})
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
 )
 
@@ -943,4 +945,55 @@ func testGetenv(name string) string {
 		"TELEGRAM_WEBHOOK_SECRET": "secret",
 		"GITHUB_TOKEN":            "gh",
 	}[name]
+}
+
+// The /web link is the panel's second door, so it is worth checking it opens
+// exactly once and only for a token this deployment signed.
+func TestLoginLinkSignsInOnceAndOnlyOnce(t *testing.T) {
+	key := []byte("signing-key")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	handler := NewWebHandler("", WebUIConfig{SigningKey: key, Now: func() time.Time { return now }})
+	token := session.SignLoginLink(key, now.Add(webLoginLinkTTL))
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
+		t.Fatalf("status=%d location=%q", response.Code, response.Header().Get("Location"))
+	}
+	cookie := response.Result().Cookies()
+	if len(cookie) != 1 || cookie[0].Name != webSessionCookie || !session.VerifySession(key, cookie[0].Value, now) {
+		t.Fatalf("cookies=%v", cookie)
+	}
+
+	replay := httptest.NewRecorder()
+	handler.ServeHTTP(replay, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
+	if replay.Code != http.StatusUnauthorized || len(replay.Result().Cookies()) != 0 {
+		t.Fatalf("replayed link status=%d cookies=%v", replay.Code, replay.Result().Cookies())
+	}
+
+	forged := httptest.NewRecorder()
+	forgedToken := session.SignLoginLink([]byte("another-key"), now.Add(webLoginLinkTTL))
+	handler.ServeHTTP(forged, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(forgedToken), nil))
+	if forged.Code != http.StatusUnauthorized || len(forged.Result().Cookies()) != 0 {
+		t.Fatalf("forged link status=%d cookies=%v", forged.Code, forged.Result().Cookies())
+	}
+}
+
+func TestLoginLinkOpensAnAuthenticatedSession(t *testing.T) {
+	key := []byte("signing-key")
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	handler := NewWebHandler("", WebUIConfig{SigningKey: key, Now: func() time.Time { return now }})
+	response := httptest.NewRecorder()
+	token := session.SignLoginLink(key, now.Add(webLoginLinkTTL))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
+
+	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	for _, cookie := range response.Result().Cookies() {
+		request.AddCookie(cookie)
+	}
+	probe := httptest.NewRecorder()
+	handler.ServeHTTP(probe, request)
+	if probe.Code != http.StatusOK {
+		t.Fatalf("session status=%d body=%s", probe.Code, probe.Body.String())
+	}
 }

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   getTrace,
+  listThreads,
   listTraces,
   SessionExpiredError,
   TracingDisabledError,
@@ -496,17 +497,131 @@ function TraceRow({
   );
 }
 
+// --- Grouping ------------------------------------------------------------
+//
+// A turn is rarely interesting on its own: a question, its follow-up and the
+// correction after it are one piece of work, and the thing you want to see is
+// how that work ran. So the table's unit is the conversation and the turns sit
+// inside it -- the list stays newest-first, and a conversation sits wherever
+// its newest turn put it.
+
+export type TraceGroup = {
+  conversationId: string;
+  traces: TraceSummary[];
+  startedAt: string;
+  lastAt: string;
+  durationMs: number;
+  totalTokens: number;
+  spans: number;
+  errors: number;
+};
+
+export function groupTracesByConversation(traces: TraceSummary[]): TraceGroup[] {
+  const groups: TraceGroup[] = [];
+  const byConversation = new Map<string, TraceGroup>();
+  for (const trace of traces) {
+    const key = trace.conversation_id || "";
+    let group = byConversation.get(key);
+    if (!group) {
+      group = { conversationId: key, traces: [], startedAt: trace.started_at, lastAt: trace.started_at, durationMs: 0, totalTokens: 0, spans: 0, errors: 0 };
+      byConversation.set(key, group);
+      groups.push(group);
+    }
+    group.traces.push(trace);
+    // The list arrives newest-first, but a group's span is read off whatever
+    // it actually holds rather than off that assumption.
+    if (trace.started_at < group.startedAt) group.startedAt = trace.started_at;
+    if (trace.started_at > group.lastAt) group.lastAt = trace.started_at;
+    group.durationMs += trace.duration_ms;
+    group.totalTokens += trace.total_tokens;
+    group.spans += trace.spans;
+    if (trace.error) group.errors += 1;
+  }
+  return groups;
+}
+
+// A conversation is named by its thread title where there is one. Telegram's
+// thread is a fixed, reserved ID rather than a titled thread, and a turn whose
+// thread has since been deleted still has its channel -- so the fallbacks name
+// the surface before they fall back to the raw ID.
+export function conversationLabel(group: TraceGroup, titles: Record<string, string>): string {
+  const title = titles[group.conversationId];
+  if (title) return title;
+  if (group.conversationId === "telegram") return "Telegram";
+  if (!group.conversationId) return "Unassigned turns";
+  const channel = group.traces[0]?.channel;
+  return channel ? `${SOURCE_LABEL[channel] ?? channel} conversation` : group.conversationId;
+}
+
+function ConversationHeader({
+  group,
+  label,
+  collapsed,
+  onToggle,
+}: {
+  group: TraceGroup;
+  label: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <tr
+      onClick={onToggle}
+      className="block cursor-pointer border-t border-border bg-muted/50 transition-colors hover:bg-muted sm:table-row"
+    >
+      <td className="absolute left-3 top-3 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
+        <span className={`inline-flex text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}>
+          <ChevronDownIcon />
+        </span>
+      </td>
+      <td colSpan={3} className="block px-3 pb-1 pl-9 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-semibold text-foreground">{label}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {group.traces.length} {group.traces.length === 1 ? "turn" : "turns"}
+          </span>
+          {group.errors > 0 && (
+            <span className="shrink-0 text-[11px] text-destructive">
+              {group.errors} failed
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">Last turn {formatTime(group.lastAt)}</div>
+      </td>
+      <td className="inline-block px-3 pb-3 pl-9 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pl-3">
+        <span className="mr-1 sm:hidden">Steps</span>
+        {group.spans}
+      </td>
+      <td className="inline-block px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5">
+        <span className="mr-1 sm:hidden">Duration</span>
+        {formatDuration(group.durationMs)}
+      </td>
+      <td className="inline-block px-3 pb-3 pt-1 pr-4 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pr-4">
+        <span className="mr-1 sm:hidden">Tokens</span>
+        {formatTokens(group.totalTokens)}
+      </td>
+      <td className="hidden sm:table-cell" />
+    </tr>
+  );
+}
+
 export function TraceTable({
   traces,
   expanded,
   onToggle,
   onSessionExpired,
+  titles = {},
 }: {
   traces: TraceSummary[];
   expanded: string | null;
   onToggle: (traceId: string) => void;
   onSessionExpired: (reason: unknown) => void;
+  titles?: Record<string, string>;
 }) {
+  const groups = useMemo(() => groupTracesByConversation(traces), [traces]);
+  // Conversations open by default: collapsing is for putting a conversation
+  // you have read away, not a wall the turns start behind.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   return (
     <div className="surface-panel scrollbar-slim overflow-x-auto">
       <table className="block w-full min-w-0 border-collapse text-left sm:table">
@@ -522,15 +637,33 @@ export function TraceTable({
             <th className="px-3 py-2 pr-4" />
           </tr>
         </thead>
-        {traces.map((trace) => (
-          <TraceRow
-            key={trace.id}
-            trace={trace}
-            open={expanded === trace.id}
-            onToggle={() => onToggle(trace.id)}
-            onSessionExpired={onSessionExpired}
-          />
-        ))}
+        {groups.map((group) => {
+          const shut = collapsed[group.conversationId] ?? false;
+          return (
+            <Fragment key={group.conversationId || "unassigned"}>
+              <tbody className="relative block sm:table-row-group">
+                <ConversationHeader
+                  group={group}
+                  label={conversationLabel(group, titles)}
+                  collapsed={shut}
+                  onToggle={() =>
+                    setCollapsed((current) => ({ ...current, [group.conversationId]: !shut }))
+                  }
+                />
+              </tbody>
+              {!shut &&
+                group.traces.map((trace) => (
+                  <TraceRow
+                    key={trace.id}
+                    trace={trace}
+                    open={expanded === trace.id}
+                    onToggle={() => onToggle(trace.id)}
+                    onSessionExpired={onSessionExpired}
+                  />
+                ))}
+            </Fragment>
+          );
+        })}
       </table>
     </div>
   );
@@ -544,6 +677,7 @@ export function TracesPage({
   onBackToChat: () => void;
 }) {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
+  const [titles, setTitles] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -587,6 +721,12 @@ export function TracesPage({
         fail(reason);
       })
       .finally(() => setLoading(false));
+    // Thread titles name the conversations. They are a nicety, not part of a
+    // trace, so a failure here leaves the groups labelled by their surface
+    // rather than taking the page down with it.
+    listThreads()
+      .then((threads) => setTitles(Object.fromEntries(threads.map((thread) => [thread.id, thread.title]))))
+      .catch(() => setTitles({}));
   }, [fail]);
 
   useEffect(reload, [reload]);
@@ -614,8 +754,8 @@ export function TracesPage({
             <p className="section-eyebrow">Observability</p>
             <h1 className="text-3xl font-semibold tracking-tight">Traces</h1>
             <p className="text-sm leading-6 text-muted-foreground">
-              Every turn as it ran: open one for the prompt behind each model call, the arguments and output of every tool call, and
-              where its time went.
+              Every conversation and the turns it ran: open a turn for the prompt behind each model call, the arguments and output of
+              every tool call, and where its time went.
             </p>
           </header>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
@@ -629,6 +769,7 @@ export function TracesPage({
             <TraceTable
               traces={traces}
               expanded={expanded}
+              titles={titles}
               onToggle={(traceId) => setExpanded((current) => (current === traceId ? null : traceId))}
               onSessionExpired={rowFailed}
             />

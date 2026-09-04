@@ -80,8 +80,42 @@ export function ConfigPage({
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      <Sidebar collapsed={collapsed}>
+    <div className="flex h-full min-h-0 flex-col md:flex-row">
+      <div className="shrink-0 border-b border-border/80 bg-background md:hidden">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <button
+            type="button"
+            onClick={onBackToChat}
+            className="flex h-10 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <ChevronLeftIcon />
+            <span>Chat</span>
+          </button>
+          <select
+            aria-label="Mobile settings navigation"
+            value={active}
+            onChange={(event) => setActive(event.target.value as SectionId)}
+            className="h-10 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            {SECTIONS.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>
+                {candidate.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleLogout}
+            aria-label="Log out"
+            title="Log out"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <LogoutIcon />
+          </button>
+        </div>
+      </div>
+
+      <Sidebar collapsed={collapsed} className="hidden md:flex">
         <SidebarItem
           icon={<ChevronLeftIcon />}
           label="Back to chat"
@@ -110,7 +144,7 @@ export function ConfigPage({
         <SidebarItem icon={<LogoutIcon />} label="Log out" collapsed={collapsed} onClick={handleLogout} />
       </Sidebar>
 
-      <div className="app-canvas scrollbar-slim min-w-0 flex-1 overflow-y-auto">
+      <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div className="page-shell max-w-3xl">
           <header className="flex flex-col gap-1.5 pb-1">
             <p className="section-eyebrow">Settings</p>

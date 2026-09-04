@@ -214,7 +214,7 @@ export function Composer({
             placeholder="Ask Eggy anything..."
             className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-5 pb-2 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
-          <div className="flex items-center gap-1 px-2.5 pb-2.5">
+          <div className="flex flex-wrap items-center gap-1 px-2.5 pb-2.5">
             {agent && agent.models.length > 0 && (
               <ChipSelect
                 name="Model"

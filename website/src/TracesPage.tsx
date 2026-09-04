@@ -282,9 +282,9 @@ function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks:
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-nowrap"
       >
-        <span className="flex w-[15rem] shrink-0 items-center gap-2 sm:w-[19rem]">
+        <span className="order-1 flex min-w-0 w-full items-center gap-2 sm:order-none sm:w-[19rem] sm:shrink-0">
           <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
           <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
           <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -292,19 +292,20 @@ function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks:
           </span>
           <span className="min-w-0 flex-1 truncate text-sm font-medium">{span.name}</span>
         </span>
-        <span className="relative flex min-w-0 flex-1 items-center">
+        <span className="order-3 relative flex min-w-0 w-full items-center sm:order-none sm:flex-1">
           <TickLines ticks={ticks} window={window} />
           <WaterfallBar item={item} window={window} />
         </span>
-        <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+        <span className="order-2 ml-auto shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:order-none sm:ml-0 sm:w-16">
+          <span className="mr-1 sm:hidden">Tokens</span>
           {span.total_tokens ? `${formatTokens(span.total_tokens)} tok` : ""}
         </span>
-        <span className={`inline-flex shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
+        <span className={`order-2 inline-flex shrink-0 text-muted-foreground transition-transform sm:order-none ${open ? "rotate-180" : ""}`}>
           <ChevronDownIcon />
         </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border bg-background/60 p-5">
+        <div className="flex flex-col gap-4 border-t border-border bg-background/60 p-4 sm:p-5">
           {span.error && (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{span.error}</div>
           )}
@@ -337,11 +338,11 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
       {/* The axis header carries the tick labels; the same tick positions are
           repeated as hairlines behind every bar so a bar can be read against
           the ruler without tracing back up to it. */}
-      <div className="flex items-center gap-3 border-b border-border bg-muted/80 px-4 py-2.5">
-        <span className="w-[15rem] shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:w-[19rem]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/80 px-4 py-2.5">
+        <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:w-[19rem] sm:shrink-0">
           Step
         </span>
-        <span className="relative h-4 min-w-0 flex-1">
+        <span className="relative h-4 w-full min-w-0 sm:flex-1">
           {ticks.map((at) => (
             <span
               key={at}
@@ -353,8 +354,8 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
           ))}
           <span className="absolute top-0 right-0 text-[10px] tabular-nums text-muted-foreground">{formatDuration(window)}</span>
         </span>
-        <span className="w-16 shrink-0" />
-        <span className="w-4 shrink-0" />
+        <span className="hidden w-16 shrink-0 sm:block" />
+        <span className="hidden w-4 shrink-0 sm:block" />
       </div>
       <div className="relative">
         {placed.map((item) => (
@@ -448,35 +449,39 @@ function TraceRow({
   }, [open, detail, trace.id, onSessionExpired]);
 
   return (
-    <tbody className="border-t border-border/80">
+    <tbody className="block border-t border-border/80 sm:table-row-group">
       <tr
         onClick={onToggle}
-        className={`cursor-pointer transition-colors ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}
+        className={`relative block cursor-pointer transition-colors sm:table-row ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}
       >
-        <td className="w-8 pl-3 align-middle">
+        <td className="absolute left-3 top-4 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
           <span className={`inline-flex text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}>
             <ChevronDownIcon />
           </span>
         </td>
-        <td className="px-3 py-3.5 align-middle"><SourceBadge trace={trace} /></td>
-        <td className="whitespace-nowrap px-3 py-3.5 align-middle text-xs text-muted-foreground">{formatTime(trace.started_at)}</td>
-        <td className="w-full max-w-0 px-3 py-3.5 align-middle">
-          <div className="truncate text-sm font-medium text-foreground">{trace.input || trace.output || "(no message)"}</div>
+        <td className="inline-block px-3 pb-1 pl-9 pt-4 align-middle sm:table-cell sm:px-3 sm:py-3.5 sm:pl-3"><SourceBadge trace={trace} /></td>
+        <td className="inline-block whitespace-nowrap px-3 pb-1 pt-4 align-middle text-xs text-muted-foreground sm:table-cell sm:px-3 sm:py-3.5">{formatTime(trace.started_at)}</td>
+        <td className="block max-w-none px-3 pb-1 pl-9 pt-1 align-middle sm:table-cell sm:w-full sm:max-w-0 sm:px-3 sm:py-3.5">
+          <div className="line-clamp-2 text-sm font-medium text-foreground sm:truncate">{trace.input || trace.output || "(no message)"}</div>
         </td>
-        <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">{trace.spans}</td>
-        <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle text-xs tabular-nums text-muted-foreground">
+        <td className="inline-block whitespace-nowrap px-3 pb-3 pl-9 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
+          <span className="mr-1 sm:hidden">Steps</span>{trace.spans}
+        </td>
+        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
+          <span className="mr-1 sm:hidden">Duration</span>
           {formatDuration(trace.duration_ms)}
         </td>
-        <td className="whitespace-nowrap px-3 py-2.5 pr-4 text-right align-middle text-xs tabular-nums text-muted-foreground">
+        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5 sm:pr-4">
+          <span className="mr-1 sm:hidden">Tokens</span>
           {formatTokens(trace.total_tokens)}
         </td>
-        <td className="whitespace-nowrap px-3 py-2.5 pr-4 align-middle text-xs">
+        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 pr-4 align-middle text-xs sm:table-cell sm:px-3 sm:py-2.5 sm:pr-4">
           {trace.error ? <span className="text-destructive">error</span> : null}
         </td>
       </tr>
       {open && (
-        <tr>
-          <td colSpan={8} className="p-0">
+        <tr className="block sm:table-row">
+          <td colSpan={8} className="block p-0 sm:table-cell">
             {failed ? (
               <div className="border-l-2 border-destructive/60 bg-destructive/10 px-4 py-3 text-sm text-destructive">{failed}</div>
             ) : detail ? (
@@ -488,6 +493,46 @@ function TraceRow({
         </tr>
       )}
     </tbody>
+  );
+}
+
+export function TraceTable({
+  traces,
+  expanded,
+  onToggle,
+  onSessionExpired,
+}: {
+  traces: TraceSummary[];
+  expanded: string | null;
+  onToggle: (traceId: string) => void;
+  onSessionExpired: (reason: unknown) => void;
+}) {
+  return (
+    <div className="surface-panel scrollbar-slim overflow-x-auto">
+      <table className="block w-full min-w-0 border-collapse text-left sm:table">
+        <thead className="hidden bg-muted/80 sm:table-header-group">
+          <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            <th className="w-8" />
+            <th className="px-3 py-2">Source</th>
+            <th className="px-3 py-2">Started</th>
+            <th className="px-3 py-2">Turn</th>
+            <th className="px-3 py-2 text-right">Steps</th>
+            <th className="px-3 py-2 text-right">Duration</th>
+            <th className="px-3 py-2 pr-4 text-right">Tokens</th>
+            <th className="px-3 py-2 pr-4" />
+          </tr>
+        </thead>
+        {traces.map((trace) => (
+          <TraceRow
+            key={trace.id}
+            trace={trace}
+            open={expanded === trace.id}
+            onToggle={() => onToggle(trace.id)}
+            onSessionExpired={onSessionExpired}
+          />
+        ))}
+      </table>
+    </div>
   );
 }
 
@@ -581,31 +626,12 @@ export function TracesPage({
               </div>
             )
           ) : (
-            <div className="surface-panel scrollbar-slim overflow-x-auto">
-              <table className="w-full min-w-[58rem] border-collapse text-left">
-                <thead className="bg-muted/80">
-                  <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-                    <th className="w-8" />
-                    <th className="px-3 py-2">Source</th>
-                    <th className="px-3 py-2">Started</th>
-                    <th className="px-3 py-2">Turn</th>
-                    <th className="px-3 py-2 text-right">Steps</th>
-                    <th className="px-3 py-2 text-right">Duration</th>
-                    <th className="px-3 py-2 pr-4 text-right">Tokens</th>
-                    <th className="px-3 py-2 pr-4" />
-                  </tr>
-                </thead>
-                {traces.map((trace) => (
-                  <TraceRow
-                    key={trace.id}
-                    trace={trace}
-                    open={expanded === trace.id}
-                    onToggle={() => setExpanded((current) => (current === trace.id ? null : trace.id))}
-                    onSessionExpired={rowFailed}
-                  />
-                ))}
-              </table>
-            </div>
+            <TraceTable
+              traces={traces}
+              expanded={expanded}
+              onToggle={(traceId) => setExpanded((current) => (current === traceId ? null : traceId))}
+              onSessionExpired={rowFailed}
+            />
           )}
         </div>
       </div>

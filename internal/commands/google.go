@@ -118,37 +118,13 @@ func (s *CommandService) googleSet(args []string) (string, bool, error) {
 	if len(args) == 0 {
 		return googleSetUsage, true, nil
 	}
-	input := config.GoogleInput{Enabled: true}
-	for _, argument := range args {
-		key, value, ok := strings.Cut(argument, "=")
-		if !ok {
-			return "Arguments are key=value pairs. " + googleSetUsage, true, nil
-		}
-		switch key {
-		case "client_id":
-			input.ClientID = value
-		case "client_secret_env":
-			// The name is config; the value is not. The same rule /mcp add
-			// follows, and for the same reason: what lands here lands in the
-			// message history.
-			if !environmentName.MatchString(value) {
-				return secretNameHint(key), true, nil
-			}
-			input.ClientSecretEnv = value
-		case "products":
-			input.Products = strings.Split(value, ",")
-		case "enabled":
-			switch value {
-			case "true":
-				input.Enabled = true
-			case "false":
-				input.Enabled = false
-			default:
-				return "enabled must be true or false.", true, nil
-			}
-		default:
-			return fmt.Sprintf("Unknown field %q. %s", key, googleSetUsage), true, nil
-		}
+	values, ok := namedArguments(args)
+	if !ok {
+		return "Arguments are key=value pairs. " + googleSetUsage, true, nil
+	}
+	input, err := values.GoogleInput()
+	if err != nil {
+		return fieldErrorReply(err, googleSetUsage), true, nil
 	}
 	if err := config.SetGoogle(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not save Google configuration: %v", err), true, nil

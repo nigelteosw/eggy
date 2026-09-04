@@ -2,8 +2,8 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -211,43 +211,13 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	if len(args) == 0 {
 		return mcpAddUsage, true, nil
 	}
-	input := config.MCPServerInput{Name: args[0], Auth: "none", Enabled: true}
-	for _, argument := range args[1:] {
-		key, value, ok := strings.Cut(argument, "=")
-		if !ok {
-			return "Arguments after the name are key=value pairs. " + mcpUsage(), true, nil
-		}
-		switch key {
-		case "url":
-			input.URL = value
-		case "transport":
-			input.Transport = value
-		case "auth":
-			input.Auth = value
-		case "bearer_env":
-			if !environmentName.MatchString(value) {
-				return secretNameHint(key), true, nil
-			}
-			input.BearerTokenEnv = value
-		case "client_id":
-			input.OAuthClientID = value
-		case "client_secret_env":
-			if !environmentName.MatchString(value) {
-				return secretNameHint(key), true, nil
-			}
-			input.OAuthClientSecretEnv = value
-		case "enabled":
-			switch value {
-			case "true":
-				input.Enabled = true
-			case "false":
-				input.Enabled = false
-			default:
-				return "enabled must be true or false.", true, nil
-			}
-		default:
-			return fmt.Sprintf("Unknown field %q. %s", key, mcpUsage()), true, nil
-		}
+	values, ok := namedArguments(args[1:])
+	if !ok {
+		return "Arguments after the name are key=value pairs. " + mcpUsage(), true, nil
+	}
+	input, err := values.MCPServerInput(args[0])
+	if err != nil {
+		return fieldErrorReply(err, mcpUsage()), true, nil
 	}
 	if err := config.SetMCPServer(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not save MCP server %s: %v", input.Name, err), true, nil
@@ -271,11 +241,41 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 	return message, true, nil
 }
 
-// environmentName is the shape internal/config accepts for a variable name.
-// It is checked here as well so the reply can say what went wrong: a value
-// pasted where a name belongs is almost always the secret itself, and the
-// config layer's "is invalid" cannot know that.
-var environmentName = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+// namedArguments turns "key=value key=value" into the bag internal/config
+// decodes. Both /mcp add and /google set take their fields this way, so the
+// splitting is written once and the field names themselves live in config,
+// where the panel reads the same list.
+func namedArguments(args []string) (config.Values, bool) {
+	values := make(config.Values, len(args))
+	for _, argument := range args {
+		key, value, ok := strings.Cut(argument, "=")
+		if !ok {
+			return nil, false
+		}
+		values[key] = value
+	}
+	return values, true
+}
+
+// fieldErrorReply renders a decode failure in the chat surface's own words.
+// This is why config reports the field and the reason rather than a finished
+// sentence: an *_env field holding something that is not a variable name is
+// almost always the secret itself, and only this surface knows the value just
+// went into a message history that needs it rotated.
+func fieldErrorReply(err error, usage string) string {
+	var fieldErr config.FieldError
+	if !errors.As(err, &fieldErr) {
+		return err.Error()
+	}
+	switch fieldErr.Kind {
+	case config.NotAnEnvironmentName:
+		return secretNameHint(fieldErr.Field)
+	case config.NotABoolean:
+		return fieldErr.Field + " must be true or false."
+	default:
+		return fmt.Sprintf("Unknown field %q. %s", fieldErr.Field, usage)
+	}
+}
 
 // secretNameHint never echoes the offending value. The whole reason to reach
 // this branch is that the owner pasted a credential into a chat message;

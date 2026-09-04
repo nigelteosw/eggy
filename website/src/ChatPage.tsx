@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatEvent, SessionExpiredError, approveChatDecision, getChatHistory, sendChatMessage } from "./api";
+import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, sendChatMessage } from "./api";
 import { Composer } from "./Composer";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
@@ -43,12 +43,14 @@ export function ChatPage({
   sidebarOpen,
   onSessionExpired,
   onMessageResolved,
+  onThreadCreated,
 }: {
-  threadId: string;
+  threadId: string | null;
   title: string;
   sidebarOpen: boolean;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
+  onThreadCreated?: (threadId: string) => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
   // pending holds our own just-sent messages that loadHistory hasn't
@@ -62,10 +64,13 @@ export function ChatPage({
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const threadRef = useRef<string | null>(threadId);
+  const previousThreadId = useRef<string | null>(threadId);
   const messages = [...history, ...pending];
 
-  function loadHistory() {
-    getChatHistory(threadId)
+  function loadHistory(targetThreadId = threadId) {
+    if (!targetThreadId) return;
+    getChatHistory(targetThreadId)
       .then((result) => {
         const rows = result.table_rows ?? [];
         const fetched = rows.map((row, index) => ({
@@ -84,14 +89,21 @@ export function ChatPage({
   }
 
   useEffect(() => {
+    const createdFromDraft = previousThreadId.current === null && threadId !== null;
+    threadRef.current = threadId;
     setHistory([]);
-    setPending([]);
+    // The first send creates the durable thread and changes this prop while
+    // its message is still in flight. Keep that optimistic message visible;
+    // a normal switch between existing chats should reset the pane.
+    if (!createdFromDraft) setPending([]);
     setApprovals([]);
     setTyping(false);
+    previousThreadId.current = threadId;
+    if (!threadId) return;
     loadHistory();
     const source = new EventSource(`/api/chat/threads/${encodeURIComponent(threadId)}/stream`);
 
-    source.addEventListener("open", loadHistory);
+    source.addEventListener("open", () => loadHistory());
 
     source.addEventListener("message", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
@@ -134,7 +146,13 @@ export function ChatPage({
   async function handleSend(text: string) {
     setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text }]);
     try {
-      await sendChatMessage(threadId, text);
+      let target = threadRef.current;
+      if (!target) {
+        target = await createThread();
+        threadRef.current = target;
+        onThreadCreated?.(target);
+      }
+      await sendChatMessage(target, text);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();

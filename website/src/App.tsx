@@ -21,6 +21,7 @@ export function App() {
   );
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
+  const [draftChatOpen, setDraftChatOpen] = useState(false);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
   // Whether the chat rail is showing. It is one flag across both layouts,
   // remembered per device: below md the rail is an off-canvas overlay (there
@@ -120,9 +121,14 @@ export function App() {
               activeThreadId={activeThreadId}
               onSelect={(id) => {
                 setActiveThreadId(id);
+                setDraftChatOpen(false);
                 // Only the overlay layout needs dismissing on a pick; at md
                 // and up the rail is a column the owner chose to keep open.
                 if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+              }}
+              onStartNew={() => {
+                setActiveThreadId(null);
+                setDraftChatOpen(true);
               }}
               onActiveTitleChange={setActiveThreadTitle}
               onCollapse={() => setSidebarOpen(false)}
@@ -131,12 +137,14 @@ export function App() {
               onDeleted={(id) => {
                 // Only the open chat needs clearing; deleting some other row
                 // should leave the current conversation alone.
+                if (activeThreadId === id) setDraftChatOpen(true);
                 setActiveThreadId((current) => (current === id ? null : current));
               }}
               reloadKey={sidebarReloadKey}
+              draftOpen={draftChatOpen}
             />
           </div>
-          {activeThreadId ? (
+          {activeThreadId || draftChatOpen ? (
             <div className="min-w-0 flex-1">
               <ChatPage
                 threadId={activeThreadId}
@@ -144,6 +152,10 @@ export function App() {
                 sidebarOpen={sidebarOpen}
                 onSessionExpired={onSessionExpired}
                 onMessageResolved={() => setSidebarReloadKey((key) => key + 1)}
+                onThreadCreated={(id) => {
+                  setActiveThreadId(id);
+                  setDraftChatOpen(false);
+                }}
               />
             </div>
           ) : (

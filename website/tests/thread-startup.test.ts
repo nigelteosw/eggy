@@ -20,12 +20,12 @@ test("selects the newest chat when it was updated within five minutes", () => {
   expect(selection).toEqual("older");
 });
 
-test("requests a new chat when no existing chat is recent", () => {
+test("leaves chat creation to the first message when no existing chat is recent", () => {
   const selection = initialThreadSelection([thread("stale", "2026-09-05T11:54:59Z")], now);
 
-  expect(selection).toEqual("create");
+  expect(selection).toBeNull();
 });
 
-test("requests a new chat when there are no existing chats", () => {
-  expect(initialThreadSelection([], now)).toEqual("create");
+test("does not create a server chat when there are no existing chats", () => {
+  expect(initialThreadSelection([], now)).toBeNull();
 });

@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { canStartNewChat } from "../src/ThreadSidebar";
+import { ChatPage } from "../src/ChatPage";
 import type { Thread } from "../src/api";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 function thread(id: string, title: string): Thread {
   return { id, title, updatedAt: "2026-09-05T12:00:00Z" };
@@ -23,4 +26,18 @@ test("allows a new chat once the open one has been written in", () => {
 test("allows a new chat before the thread list has loaded", () => {
   expect(canStartNewChat([], null)).toBe(true);
   expect(canStartNewChat([], "not-loaded-yet")).toBe(true);
+});
+
+test("a new chat draft can render before a server thread exists", () => {
+  const html = renderToStaticMarkup(
+    createElement(ChatPage, {
+      threadId: null,
+      title: "New chat",
+      sidebarOpen: true,
+      onSessionExpired: () => {},
+      onThreadCreated: () => {},
+    }),
+  );
+
+  expect(html).toContain('placeholder="Ask Eggy anything..."');
 });

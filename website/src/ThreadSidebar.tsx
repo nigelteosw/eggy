@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { Thread, createThread, deleteThread, listThreads, renameThread } from "./api";
+import { Thread, deleteThread, listThreads, renameThread } from "./api";
 import { PanelIcon, PlusIcon, SettingsIcon, TraceIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
@@ -40,14 +40,14 @@ function rememberSidebarWidth(width: number) {
   }
 }
 
-export function initialThreadSelection(threads: Thread[], now = Date.now()): string | "create" {
+export function initialThreadSelection(threads: Thread[], now = Date.now()): string | null {
   const recent = threads
     .filter((thread) => {
       const age = now - Date.parse(thread.updatedAt);
       return age >= 0 && age <= initialThreadMaxAgeMs;
     })
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  return recent[0]?.id ?? "create";
+  return recent[0]?.id ?? null;
 }
 
 // An untitled chat is one nobody has written in yet: the server auto-titles a
@@ -74,15 +74,18 @@ function relativeTime(iso: string): string {
 export function ThreadSidebar({
   activeThreadId,
   onSelect,
+  onStartNew,
   onDeleted,
   onActiveTitleChange,
   onCollapse,
   onOpenSettings,
   onOpenTraces,
   reloadKey,
+  draftOpen,
 }: {
   activeThreadId: string | null;
   onSelect: (threadId: string) => void;
+  onStartNew: () => void;
   onDeleted: (threadId: string) => void;
   // Reports the open chat's title so the chat pane can head itself with it.
   // It comes from here rather than from a fetch in ChatPage because this is
@@ -92,6 +95,7 @@ export function ThreadSidebar({
   onOpenSettings: () => void;
   onOpenTraces: () => void;
   reloadKey: number;
+  draftOpen: boolean;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   // menuFor / renamingId are the row-level UI states: at most one row shows
@@ -134,24 +138,20 @@ export function ThreadSidebar({
 
   useEffect(() => {
     listThreads()
-      .then(async (loaded) => {
+      .then((loaded) => {
         setThreads(loaded);
         if (initialSelectionStarted.current) return;
         initialSelectionStarted.current = true;
 
         const selection = initialThreadSelection(loaded);
-        if (selection !== "create") {
+        if (selection) {
           onSelect(selection);
           return;
         }
-
-        try {
-          const id = await createThread();
-          setThreads((current) => [{ id, title: "", updatedAt: new Date().toISOString() }, ...current]);
-          onSelect(id);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not create chat");
-        }
+        // Opening the composer is local UI state. Creating a durable row here
+        // would make merely returning to the app look like a new chat; the
+        // first non-empty message creates the server thread.
+        onStartNew();
       })
       .catch(() => setThreads([]));
   }, [reloadKey]);
@@ -175,18 +175,12 @@ export function ThreadSidebar({
     if (renamingId) renameInput.current?.focus();
   }, [renamingId]);
 
-  const newChatAvailable = canStartNewChat(threads, activeThreadId);
+  const newChatAvailable = !draftOpen && canStartNewChat(threads, activeThreadId);
 
-  async function handleNew() {
+  function handleNew() {
     if (!newChatAvailable) return;
     setError(null);
-    try {
-      const id = await createThread();
-      setThreads((current) => [{ id, title: "", updatedAt: new Date().toISOString() }, ...current]);
-      onSelect(id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create chat");
-    }
+    onStartNew();
   }
 
   function startRename(thread: Thread) {
@@ -269,7 +263,7 @@ export function ThreadSidebar({
           type="button"
           onClick={handleNew}
           disabled={!newChatAvailable}
-          title={newChatAvailable ? "New chat" : "You are already in a new chat"}
+          title={newChatAvailable ? "New chat" : "Write a message to start a new chat"}
           className="flex h-11 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
         >
           <PlusIcon className="h-4 w-4" />

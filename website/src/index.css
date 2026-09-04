@@ -30,7 +30,7 @@
     --input: 120 8% 83%;
     --ring: 107 55% 33%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
   }
 
   .dark {
@@ -90,20 +90,16 @@
 }
 
 @layer components {
-  /* One canvas and one raised surface across chat, settings, traces, login,
-     and safe mode. The very soft glow keeps the large empty regions from
-     reading as a flat slab without adding another decorative colour. */
   .app-canvas {
     @apply bg-background;
-    background-image: radial-gradient(circle at 50% -20%, hsl(var(--primary) / 0.07), transparent 38rem);
   }
 
   .page-shell {
-    @apply mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10;
+    @apply mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6 sm:px-8 sm:py-8;
   }
 
   .surface-panel {
-    @apply rounded-xl border border-border bg-card shadow-card;
+    @apply rounded-lg border border-border bg-card;
   }
 
   .section-eyebrow {
@@ -112,6 +108,10 @@
 
   .code-panel {
     @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background/70 p-4 font-mono text-xs leading-relaxed text-foreground/90;
+  }
+
+  details > summary {
+    @apply min-h-11 py-3;
   }
 
   /* Typography owns its own colour variables. Setting text on only <p> and
@@ -163,7 +163,6 @@
 
   .trace-detail-panel {
     @apply border-t border-border bg-background/45 px-4 py-5 sm:px-6;
-    box-shadow: inset 3px 0 0 hsl(var(--primary) / 0.7);
   }
 }
 

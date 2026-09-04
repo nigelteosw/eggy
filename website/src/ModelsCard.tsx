@@ -160,26 +160,26 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} required />
-          <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required />
-          <Input
-            placeholder="model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            required
-            className="sm:col-span-2 font-mono"
-          />
-          <Input
-            placeholder="reasoning_efforts (comma-separated, optional)"
-            value={reasoningEfforts}
-            onChange={(e) => setReasoningEfforts(e.target.value)}
-            className="sm:col-span-2"
-          />
-          <Button type="submit" disabled={saving} className="sm:col-span-2">
-            {saving ? "Saving..." : "Add model"}
-          </Button>
-        </form>
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Add model alias</summary>
+          <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} required />
+            <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required />
+            <Input placeholder="model" value={model} onChange={(e) => setModel(e.target.value)} required className="sm:col-span-2 font-mono" />
+            <details className="sm:col-span-2">
+              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
+              <Input
+                placeholder="reasoning_efforts (comma-separated, optional)"
+                value={reasoningEfforts}
+                onChange={(e) => setReasoningEfforts(e.target.value)}
+                className="mt-3"
+              />
+            </details>
+            <Button type="submit" disabled={saving} className="sm:col-span-2">
+              {saving ? "Saving..." : "Save model"}
+            </Button>
+          </form>
+        </details>
         {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
         {error && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">

@@ -39,21 +39,29 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No providers configured yet." />
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required />
-          <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required />
-          <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required />
-          <Switch
-            className="sm:col-span-2"
-            checked={discoverModels}
-            onCheckedChange={setDiscoverModels}
-            label="Let the Models card browse this provider's catalog"
-          />
-          <Button type="submit" disabled={saving} className="sm:col-span-2">
-            {saving ? "Saving..." : "Add provider"}
-          </Button>
-        </form>
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Add provider</summary>
+          <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
+            <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required />
+            <details className="sm:col-span-2">
+              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required />
+                <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required />
+                <Switch
+                  className="sm:col-span-2"
+                  checked={discoverModels}
+                  onCheckedChange={setDiscoverModels}
+                  label="Browse this provider's model catalog"
+                />
+              </div>
+            </details>
+            <Button type="submit" disabled={saving} className="sm:col-span-2">
+              {saving ? "Saving..." : "Save provider"}
+            </Button>
+          </form>
+        </details>
         {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
         {error && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">

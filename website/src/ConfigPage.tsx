@@ -13,23 +13,20 @@ import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
 import { RestartCard } from "./RestartCard";
-import { Sidebar, SidebarItem, SidebarSeparator, useSidebarCollapsed } from "./components/ui/sidebar";
+import { Sidebar, SidebarItem, SidebarSeparator } from "./components/ui/sidebar";
 import {
   CheckShieldIcon,
   ChevronLeftIcon,
   ClockIcon,
   CpuIcon,
   FileCodeIcon,
-  GoogleIcon,
   LogoutIcon,
   PaletteIcon,
-  PanelIcon,
   PlugIcon,
-  TraceIcon,
   WrenchIcon,
 } from "./components/ui/icons";
 
-type SectionId = "models" | "mcp" | "google" | "tools" | "automation" | "tracing" | "approvals" | "appearance" | "advanced";
+type SectionId = "models" | "connections" | "capabilities" | "automation" | "permissions" | "appearance" | "advanced";
 
 type Section = {
   id: SectionId;
@@ -39,19 +36,14 @@ type Section = {
   icon: ReactNode;
 };
 
-// The destinations the old single-column scroll had as stacked cards. Two cards share a page where they answer the same question:
-// Providers and Models are both "which backend", and Schedules and Heartbeat
-// are both "what fires on a timer".
 const SECTIONS: Section[] = [
   { id: "models", label: "Models", title: "Models", description: "Providers and the aliases that route to them.", icon: <CpuIcon /> },
-  { id: "mcp", label: "MCP", title: "MCP", description: "External tool servers Eggy can call during a turn.", icon: <PlugIcon /> },
-  { id: "google", label: "Google", title: "Google Workspace", description: "One grant across every enabled product.", icon: <GoogleIcon /> },
-  { id: "tools", label: "Tools", title: "Tools", description: "Every tool a turn can call, kernel and MCP alike.", icon: <WrenchIcon /> },
+  { id: "connections", label: "Connections", title: "Connections", description: "Connect external tools and Google Workspace.", icon: <PlugIcon /> },
+  { id: "capabilities", label: "Capabilities", title: "Capabilities", description: "See what Eggy can use during a turn.", icon: <WrenchIcon /> },
   { id: "automation", label: "Automation", title: "Automation", description: "Scheduled runs and the periodic check-in.", icon: <ClockIcon /> },
-  { id: "tracing", label: "Tracing", title: "Tracing", description: "What gets recorded about each turn, and for how long.", icon: <TraceIcon /> },
-  { id: "approvals", label: "Approvals", title: "Approvals", description: "Protected actions waiting on you.", icon: <CheckShieldIcon /> },
+  { id: "permissions", label: "Permissions", title: "Permissions", description: "Review actions that need your approval.", icon: <CheckShieldIcon /> },
   { id: "appearance", label: "Appearance", title: "Appearance", description: "How the panel looks.", icon: <PaletteIcon /> },
-  { id: "advanced", label: "Advanced", title: "Advanced", description: "The config file behind every form here, and the restart that applies it.", icon: <FileCodeIcon /> },
+  { id: "advanced", label: "Advanced", title: "Advanced", description: "Tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
 ];
 
 export function ConfigPage({
@@ -66,7 +58,6 @@ export function ConfigPage({
   onBackToChat: () => void;
 }) {
   const [active, setActive] = useState<SectionId>("models");
-  const [collapsed, setCollapsed] = useSidebarCollapsed();
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
 
   async function handleLogout() {
@@ -81,12 +72,12 @@ export function ConfigPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
-      <div className="shrink-0 border-b border-border/80 bg-background md:hidden">
+      <div className="sticky top-0 z-20 shrink-0 border-b bg-background md:hidden">
         <div className="flex items-center gap-2 px-3 py-2">
           <button
             type="button"
             onClick={onBackToChat}
-            className="flex h-10 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <ChevronLeftIcon />
             <span>Chat</span>
@@ -95,7 +86,7 @@ export function ConfigPage({
             aria-label="Mobile settings navigation"
             value={active}
             onChange={(event) => setActive(event.target.value as SectionId)}
-            className="h-10 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="h-11 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             {SECTIONS.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
@@ -108,25 +99,19 @@ export function ConfigPage({
             onClick={handleLogout}
             aria-label="Log out"
             title="Log out"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <LogoutIcon />
           </button>
         </div>
       </div>
 
-      <Sidebar collapsed={collapsed} className="hidden md:flex">
+      <Sidebar collapsed={false} className="hidden md:flex">
         <SidebarItem
           icon={<ChevronLeftIcon />}
           label="Back to chat"
-          collapsed={collapsed}
+          collapsed={false}
           onClick={onBackToChat}
-        />
-        <SidebarItem
-          icon={<PanelIcon />}
-          label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          collapsed={collapsed}
-          onClick={() => setCollapsed(!collapsed)}
         />
         <SidebarSeparator />
         {SECTIONS.map((candidate) => (
@@ -135,19 +120,18 @@ export function ConfigPage({
             icon={candidate.icon}
             label={candidate.label}
             active={candidate.id === active}
-            collapsed={collapsed}
+            collapsed={false}
             onClick={() => setActive(candidate.id)}
           />
         ))}
         <div className="mt-auto" />
         <SidebarSeparator />
-        <SidebarItem icon={<LogoutIcon />} label="Log out" collapsed={collapsed} onClick={handleLogout} />
+        <SidebarItem icon={<LogoutIcon />} label="Log out" collapsed={false} onClick={handleLogout} />
       </Sidebar>
 
       <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div className="page-shell max-w-3xl">
           <header className="flex flex-col gap-1.5 pb-1">
-            <p className="section-eyebrow">Settings</p>
             <h1 className="text-3xl font-semibold tracking-tight">{section.title}</h1>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{section.description}</p>
           </header>
@@ -157,9 +141,13 @@ export function ConfigPage({
               <ModelsCard onSessionExpired={onSessionExpired} />
             </>
           )}
-          {active === "mcp" && <McpCard onSessionExpired={onSessionExpired} />}
-          {active === "google" && <GoogleCard onSessionExpired={onSessionExpired} />}
-          {active === "tools" && <ToolsCard onSessionExpired={onSessionExpired} />}
+          {active === "connections" && (
+            <>
+              <McpCard onSessionExpired={onSessionExpired} />
+              <GoogleCard onSessionExpired={onSessionExpired} />
+            </>
+          )}
+          {active === "capabilities" && <ToolsCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>
               <SchedulesCard onSessionExpired={onSessionExpired} />
@@ -167,13 +155,13 @@ export function ConfigPage({
               <WatchCard onSessionExpired={onSessionExpired} />
             </>
           )}
-          {active === "tracing" && <TracingCard onSessionExpired={onSessionExpired} />}
-          {active === "approvals" && <ApprovalsCard onSessionExpired={onSessionExpired} />}
+          {active === "permissions" && <ApprovalsCard onSessionExpired={onSessionExpired} />}
           {active === "appearance" && (
             <AppearanceCard theme={theme} onThemeChange={onThemeChange} onSessionExpired={onSessionExpired} />
           )}
           {active === "advanced" && (
             <>
+              <TracingCard onSessionExpired={onSessionExpired} />
               <AdvancedCard onSessionExpired={onSessionExpired} />
               <RestartCard onSessionExpired={onSessionExpired} />
             </>

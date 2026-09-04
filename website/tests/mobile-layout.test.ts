@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigPage } from "../src/ConfigPage";
 import { TraceTable, Waterfall } from "../src/TracesPage";
+import { Button } from "../src/components/ui/button";
+import { Input } from "../src/components/ui/input";
+import { Select } from "../src/components/ui/select";
+import { Switch } from "../src/components/ui/switch";
 import type { TraceSpan, TraceSummary } from "../src/api";
 
 const trace: TraceSummary = {
@@ -74,4 +78,17 @@ test("waterfall span rows give the chart the full mobile width", () => {
   expect(html).toContain("min-w-0 w-full");
   expect(html).toContain("order-3");
   expect(html).toContain("sm:order-none");
+});
+
+test("form controls expose phone-sized touch targets", () => {
+  const html = renderToStaticMarkup(
+    createElement("div", null,
+      createElement(Button, null, "Save"),
+      createElement(Input, { "aria-label": "Name" }),
+      createElement(Select, { "aria-label": "Mode" }, createElement("option", null, "Normal")),
+      createElement(Switch, { checked: false, onCheckedChange: () => {}, label: "Enabled" }),
+    ),
+  );
+
+  expect((html.match(/min-h-11|h-11/g) ?? []).length).toBeGreaterThanOrEqual(4);
 });

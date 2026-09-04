@@ -72,3 +72,26 @@ test("the table renders one header per conversation above its turns", () => {
   expect(html).toContain("1 failed");
   expect(html.indexOf("Roof repairs")).toBeLessThan(html.indexOf("question t3"));
 });
+
+// Telegram is one conversation ID forever, so /clear is the only thing that
+// can say where one line of work ended and the next began.
+test("clearing a conversation starts a new group", () => {
+  const groups = groupTracesByConversation([
+    trace("after", "telegram", "2026-09-03T00:02:00Z", { channel: "telegram", session: "1757000000000000000" }),
+    trace("before", "telegram", "2026-09-03T00:01:00Z", { channel: "telegram" }),
+  ]);
+
+  expect(groups.map((group) => group.traces.map((held) => held.id))).toEqual([["after"], ["before"]]);
+  expect(groups.map((group) => group.conversationId)).toEqual(["telegram", "telegram"]);
+  expect(new Set(groups.map((group) => group.key)).size).toBe(2);
+});
+
+test("turns from one uncleared stretch stay in one group", () => {
+  const groups = groupTracesByConversation([
+    trace("second", "telegram", "2026-09-03T00:02:00Z", { channel: "telegram", session: "1757000000000000000" }),
+    trace("first", "telegram", "2026-09-03T00:01:00Z", { channel: "telegram", session: "1757000000000000000" }),
+  ]);
+
+  expect(groups.length).toBe(1);
+  expect(groups[0].traces.map((held) => held.id)).toEqual(["second", "first"]);
+});

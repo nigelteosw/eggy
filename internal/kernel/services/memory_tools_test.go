@@ -27,6 +27,9 @@ func (s *fakeMemoryStore) RecentMessages(context.Context, string, int) ([]ports.
 	return nil, nil
 }
 func (s *fakeMemoryStore) ResetConversation(context.Context, string, time.Time) error { return nil }
+func (s *fakeMemoryStore) ConversationResetAt(context.Context, string) (time.Time, bool, error) {
+	return time.Time{}, false, nil
+}
 func (s *fakeMemoryStore) SearchText(_ context.Context, query string, limit int) ([]ports.StoredMessage, error) {
 	s.textCalls = append(s.textCalls, memorySearchCall{query: query, limit: limit})
 	return s.searchText, nil

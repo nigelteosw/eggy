@@ -157,6 +157,11 @@ func (s *conversationMemoryStore) ResetConversation(_ context.Context, conversat
 	return nil
 }
 
+func (s *conversationMemoryStore) ConversationResetAt(_ context.Context, conversationID string) (time.Time, bool, error) {
+	at, found := s.clearedAt[conversationID]
+	return at, found, nil
+}
+
 func (*conversationMemoryStore) SearchText(context.Context, string, int) ([]ports.StoredMessage, error) {
 	return nil, nil
 }
@@ -171,4 +176,36 @@ func (*conversationMemoryStore) PendingEmbeddings(context.Context, int) ([]ports
 
 func (*conversationMemoryStore) SetEmbedding(context.Context, int64, []float32) error {
 	return nil
+}
+
+// /clear is what separates one stretch of Telegram's single conversation from
+// the next, so the session it names has to move when the conversation is
+// cleared -- and stay put while it is not.
+func TestConversationSessionIDFollowsTheLastReset(t *testing.T) {
+	memory := &conversationMemoryStore{}
+	cleared := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	service := NewConversationService(memory, 10, func() time.Time { return cleared }, nil)
+	ctx := context.Background()
+
+	first, err := service.SessionID(ctx, "telegram")
+	if err != nil || first != "" {
+		t.Fatalf("session=%q err=%v before any clear", first, err)
+	}
+
+	if err := service.Reset(ctx, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.SessionID(ctx, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Fatalf("session is still %q after a clear", second)
+	}
+	if again, _ := service.SessionID(ctx, "telegram"); again != second {
+		t.Fatalf("session moved to %q without a clear", again)
+	}
+	if other, _ := service.SessionID(ctx, "thread-1"); other != "" {
+		t.Fatalf("clearing telegram moved thread-1's session to %q", other)
+	}
 }

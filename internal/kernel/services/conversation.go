@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -64,6 +65,21 @@ func (s *ConversationService) Record(ctx context.Context, conversationID string,
 		s.logger.Error("durable conversation write failed", "conversation_id", conversationID, "role", message.Role, "source", source, "error", err)
 	}
 	return nil
+}
+
+// SessionID names the stretch of conversationID that is running now: the
+// last reset, or "" for a conversation nobody has cleared. Traces carry it so
+// the panel can separate one line of work from the next in a conversation
+// whose ID never changes -- Telegram's.
+func (s *ConversationService) SessionID(ctx context.Context, conversationID string) (string, error) {
+	if s.memory == nil {
+		return "", nil
+	}
+	clearedAt, found, err := s.memory.ConversationResetAt(ctx, conversationID)
+	if err != nil || !found {
+		return "", err
+	}
+	return strconv.FormatInt(clearedAt.UnixNano(), 10), nil
 }
 
 // Reset clears conversationID's live turn-context window without deleting

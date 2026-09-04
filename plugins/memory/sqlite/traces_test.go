@@ -181,3 +181,66 @@ func TestAppendSpanDropsSpansForAPrunedTrace(t *testing.T) {
 		t.Fatalf("orphan spans written = %d, want 0", spans)
 	}
 }
+
+// Telegram's conversation ID never changes, so the session is the only thing
+// that can tell one stretch of it from the next.
+func TestTraceCarriesTheConversationSession(t *testing.T) {
+	t.Parallel()
+
+	store := openTraceStore(t)
+	ctx := context.Background()
+	started := time.Now().UTC().Truncate(time.Millisecond)
+
+	for id, session := range map[string]string{"before-clear": "", "after-clear": "1757000000000000000"} {
+		if err := store.StartTrace(ctx, ports.Trace{
+			ID: id, ConversationID: "telegram", Session: session, Channel: "telegram",
+			Source: "telegram", Kind: "owner", Model: "deepseek-v4-pro", Input: "hello", StartedAt: started,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listed, err := store.ListTraces(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := map[string]string{}
+	for _, trace := range listed {
+		sessions[trace.ID] = trace.Session
+	}
+	if sessions["before-clear"] != "" || sessions["after-clear"] != "1757000000000000000" {
+		t.Fatalf("sessions=%v", sessions)
+	}
+
+	trace, _, found, err := store.Trace(ctx, "after-clear")
+	if err != nil || !found || trace.Session != "1757000000000000000" {
+		t.Fatalf("trace=%+v found=%v err=%v", trace, found, err)
+	}
+}
+
+func TestConversationResetAtReportsTheLastClear(t *testing.T) {
+	t.Parallel()
+
+	store := openTraceStore(t)
+	ctx := context.Background()
+	if _, found, err := store.ConversationResetAt(ctx, "telegram"); found || err != nil {
+		t.Fatalf("found=%v err=%v before any clear", found, err)
+	}
+
+	cleared := time.Now().UTC().Truncate(time.Millisecond)
+	if err := store.ResetConversation(ctx, "telegram", cleared); err != nil {
+		t.Fatal(err)
+	}
+	at, found, err := store.ConversationResetAt(ctx, "telegram")
+	if err != nil || !found || !at.Equal(cleared) {
+		t.Fatalf("at=%v found=%v err=%v want %v", at, found, err, cleared)
+	}
+
+	later := cleared.Add(time.Minute)
+	if err := store.ResetConversation(ctx, "telegram", later); err != nil {
+		t.Fatal(err)
+	}
+	if at, _, _ := store.ConversationResetAt(ctx, "telegram"); !at.Equal(later) {
+		t.Fatalf("at=%v, want the most recent clear %v", at, later)
+	}
+}

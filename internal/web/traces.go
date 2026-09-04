@@ -33,22 +33,25 @@ const (
 type traceSummaryJSON struct {
 	ID             string `json:"id"`
 	ConversationID string `json:"conversation_id"`
-	Channel        string `json:"channel"`
-	Source         string `json:"source"`
-	Kind           string `json:"kind"`
-	Model          string `json:"model"`
-	Effort         string `json:"effort,omitempty"`
-	Input          string `json:"input"`
-	Output         string `json:"output"`
-	Error          string `json:"error,omitempty"`
-	Spans          int    `json:"spans"`
-	StartedAt      string `json:"started_at"`
-	DurationMS     int64  `json:"duration_ms"`
-	Complete       bool   `json:"complete"`
-	TotalTokens    int64  `json:"total_tokens"`
-	PromptTokens   int64  `json:"prompt_tokens"`
-	OutputTokens   int64  `json:"completion_tokens"`
-	CachedTokens   int64  `json:"cached_prompt_tokens,omitempty"`
+	// Session separates the stretches of one conversation that /clear
+	// divides. The panel groups on the pair, never on this alone.
+	Session      string `json:"session,omitempty"`
+	Channel      string `json:"channel"`
+	Source       string `json:"source"`
+	Kind         string `json:"kind"`
+	Model        string `json:"model"`
+	Effort       string `json:"effort,omitempty"`
+	Input        string `json:"input"`
+	Output       string `json:"output"`
+	Error        string `json:"error,omitempty"`
+	Spans        int    `json:"spans"`
+	StartedAt    string `json:"started_at"`
+	DurationMS   int64  `json:"duration_ms"`
+	Complete     bool   `json:"complete"`
+	TotalTokens  int64  `json:"total_tokens"`
+	PromptTokens int64  `json:"prompt_tokens"`
+	OutputTokens int64  `json:"completion_tokens"`
+	CachedTokens int64  `json:"cached_prompt_tokens,omitempty"`
 }
 
 type traceSpanJSON struct {
@@ -131,7 +134,7 @@ func newTraceDetailHandler(traces TraceDirectory) http.HandlerFunc {
 
 func traceSummary(trace ports.Trace) traceSummaryJSON {
 	return traceSummaryJSON{
-		ID: trace.ID, ConversationID: trace.ConversationID, Channel: trace.Channel,
+		ID: trace.ID, ConversationID: trace.ConversationID, Session: trace.Session, Channel: trace.Channel,
 		Source: trace.Source, Kind: trace.Kind, Model: trace.Model, Effort: trace.Effort,
 		Input: trace.Input, Output: trace.Output, Error: trace.Error, Spans: trace.Spans,
 		StartedAt:    trace.StartedAt.UTC().Format(time.RFC3339Nano),

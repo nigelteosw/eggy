@@ -60,6 +60,7 @@ func (c *fakeConversation) Record(_ context.Context, _ string, message ports.Mes
 func (c *fakeConversation) RecentMessages(context.Context, string) ([]ports.Message, error) {
 	return nil, nil
 }
+func (c *fakeConversation) SessionID(context.Context, string) (string, error) { return "", nil }
 
 type fakeContextStore struct{ watch string }
 

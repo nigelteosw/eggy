@@ -506,6 +506,10 @@ function TraceRow({
 // its newest turn put it.
 
 export type TraceGroup = {
+  // key identifies the group; conversationId only names it. /clear splits one
+  // conversation into consecutive groups that share a conversationId, so the
+  // two are not the same string.
+  key: string;
   conversationId: string;
   traces: TraceSummary[];
   startedAt: string;
@@ -520,10 +524,14 @@ export function groupTracesByConversation(traces: TraceSummary[]): TraceGroup[] 
   const groups: TraceGroup[] = [];
   const byConversation = new Map<string, TraceGroup>();
   for (const trace of traces) {
-    const key = trace.conversation_id || "";
+    // Clearing a conversation ends one line of work and starts another, and
+    // Telegram's conversation ID never changes -- without the session in the
+    // key its every turn, forever, would be one group.
+    const conversationId = trace.conversation_id || "";
+    const key = `${conversationId}\u0000${trace.session || ""}`;
     let group = byConversation.get(key);
     if (!group) {
-      group = { conversationId: key, traces: [], startedAt: trace.started_at, lastAt: trace.started_at, durationMs: 0, totalTokens: 0, spans: 0, errors: 0 };
+      group = { key, conversationId, traces: [], startedAt: trace.started_at, lastAt: trace.started_at, durationMs: 0, totalTokens: 0, spans: 0, errors: 0 };
       byConversation.set(key, group);
       groups.push(group);
     }
@@ -638,16 +646,16 @@ export function TraceTable({
           </tr>
         </thead>
         {groups.map((group) => {
-          const shut = collapsed[group.conversationId] ?? false;
+          const shut = collapsed[group.key] ?? false;
           return (
-            <Fragment key={group.conversationId || "unassigned"}>
+            <Fragment key={group.key || "unassigned"}>
               <tbody className="relative block sm:table-row-group">
                 <ConversationHeader
                   group={group}
                   label={conversationLabel(group, titles)}
                   collapsed={shut}
                   onToggle={() =>
-                    setCollapsed((current) => ({ ...current, [group.conversationId]: !shut }))
+                    setCollapsed((current) => ({ ...current, [group.key]: !shut }))
                   }
                 />
               </tbody>

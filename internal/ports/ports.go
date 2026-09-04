@@ -281,6 +281,12 @@ type MemoryStore interface {
 	// ResetConversation clears conversationID's live turn-context window
 	// without deleting its durable history.
 	ResetConversation(ctx context.Context, conversationID string, at time.Time) error
+	// ConversationResetAt reports when conversationID was last cleared,
+	// with found=false for a conversation that never has been. It is what
+	// lets a trace say which stretch of a long-lived conversation it
+	// belongs to: Telegram has exactly one conversation ID forever, so
+	// without a reset marker its traces are one endless group.
+	ConversationResetAt(ctx context.Context, conversationID string) (at time.Time, found bool, err error)
 	SearchText(context.Context, string, int) ([]StoredMessage, error)
 }
 
@@ -592,8 +598,15 @@ type Trace struct {
 	// ConversationID scopes a trace to the same thread MemoryStore uses, so
 	// the panel can line a trace up against the messages it produced.
 	ConversationID string
-	Channel        string
-	Source         string
+	// Session distinguishes the stretches of one conversation that /clear
+	// separates: it holds the conversation's last reset time when the turn
+	// began, and is empty before the first clear. Telegram is why it
+	// exists -- its conversation ID never changes, so clearing is the only
+	// signal that one line of work ended and another began, and the traces
+	// panel groups on the pair.
+	Session string
+	Channel string
+	Source  string
 	// Kind is one of TraceKindOwner, TraceKindScheduled, TraceKindHeartbeat.
 	Kind   string
 	Model  string

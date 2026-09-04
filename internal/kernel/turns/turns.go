@@ -52,6 +52,9 @@ type Registry interface {
 type Conversation interface {
 	Record(ctx context.Context, conversationID string, message ports.Message, source string) error
 	RecentMessages(ctx context.Context, conversationID string) ([]ports.Message, error)
+	// SessionID names the stretch of the conversation running now, so a
+	// trace can say which side of a /clear it falls on.
+	SessionID(ctx context.Context, conversationID string) (string, error)
 }
 
 // Runtime is the per-turn model selection and usage accounting. Unlike
@@ -390,8 +393,15 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	// ctx is deliberate: everything downstream -- the loop, its tools, and the
 	// delivery that follows -- must be on the traced context, and a second
 	// variable would be a way to forget one of them.
+	// A failed lookup costs the trace its grouping, not the turn: an
+	// ungrouped trace is still the whole record of what ran.
+	session, err := s.conversation.SessionID(ctx, dest.ConversationID())
+	if err != nil {
+		s.logger.Error("conversation session unavailable", "conversation_id", dest.ConversationID(), "error", err)
+	}
 	ctx, trace := s.traces.Begin(ctx, ports.Trace{
 		ConversationID: dest.ConversationID(),
+		Session:        session,
 		Channel:        string(dest.Kind),
 		Source:         policy.Source,
 		Kind:           policy.Kind,

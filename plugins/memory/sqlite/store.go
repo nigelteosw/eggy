@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS conversation_resets (
 CREATE TABLE IF NOT EXISTS traces (
     id              TEXT    PRIMARY KEY,
     conversation_id TEXT    NOT NULL,
+    session         TEXT    NOT NULL DEFAULT '',
     channel         TEXT    NOT NULL,
     source          TEXT    NOT NULL,
     kind            TEXT    NOT NULL,
@@ -117,6 +118,13 @@ func Open(path string, _ ...int) (*Store, error) {
 		return nil, err
 	}
 	if err := ensureThreadWorkspaceColumns(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	// Traces recorded before /clear started a new one all carry the empty
+	// session, which is exactly right: they are the one stretch that ran
+	// before anybody could separate them.
+	if err := ensureColumn(db, "traces", "session", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -274,6 +282,24 @@ func (s *Store) ResetConversation(ctx context.Context, conversationID string, at
 		ON CONFLICT(conversation_id) DO UPDATE SET cleared_at = excluded.cleared_at
 	`, conversationID, at.UnixNano())
 	return err
+}
+
+// ConversationResetAt reports when conversationID was last cleared. It reads
+// the same row ResetConversation writes, so "which stretch of the
+// conversation is this" has one answer whether the asker is the context
+// window or the traces panel.
+func (s *Store) ConversationResetAt(ctx context.Context, conversationID string) (time.Time, bool, error) {
+	var clearedAt int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT cleared_at FROM conversation_resets WHERE conversation_id = ?
+	`, conversationID).Scan(&clearedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return time.Unix(0, clearedAt).UTC(), true, nil
 }
 
 const threadColumns = `id, title, channel, created_at, updated_at, workspace, workspace_repository, workspace_branch, workspace_session`

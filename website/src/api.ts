@@ -288,6 +288,9 @@ export function getChatHistory(threadId: string): Promise<CommandResult> {
 export type TraceSummary = {
   id: string;
   conversation_id: string;
+  // Empty until the conversation has been cleared once. Traces group on the
+  // conversation and the session together, so /clear starts a new group.
+  session?: string;
   channel: string;
   source: string;
   kind: string;

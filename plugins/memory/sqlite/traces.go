@@ -25,11 +25,11 @@ import (
 // behind; CompleteTrace fills in the rest.
 func (s *Store) StartTrace(ctx context.Context, trace ports.Trace) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO traces (id, conversation_id, channel, source, kind, model, effort, input, output, error, usage, started_at, duration_ns, complete)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, 0, 0)
+		INSERT INTO traces (id, conversation_id, session, channel, source, kind, model, effort, input, output, error, usage, started_at, duration_ns, complete)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, 0, 0)
 		ON CONFLICT(id) DO NOTHING
 	`,
-		trace.ID, trace.ConversationID, trace.Channel, trace.Source, trace.Kind, trace.Model, trace.Effort,
+		trace.ID, trace.ConversationID, trace.Session, trace.Channel, trace.Source, trace.Kind, trace.Model, trace.Effort,
 		trace.Input, encodeUsage(trace.Usage), trace.StartedAt.UnixNano())
 	return err
 }
@@ -69,7 +69,7 @@ func (s *Store) ListTraces(ctx context.Context, limit int) ([]ports.Trace, error
 		return nil, errors.New("trace list limit must be positive")
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.conversation_id, t.channel, t.source, t.kind, t.model, t.effort,
+		SELECT t.id, t.conversation_id, t.session, t.channel, t.source, t.kind, t.model, t.effort,
 		       t.input, t.output, t.error, t.usage, t.started_at, t.duration_ns, t.complete,
 		       (SELECT COUNT(*) FROM trace_spans s WHERE s.trace_id = t.id)
 		FROM traces t
@@ -95,7 +95,7 @@ func (s *Store) ListTraces(ctx context.Context, limit int) ([]ports.Trace, error
 // Trace returns one trace with every span it holds, oldest first.
 func (s *Store) Trace(ctx context.Context, id string) (ports.Trace, []ports.TraceSpan, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.conversation_id, t.channel, t.source, t.kind, t.model, t.effort,
+		SELECT t.id, t.conversation_id, t.session, t.channel, t.source, t.kind, t.model, t.effort,
 		       t.input, t.output, t.error, t.usage, t.started_at, t.duration_ns, t.complete,
 		       (SELECT COUNT(*) FROM trace_spans s WHERE s.trace_id = t.id)
 		FROM traces t WHERE t.id = ?
@@ -177,7 +177,7 @@ func scanTrace(row scanner) (ports.Trace, error) {
 	var usage string
 	var startedAt, duration int64
 	var complete int
-	if err := row.Scan(&trace.ID, &trace.ConversationID, &trace.Channel, &trace.Source, &trace.Kind,
+	if err := row.Scan(&trace.ID, &trace.ConversationID, &trace.Session, &trace.Channel, &trace.Source, &trace.Kind,
 		&trace.Model, &trace.Effort, &trace.Input, &trace.Output, &trace.Error, &usage,
 		&startedAt, &duration, &complete, &trace.Spans); err != nil {
 		return ports.Trace{}, err

@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -477,25 +476,4 @@ func newTestStore(t *testing.T, _ int) *Store {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
-}
-
-func writeTestMessage(t *testing.T, store *Store, content string, createdAt time.Time) int64 {
-	t.Helper()
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
-		Role:      ports.RoleUser,
-		Content:   content,
-		Source:    "telegram",
-		CreatedAt: createdAt,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	var id int64
-	if err := store.db.QueryRow(`SELECT id FROM messages WHERE content = ?`, content).Scan(&id); err != nil {
-		if err == sql.ErrNoRows {
-			t.Fatalf("message %q was not stored", content)
-		}
-		t.Fatal(err)
-	}
-	return id
 }

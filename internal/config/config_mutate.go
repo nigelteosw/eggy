@@ -73,6 +73,35 @@ func writeFileAtomic(path string, body []byte) error {
 	return os.Rename(temporaryPath, path)
 }
 
+// mutate is the one config write path: it takes the file lock, loads the
+// stored document, hands it to apply, validates the result, and writes it
+// atomically. Every Set* helper below is its apply body and nothing else.
+//
+// It exists because "every config write goes through internal/config under one
+// file lock with the same validation" was a rule nine functions each spelled
+// out by hand. All nine held it; the tenth is where it breaks, and it breaks
+// silently -- a setter that forgets Validate writes a config.yaml the owner
+// only discovers at the next restart, in safe mode. This makes the invariant
+// the mechanism rather than the convention.
+//
+// apply may return an error to refuse the write, which is how a setter
+// rejects input it can check before validation sees it.
+func mutate(path string, apply func(cfg *Config) error) error {
+	return filelock.With(path, func() error {
+		cfg, err := LoadDocument(path)
+		if err != nil {
+			return err
+		}
+		if err := apply(&cfg); err != nil {
+			return err
+		}
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		return writeConfigUnlocked(path, cfg)
+	})
+}
+
 // ReplaceConfig writes body over the config file, but only once body has been
 // proved loadable. Validation runs against a temporary file through LoadConfig
 // itself rather than a reimplementation of it, so what is accepted here is
@@ -124,11 +153,7 @@ type ProviderInput struct {
 }
 
 func SetProvider(path string, input ProviderInput) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		if cfg.Providers == nil {
 			cfg.Providers = map[string]ProviderConfig{}
 		}
@@ -136,10 +161,7 @@ func SetProvider(path string, input ProviderInput) error {
 			Adapter: input.Adapter, BaseURL: input.BaseURL, APIKeyEnv: input.APIKeyEnv,
 			DiscoverModels: input.DiscoverModels,
 		}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -147,11 +169,7 @@ func SetProvider(path string, input ProviderInput) error {
 // of supported levels (e.g. "low,medium,high,max"); pass "" to leave the
 // alias without a reasoning-effort option.
 func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		if cfg.ModelAliases == nil {
 			cfg.ModelAliases = map[string]ModelAliasConfig{}
 		}
@@ -160,10 +178,7 @@ func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) erro
 			efforts = strings.Split(reasoningEfforts, ",")
 		}
 		cfg.ModelAliases[alias] = ModelAliasConfig{Provider: provider, Model: modelID, ReasoningEfforts: efforts}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -196,11 +211,7 @@ type MCPServerInput struct {
 // next config load.
 func SetMCPServer(path string, input MCPServerInput) error {
 	name := input.Name
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		if cfg.MCP.Servers == nil {
 			cfg.MCP.Servers = map[string]MCPServerConfig{}
 		}
@@ -247,10 +258,7 @@ func SetMCPServer(path string, input MCPServerInput) error {
 			server.MaxOutputBytes = 128 << 10
 		}
 		cfg.MCP.Servers[name] = server
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -259,21 +267,14 @@ func SetMCPServer(path string, input MCPServerInput) error {
 // turning a subprocess server off needs no knowledge of its command or args,
 // so refusing it here would force a file edit for the safest possible change.
 func SetMCPServerEnabled(path, name string, enabled bool) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		server, ok := cfg.MCP.Servers[name]
 		if !ok {
 			return fmt.Errorf("MCP server %q is not configured", name)
 		}
 		server.Enabled = enabled
 		cfg.MCP.Servers[name] = server
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -281,19 +282,12 @@ func SetMCPServerEnabled(path, name string, enabled bool) error {
 // credentials are retained so re-adding the server does not silently revoke
 // its authorization.
 func RemoveMCPServer(path, name string) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		if _, ok := cfg.MCP.Servers[name]; !ok {
 			return fmt.Errorf("MCP server %q is not configured", name)
 		}
 		delete(cfg.MCP.Servers, name)
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -333,11 +327,7 @@ type GoogleInput struct {
 // before the file is touched, so an unknown product name or a client id left
 // blank is rejected with the existing config still in place.
 func SetGoogle(path string, input GoogleInput) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		google := cfg.Google
 		google.Enabled = input.Enabled
 		if input.ClientID != "" {
@@ -363,10 +353,7 @@ func SetGoogle(path string, input GoogleInput) error {
 			}
 		}
 		cfg.Google = google
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -381,16 +368,9 @@ func SetAppearance(path, theme string) error {
 	if trimmed != ThemeDark && trimmed != ThemeLight {
 		return fmt.Errorf("appearance.theme must be %q or %q", ThemeDark, ThemeLight)
 	}
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		cfg.Appearance.Theme = trimmed
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -422,11 +402,7 @@ func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) er
 		}
 		parsed = Duration(value)
 	}
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		cfg.Heartbeat.Interval = parsed
 		if trimmed := strings.TrimSpace(instruction); trimmed != "" {
 			cfg.Heartbeat.Instruction = trimmed
@@ -441,10 +417,7 @@ func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) er
 		if parsed > 0 && !cfg.Telegram.Configured() {
 			return errors.New("heartbeat needs a configured telegram channel, since that is where unprompted output goes")
 		}
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 
@@ -481,11 +454,7 @@ func SetTracing(path, enabled, keepTurns, retention, maxBodyBytes string) error 
 		}
 		parsedBytes = value
 	}
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		// Written out rather than left absent, so the file says what the
 		// owner chose. Absent and true mean the same thing to the loader, but
 		// only one of them survives the owner reading their own config later.
@@ -494,16 +463,13 @@ func SetTracing(path, enabled, keepTurns, retention, maxBodyBytes string) error 
 		cfg.Tracing.KeepTurns = parsedKeep
 		cfg.Tracing.Retention = parsedRetention
 		cfg.Tracing.MaxBodyBytes = parsedBytes
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
 		// A blank field is a request for the default, and applyDefaults is
 		// where every default already lives, so the zeroes left above are
-		// filled in by the one function that knows them.
-		if err := cfg.applyDefaults(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		// filled in by the one function that knows them. It runs before
+		// mutate's Validate rather than after it, which is strictly stronger:
+		// a value the owner actually typed is never zero, so defaulting can
+		// only fill in blanks, and what gets written is then what was checked.
+		return cfg.applyDefaults()
 	})
 }
 

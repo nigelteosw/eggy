@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -71,24 +70,9 @@ func newWatchSetRoute(watch WatchList) http.HandlerFunc {
 			return
 		}
 		result := webResult{State: webSuccess, Title: "Saved watch list."}
-		if watchIsEmpty(body.Content) {
+		if ports.WatchListIsEmpty(body.Content) {
 			result.Detail = "The list is empty, so the heartbeat will skip every tick until something is on it."
 		}
 		writeWebResult(w, result)
 	}
-}
-
-// watchIsEmpty mirrors the daemon's own emptiness rule (App.watchListIsEmpty):
-// blank lines and Markdown headings are not entries. The panel must agree with
-// the runtime about what counts, or it would tell the owner their heartbeat is
-// armed while the daemon skips every beat.
-func watchIsEmpty(content string) bool {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		return false
-	}
-	return true
 }

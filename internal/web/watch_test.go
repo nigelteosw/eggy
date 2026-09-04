@@ -122,28 +122,6 @@ func TestWebWatchSetSaysWhenTheSavedListWillSkipEveryBeat(t *testing.T) {
 	}
 }
 
-// The panel and the daemon must agree on what counts as an entry, or the card
-// reports a heartbeat that is armed while every beat skips.
-func TestWatchIsEmptyMatchesTheDaemonsRule(t *testing.T) {
-	for name, tt := range map[string]struct {
-		content string
-		want    bool
-	}{
-		"empty":              {content: "", want: true},
-		"blank lines":        {content: "\n   \n", want: true},
-		"heading only":       {content: "# Eggy Watch\n", want: true},
-		"heading and blanks": {content: "# Eggy Watch\n\n  \n", want: true},
-		"one entry":          {content: "# Eggy Watch\n\n- PR #18\n", want: false},
-		"entry without head": {content: "PR #18", want: false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := watchIsEmpty(tt.content); got != tt.want {
-				t.Fatalf("watchIsEmpty(%q)=%v, want %v", tt.content, got, tt.want)
-			}
-		})
-	}
-}
-
 // A deployment with no context store must not draw a card that cannot save.
 func TestWebWatchRoutesAreAbsentWithoutAStore(t *testing.T) {
 	handler, cookie := watchTestHandler(t, nil)

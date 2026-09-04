@@ -373,11 +373,7 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		names := make([]string, 0, len(servers))
-		for name := range servers {
-			names = append(names, name)
-		}
-		slices.Sort(names)
+		names := slices.Sorted(maps.Keys(servers))
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			server := servers[name]
@@ -396,15 +392,11 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 
 func webMCPSetRoute(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// The panel posts booleans as JSON booleans and the chat surface posts
-		// them as words, so the body is taken loosely and normalized before it
-		// reaches the one decoder both surfaces share.
-		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var values config.Values
+		if err := json.NewDecoder(r.Body).Decode(&values); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		values := stringValues(body)
 		name := values["name"]
 		if name == "" || values["url"] == "" || values["auth"] == "" {
 			writeWebError(w, http.StatusBadRequest, "name, url, and auth are required")
@@ -468,11 +460,7 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 		result := webResult{State: webSuccess}
 		switch section {
 		case "providers":
-			names := make([]string, 0, len(cfg.Providers))
-			for name := range cfg.Providers {
-				names = append(names, name)
-			}
-			slices.Sort(names)
+			names := slices.Sorted(maps.Keys(cfg.Providers))
 			result.TableHeaders = []string{"Provider", "Adapter", "Base URL", "API key env", "Discover models"}
 			for _, name := range names {
 				provider := cfg.Providers[name]
@@ -483,11 +471,7 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 				result.TableRows = append(result.TableRows, []string{name, provider.Adapter, provider.BaseURL, provider.APIKeyEnv, discover})
 			}
 		case "models":
-			aliases := make([]string, 0, len(cfg.ModelAliases))
-			for alias := range cfg.ModelAliases {
-				aliases = append(aliases, alias)
-			}
-			slices.Sort(aliases)
+			aliases := slices.Sorted(maps.Keys(cfg.ModelAliases))
 			result.TableHeaders = []string{"Alias", "Provider", "Model", "Reasoning efforts"}
 			for _, alias := range aliases {
 				model := cfg.ModelAliases[alias]
@@ -616,24 +600,6 @@ func checkGoogleApprovals(entries []string, catalog map[string]GoogleProductActi
 // carries flat strings, so a multi-valued field arrives as one of these rather
 // than as JSON; empty entries are dropped so a trailing comma is not a product
 // named "".
-// stringValues flattens a decoded JSON object into the string bag
-// internal/config decodes. The panel's forms are string-valued apart from
-// enabled, which arrives as a real boolean; rendering each value with %v gives
-// the one spelling -- "true"/"false" -- the shared decoder expects.
-func stringValues(body map[string]any) config.Values {
-	values := make(config.Values, len(body))
-	for key, value := range body {
-		if value == nil {
-			continue
-		}
-		if text, ok := value.(string); ok {
-			values[key] = text
-			continue
-		}
-		values[key] = fmt.Sprintf("%v", value)
-	}
-	return values
-}
 
 func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

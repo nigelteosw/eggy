@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -150,11 +151,7 @@ func (r *ToolRegistry) merged() []sourcedTool {
 }
 
 func sortedTools(tools map[string]ports.Tool) []ports.Tool {
-	names := make([]string, 0, len(tools))
-	for name := range tools {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(tools))
 	result := make([]ports.Tool, 0, len(names))
 	for _, name := range names {
 		result = append(result, tools[name])

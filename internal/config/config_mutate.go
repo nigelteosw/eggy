@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -73,6 +75,32 @@ func writeFileAtomic(path string, body []byte) error {
 	return os.Rename(temporaryPath, path)
 }
 
+// errNoConfigChange tells mutate the document is already what it should be, so
+// the write is skipped entirely. Skipped rather than made idempotent: a write
+// re-marshals Config, which discards the owner's comments and key order, so a
+// migration that finds nothing to migrate must not touch the file at all.
+var errNoConfigChange = errors.New("config unchanged")
+
+// writeYAMLDocument replaces path with an edited node tree, at the two-space
+// indentation the rest of the file already uses.
+//
+// It is separate from writeConfigUnlocked because these callers edit the
+// owner's own document in place rather than re-marshalling a Config: the
+// retired-field sweep and the defaults backfill both have to preserve the
+// comments and key order re-marshalling would discard.
+func writeYAMLDocument(path string, document *yaml.Node) error {
+	var body bytes.Buffer
+	encoder := yaml.NewEncoder(&body)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(document); err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return writeFileAtomic(path, body.Bytes())
+}
+
 // mutate is the one config write path: it takes the file lock, loads the
 // stored document, hands it to apply, validates the result, and writes it
 // atomically. Every Set* helper below is its apply body and nothing else.
@@ -85,7 +113,8 @@ func writeFileAtomic(path string, body []byte) error {
 // the mechanism rather than the convention.
 //
 // apply may return an error to refuse the write, which is how a setter
-// rejects input it can check before validation sees it.
+// rejects input it can check before validation sees it, or errNoConfigChange
+// to say there was nothing to do.
 func mutate(path string, apply func(cfg *Config) error) error {
 	return filelock.With(path, func() error {
 		cfg, err := LoadDocument(path)
@@ -93,6 +122,9 @@ func mutate(path string, apply func(cfg *Config) error) error {
 			return err
 		}
 		if err := apply(&cfg); err != nil {
+			if errors.Is(err, errNoConfigChange) {
+				return nil
+			}
 			return err
 		}
 		if err := cfg.Validate(); err != nil {
@@ -248,17 +280,13 @@ func SetMCPServer(path string, input MCPServerInput) error {
 			server.OAuthClientSecretEnv = ""
 		}
 		server.Enabled = input.Enabled
-		if server.ConnectTimeout == 0 {
-			server.ConnectTimeout = Duration(10 * time.Second)
-		}
-		if server.Timeout == 0 {
-			server.Timeout = Duration(time.Minute)
-		}
-		if server.MaxOutputBytes == 0 {
-			server.MaxOutputBytes = 128 << 10
-		}
 		cfg.MCP.Servers[name] = server
-		return nil
+		// A brand-new server needs the defaults applyDefaults would give it on
+		// the next load, so it validates now rather than only after a restart.
+		// Taken from there rather than restated here: this copy had drifted
+		// already, setting three of the five and leaving failure_threshold and
+		// cooldown at zero.
+		return cfg.applyDefaults()
 	})
 }
 
@@ -478,11 +506,7 @@ func GetProvidersConfigText(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	names := make([]string, 0, len(cfg.Providers))
-	for name := range cfg.Providers {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(cfg.Providers))
 	if len(names) == 0 {
 		return "No providers configured.", nil
 	}
@@ -502,11 +526,7 @@ func ProviderNames(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(cfg.Providers))
-	for name := range cfg.Providers {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(cfg.Providers))
 	return names, nil
 }
 
@@ -515,11 +535,7 @@ func GetModelAliasesConfigText(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	aliases := make([]string, 0, len(cfg.ModelAliases))
-	for alias := range cfg.ModelAliases {
-		aliases = append(aliases, alias)
-	}
-	slices.Sort(aliases)
+	aliases := slices.Sorted(maps.Keys(cfg.ModelAliases))
 	if len(aliases) == 0 {
 		return "No models configured.", nil
 	}

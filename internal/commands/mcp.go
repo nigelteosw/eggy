@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -152,11 +153,7 @@ func (s *CommandService) mcpList() (string, bool, error) {
 			live[status.Name] = status
 		}
 	}
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(servers))
 	lines := make([]string, 0, len(names)+1)
 	lines = append(lines, "**MCP servers**")
 	for _, name := range names {

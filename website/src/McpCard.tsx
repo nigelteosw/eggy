@@ -54,7 +54,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
         bearer_token_env: bearerTokenEnv,
         oauth_client_id: oauthClientId,
         oauth_client_secret_env: oauthClientSecretEnv,
-        enabled,
+        enabled: String(enabled),
       });
       setName("");
       setUrl("");

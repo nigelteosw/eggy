@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -456,8 +457,7 @@ func (a *App) Ready() error {
 	a.readyLog.Do(func() {
 		alias := a.config.Agent.DefaultModel
 		provider := a.config.ModelAliases[alias].Provider
-		repositories := repositoryNamesFromState(state)
-		slices.Sort(repositories)
+		repositories := slices.Sorted(maps.Keys(state.Repositories))
 		integrations := []string{"telegram", "model_provider"}
 		if len(state.Repositories) > 0 {
 			integrations = append(integrations, "github")

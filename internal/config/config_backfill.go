@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -108,16 +107,7 @@ func backfillDefaultedSections(path string) error {
 		if len(added) == 0 {
 			return nil
 		}
-		var body bytes.Buffer
-		encoder := yaml.NewEncoder(&body)
-		encoder.SetIndent(2)
-		if err := encoder.Encode(&document); err != nil {
-			return fmt.Errorf("marshal config: %w", err)
-		}
-		if err := encoder.Close(); err != nil {
-			return fmt.Errorf("marshal config: %w", err)
-		}
-		if err := writeFileAtomic(path, body.Bytes()); err != nil {
+		if err := writeYAMLDocument(path, &document); err != nil {
 			return err
 		}
 		// Logging is not configured until after the config loads, so this

@@ -135,7 +135,10 @@ export type MCPServerInput = {
   // is only ever named: oauth_client_secret_env is an environment variable.
   oauth_client_id: string;
   oauth_client_secret_env: string;
-  enabled: boolean;
+  // Sent as "true"/"false" rather than a JSON boolean: every config route
+  // takes a flat string map, and the one decoder in internal/config reads the
+  // same words from a chat command's enabled=false.
+  enabled: string;
 };
 
 export function listMCPServers(): Promise<CommandResult> {

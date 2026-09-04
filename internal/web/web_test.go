@@ -316,7 +316,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	handler := NewWebHandler(path, testWebConfig(now))
 	cookie := webLoginCookie(t, handler)
 
-	addBody := strings.NewReader(`{"name":"railway","url":"https://mcp.railway.com","auth":"oauth","enabled":true}`)
+	addBody := strings.NewReader(`{"name":"railway","url":"https://mcp.railway.com","auth":"oauth","enabled":"true"}`)
 	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", addBody)
 	addRequest.AddCookie(cookie)
 	addResponse := httptest.NewRecorder()
@@ -374,7 +374,7 @@ func TestWebMCPRoutesRejectInvalidInput(t *testing.T) {
 	handler := NewWebHandler(path, testWebConfig(now))
 	cookie := webLoginCookie(t, handler)
 
-	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", strings.NewReader(`{"name":"railway","url":"http://mcp.railway.com","auth":"oauth","enabled":true}`))
+	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", strings.NewReader(`{"name":"railway","url":"http://mcp.railway.com","auth":"oauth","enabled":"true"}`))
 	addRequest.AddCookie(cookie)
 	addResponse := httptest.NewRecorder()
 	handler.ServeHTTP(addResponse, addRequest)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -145,11 +146,7 @@ func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *mode
 }
 
 func (d *modelDiscovery) DiscoverableProviders() []string {
-	names := make([]string, 0, len(d.providers))
-	for name := range d.providers {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(d.providers))
 	return names
 }
 

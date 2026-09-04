@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"time"
 
@@ -56,11 +57,7 @@ func (t statusTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 		})
 	}
 	slices.SortFunc(pending, func(a, b pendingApproval) int { return a.CreatedAt.Compare(b.CreatedAt) })
-	repositories := make([]string, 0, len(state.Repositories))
-	for name := range state.Repositories {
-		repositories = append(repositories, name)
-	}
-	slices.Sort(repositories)
+	repositories := slices.Sorted(maps.Keys(state.Repositories))
 	return json.Marshal(struct {
 		Repositories     []string          `json:"repositories,omitempty"`
 		PendingApprovals int               `json:"pending_approvals"`

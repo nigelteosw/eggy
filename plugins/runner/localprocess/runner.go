@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,11 +172,7 @@ func (r *Runner) withinRoot(path string) error {
 }
 
 func (r *Runner) environment(values map[string]string) []string {
-	keys := make([]string, 0, len(r.allowed))
-	for key := range r.allowed {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(r.allowed))
 	result := make([]string, 0, len(keys))
 	for _, key := range keys {
 		value, provided := values[key]

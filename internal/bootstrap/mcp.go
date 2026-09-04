@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -18,11 +19,7 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 	if len(config.MCP.Servers) == 0 {
 		return nil, nil
 	}
-	names := make([]string, 0, len(config.MCP.Servers))
-	for name := range config.MCP.Servers {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(config.MCP.Servers))
 	servers := make([]mcpadapter.ServerConfig, 0, len(names))
 	needsOAuthStore := false
 	for _, name := range names {

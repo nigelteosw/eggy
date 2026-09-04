@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -125,16 +124,7 @@ func pruneRetiredFields(path string) error {
 		if len(removed) == 0 && !changed {
 			return nil
 		}
-		var body bytes.Buffer
-		encoder := yaml.NewEncoder(&body)
-		encoder.SetIndent(2)
-		if err := encoder.Encode(&document); err != nil {
-			return fmt.Errorf("marshal config: %w", err)
-		}
-		if err := encoder.Close(); err != nil {
-			return fmt.Errorf("marshal config: %w", err)
-		}
-		if err := writeFileAtomic(path, body.Bytes()); err != nil {
+		if err := writeYAMLDocument(path, &document); err != nil {
 			return err
 		}
 		// Logging is not configured until after the config loads, so this
@@ -170,19 +160,12 @@ func deleteMappingKey(node *yaml.Node, field []string) bool {
 // migrateLegacyRunnerRoot upgrades Eggy's former temporary default without
 // accepting arbitrary workspace paths outside the persistent data directory.
 func migrateLegacyRunnerRoot(path string) error {
-	return filelock.With(path, func() error {
-		cfg, err := LoadDocument(path)
-		if err != nil {
-			return err
-		}
+	return mutate(path, func(cfg *Config) error {
 		if filepath.Clean(cfg.Runner.Root) != "/tmp/runs" {
-			return nil
+			return errNoConfigChange
 		}
 		cfg.Runner.Root = filepath.Join(cfg.DataDir, "runs")
-		if err := cfg.Validate(); err != nil {
-			return err
-		}
-		return writeConfigUnlocked(path, cfg)
+		return nil
 	})
 }
 

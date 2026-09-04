@@ -487,11 +487,3 @@ func newRunID() string {
 	_, _ = rand.Read(data)
 	return hex.EncodeToString(data)
 }
-
-func repositoryNamesFromState(state ports.State) []string {
-	names := make([]string, 0, len(state.Repositories))
-	for name := range state.Repositories {
-		names = append(names, name)
-	}
-	return names
-}

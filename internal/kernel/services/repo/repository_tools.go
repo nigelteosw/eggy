@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 
 	"github.com/nigelteosw/eggy/internal/kernel/services"
@@ -43,11 +44,7 @@ func NewRepositoryTools(store ports.StateStore) []ports.Tool {
 			BaseBranch        string   `json:"base_branch"`
 			ProtectedBranches []string `json:"protected_branches"`
 		}
-		names := make([]string, 0, len(registered))
-		for name := range registered {
-			names = append(names, name)
-		}
-		slices.Sort(names)
+		names := slices.Sorted(maps.Keys(registered))
 		result := make([]safeRepository, 0, len(names))
 		for _, name := range names {
 			repository := registered[name]

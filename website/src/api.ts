@@ -123,6 +123,10 @@ export function discoverModels(provider: string): Promise<CommandResult> {
   return request(`/api/config/models/available?provider=${encodeURIComponent(provider)}`);
 }
 
+export function removeModelAlias(alias: string): Promise<CommandResult> {
+  return request(`/api/config/models/${encodeURIComponent(alias)}`, { method: "DELETE" });
+}
+
 export type MCPServerInput = {
   name: string;
   url: string;

@@ -90,6 +90,35 @@ func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 	}
 }
 
+func TestRemoveModelAliasDeletesAnAliasButRefusesTheDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveModelAlias(path, "deepseek-fast"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := reloaded.ModelAliases["deepseek-fast"]; exists {
+		t.Fatal("removed model alias is still configured")
+	}
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveModelAlias(path, "deepseek-pro"); err == nil || !strings.Contains(err.Error(), "default_model") {
+		t.Fatalf("removing default model error = %v", err)
+	}
+	assertFileBytes(t, path, before)
+}
+
 func TestSetMCPServerAddsNewServerWithSaneDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {

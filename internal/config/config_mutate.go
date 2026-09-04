@@ -182,6 +182,17 @@ func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) erro
 	})
 }
 
+func RemoveModelAlias(path, alias string) error {
+	alias = strings.TrimSpace(alias)
+	return mutate(path, func(cfg *Config) error {
+		if _, exists := cfg.ModelAliases[alias]; !exists {
+			return fmt.Errorf("model alias %q is not configured", alias)
+		}
+		delete(cfg.ModelAliases, alias)
+		return nil
+	})
+}
+
 // MCPServerInput is the set of MCP server fields an owner can set from a
 // surface -- the web settings panel or the Telegram /mcp command. It is a
 // struct rather than a parameter list because transport made it the seventh

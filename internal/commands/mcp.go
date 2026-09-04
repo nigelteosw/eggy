@@ -39,7 +39,7 @@ type MCPStatus struct {
 const restartNotice = "Restart Eggy to apply — send /restart."
 
 func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string, bool, error) {
-	if s.configPath == "" {
+	if s.ConfigPath == "" {
 		return "MCP configuration is unavailable.", true, nil
 	}
 	if len(args) == 0 {
@@ -53,7 +53,7 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 		return s.mcpAdd(rest)
 	case "remove":
 		return s.mcpNamed(rest, "remove", func(name string) (string, error) {
-			if err := config.RemoveMCPServer(s.configPath, name); err != nil {
+			if err := config.RemoveMCPServer(s.ConfigPath, name); err != nil {
 				return "", err
 			}
 			return "Removed MCP server " + name + ". Stored credentials are kept. " + restartNotice, nil
@@ -61,7 +61,7 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 	case "enable", "disable":
 		enabled := action == "enable"
 		return s.mcpNamed(rest, action, func(name string) (string, error) {
-			if err := config.SetMCPServerEnabled(s.configPath, name, enabled); err != nil {
+			if err := config.SetMCPServerEnabled(s.ConfigPath, name, enabled); err != nil {
 				return "", err
 			}
 			return fmt.Sprintf("MCP server %s %sd. %s", name, action, restartNotice), nil
@@ -70,10 +70,10 @@ func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string,
 		return s.mcpLogin(ctx, rest)
 	case "logout":
 		return s.mcpNamed(rest, "logout", func(name string) (string, error) {
-			if s.mcp == nil {
+			if s.MCP == nil {
 				return "", fmt.Errorf("no MCP server is running")
 			}
-			if err := s.mcp.Logout(name); err != nil {
+			if err := s.MCP.Logout(name); err != nil {
 				return "", err
 			}
 			return "Signed out of " + name + ". Use /mcp login " + name + " to authorize it again.", nil
@@ -97,11 +97,11 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 		return "Usage: /mcp login <name> [pasted redirect URL or code]", true, nil
 	}
 	name := args[0]
-	if s.mcp == nil {
+	if s.MCP == nil {
 		return "Could not login MCP server " + name + ": no MCP server is running", true, nil
 	}
 	if len(args) == 1 {
-		authorizationURL, err := s.mcp.BeginLogin(ctx, name)
+		authorizationURL, err := s.MCP.BeginLogin(ctx, name)
 		if err != nil {
 			return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 		}
@@ -117,7 +117,7 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 	if err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
-	if err := s.mcp.CompleteLogin(ctx, name, code, state); err != nil {
+	if err := s.MCP.CompleteLogin(ctx, name, code, state); err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
 	return "Authorized " + name + ". Its tools are available on the next turn.", true, nil
@@ -139,7 +139,7 @@ func (s *CommandService) mcpNamed(args []string, action string, run func(string)
 }
 
 func (s *CommandService) mcpList() (string, bool, error) {
-	servers, err := config.GetMCPServersConfig(s.configPath)
+	servers, err := config.GetMCPServersConfig(s.ConfigPath)
 	if err != nil {
 		return "", true, err
 	}
@@ -147,8 +147,8 @@ func (s *CommandService) mcpList() (string, bool, error) {
 		return "No MCP servers are configured.\n\n" + mcpUsage(), true, nil
 	}
 	live := map[string]MCPStatus{}
-	if s.mcp != nil {
-		for _, status := range s.mcp.Statuses() {
+	if s.MCP != nil {
+		for _, status := range s.MCP.Statuses() {
 			live[status.Name] = status
 		}
 	}
@@ -249,7 +249,7 @@ func (s *CommandService) mcpAdd(args []string) (string, bool, error) {
 			return fmt.Sprintf("Unknown field %q. %s", key, mcpUsage()), true, nil
 		}
 	}
-	if err := config.SetMCPServer(s.configPath, input); err != nil {
+	if err := config.SetMCPServer(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not save MCP server %s: %v", input.Name, err), true, nil
 	}
 	message := "Saved MCP server " + input.Name + ". " + restartNotice

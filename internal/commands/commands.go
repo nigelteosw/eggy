@@ -108,27 +108,17 @@ type Options struct {
 	Getenv func(string) string
 }
 
+// CommandService embeds Options rather than restating every collaborator as a
+// lowercase field and copying them across one at a time: the two lists were
+// identical apart from case, so the copy only bought a third place to forget a
+// field when adding one. aliasSet is the exception -- it is derived from
+// ModelAliases rather than supplied, so it stays a field of its own.
 type CommandService struct {
-	configPath   string
-	mcp          MCPRuntime
-	google       GoogleRuntime
-	store        ports.StateStore
-	approvals    ApprovalGate
-	conversation ConversationResetter
-	turns        TurnStopper
-	restarter    Restarter
-	getenv       func(string) string
-	agentRuntime AgentSettings
-	defaultModel string
-	modelAliases []string
-	// aliasSet is modelAliases as a lookup, so /model can tell a subcommand
+	Options
+	// aliasSet is ModelAliases as a lookup, so /model can tell a subcommand
 	// from an alias that happens to share its name without a linear scan on
 	// every invocation.
-	aliasSet      map[string]struct{}
-	discovery     ModelDiscoverer
-	publicBaseURL string
-	signingKey    []byte
-	now           func() time.Time
+	aliasSet map[string]struct{}
 }
 
 // ModelDiscoverer is the listing side of the configured providers, as /model
@@ -142,26 +132,19 @@ type ModelDiscoverer interface {
 }
 
 func New(options Options) *CommandService {
-	now := options.Now
-	if now == nil {
-		now = time.Now
+	if options.Now == nil {
+		options.Now = time.Now
 	}
-	aliases := append([]string(nil), options.ModelAliases...)
-	slices.Sort(aliases)
-	aliasSet := make(map[string]struct{}, len(aliases))
-	for _, alias := range aliases {
+	// Normalized in place, so the stored copy is the one every command reads
+	// and there is no second, unsorted spelling of the same list.
+	options.ModelAliases = append([]string(nil), options.ModelAliases...)
+	slices.Sort(options.ModelAliases)
+	options.PublicBaseURL = strings.TrimRight(strings.TrimSpace(options.PublicBaseURL), "/")
+	aliasSet := make(map[string]struct{}, len(options.ModelAliases))
+	for _, alias := range options.ModelAliases {
 		aliasSet[alias] = struct{}{}
 	}
-	return &CommandService{
-		configPath: options.ConfigPath, mcp: options.MCP, google: options.Google,
-		store: options.Store, approvals: options.Approvals, conversation: options.Conversation, turns: options.Turns,
-		restarter: options.Restarter, getenv: options.Getenv,
-		agentRuntime: options.AgentRuntime, defaultModel: options.DefaultModel, modelAliases: aliases,
-		aliasSet: aliasSet, discovery: options.ModelDiscovery,
-		publicBaseURL: strings.TrimRight(strings.TrimSpace(options.PublicBaseURL), "/"),
-		signingKey:    options.SigningKey,
-		now:           now,
-	}
+	return &CommandService{Options: options, aliasSet: aliasSet}
 }
 
 // Execute handles every slash command, including unknown ones. Ordinary prose
@@ -182,15 +165,15 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	case "status":
 		return s.status(ctx)
 	case "stop":
-		if s.turns == nil || !s.turns.Stop(ctx) {
+		if s.Turns == nil || !s.Turns.Stop(ctx) {
 			return "Nothing is running in this conversation.", true, nil
 		}
 		return "Stopping.", true, nil
 	case "clear":
-		if s.conversation == nil {
+		if s.Conversation == nil {
 			return "Conversation history is unavailable.", true, nil
 		}
-		if err := s.conversation.Reset(ctx, destination.FromContext(ctx).ConversationID()); err != nil {
+		if err := s.Conversation.Reset(ctx, destination.FromContext(ctx).ConversationID()); err != nil {
 			return "", true, err
 		}
 		return "Cleared recent conversation history. Durable memory is unchanged.", true, nil
@@ -213,8 +196,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 
 func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	model := "unconfigured"
-	if s.agentRuntime != nil {
-		selected, err := s.agentRuntime.SelectedModel(ctx)
+	if s.AgentRuntime != nil {
+		selected, err := s.AgentRuntime.SelectedModel(ctx)
 		if err != nil {
 			return "", true, err
 		}
@@ -226,8 +209,8 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	// which is the question the owner actually has, so each pending approval
 	// is named by its summary.
 	waitingApprovals := []approvals.Approval(nil)
-	if s.store != nil {
-		state, err := s.store.Load(ctx)
+	if s.Store != nil {
+		state, err := s.Store.Load(ctx)
 		if err != nil {
 			return "", true, err
 		}
@@ -259,8 +242,8 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 	// the owner switched on days ago and forgot is still the failure mode worth
 	// the line, but with a middle rung "no news" no longer means one specific
 	// state, so saying nothing would leave the owner guessing which.
-	if s.approvals != nil {
-		mode, err := s.approvals.Mode(ctx)
+	if s.Approvals != nil {
+		mode, err := s.Approvals.Mode(ctx)
 		if err != nil {
 			return "", true, err
 		}
@@ -269,8 +252,8 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 			report += " `/mode normal` restores the gate."
 		}
 	}
-	if s.mcp != nil {
-		statuses := s.mcp.Statuses()
+	if s.MCP != nil {
+		statuses := s.MCP.Statuses()
 		ready, tools, attention := 0, 0, []string(nil)
 		for _, status := range statuses {
 			tools += status.Tools
@@ -289,15 +272,15 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 }
 
 func (s *CommandService) model(ctx context.Context, args []string) (string, bool, error) {
-	if s.agentRuntime == nil {
+	if s.AgentRuntime == nil {
 		return "Model selection is unavailable.", true, nil
 	}
 	if len(args) == 0 {
-		selected, err := s.agentRuntime.SelectedModel(ctx)
+		selected, err := s.AgentRuntime.SelectedModel(ctx)
 		if err != nil {
 			return "", true, err
 		}
-		return fmt.Sprintf("**Active model:** %s\n**Available:** %s", selected, strings.Join(s.modelAliases, ", ")), true, nil
+		return fmt.Sprintf("**Active model:** %s\n**Available:** %s", selected, strings.Join(s.ModelAliases, ", ")), true, nil
 	}
 	// A subcommand only wins when no configured alias answers to that name, so
 	// adding these words cannot make an existing alias unselectable.
@@ -318,11 +301,11 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 	if alias == "default" {
 		alias = ""
 	}
-	if err := s.agentRuntime.SelectModel(ctx, alias); err != nil {
-		return fmt.Sprintf("Could not select model: %v\n\nAvailable: %s", err, strings.Join(s.modelAliases, ", ")), true, nil
+	if err := s.AgentRuntime.SelectModel(ctx, alias); err != nil {
+		return fmt.Sprintf("Could not select model: %v\n\nAvailable: %s", err, strings.Join(s.ModelAliases, ", ")), true, nil
 	}
 	if alias == "" {
-		alias = s.defaultModel
+		alias = s.DefaultModel
 	}
 	return "Model set to " + alias + ".", true, nil
 }
@@ -332,7 +315,7 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 // this list" is the question an owner actually has, and silence answers it
 // badly.
 func (s *CommandService) modelProviders() string {
-	names, err := config.ProviderNames(s.configPath)
+	names, err := config.ProviderNames(s.ConfigPath)
 	if err != nil {
 		return fmt.Sprintf("Could not read providers: %v", err)
 	}
@@ -340,8 +323,8 @@ func (s *CommandService) modelProviders() string {
 		return "No providers configured."
 	}
 	browsable := map[string]bool{}
-	if s.discovery != nil {
-		for _, name := range s.discovery.DiscoverableProviders() {
+	if s.ModelDiscovery != nil {
+		for _, name := range s.ModelDiscovery.DiscoverableProviders() {
 			browsable[name] = true
 		}
 	}
@@ -361,7 +344,7 @@ func (s *CommandService) modelProviders() string {
 // surface that dumped all of them would be unusable, so an unfiltered listing
 // is capped and says so rather than being silently cut.
 func (s *CommandService) modelAvailable(ctx context.Context, args []string) string {
-	if s.discovery == nil {
+	if s.ModelDiscovery == nil {
 		return "Model discovery is unavailable."
 	}
 	if len(args) == 0 {
@@ -369,7 +352,7 @@ func (s *CommandService) modelAvailable(ctx context.Context, args []string) stri
 	}
 	provider := args[0]
 	filter := strings.ToLower(strings.Join(args[1:], " "))
-	models, err := s.discovery.DiscoverModels(ctx, provider)
+	models, err := s.ModelDiscovery.DiscoverModels(ctx, provider)
 	if err != nil {
 		return fmt.Sprintf("Could not list %s models: %v", provider, err)
 	}
@@ -417,7 +400,7 @@ func (s *CommandService) modelAdd(args []string) string {
 	if len(args) == 4 {
 		efforts = args[3]
 	}
-	if err := config.SetModelAlias(s.configPath, alias, provider, modelID, efforts); err != nil {
+	if err := config.SetModelAlias(s.ConfigPath, alias, provider, modelID, efforts); err != nil {
 		return fmt.Sprintf("Could not add %s: %v", alias, err)
 	}
 	return fmt.Sprintf("Added **%s** -> %s %s.\n\nRestart for it to become selectable: /restart", alias, provider, modelID)
@@ -430,10 +413,10 @@ func (s *CommandService) modelAdd(args []string) string {
 // a way to end up in auto without meaning to, and auto is the one state nobody
 // should reach by accident.
 func (s *CommandService) modeCommand(ctx context.Context, argument string) (string, bool, error) {
-	if s.approvals == nil {
+	if s.Approvals == nil {
 		return "Approvals are unavailable.", true, nil
 	}
-	current, err := s.approvals.Mode(ctx)
+	current, err := s.Approvals.Mode(ctx)
 	if err != nil {
 		return "", true, err
 	}
@@ -444,7 +427,7 @@ func (s *CommandService) modeCommand(ctx context.Context, argument string) (stri
 	if !requested.Valid() {
 		return fmt.Sprintf("%q is not a mode. Use /mode strict, /mode normal or /mode auto.", argument), true, nil
 	}
-	if err := s.approvals.SetMode(ctx, requested); err != nil {
+	if err := s.Approvals.SetMode(ctx, requested); err != nil {
 		return "", true, err
 	}
 	return ModeMessage(requested), true, nil
@@ -453,7 +436,7 @@ func (s *CommandService) modeCommand(ctx context.Context, argument string) (stri
 // restartCommand is /restart. The work is in Restart below, which the panel's
 // restart button calls too: one restart authority, two views onto it.
 func (s *CommandService) restartCommand() (string, bool, error) {
-	message, _ := Restart(s.restarter, s.configPath, s.getenv)
+	message, _ := Restart(s.Restarter, s.ConfigPath, s.Getenv)
 	return message, true, nil
 }
 
@@ -516,13 +499,13 @@ func ModeReport(mode ports.ApprovalMode) string {
 // that cannot be pasted from the chat that needs it, and typing it on a phone
 // keyboard is how an owner ends up not opening the panel at all.
 func (s *CommandService) webCommand() (string, bool, error) {
-	if s.publicBaseURL == "" {
+	if s.PublicBaseURL == "" {
 		return "The web panel address is unknown. Set `server.public_base_url` in config.yaml (or `EGGY_PUBLIC_BASE_URL`) and restart.", true, nil
 	}
-	if len(s.signingKey) == 0 {
-		return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nSign in with the panel email and password: no signing key is configured, so I cannot send a one-tap link.", s.publicBaseURL), true, nil
+	if len(s.SigningKey) == 0 {
+		return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nSign in with the panel email and password: no signing key is configured, so I cannot send a one-tap link.", s.PublicBaseURL), true, nil
 	}
-	link := s.publicBaseURL + "/auth/link?token=" + url.QueryEscape(session.SignLoginLink(s.signingKey, s.now().Add(webLoginLinkTTL)))
+	link := s.PublicBaseURL + "/auth/link?token=" + url.QueryEscape(session.SignLoginLink(s.SigningKey, s.Now().Add(webLoginLinkTTL)))
 	return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nOpening it signs you in for 12 hours. The link works once and expires in 5 minutes -- anyone who opens it first is in, so treat it like the password.", link), true, nil
 }
 

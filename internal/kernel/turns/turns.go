@@ -140,49 +140,27 @@ type Options struct {
 
 // Service runs turns. One instance serves every surface: Telegram and web are
 // peers that each only decide which entry point to call.
+//
+// It embeds Options rather than restating all nineteen collaborators as
+// lowercase fields and copying them across one at a time. The two lists were
+// identical apart from case, so the only thing the copy bought was a third
+// place to forget a field when adding one. A Service is built once by New and
+// never written again.
 type Service struct {
-	commands     CommandExecutor
-	registry     Registry
-	conversation Conversation
-	context      ports.ContextStore
-	store        ports.StateStore
-	runtime      Runtime
-	skills       SkillIndex
-	loop         Loop
-	channel      ports.Channel
-	threads      ThreadTitler
-	approvals    ApprovalDecider
-	executors    map[approvals.Action]ApprovalExecutor
-	presenter    Presenter
-	traces       *services.TraceRecorder
-	manifest     agent.CapabilityManifest
-	logger       *slog.Logger
-	now          func() time.Time
-	location     *time.Location
-	timezone     string
+	Options
 }
 
 func New(options Options) *Service {
-	now := options.Now
-	if now == nil {
-		now = time.Now
+	if options.Now == nil {
+		options.Now = time.Now
 	}
-	location := options.Location
-	if location == nil {
-		location = time.UTC
+	if options.Location == nil {
+		options.Location = time.UTC
 	}
-	logger := options.Logger
-	if logger == nil {
-		logger = slog.Default()
+	if options.Logger == nil {
+		options.Logger = slog.Default()
 	}
-	return &Service{
-		commands: options.Commands, registry: options.Registry, conversation: options.Conversation,
-		context: options.Context, store: options.Store, runtime: options.Runtime,
-		skills: options.Skills, loop: options.Loop, channel: options.Channel,
-		threads: options.Threads, approvals: options.Approvals, executors: options.Executors,
-		presenter: options.Presenter, traces: options.Traces, manifest: options.Manifest,
-		logger: logger, now: now, location: location, timezone: options.Timezone,
-	}
+	return &Service{Options: options}
 }
 
 // Policy is what differs between kinds of turn: whether it carries ambient
@@ -329,64 +307,64 @@ func silentReply(content string) bool {
 // run is one turn, whatever kind. Everything above differs only in the tool
 // allowlist, the policy, and whether the context is marked unprompted.
 func (s *Service) run(ctx context.Context, text string, options agent.RunOptions, policy Policy) error {
-	if s.commands != nil {
-		if output, handled, err := s.commands.Execute(ctx, text); handled {
+	if s.Commands != nil {
+		if output, handled, err := s.Commands.Execute(ctx, text); handled {
 			if err != nil {
 				return err
 			}
-			return s.channel.Deliver(ctx, output)
+			return s.Channel.Deliver(ctx, output)
 		}
 	}
 	// A message that arrives while a steerable turn is already running joins
 	// that turn rather than starting a competing one. The owner gets to
 	// redirect work in progress -- "actually, skip the tests" -- instead of
 	// waiting for it to finish or racing it.
-	if policy.RecordConversation && s.registry.Steer(ctx, text) {
-		if err := s.conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
+	if policy.RecordConversation && s.Registry.Steer(ctx, text) {
+		if err := s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
 			return err
 		}
-		return s.channel.Deliver(ctx, "Got it — folding that into what I'm working on.")
+		return s.Channel.Deliver(ctx, "Got it — folding that into what I'm working on.")
 	}
-	agentContext, err := s.context.Load(ctx)
+	agentContext, err := s.Context.Load(ctx)
 	if err != nil {
 		return err
 	}
-	state, err := s.store.Load(ctx)
+	state, err := s.Store.Load(ctx)
 	if err != nil {
 		return err
 	}
-	alias, err := s.runtime.SelectedModel(ctx)
+	alias, err := s.Runtime.SelectedModel(ctx)
 	if err != nil {
 		return err
 	}
-	effort, err := s.runtime.ReasoningEffort(ctx)
+	effort, err := s.Runtime.ReasoningEffort(ctx)
 	if err != nil {
 		return err
 	}
-	enabledSkills, err := s.skills.Enabled(ctx)
+	enabledSkills, err := s.Skills.Enabled(ctx)
 	if err != nil {
 		return err
 	}
 	manifest := s.capabilityManifest(state, alias, enabledSkills)
-	manifest.Tools = s.loop.ToolNames(options)
-	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: s.now().In(s.location), Timezone: s.timezone})
+	manifest.Tools = s.Loop.ToolNames(options)
+	history := agent.BuildInstructions(agentContext, manifest, agent.TemporalContext{Now: s.Now().In(s.Location), Timezone: s.Timezone})
 	history = append(history, policy.Extra...)
 	if policy.IncludeWatchDocument && strings.TrimSpace(agentContext.Watch) != "" {
 		history = append(history, agent.WatchDocumentMessage(agentContext.Watch))
 	}
 	dest := destination.FromContext(ctx)
 	if policy.IncludeRecentHistory {
-		recent, err := s.conversation.RecentMessages(ctx, dest.ConversationID())
+		recent, err := s.Conversation.RecentMessages(ctx, dest.ConversationID())
 		if err != nil {
-			s.logger.Error("recent conversation window unavailable", "conversation_id", dest.ConversationID(), "error", err)
+			s.Logger.Error("recent conversation window unavailable", "conversation_id", dest.ConversationID(), "error", err)
 		} else {
 			history = append(history, recent...)
 		}
 	}
 	finishToolProgress := func() {}
 	onToolCall := func(string) {}
-	if policy.RecordConversation && s.presenter != nil {
-		onToolCall, finishToolProgress = s.presenter.ShowToolCalls(ctx)
+	if policy.RecordConversation && s.Presenter != nil {
+		onToolCall, finishToolProgress = s.Presenter.ShowToolCalls(ctx)
 	}
 	// The trace opens here, before the loop's context is derived, so every
 	// model call and tool call the loop makes carries the trace ID. Reassigning
@@ -395,11 +373,11 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	// variable would be a way to forget one of them.
 	// A failed lookup costs the trace its grouping, not the turn: an
 	// ungrouped trace is still the whole record of what ran.
-	session, err := s.conversation.SessionID(ctx, dest.ConversationID())
+	session, err := s.Conversation.SessionID(ctx, dest.ConversationID())
 	if err != nil {
-		s.logger.Error("conversation session unavailable", "conversation_id", dest.ConversationID(), "error", err)
+		s.Logger.Error("conversation session unavailable", "conversation_id", dest.ConversationID(), "error", err)
 	}
-	ctx, trace := s.traces.Begin(ctx, ports.Trace{
+	ctx, trace := s.Traces.Begin(ctx, ports.Trace{
 		ConversationID: dest.ConversationID(),
 		Session:        session,
 		Channel:        string(dest.Kind),
@@ -413,15 +391,15 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	// Only a direct owner turn is steerable: a scheduled turn is deliberately
 	// self-contained, and folding an owner message into one would hand it the
 	// ambient instruction that isolation exists to prevent.
-	turnContext, endTurn := s.registry.Begin(ctx, policy.RecordConversation)
+	turnContext, endTurn := s.Registry.Begin(ctx, policy.RecordConversation)
 	defer endTurn()
 	turnContext = services.WithSelectedModel(turnContext, alias)
-	options.PendingInput = func() []ports.Message { return s.registry.Pending(ctx) }
+	options.PendingInput = func() []ports.Message { return s.Registry.Pending(ctx) }
 	stopTyping := func() {}
-	if s.presenter != nil {
-		stopTyping = s.presenter.StartTyping(ctx)
+	if s.Presenter != nil {
+		stopTyping = s.Presenter.StartTyping(ctx)
 	}
-	result, runErr := s.loop.Run(turnContext, alias, effort, text, history, options)
+	result, runErr := s.Loop.Run(turnContext, alias, effort, text, history, options)
 	stopTyping()
 	finishToolProgress()
 	endTurn()
@@ -432,17 +410,17 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	if errors.Is(runErr, context.Canceled) && ctx.Err() == nil {
 		// The turn was stopped by the owner, not by the surface going away:
 		// the milestone is reported on ctx so it still reaches them.
-		if usageErr := s.runtime.RecordUsage(ctx, alias, result.Usage); usageErr != nil {
+		if usageErr := s.Runtime.RecordUsage(ctx, alias, result.Usage); usageErr != nil {
 			return usageErr
 		}
-		return s.channel.Deliver(ctx, "Stopped. The workspace is left as it was, so you can look at it or ask me to continue.")
+		return s.Channel.Deliver(ctx, "Stopped. The workspace is left as it was, so you can look at it or ask me to continue.")
 	}
-	usageErr := s.runtime.RecordUsage(ctx, alias, result.Usage)
+	usageErr := s.Runtime.RecordUsage(ctx, alias, result.Usage)
 	if errors.Is(runErr, agent.ErrToolStepLimit) {
 		if usageErr != nil {
 			return usageErr
 		}
-		return s.channel.Deliver(ctx, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
+		return s.Channel.Deliver(ctx, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
 	}
 	if runErr != nil {
 		return runErr
@@ -452,15 +430,15 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	}
 	if policy.RecordConversation {
 		conversationID := dest.ConversationID()
-		if err := s.conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
+		if err := s.Conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
 			return err
 		}
-		if err := s.conversation.Record(ctx, conversationID, result.Message, policy.Source); err != nil {
+		if err := s.Conversation.Record(ctx, conversationID, result.Message, policy.Source); err != nil {
 			return err
 		}
-		if dest.Kind == destination.Web && s.threads != nil {
-			if err := s.threads.SetThreadTitle(ctx, dest.ThreadID, truncateThreadTitle(text)); err != nil {
-				s.logger.Error("thread auto-titling failed", "thread_id", dest.ThreadID, "error", err)
+		if dest.Kind == destination.Web && s.Threads != nil {
+			if err := s.Threads.SetThreadTitle(ctx, dest.ThreadID, truncateThreadTitle(text)); err != nil {
+				s.Logger.Error("thread auto-titling failed", "thread_id", dest.ThreadID, "error", err)
 			}
 		}
 	}
@@ -477,50 +455,50 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 			if !response.Notify {
 				return nil
 			}
-			return s.channel.Deliver(ctx, response.Text)
+			return s.Channel.Deliver(ctx, response.Text)
 		}
 		if silentReply(result.Message.Content) {
 			return nil
 		}
 	}
 	if strings.TrimSpace(result.ReasoningContent) != "" {
-		showThinking, err := s.runtime.ShowThinking(ctx)
+		showThinking, err := s.Runtime.ShowThinking(ctx)
 		if err != nil {
 			return err
 		}
 		if showThinking {
-			if err := s.channel.Deliver(ctx, "Thinking:\n"+result.ReasoningContent); err != nil {
+			if err := s.Channel.Deliver(ctx, "Thinking:\n"+result.ReasoningContent); err != nil {
 				return err
 			}
 		}
 	}
-	return s.channel.Deliver(ctx, result.Message.Content)
+	return s.Channel.Deliver(ctx, result.Message.Content)
 }
 
 // Active reports whether a turn is currently executing.
-func (s *Service) Active() bool { return s.registry.Active() }
+func (s *Service) Active() bool { return s.Registry.Active() }
 
 // Approval executes what an owner's approve tap authorized, or reports the
 // rejection. The destination is taken from the approval itself, so the
 // outcome reaches the surface the approval was issued on.
 func (s *Service) Approval(ctx context.Context, decision events.ApprovalDecision) error {
-	preState, err := s.store.Load(ctx)
+	preState, err := s.Store.Load(ctx)
 	if err != nil {
 		return err
 	}
 	ctx = destination.With(ctx, preState.Approvals[decision.ApprovalID].Destination)
-	if err := s.approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
+	if err := s.Approvals.Decide(ctx, decision.ApprovalID, decision.Approved); err != nil {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
 	if !decision.Approved {
-		return s.presenter.DeliverOutcome(ctx, decision.MessageID, "Action rejected.")
+		return s.Presenter.DeliverOutcome(ctx, decision.MessageID, "Action rejected.")
 	}
-	state, err := s.store.Load(ctx)
+	state, err := s.Store.Load(ctx)
 	if err != nil {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
 	approval := state.Approvals[decision.ApprovalID]
-	executor, ok := s.executors[approval.Action]
+	executor, ok := s.Executors[approval.Action]
 	if !ok {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, errors.New("unknown approval action"))
 	}
@@ -528,7 +506,7 @@ func (s *Service) Approval(ctx context.Context, decision events.ApprovalDecision
 	if err != nil {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
-	return s.presenter.DeliverOutcome(ctx, decision.MessageID, approvalOutcomeText(result))
+	return s.Presenter.DeliverOutcome(ctx, decision.MessageID, approvalOutcomeText(result))
 }
 
 // approvalOutcomeText renders what the owner reads after an approve tap.
@@ -559,7 +537,7 @@ func approvalOutcomeText(result any) string {
 // from a broken button, and the owner has no way to learn what actually
 // failed. Still returns execErr so the failure remains logged server-side.
 func (s *Service) deliverApprovalFailure(ctx context.Context, messageID string, execErr error) error {
-	if deliverErr := s.presenter.DeliverOutcome(ctx, messageID, fmt.Sprintf("Action failed: %v", execErr)); deliverErr != nil {
+	if deliverErr := s.Presenter.DeliverOutcome(ctx, messageID, fmt.Sprintf("Action failed: %v", execErr)); deliverErr != nil {
 		return errors.Join(execErr, deliverErr)
 	}
 	return execErr
@@ -587,7 +565,7 @@ func turnEvents(onToolCall func(string), trace *services.TraceTurn) func(agent.E
 // capabilityManifest is the base manifest populated with the active model,
 // configured repositories, and available skills for this turn.
 func (s *Service) capabilityManifest(state ports.State, activeModel string, skills []ports.SkillSummary) agent.CapabilityManifest {
-	manifest := s.manifest
+	manifest := s.Manifest
 	manifest.ActiveModel = activeModel
 	manifest.Repositories = make([]string, 0, len(state.Repositories))
 	for name := range state.Repositories {

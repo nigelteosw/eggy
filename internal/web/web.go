@@ -281,62 +281,70 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	throttle := session.NewLoginThrottle(now)
 	links := newSpentLinks()
 	mux := http.NewServeMux()
+	// Every route below the login endpoints is owner-only, so the session
+	// check is bound once here rather than repeated on each registration. It
+	// reads as part of the route table that way: an unguarded route is one
+	// that visibly does not say guard, instead of one that happens to be
+	// missing two arguments among thirty that carry them.
+	guard := func(next http.HandlerFunc) http.Handler {
+		return requireWebSession(webConfig, now, next)
+	}
 	mux.Handle("GET /", webUIHandler())
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
 	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 	mux.HandleFunc("POST /api/logout", handleWebLogout())
 	mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
-	mux.Handle("GET /api/session", requireWebSession(webConfig, now, func(w http.ResponseWriter, _ *http.Request) {
+	mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
 		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
 	}))
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
-		mux.Handle("GET /api/config/"+section, requireWebSession(webConfig, now, webConfigGetRoute(configPath, section, webConfig)))
-		mux.Handle("POST /api/config/"+section, requireWebSession(webConfig, now, webConfigSetRoute(configPath, section, webConfig)))
+		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
+		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
 	}
 
-	mux.Handle("GET /api/config/models/available", requireWebSession(webConfig, now, newModelDiscoveryHandler(webConfig.ModelDiscovery)))
+	mux.Handle("GET /api/config/models/available", guard(newModelDiscoveryHandler(webConfig.ModelDiscovery)))
 
-	mux.Handle("GET /api/config/raw", requireWebSession(webConfig, now, rawConfigGetRoute(configPath)))
-	mux.Handle("POST /api/config/raw", requireWebSession(webConfig, now, rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
+	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
+	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
 
-	mux.Handle("GET /api/config/mcp", requireWebSession(webConfig, now, webMCPListRoute(configPath)))
-	mux.Handle("POST /api/config/mcp", requireWebSession(webConfig, now, webMCPSetRoute(configPath)))
-	mux.Handle("DELETE /api/config/mcp/{name}", requireWebSession(webConfig, now, webMCPRemoveRoute(configPath)))
+	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath)))
+	mux.Handle("POST /api/config/mcp", guard(webMCPSetRoute(configPath)))
+	mux.Handle("DELETE /api/config/mcp/{name}", guard(webMCPRemoveRoute(configPath)))
 	// Starting an OAuth flow is owner-only: an anonymous visitor who could
 	// reach this would bind their own account as Eggy's credential for that
 	// server. The matching callback is deliberately not session-gated -- it is
 	// the provider's redirect, authenticated by the state parameter it carries.
 	if webConfig.MCP != nil {
-		mux.Handle("GET /auth/mcp/{server}", requireWebSession(webConfig, now, webMCPLoginRoute(webConfig.MCP)))
+		mux.Handle("GET /auth/mcp/{server}", guard(webMCPLoginRoute(webConfig.MCP)))
 	}
 
-	mux.Handle("GET /api/chat/threads", requireWebSession(webConfig, now, newThreadListHandler(webConfig.Threads)))
-	mux.Handle("POST /api/chat/threads", requireWebSession(webConfig, now, newThreadCreateHandler(webConfig.Threads, now)))
-	mux.Handle("PATCH /api/chat/threads/{id}", requireWebSession(webConfig, now, newThreadRenameHandler(webConfig.Threads)))
-	mux.Handle("DELETE /api/chat/threads/{id}", requireWebSession(webConfig, now, newThreadDeleteHandler(webConfig.Threads)))
-	mux.Handle("GET /api/chat/threads/{id}/history", requireWebSession(webConfig, now, newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
-	mux.Handle("GET /api/chat/threads/{id}/stream", requireWebSession(webConfig, now, newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
-	mux.Handle("POST /api/chat/threads/{id}/send", requireWebSession(webConfig, now, newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
-	mux.Handle("GET /api/tools", requireWebSession(webConfig, now, newToolListHandler(webConfig.Tools)))
-	mux.Handle("GET /api/approvals", requireWebSession(webConfig, now, newApprovalListHandler(webConfig.Approvals, now)))
-	mux.Handle("GET /api/approvals/mode", requireWebSession(webConfig, now, newApprovalModeHandler(webConfig.ApprovalMode, false)))
-	mux.Handle("POST /api/approvals/mode", requireWebSession(webConfig, now, newApprovalModeHandler(webConfig.ApprovalMode, true)))
-	mux.Handle("GET /api/agent", requireWebSession(webConfig, now, newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
-	mux.Handle("POST /api/agent/model", requireWebSession(webConfig, now, newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
-	mux.Handle("POST /api/agent/effort", requireWebSession(webConfig, now, newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
-	mux.Handle("GET /api/context/watch", requireWebSession(webConfig, now, newWatchGetRoute(webConfig.Watch)))
-	mux.Handle("POST /api/context/watch", requireWebSession(webConfig, now, newWatchSetRoute(webConfig.Watch)))
+	mux.Handle("GET /api/chat/threads", guard(newThreadListHandler(webConfig.Threads)))
+	mux.Handle("POST /api/chat/threads", guard(newThreadCreateHandler(webConfig.Threads, now)))
+	mux.Handle("PATCH /api/chat/threads/{id}", guard(newThreadRenameHandler(webConfig.Threads)))
+	mux.Handle("DELETE /api/chat/threads/{id}", guard(newThreadDeleteHandler(webConfig.Threads)))
+	mux.Handle("GET /api/chat/threads/{id}/history", guard(newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
+	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
+	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
+	mux.Handle("GET /api/tools", guard(newToolListHandler(webConfig.Tools)))
+	mux.Handle("GET /api/approvals", guard(newApprovalListHandler(webConfig.Approvals, now)))
+	mux.Handle("GET /api/approvals/mode", guard(newApprovalModeHandler(webConfig.ApprovalMode, false)))
+	mux.Handle("POST /api/approvals/mode", guard(newApprovalModeHandler(webConfig.ApprovalMode, true)))
+	mux.Handle("GET /api/agent", guard(newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/model", guard(newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/effort", guard(newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Watch)))
+	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Watch)))
 	if webConfig.Traces != nil {
-		mux.Handle("GET /api/traces", requireWebSession(webConfig, now, newTraceListHandler(webConfig.Traces)))
-		mux.Handle("GET /api/traces/{id}", requireWebSession(webConfig, now, newTraceDetailHandler(webConfig.Traces)))
+		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))
+		mux.Handle("GET /api/traces/{id}", guard(newTraceDetailHandler(webConfig.Traces)))
 	}
-	mux.Handle("GET /api/schedules", requireWebSession(webConfig, now, newScheduleListHandler(webConfig.Schedules)))
-	mux.Handle("DELETE /api/schedules/{id}", requireWebSession(webConfig, now, newScheduleDeleteHandler(webConfig.Schedules)))
+	mux.Handle("GET /api/schedules", guard(newScheduleListHandler(webConfig.Schedules)))
+	mux.Handle("DELETE /api/schedules/{id}", guard(newScheduleDeleteHandler(webConfig.Schedules)))
 
-	mux.Handle("POST /api/restart", requireWebSession(webConfig, now, newRestartHandler(webConfig.Restarter, configPath, webConfig.Getenv)))
+	mux.Handle("POST /api/restart", guard(newRestartHandler(webConfig.Restarter, configPath, webConfig.Getenv)))
 
-	mux.Handle("POST /api/chat/approve", requireWebSession(webConfig, now, newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("POST /api/chat/approve", guard(newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
 
 	return mux
 }

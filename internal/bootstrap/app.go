@@ -234,6 +234,13 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
 	registry := services.NewToolRegistry()
 	app.tools = registry
+	// The three collaborators every registration passes are bound once here.
+	// Nine call sites repeating them made the gate look like an argument
+	// convention rather than what it is: the single path a native tool takes
+	// into the registry.
+	gate := func(tools ...ports.Tool) error {
+		return registerGated(registry, asker, app.approvals, tools...)
+	}
 	activeTurns := services.NewActiveTurns()
 	owner := config.Owner.ID
 	baseTools := []ports.Tool{
@@ -244,17 +251,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewHeartbeatTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewSkillTools(skillsService)...)
-	if err := registerGated(registry, asker, app.approvals, baseTools...); err != nil {
+	if err := gate(baseTools...); err != nil {
 		return nil, err
 	}
 	if len(config.Repositories) > 0 {
-		if err := registerGated(registry, asker, app.approvals, repo.NewRepositoryTools(stateStore)...); err != nil {
+		if err := gate(repo.NewRepositoryTools(stateStore)...); err != nil {
 			return nil, err
 		}
-		if err := registerGated(registry, asker, app.approvals, repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
+		if err := gate(repo.NewRepositoryMetadataTools(stateStore, repositoryAdapter)...); err != nil {
 			return nil, err
 		}
-		if err := registerGated(registry, asker, app.approvals, app.workspaces.Tools()...); err != nil {
+		if err := gate(app.workspaces.Tools()...); err != nil {
 			return nil, err
 		}
 	}
@@ -265,11 +272,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// AddProvider below), where the same invariant holds because a registered
 	// tool always wins the name.
 	if len(config.Repositories) > 0 {
-		if err := registerGated(registry, asker, app.approvals, primitives...); err != nil {
+		if err := gate(primitives...); err != nil {
 			return nil, err
 		}
 	}
-	if err := registerGated(registry, asker, app.approvals, telegramSurface.tools()...); err != nil {
+	if err := gate(telegramSurface.tools()...); err != nil {
 		return nil, err
 	}
 	// One grant, several products, registered like any other kernel tool.
@@ -285,12 +292,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	if err := registerGated(registry, asker, app.approvals, googleCatalog...); err != nil {
+	if err := gate(googleCatalog...); err != nil {
 		return nil, err
 	}
 	// Web reach, gated the same way: unconfigured, this registers nothing and
 	// costs no schema bytes on any call.
-	if err := registerGated(registry, asker, app.approvals, newTavilyTools(config, secrets, options)...); err != nil {
+	if err := gate(newTavilyTools(config, secrets, options)...); err != nil {
 		return nil, err
 	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
@@ -306,7 +313,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}()
 	}
 
-	if err := registerGated(registry, asker, app.approvals, services.NewScheduleTools(app.scheduler, options.Now, newRunID, location)...); err != nil {
+	if err := gate(services.NewScheduleTools(app.scheduler, options.Now, newRunID, location)...); err != nil {
 		return nil, err
 	}
 	if app.mcp != nil {

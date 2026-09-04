@@ -37,7 +37,7 @@ func (s *CommandService) googleCommand(ctx context.Context, args []string) (stri
 	if action == "set" {
 		return s.googleSet(args[1:])
 	}
-	if s.google == nil {
+	if s.Google == nil {
 		return "Google Workspace is not configured.\n\n" + googleUsage(), true, nil
 	}
 	switch action {
@@ -46,7 +46,7 @@ func (s *CommandService) googleCommand(ctx context.Context, args []string) (stri
 	case "login":
 		return s.googleLogin(ctx, args[1:])
 	case "logout":
-		if err := s.google.Logout(); err != nil {
+		if err := s.Google.Logout(); err != nil {
 			return fmt.Sprintf("Could not sign out of Google: %v", err), true, nil
 		}
 		return "Signed out of Google. Run /google login to authorize again.", true, nil
@@ -64,7 +64,7 @@ func (s *CommandService) googleLogin(ctx context.Context, args []string) (string
 		return "Usage: /google login [pasted redirect URL or code]", true, nil
 	}
 	if len(args) == 0 {
-		authorizationURL, err := s.google.BeginLogin(ctx)
+		authorizationURL, err := s.Google.BeginLogin(ctx)
 		if err != nil {
 			return fmt.Sprintf("Could not start the Google login: %v", err), true, nil
 		}
@@ -81,14 +81,14 @@ func (s *CommandService) googleLogin(ctx context.Context, args []string) (string
 	if err != nil {
 		return fmt.Sprintf("Could not finish the Google login: %v", err), true, nil
 	}
-	if err := s.google.CompleteLogin(ctx, code, state); err != nil {
+	if err := s.Google.CompleteLogin(ctx, code, state); err != nil {
 		return fmt.Sprintf("Could not finish the Google login: %v", err), true, nil
 	}
 	return "Authorized Google. Its tools are available on the next turn.", true, nil
 }
 
 func (s *CommandService) googleStatus() (string, bool, error) {
-	status, err := s.google.Status()
+	status, err := s.Google.Status()
 	if err != nil {
 		return fmt.Sprintf("Could not read Google status: %v", err), true, nil
 	}
@@ -112,7 +112,7 @@ func (s *CommandService) googleStatus() (string, bool, error) {
 // lock and the same validation -- one administration authority, two views onto
 // it, exactly as /mcp add does.
 func (s *CommandService) googleSet(args []string) (string, bool, error) {
-	if s.configPath == "" {
+	if s.ConfigPath == "" {
 		return "Google configuration is unavailable.", true, nil
 	}
 	if len(args) == 0 {
@@ -150,7 +150,7 @@ func (s *CommandService) googleSet(args []string) (string, bool, error) {
 			return fmt.Sprintf("Unknown field %q. %s", key, googleSetUsage), true, nil
 		}
 	}
-	if err := config.SetGoogle(s.configPath, input); err != nil {
+	if err := config.SetGoogle(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not save Google configuration: %v", err), true, nil
 	}
 	message := "Saved Google Workspace. " + restartNotice

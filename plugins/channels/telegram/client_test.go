@@ -57,6 +57,7 @@ func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 		body          []byte
 		wantNoRequest bool
 	}{
+		{name: "negative declared size", declaredSize: -1, declaredType: "image/png", wantNoRequest: true},
 		{name: "declared too large", declaredSize: maxImageBytes + 1, declaredType: "image/png", wantNoRequest: true},
 		{name: "unsupported declared type", declaredSize: 4, declaredType: "application/pdf", wantNoRequest: true},
 		{name: "downloaded text", declaredSize: 4, declaredType: "image/png", body: []byte("text")},
@@ -87,6 +88,50 @@ func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 				t.Fatalf("error leaked authenticated download details: %v", err)
 			}
 		})
+	}
+}
+
+func TestClientDownloadImageRejectsNegativeResolvedSize(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/list.png","file_size":-1}}`)
+	}))
+	defer server.Close()
+	_, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	if err == nil {
+		t.Fatal("DownloadImage accepted a negative resolved size")
+	}
+	if requests != 1 {
+		t.Fatalf("requests=%d, want getFile only", requests)
+	}
+}
+
+func TestClientDownloadImageDoesNotFollowRedirects(t *testing.T) {
+	redirected := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirected = true
+		_, _ = w.Write(append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...))
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getFile") {
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/list.png"}}`)
+			return
+		}
+		http.Redirect(w, r, target.URL+"/stolen", http.StatusFound)
+	}))
+	defer source.Close()
+
+	_, err := NewClient(source.URL, "top-secret-token", "42", source.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	if err == nil {
+		t.Fatal("DownloadImage followed a redirect")
+	}
+	if redirected {
+		t.Fatal("redirect target was contacted")
+	}
+	if strings.Contains(err.Error(), "top-secret-token") {
+		t.Fatalf("error leaked token: %v", err)
 	}
 }
 

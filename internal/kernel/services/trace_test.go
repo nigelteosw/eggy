@@ -150,6 +150,31 @@ func TestTracedModelRecordsPromptAndResponseAgainstTheOpenTurn(t *testing.T) {
 	}
 }
 
+func TestTracedModelReplacesImageBytesWithAMarker(t *testing.T) {
+	store := &fakeTraceStore{}
+	recorder := newTestRecorder(t, store)
+	ctx, _ := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	model := NewTracedModel(&stubModel{response: ports.ModelResponse{Message: ports.Message{Content: "seen"}}}, recorder)
+
+	_, err := model.Generate(ctx, ports.ModelRequest{Model: "gpt-x", Messages: []ports.Message{{
+		Role: ports.RoleUser, Content: "inspect",
+		Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("secret pixels")}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(store.spans) != 1 {
+		t.Fatalf("spans=%#v", store.spans)
+	}
+	request := store.spans[0].Request
+	if strings.Contains(request, "secret pixels") || strings.Contains(request, "c2VjcmV0IHBpeGVscw==") {
+		t.Fatalf("trace persisted image bytes: %s", request)
+	}
+	if !strings.Contains(request, "[image attached]") {
+		t.Fatalf("trace omitted image marker: %s", request)
+	}
+}
+
 func TestTracedModelIgnoresCallsOutsideATurn(t *testing.T) {
 	t.Parallel()
 

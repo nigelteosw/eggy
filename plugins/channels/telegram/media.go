@@ -20,6 +20,9 @@ func (c *Client) DownloadImage(ctx context.Context, fileID string, declaredSize 
 	if strings.TrimSpace(fileID) == "" {
 		return ports.ContentPart{}, errors.New("Telegram image is missing a file ID")
 	}
+	if declaredSize < 0 {
+		return ports.ContentPart{}, errors.New("Telegram image has an invalid negative size")
+	}
 	if declaredSize > maxImageBytes {
 		return ports.ContentPart{}, fmt.Errorf("Telegram image exceeds the %d MB limit", maxImageBytes>>20)
 	}
@@ -42,6 +45,9 @@ func (c *Client) DownloadImage(ctx context.Context, fileID string, declaredSize 
 	if strings.TrimSpace(file.FilePath) == "" {
 		return ports.ContentPart{}, errors.New("Telegram image metadata has no file path")
 	}
+	if file.FileSize < 0 {
+		return ports.ContentPart{}, errors.New("Telegram image metadata has an invalid negative size")
+	}
 	if file.FileSize > maxImageBytes {
 		return ports.ContentPart{}, fmt.Errorf("Telegram image exceeds the %d MB limit", maxImageBytes>>20)
 	}
@@ -50,7 +56,9 @@ func (c *Client) DownloadImage(ctx context.Context, fileID string, declaredSize 
 	if err != nil {
 		return ports.ContentPart{}, errors.New("build Telegram image download")
 	}
-	response, err := c.http.Do(request)
+	downloadClient := *c.http
+	downloadClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := downloadClient.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ports.ContentPart{}, ctx.Err()

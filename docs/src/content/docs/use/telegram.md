@@ -70,6 +70,15 @@ The model can call `telegram_select` with a prompt and two to eight labelled opt
 
 Selections expire after ten minutes and are removed after use. They are a conversational convenience only: a selection cannot approve a protected action.
 
+## Images
+
+Send one photo or image file with an optional caption. Eggy accepts JPEG, PNG,
+WebP, and GIF images up to 20 MB and sends the image to the selected model for
+that turn. The selected model must support image input.
+
+Image bytes are not retained in conversation history. To ask about the same
+image in a later turn, attach it again.
+
 ## Webhook delivery
 
 Telegram posts to `server.telegram_webhook_path`, normally `/webhooks/telegram`. The adapter validates `TELEGRAM_WEBHOOK_SECRET` and queues accepted owner messages.

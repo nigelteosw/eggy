@@ -76,7 +76,7 @@ func TestTurnOpensATraceTheLoopContextCarries(t *testing.T) {
 		seen = services.TraceIDFromContext(ctx)
 	}}
 	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-1"})
-	if err := newTracedTestService(loop, &fakeChannel{}, store).OwnerMessage(ctx, "what changed?", "web"); err != nil {
+	if err := newTracedTestService(loop, &fakeChannel{}, store).OwnerMessage(ctx, ports.Message{Content: "what changed?"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,6 +95,18 @@ func TestTurnOpensATraceTheLoopContextCarries(t *testing.T) {
 	}
 	if len(store.completed) != 1 || store.completed[0].Output != "done" {
 		t.Fatalf("completed = %+v", store.completed)
+	}
+}
+
+func TestImageTurnTraceContainsOnlyCaptionAndMarker(t *testing.T) {
+	store := &recordingTraceStore{}
+	input := ports.Message{Content: "read this", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("secret pixels")}}}
+
+	if err := newTracedTestService(&fakeLoop{reply: "done"}, &fakeChannel{}, store).OwnerMessage(context.Background(), input, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.started) != 1 || store.started[0].Input != "read this\n[image attached]" {
+		t.Fatalf("started traces=%#v", store.started)
 	}
 }
 
@@ -141,7 +153,7 @@ func TestToolEventsBecomeTraceSpans(t *testing.T) {
 		loop.options.OnEvent(agent.Event{Kind: agent.EventToolStart, Call: failing})
 		loop.options.OnEvent(agent.Event{Kind: agent.EventToolError, Call: failing, Output: `{"error":"gone"}`, Err: errors.New("gone")})
 	}
-	if err := newTracedTestService(loop, &fakeChannel{}, store).OwnerMessage(context.Background(), "go", "web"); err != nil {
+	if err := newTracedTestService(loop, &fakeChannel{}, store).OwnerMessage(context.Background(), ports.Message{Content: "go"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -169,7 +181,7 @@ func TestTurnRunsUnchangedWithoutARecorder(t *testing.T) {
 		loop.options.OnEvent(agent.Event{Kind: agent.EventToolEnd, Call: ports.ToolCall{ID: "call-1", Name: "status"}, Output: "{}"})
 	}
 	channel := &fakeChannel{}
-	if err := newTestService(loop, channel).OwnerMessage(context.Background(), "go", "web"); err != nil {
+	if err := newTestService(loop, channel).OwnerMessage(context.Background(), ports.Message{Content: "go"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 	if len(channel.delivered) != 1 || channel.delivered[0] != "done" {

@@ -68,8 +68,8 @@ func (t *ActiveTurns) Begin(ctx context.Context, steerable bool) (context.Contex
 // reporting whether one accepted it. A conversation with no running turn, or
 // one running a turn that is not steerable, reports false and the caller
 // starts an ordinary turn instead.
-func (t *ActiveTurns) Steer(ctx context.Context, text string) bool {
-	if strings.TrimSpace(text) == "" {
+func (t *ActiveTurns) Steer(ctx context.Context, message ports.Message) bool {
+	if strings.TrimSpace(message.Content) == "" && len(message.Parts) == 0 {
 		return false
 	}
 	conversation := destination.FromContext(ctx).ConversationID()
@@ -79,7 +79,8 @@ func (t *ActiveTurns) Steer(ctx context.Context, text string) bool {
 	if !ok || !turn.steerable {
 		return false
 	}
-	turn.pending = append(turn.pending, ports.Message{Role: ports.RoleUser, Content: text})
+	message.Role = ports.RoleUser
+	turn.pending = append(turn.pending, message)
 	return true
 }
 

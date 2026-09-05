@@ -42,7 +42,7 @@ type CommandExecutor interface {
 // itself, accepts owner steering while it runs, and drains what arrived.
 type Registry interface {
 	Begin(ctx context.Context, steerable bool) (context.Context, func())
-	Steer(ctx context.Context, text string) bool
+	Steer(ctx context.Context, message ports.Message) bool
 	Pending(ctx context.Context) []ports.Message
 	Active() bool
 }
@@ -74,7 +74,7 @@ type SkillIndex interface {
 
 // Loop is the tool-calling loop itself.
 type Loop interface {
-	Run(ctx context.Context, alias, effort, input string, history []ports.Message, options agent.RunOptions) (agent.RunResult, error)
+	Run(ctx context.Context, alias, effort string, input ports.Message, history []ports.Message, options agent.RunOptions) (agent.RunResult, error)
 	ToolNames(options agent.RunOptions) []string
 }
 
@@ -215,11 +215,11 @@ func ReadOnlyTools() agent.RunOptions {
 // OwnerMessage runs a direct owner turn: the complete tool set, ambient
 // recent-conversation history, and a recorded exchange. It is the only kind
 // of turn a later owner message can steer.
-func (s *Service) OwnerMessage(ctx context.Context, text, source string) error {
+func (s *Service) OwnerMessage(ctx context.Context, message ports.Message, source string) error {
 	if strings.TrimSpace(source) == "" {
 		source = "telegram"
 	}
-	return s.run(ctx, text, agent.RunOptions{}, Policy{
+	return s.run(ctx, message, agent.RunOptions{}, Policy{
 		IncludeRecentHistory: true,
 		RecordConversation:   true,
 		Source:               source,
@@ -233,7 +233,7 @@ func (s *Service) OwnerMessage(ctx context.Context, text, source string) error {
 // time this schedule fires. It is marked unprompted, which is what confines
 // it to proposing.
 func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
-	return s.run(ctx, text, ReadOnlyTools(), Policy{
+	return s.run(ctx, ports.Message{Role: ports.RoleUser, Content: text}, ReadOnlyTools(), Policy{
 		Extra: []ports.Message{agent.ScheduledTurnMessage()},
 		Kind:  ports.TraceKindScheduled,
 	})
@@ -258,7 +258,7 @@ func (s *Service) ScheduledTurn(ctx context.Context, text string) error {
 // the tool returns a zero response, which the caller reads as "no decision".
 func (s *Service) HeartbeatTurn(ctx context.Context, text string, includeRecentHistory bool) (services.HeartbeatResponse, error) {
 	ctx, response := services.WithHeartbeatResponse(ctx)
-	err := s.run(ctx, text, heartbeatTools(), Policy{
+	err := s.run(ctx, ports.Message{Role: ports.RoleUser, Content: text}, heartbeatTools(), Policy{
 		Extra:                []ports.Message{agent.HeartbeatTurnMessage()},
 		SuppressSilentReply:  true,
 		IncludeWatchDocument: true,
@@ -306,8 +306,10 @@ func silentReply(content string) bool {
 
 // run is one turn, whatever kind. Everything above differs only in the tool
 // allowlist, the policy, and whether the context is marked unprompted.
-func (s *Service) run(ctx context.Context, text string, options agent.RunOptions, policy Policy) error {
-	if s.Commands != nil {
+func (s *Service) run(ctx context.Context, input ports.Message, options agent.RunOptions, policy Policy) error {
+	text := input.Content
+	durableText := durableMessageText(input)
+	if s.Commands != nil && len(input.Parts) == 0 {
 		if output, handled, err := s.Commands.Execute(ctx, text); handled {
 			if err != nil {
 				return err
@@ -319,8 +321,8 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	// that turn rather than starting a competing one. The owner gets to
 	// redirect work in progress -- "actually, skip the tests" -- instead of
 	// waiting for it to finish or racing it.
-	if policy.RecordConversation && s.Registry.Steer(ctx, text) {
-		if err := s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
+	if policy.RecordConversation && s.Registry.Steer(ctx, input) {
+		if err := s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source); err != nil {
 			return err
 		}
 		return s.Channel.Deliver(ctx, "Got it — folding that into what I'm working on.")
@@ -385,7 +387,7 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 		Kind:           policy.Kind,
 		Model:          alias,
 		Effort:         effort,
-		Input:          text,
+		Input:          durableText,
 	})
 	options.OnEvent = turnEvents(onToolCall, trace)
 	// Only a direct owner turn is steerable: a scheduled turn is deliberately
@@ -399,7 +401,7 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	if s.Presenter != nil {
 		stopTyping = s.Presenter.StartTyping(ctx)
 	}
-	result, runErr := s.Loop.Run(turnContext, alias, effort, text, history, options)
+	result, runErr := s.Loop.Run(turnContext, alias, effort, input, history, options)
 	stopTyping()
 	finishToolProgress()
 	endTurn()
@@ -430,7 +432,7 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 	}
 	if policy.RecordConversation {
 		conversationID := dest.ConversationID()
-		if err := s.Conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: text}, policy.Source); err != nil {
+		if err := s.Conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source); err != nil {
 			return err
 		}
 		if err := s.Conversation.Record(ctx, conversationID, result.Message, policy.Source); err != nil {
@@ -473,6 +475,19 @@ func (s *Service) run(ctx context.Context, text string, options agent.RunOptions
 		}
 	}
 	return s.Channel.Deliver(ctx, result.Message.Content)
+}
+
+const imageAttachmentMarker = "[image attached]"
+
+func durableMessageText(message ports.Message) string {
+	text := strings.TrimSpace(message.Content)
+	if len(message.Parts) == 0 {
+		return text
+	}
+	if text == "" || text == "Describe this image." {
+		return imageAttachmentMarker
+	}
+	return text + "\n" + imageAttachmentMarker
 }
 
 // Active reports whether a turn is currently executing.

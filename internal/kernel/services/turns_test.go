@@ -1,9 +1,28 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"testing"
+
+	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+func TestSteerCarriesAnImageMessage(t *testing.T) {
+	turns := NewActiveTurns()
+	ctx := webThread("thread-a")
+	_, release := turns.Begin(ctx, true)
+	defer release()
+	message := ports.Message{Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+
+	if !turns.Steer(ctx, message) {
+		t.Fatal("a steerable turn must accept an image without text")
+	}
+	pending := turns.Pending(ctx)
+	if len(pending) != 1 || len(pending[0].Parts) != 1 || !bytes.Equal(pending[0].Parts[0].Data, []byte("png")) {
+		t.Fatalf("pending=%#v", pending)
+	}
+}
 
 func TestSteerJoinsTheRunningTurnAndDrainsExactlyOnce(t *testing.T) {
 	turns := NewActiveTurns()
@@ -11,7 +30,7 @@ func TestSteerJoinsTheRunningTurnAndDrainsExactlyOnce(t *testing.T) {
 	_, release := turns.Begin(ctx, true)
 	defer release()
 
-	if !turns.Steer(ctx, "actually, skip the tests") {
+	if !turns.Steer(ctx, ports.Message{Content: "actually, skip the tests"}) {
 		t.Fatal("a steerable turn must accept an owner message")
 	}
 	pending := turns.Pending(ctx)
@@ -32,7 +51,7 @@ func TestSteerIsRefusedByANonSteerableTurn(t *testing.T) {
 	_, release := turns.Begin(ctx, false)
 	defer release()
 
-	if turns.Steer(ctx, "do this instead") {
+	if turns.Steer(ctx, ports.Message{Content: "do this instead"}) {
 		t.Fatal("a non-steerable turn must not accept an owner message")
 	}
 	if pending := turns.Pending(ctx); len(pending) != 0 {
@@ -42,7 +61,7 @@ func TestSteerIsRefusedByANonSteerableTurn(t *testing.T) {
 
 func TestSteerIsRefusedWhenNothingIsRunning(t *testing.T) {
 	turns := NewActiveTurns()
-	if turns.Steer(webThread("thread-a"), "hello") {
+	if turns.Steer(webThread("thread-a"), ports.Message{Content: "hello"}) {
 		t.Fatal("steering with no active turn must report false so an ordinary turn starts")
 	}
 }
@@ -54,7 +73,7 @@ func TestSteerIsScopedToItsOwnConversation(t *testing.T) {
 	_, release := turns.Begin(webThread("thread-a"), true)
 	defer release()
 
-	if turns.Steer(webThread("thread-b"), "not for you") {
+	if turns.Steer(webThread("thread-b"), ports.Message{Content: "not for you"}) {
 		t.Fatal("a message must not join another conversation's turn")
 	}
 	if pending := turns.Pending(webThread("thread-a")); len(pending) != 0 {
@@ -96,7 +115,7 @@ func TestReleasingAFinishedTurnDoesNotDeregisterANewerOne(t *testing.T) {
 	if !turns.Active() {
 		t.Fatal("the newer turn must still be registered")
 	}
-	if !turns.Steer(ctx, "still steerable") {
+	if !turns.Steer(ctx, ports.Message{Content: "still steerable"}) {
 		t.Fatal("the newer turn must still accept steering")
 	}
 }

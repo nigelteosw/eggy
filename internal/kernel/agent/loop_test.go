@@ -17,7 +17,7 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, Usage: ports.ModelUsage{PromptTokens: 4, CompletionTokens: 2, TotalTokens: 6}},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
-	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
+	result, err := loop.Run(context.Background(), "deepseek-pro", "", ports.Message{Content: "status"}, nil, RunOptions{})
 	if err != nil || result.Message.Content != "ready" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -29,8 +29,23 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 			t.Fatalf("model=%q", request.Model)
 		}
 	}
-	if _, err := loop.Run(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
+	if _, err := loop.Run(context.Background(), "missing", "", ports.Message{Content: "hello"}, nil, RunOptions{}); err == nil {
 		t.Fatal("expected unknown alias error")
+	}
+}
+
+func TestLoopCarriesImagePartsOnTheOwnerMessage(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Role: ports.RoleAssistant, Content: "seen"}}}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, nil, ContextPolicy{})
+	input := ports.Message{Content: "inspect", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+
+	if _, err := loop.Run(context.Background(), "model", "", input, nil, RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	request := model.requests[0]
+	got := request.Messages[len(request.Messages)-1]
+	if got.Role != ports.RoleUser || got.Content != "inspect" || len(got.Parts) != 1 || string(got.Parts[0].Data) != "png" {
+		t.Fatalf("owner message=%#v", got)
 	}
 }
 
@@ -40,7 +55,7 @@ func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}, ReasoningContent: "the tool confirmed readiness"},
 	}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"deepseek-pro": {Model: model, ModelID: "provider-pro"}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
-	result, err := loop.Run(context.Background(), "deepseek-pro", "", "status", nil, RunOptions{})
+	result, err := loop.Run(context.Background(), "deepseek-pro", "", ports.Message{Content: "status"}, nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +69,7 @@ func TestLoopFiltersTools(t *testing.T) {
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, ContextPolicy{})
-	if _, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "heartbeat"}, nil, RunOptions{AllowedTools: map[string]bool{"status": true}}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests) != 1 || len(model.requests[0].Tools) != 1 || model.requests[0].Tools[0].Name != "status" {
@@ -68,7 +83,7 @@ func TestLoopOffersAllToolsWithoutAnAllowlist(t *testing.T) {
 		&fakeTool{name: "status"}, &fakeTool{name: "repository_modify"},
 	}, ContextPolicy{})
 
-	if _, err := loop.Run(context.Background(), "model", "", "inspect", nil, RunOptions{}); err != nil {
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "inspect"}, nil, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if len(model.requests[0].Tools) != 2 {
@@ -96,7 +111,7 @@ func TestLoopRejectsToolCallExcludedByAllowlist(t *testing.T) {
 	tool := &fakeTool{name: "repository_modify"}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
 
-	_, err := loop.Run(context.Background(), "model", "", "inspect", nil, RunOptions{AllowedTools: map[string]bool{}})
+	_, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "inspect"}, nil, RunOptions{AllowedTools: map[string]bool{}})
 	if !errors.Is(err, ErrUnknownTool) {
 		t.Fatalf("err=%v, want ErrUnknownTool", err)
 	}
@@ -118,7 +133,7 @@ func TestLoopScopedAllowlistEntryGrantsOneActionOfATool(t *testing.T) {
 	tool := &fakeTool{name: "schedule", result: json.RawMessage(`{"schedules":[]}`)}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
 
-	if _, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: allowed}); err != nil {
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "heartbeat"}, nil, RunOptions{AllowedTools: allowed}); err != nil {
 		t.Fatal(err)
 	}
 	if tool.calls != 1 {
@@ -134,7 +149,7 @@ func TestLoopScopedAllowlistEntryGrantsOneActionOfATool(t *testing.T) {
 		}}
 		blocked := &fakeTool{name: "schedule"}
 		loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: denied, ModelID: "id"}}, StaticTools{blocked}, ContextPolicy{})
-		_, err := loop.Run(context.Background(), "model", "", "heartbeat", nil, RunOptions{AllowedTools: allowed})
+		_, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "heartbeat"}, nil, RunOptions{AllowedTools: allowed})
 		if !errors.Is(err, ErrUnknownTool) {
 			t.Fatalf("arguments=%s err=%v, want ErrUnknownTool", arguments, err)
 		}
@@ -155,7 +170,7 @@ func TestLoopFiresToolStartBeforeEachToolExecutesAndNeverForTheFinalAnswer(t *te
 
 	var calledBefore []int
 	var calls []string
-	_, err := loop.Run(context.Background(), "model", "", "status", nil, RunOptions{
+	_, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "status"}, nil, RunOptions{
 		OnEvent: func(event Event) {
 			if event.Kind != EventToolStart {
 				return
@@ -186,7 +201,7 @@ func TestLoopEndsWhenTheModelStopsCallingToolsNotWhenAToolIsCalled(t *testing.T)
 	propose := &fakeTool{name: "propose_change", result: json.RawMessage(`{"pull_request_url":"https://example.test/pr/7"}`)}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{propose}, ContextPolicy{})
 
-	result, err := loop.Run(context.Background(), "model", "", "ship it", nil, RunOptions{})
+	result, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "ship it"}, nil, RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +222,7 @@ func TestLoopEmitsTheFullEventStreamForATurn(t *testing.T) {
 		&fakeTool{name: "read_file", result: json.RawMessage(`{"content":"hi"}`)},
 	}, ContextPolicy{})
 	var kinds []string
-	if _, err := loop.Run(context.Background(), "model", "", "read", nil, RunOptions{
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "read"}, nil, RunOptions{
 		OnEvent: func(event Event) { kinds = append(kinds, event.Kind) },
 	}); err != nil {
 		t.Fatal(err)
@@ -229,7 +244,7 @@ func TestLoopHandsAToolFailureBackToTheModelAndContinues(t *testing.T) {
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{patch}, ContextPolicy{})
 
 	var kinds []string
-	result, err := loop.Run(context.Background(), "model", "", "edit", nil, RunOptions{
+	result, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "edit"}, nil, RunOptions{
 		OnEvent: func(event Event) { kinds = append(kinds, event.Kind) },
 	})
 	if err != nil {
@@ -245,7 +260,7 @@ func TestLoopHandsAToolFailureBackToTheModelAndContinues(t *testing.T) {
 
 func TestLoopReportsUnknownModelAlias(t *testing.T) {
 	loop := NewSelectedLoop(nil, nil, ContextPolicy{})
-	if _, err := loop.Run(context.Background(), "missing", "", "hello", nil, RunOptions{}); err == nil {
+	if _, err := loop.Run(context.Background(), "missing", "", ports.Message{Content: "hello"}, nil, RunOptions{}); err == nil {
 		t.Fatal("expected unknown alias error")
 	}
 }
@@ -316,7 +331,7 @@ func TestLoopAppendsSteeredInputAtEachStepBoundary(t *testing.T) {
 	}, ContextPolicy{})
 
 	steered := []ports.Message{{Role: ports.RoleUser, Content: "actually, skip the tests"}}
-	if _, err := loop.Run(context.Background(), "model", "", "have a look", nil, RunOptions{
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "have a look"}, nil, RunOptions{
 		PendingInput: func() []ports.Message {
 			pending := steered
 			steered = nil
@@ -353,7 +368,7 @@ func TestLoopDoesNotReplaySteeredInput(t *testing.T) {
 		&fakeTool{name: "read_file", result: json.RawMessage(`{}`)},
 	}, ContextPolicy{})
 	delivered := false
-	if _, err := loop.Run(context.Background(), "model", "", "go", nil, RunOptions{
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "go"}, nil, RunOptions{
 		PendingInput: func() []ports.Message {
 			if delivered {
 				return nil
@@ -394,7 +409,7 @@ func TestLoopReadsItsToolSourcePerTurn(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "deployed"}},
 	}}
 	loop.selected["pro"] = ModelTarget{Model: model, ModelID: "provider-pro"}
-	if _, err := loop.Run(context.Background(), "pro", "", "deploy", nil, RunOptions{}); err != nil || remote.calls != 1 {
+	if _, err := loop.Run(context.Background(), "pro", "", ports.Message{Content: "deploy"}, nil, RunOptions{}); err != nil || remote.calls != 1 {
 		t.Fatalf("calls=%d err=%v", remote.calls, err)
 	}
 	catalog = nil
@@ -419,7 +434,7 @@ func TestLoopFirstToolWinsADuplicateNameFromItsSource(t *testing.T) {
 	if names := loop.ToolNames(RunOptions{}); !slices.Equal(names, []string{"read_file"}) {
 		t.Fatalf("names=%v", names)
 	}
-	if _, err := loop.Run(context.Background(), "pro", "", "read", nil, RunOptions{}); err != nil {
+	if _, err := loop.Run(context.Background(), "pro", "", ports.Message{Content: "read"}, nil, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if primitive.calls != 1 || impostor.calls != 0 {

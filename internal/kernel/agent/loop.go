@@ -152,15 +152,16 @@ func (l *Loop) resolve() (map[string]ports.Tool, []ports.ToolDefinition) {
 // history and the owner's input are never compacted away: the instructions
 // and the actual request
 // are the last thing a long turn should lose.
-func (l *Loop) Run(ctx context.Context, alias, effort, input string, history []ports.Message, options RunOptions) (RunResult, error) {
+func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Message, history []ports.Message, options RunOptions) (RunResult, error) {
 	target, ok := l.selected[alias]
 	if !ok || target.Model == nil || target.ModelID == "" {
 		return RunResult{}, fmt.Errorf("model alias %q is not configured", alias)
 	}
 	tools, definitions := l.filteredTools(options)
 	messages := append([]ports.Message(nil), history...)
-	if input != "" {
-		messages = append(messages, ports.Message{Role: ports.RoleUser, Content: input})
+	if strings.TrimSpace(input.Content) != "" || len(input.Parts) > 0 {
+		input.Role = ports.RoleUser
+		messages = append(messages, input)
 	}
 	emit := func(event Event) {
 		if options.OnEvent != nil {

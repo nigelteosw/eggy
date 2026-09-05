@@ -20,14 +20,15 @@ type fakeLoop struct {
 	ctx     context.Context
 	options agent.RunOptions
 	history []ports.Message
+	input   ports.Message
 	reply   string
 	// onRun stands in for a tool call: it runs inside Run, which is the only
 	// point at which a real tool could reach the turn's context.
 	onRun func(context.Context)
 }
 
-func (l *fakeLoop) Run(ctx context.Context, _, _, _ string, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
-	l.ctx, l.options, l.history = ctx, options, history
+func (l *fakeLoop) Run(ctx context.Context, _, _ string, input ports.Message, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
+	l.ctx, l.options, l.history, l.input = ctx, options, history, input
 	if l.onRun != nil {
 		l.onRun(ctx)
 	}
@@ -47,9 +48,9 @@ type fakeRegistry struct{ steered bool }
 func (r *fakeRegistry) Begin(ctx context.Context, _ bool) (context.Context, func()) {
 	return ctx, func() {}
 }
-func (r *fakeRegistry) Steer(context.Context, string) bool      { return r.steered }
-func (r *fakeRegistry) Pending(context.Context) []ports.Message { return nil }
-func (r *fakeRegistry) Active() bool                            { return false }
+func (r *fakeRegistry) Steer(context.Context, ports.Message) bool { return r.steered }
+func (r *fakeRegistry) Pending(context.Context) []ports.Message   { return nil }
+func (r *fakeRegistry) Active() bool                              { return false }
 
 type fakeConversation struct{ recorded []ports.Message }
 
@@ -104,6 +105,13 @@ func (c *fakeChannel) Deliver(_ context.Context, text string) error {
 }
 func (c *fakeChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
 
+type countingCommands struct{ calls int }
+
+func (c *countingCommands) Execute(context.Context, string) (string, bool, error) {
+	c.calls++
+	return "command output", true, nil
+}
+
 func newTestService(loop *fakeLoop, channel *fakeChannel) *Service {
 	return newTestServiceWithWatch(loop, channel, "")
 }
@@ -116,6 +124,48 @@ func newTestServiceWithWatch(loop *fakeLoop, channel *fakeChannel, watch string)
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
+}
+
+func TestOwnerImageBypassesCommandsAndPersistsOnlyAMarker(t *testing.T) {
+	loop := &fakeLoop{reply: "seen"}
+	commands := &countingCommands{}
+	conversation := &fakeConversation{}
+	service := New(Options{
+		Commands: commands, Registry: &fakeRegistry{}, Conversation: conversation, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	input := ports.Message{Content: "/status", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+
+	if err := service.OwnerMessage(context.Background(), input, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if commands.calls != 0 {
+		t.Fatalf("command calls=%d, want none", commands.calls)
+	}
+	if len(loop.input.Parts) != 1 || string(loop.input.Parts[0].Data) != "png" {
+		t.Fatalf("loop input=%#v", loop.input)
+	}
+	if len(conversation.recorded) != 2 || conversation.recorded[0].Content != "/status\n[image attached]" || len(conversation.recorded[0].Parts) != 0 {
+		t.Fatalf("recorded=%#v", conversation.recorded)
+	}
+}
+
+func TestCaptionlessImagePersistsOnlyAMarker(t *testing.T) {
+	conversation := &fakeConversation{}
+	service := New(Options{
+		Registry: &fakeRegistry{}, Conversation: conversation, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: &fakeLoop{reply: "seen"},
+		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	input := ports.Message{Content: "Describe this image.", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+
+	if err := service.OwnerMessage(context.Background(), input, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if conversation.recorded[0].Content != "[image attached]" || len(conversation.recorded[0].Parts) != 0 {
+		t.Fatalf("recorded=%#v", conversation.recorded)
+	}
 }
 
 // Every unprompted turn is read-only. Repository mutation and shell tools are
@@ -138,7 +188,7 @@ func TestUnpromptedTurnsRunWithARestrictedAllowlist(t *testing.T) {
 
 	t.Run("owner messages carry everything", func(t *testing.T) {
 		loop := &fakeLoop{}
-		if err := newTestService(loop, &fakeChannel{}).OwnerMessage(context.Background(), "hi", "telegram"); err != nil {
+		if err := newTestService(loop, &fakeChannel{}).OwnerMessage(context.Background(), ports.Message{Content: "hi"}, "telegram"); err != nil {
 			t.Fatal(err)
 		}
 		if loop.options.AllowedTools != nil {
@@ -362,7 +412,7 @@ func TestHeartbeatCarriesTheWatchDocument(t *testing.T) {
 // neither pay for its bytes nor have its prompt prefix churned by it.
 func TestOwnerTurnDoesNotCarryTheWatchDocument(t *testing.T) {
 	loop := &fakeLoop{reply: "sure"}
-	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").OwnerMessage(context.Background(), "hello", "telegram"); err != nil {
+	if err := newTestServiceWithWatch(loop, &fakeChannel{}, "# Eggy Watch\n\nPR #18 open since Aug 20\n").OwnerMessage(context.Background(), ports.Message{Content: "hello"}, "telegram"); err != nil {
 		t.Fatal(err)
 	}
 	for _, message := range loop.history {

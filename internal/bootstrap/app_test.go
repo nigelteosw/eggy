@@ -257,6 +257,42 @@ func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t
 	}
 }
 
+func TestImageEventReachesModelButOnlyMarkerReachesDurableHistory(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	var modelBody []byte
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host == "deepseek.test" {
+			modelBody, _ = io.ReadAll(request.Body)
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"I see it"}}]}`), nil
+		}
+		return appJSON(200, `{"ok":true,"result":true}`), nil
+	})}
+	app, err := NewApp(cfg, appTestSecrets("provider-secret"), AppOptions{
+		HTTPClient: client, TelegramBaseURL: "https://telegram.test",
+		ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(events.Message{
+		Text:  "read this list",
+		Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("pixels")}},
+	})
+	if err := app.HandleEvent(context.Background(), events.Event{ID: "image", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(modelBody), `"type":"image_url"`) || !strings.Contains(string(modelBody), `data:image/png;base64,cGl4ZWxz`) {
+		t.Fatalf("model body=%s", modelBody)
+	}
+	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Content != "read this list\n[image attached]" || strings.Contains(messages[0].Content, "cGl4ZWxz") {
+		t.Fatalf("durable messages=%#v", messages)
+	}
+}
+
 func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T) {
 	cfg := appTestConfig(t.TempDir())
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
@@ -375,7 +411,7 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.loop.Run(context.Background(), "deepseek-pro", "", "recall it", nil, agent.RunOptions{}); err != nil {
+	if _, err := app.loop.Run(context.Background(), "deepseek-pro", "", ports.Message{Content: "recall it"}, nil, agent.RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(secondBody), "bare-ui-password") || !strings.Contains(string(secondBody), "[redacted]") {

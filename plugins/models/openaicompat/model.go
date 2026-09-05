@@ -3,6 +3,7 @@ package openaicompat
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,19 +35,27 @@ func New(baseURL, apiKey string, client *http.Client) *Model {
 }
 
 type requestBody struct {
-	Model           string            `json:"model"`
-	Messages        []providerMessage `json:"messages"`
-	Tools           []providerTool    `json:"tools,omitempty"`
-	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
-	SessionID       string            `json:"session_id,omitempty"`
-	CacheControl    *cacheControl     `json:"cache_control,omitempty"`
+	Model           string                   `json:"model"`
+	Messages        []providerRequestMessage `json:"messages"`
+	Tools           []providerTool           `json:"tools,omitempty"`
+	ReasoningEffort string                   `json:"reasoning_effort,omitempty"`
+	SessionID       string                   `json:"session_id,omitempty"`
+	CacheControl    *cacheControl            `json:"cache_control,omitempty"`
 }
 
 type cacheControl struct {
 	Type string `json:"type"`
 }
 
-type providerMessage struct {
+type providerRequestMessage struct {
+	Role       string             `json:"role"`
+	Content    any                `json:"content,omitempty"`
+	Name       string             `json:"name,omitempty"`
+	ToolCallID string             `json:"tool_call_id,omitempty"`
+	ToolCalls  []providerToolCall `json:"tool_calls,omitempty"`
+}
+
+type providerResponseMessage struct {
 	Role       string             `json:"role"`
 	Content    string             `json:"content,omitempty"`
 	Name       string             `json:"name,omitempty"`
@@ -55,6 +64,16 @@ type providerMessage struct {
 	// ReasoningContent is only ever populated when decoding a provider
 	// response; Eggy never sends it back in a following request's history.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+}
+
+type providerContentPart struct {
+	Type     string            `json:"type"`
+	Text     string            `json:"text,omitempty"`
+	ImageURL *providerImageURL `json:"image_url,omitempty"`
+}
+
+type providerImageURL struct {
+	URL string `json:"url"`
 }
 
 type providerTool struct {
@@ -84,7 +103,25 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		}
 	}
 	for _, message := range input.Messages {
-		translated := providerMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
+		translated := providerRequestMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
+		if len(message.Parts) > 0 {
+			content := []providerContentPart{{Type: "text", Text: message.Content}}
+			for _, part := range message.Parts {
+				if part.Type != ports.ContentTypeImage {
+					return ports.ModelResponse{}, fmt.Errorf("unsupported message content type %q", part.Type)
+				}
+				if strings.TrimSpace(part.MediaType) == "" {
+					return ports.ModelResponse{}, errors.New("image content is missing a media type")
+				}
+				if len(part.Data) == 0 {
+					return ports.ModelResponse{}, errors.New("image content is empty")
+				}
+				content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{
+					URL: "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
+				}})
+			}
+			translated.Content = content
+		}
 		for _, call := range message.ToolCalls {
 			providerCall := providerToolCall{ID: call.ID, Type: "function"}
 			providerCall.Function.Name, providerCall.Function.Arguments = call.Name, string(call.Arguments)
@@ -111,7 +148,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}
 	var result struct {
 		Choices []struct {
-			Message providerMessage `json:"message"`
+			Message providerResponseMessage `json:"message"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens         int64 `json:"prompt_tokens"`

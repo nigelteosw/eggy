@@ -21,12 +21,25 @@ const (
 	RoleTool      Role = "tool"
 )
 
+type ContentType string
+
+const ContentTypeImage ContentType = "image"
+
+// ContentPart carries non-text input without teaching the kernel which chat
+// surface supplied it or which provider wire format will consume it.
+type ContentPart struct {
+	Type      ContentType `json:"type"`
+	MediaType string      `json:"media_type"`
+	Data      []byte      `json:"data"`
+}
+
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role       Role          `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	Parts      []ContentPart `json:"parts,omitempty"`
+	Name       string        `json:"name,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
 }
 
 type ToolDefinition struct {

@@ -30,12 +30,54 @@ func TestModelTranslatesChatCompletionAndUsage(t *testing.T) {
 	if requestURL != "https://api.example/v1/chat/completions" || authorization != "Bearer top-secret-key" || strings.Contains(string(body), "top-secret-key") || !strings.Contains(string(body), `"model":"provider-model"`) {
 		t.Fatalf("url=%q authorization=%q body=%s", requestURL, authorization, body)
 	}
+	var request struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatal(err)
+	}
+	if string(request.Messages[0].Content) != `"How is Eggy?"` {
+		t.Fatalf("content=%s, want a JSON string", request.Messages[0].Content)
+	}
 	if result.Message.Content != "checking" || len(result.Message.ToolCalls) != 1 || result.Message.ToolCalls[0].Name != "status" {
 		t.Fatalf("message=%#v", result.Message)
 	}
 	want := ports.ModelUsage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14, CachedPromptTokens: 3, ReasoningTokens: 2}
 	if result.Usage != want {
 		t.Fatalf("usage=%#v want=%#v", result.Usage, want)
+	}
+}
+
+func TestModelTranslatesImagePartsToMultipartContent(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"seen"}}]}`), nil
+	})}
+
+	_, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), ports.ModelRequest{
+		Model: "openai/gpt-5.6-luna",
+		Messages: []ports.Message{{
+			Role: ports.RoleUser, Content: "read this list",
+			Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request struct {
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"type":"text","text":"read this list"},{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5n"}}]`
+	if string(request.Messages[0].Content) != want {
+		t.Fatalf("content=%s want=%s", request.Messages[0].Content, want)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -53,6 +54,53 @@ func TestModelTranslatesDeepSeekCacheUsage(t *testing.T) {
 	}
 	if result.Usage.CachedPromptTokens != 80 {
 		t.Fatalf("cached prompt tokens = %d, want 80", result.Usage.CachedPromptTokens)
+	}
+}
+
+func TestOpenRouterSendsConversationAsStickySession(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-123"})
+
+	if _, err := New("https://openrouter.ai/api/v1", "key", client).Generate(ctx, ports.ModelRequest{Model: "openai/gpt-5"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"session_id":"thread-123"`) {
+		t.Fatalf("body=%s, want OpenRouter session_id", body)
+	}
+}
+
+func TestOpenRouterEnablesAutomaticCachingForAnthropicModels(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+
+	if _, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"cache_control":{"type":"ephemeral"}`) {
+		t.Fatalf("body=%s, want top-level ephemeral cache_control", body)
+	}
+}
+
+func TestNonOpenRouterRequestsKeepTheStandardChatCompletionsShape(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-123"})
+
+	if _, err := New("https://api.example/v1", "key", client).Generate(ctx, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "session_id") || strings.Contains(string(body), "cache_control") {
+		t.Fatalf("body=%s, want no OpenRouter extensions", body)
 	}
 }
 

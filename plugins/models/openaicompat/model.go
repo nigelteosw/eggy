@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -18,13 +20,17 @@ type Model struct {
 	baseURL string
 	apiKey  string
 	http    *http.Client
+	// OpenRouter extends the otherwise OpenAI-compatible request with routing
+	// and cache hints. Keeping the switch here prevents those fields leaking
+	// into providers that implement only the standard Chat Completions shape.
+	openRouter bool
 }
 
 func New(baseURL, apiKey string, client *http.Client) *Model {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Model{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: client}
+	return &Model{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: client, openRouter: isOpenRouterURL(baseURL)}
 }
 
 type requestBody struct {
@@ -32,6 +38,12 @@ type requestBody struct {
 	Messages        []providerMessage `json:"messages"`
 	Tools           []providerTool    `json:"tools,omitempty"`
 	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	SessionID       string            `json:"session_id,omitempty"`
+	CacheControl    *cacheControl     `json:"cache_control,omitempty"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"`
 }
 
 type providerMessage struct {
@@ -65,6 +77,12 @@ type providerToolCall struct {
 
 func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.ModelResponse, error) {
 	body := requestBody{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
+	if m.openRouter {
+		body.SessionID = destination.FromContext(ctx).ConversationID()
+		if isAnthropicModel(input.Model) {
+			body.CacheControl = &cacheControl{Type: "ephemeral"}
+		}
+	}
 	for _, message := range input.Messages {
 		translated := providerMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
 		for _, call := range message.ToolCalls {
@@ -127,6 +145,19 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
 		CachedPromptTokens: max(result.Usage.PromptTokensDetails.CachedTokens, result.Usage.PromptCacheHitTokens), ReasoningTokens: result.Usage.CompletionTokenDetails.ReasoningTokens,
 	}}, nil
+}
+
+func isOpenRouterURL(baseURL string) bool {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
+func isAnthropicModel(model string) bool {
+	return strings.HasPrefix(strings.TrimPrefix(model, "~"), "anthropic/")
 }
 
 // ListModels reports the provider's own catalog from the same /models listing

@@ -4,14 +4,17 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 type EventSink func(context.Context, events.Event) error
@@ -20,6 +23,10 @@ type EventSink func(context.Context, events.Event) error
 // tapped inline button. *Client implements it.
 type CallbackAcknowledger interface {
 	AnswerCallback(ctx context.Context, callbackQueryID string) error
+}
+
+type ImageDownloader interface {
+	DownloadImage(ctx context.Context, fileID string, declaredSize int64, declaredMediaType string) (ports.ContentPart, error)
 }
 
 type WebhookHandler struct {
@@ -32,6 +39,7 @@ type WebhookHandler struct {
 	// keeps the callback query ID, a Telegram-only concept, out of the
 	// events the rest of Eggy handles. May be nil (fake-adapter mode).
 	acknowledger     CallbackAcknowledger
+	downloader       ImageDownloader
 	resolveSelection func(string) (string, bool)
 }
 
@@ -44,13 +52,21 @@ func (h *WebhookHandler) WithSelectionResolver(resolve func(string) (string, boo
 	return h
 }
 
+func (h *WebhookHandler) WithImageDownloader(downloader ImageDownloader) *WebhookHandler {
+	h.downloader = downloader
+	return h
+}
+
 type update struct {
 	UpdateID int64 `json:"update_id"`
 	Message  *struct {
-		MessageID int64  `json:"message_id"`
-		From      user   `json:"from"`
-		Chat      chat   `json:"chat"`
-		Text      string `json:"text"`
+		MessageID int64       `json:"message_id"`
+		From      user        `json:"from"`
+		Chat      chat        `json:"chat"`
+		Text      string      `json:"text"`
+		Caption   string      `json:"caption"`
+		Photo     []photoSize `json:"photo"`
+		Document  *document   `json:"document"`
 	} `json:"message"`
 	Callback *struct {
 		ID      string `json:"id"`
@@ -68,6 +84,18 @@ type user struct {
 }
 type chat struct {
 	ID int64 `json:"id"`
+}
+
+type photoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+}
+
+type document struct {
+	FileID    string `json:"file_id"`
+	FileName  string `json:"file_name"`
+	MediaType string `json:"mime_type"`
+	FileSize  int64  `json:"file_size"`
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +128,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// button, and must not stop the decision itself from being handled.
 		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID)
 	}
-	event, err := h.normalize(incoming)
+	event, err := h.normalize(r.Context(), incoming)
 	if err != nil {
 		if incoming.Callback != nil && strings.HasPrefix(incoming.Callback.Data, "select:") {
 			w.WriteHeader(http.StatusNoContent)
@@ -126,14 +154,18 @@ func incomingOwner(incoming update) (int64, bool) {
 	return 0, false
 }
 
-func (h *WebhookHandler) normalize(incoming update) (events.Event, error) {
+func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events.Event, error) {
 	base := events.Event{
 		ID: "telegram:" + strconv.FormatInt(incoming.UpdateID, 10), Source: "telegram",
 		Timestamp: time.Now().UTC(), CorrelationID: "telegram:" + strconv.FormatInt(incoming.UpdateID, 10),
 		Destination: destination.Destination{Kind: destination.Telegram},
 	}
 	if incoming.Message != nil {
-		payload, _ := json.Marshal(events.Message{Text: incoming.Message.Text})
+		message, err := h.normalizeMessage(ctx, incoming.Message)
+		if err != nil {
+			return events.Event{}, err
+		}
+		payload, _ := json.Marshal(message)
 		base.Type, base.Owner, base.Payload = events.TypeMessage, strconv.FormatInt(incoming.Message.From.ID, 10), payload
 		return base, nil
 	}
@@ -163,4 +195,62 @@ func (h *WebhookHandler) normalize(incoming update) (events.Event, error) {
 		return base, nil
 	}
 	return events.Event{}, fmt.Errorf("unsupported Telegram update")
+}
+
+func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *struct {
+	MessageID int64       `json:"message_id"`
+	From      user        `json:"from"`
+	Chat      chat        `json:"chat"`
+	Text      string      `json:"text"`
+	Caption   string      `json:"caption"`
+	Photo     []photoSize `json:"photo"`
+	Document  *document   `json:"document"`
+}) (events.Message, error) {
+	if len(message.Photo) == 0 && message.Document == nil {
+		return events.Message{Text: message.Text}, nil
+	}
+	if h.downloader == nil {
+		return events.Message{}, errors.New("Telegram image download is unavailable")
+	}
+	fileID, size, mediaType := "", int64(0), ""
+	if len(message.Photo) > 0 {
+		photo := message.Photo[len(message.Photo)-1]
+		fileID, size, mediaType = photo.FileID, photo.FileSize, "image/jpeg"
+	} else {
+		fileID, size = message.Document.FileID, message.Document.FileSize
+		mediaType = documentImageType(message.Document.MediaType, message.Document.FileName)
+		if mediaType == "" {
+			return events.Message{}, errors.New("Telegram document is not a supported image")
+		}
+	}
+	part, err := h.downloader.DownloadImage(ctx, fileID, size, mediaType)
+	if err != nil {
+		return events.Message{}, fmt.Errorf("download Telegram image: %w", err)
+	}
+	text := message.Caption
+	if strings.TrimSpace(text) == "" {
+		text = "Describe this image."
+	}
+	return events.Message{Text: text, Parts: []ports.ContentPart{part}}, nil
+}
+
+func documentImageType(mediaType, fileName string) string {
+	if normalized, ok := canonicalImageType(mediaType); ok {
+		return normalized
+	}
+	if strings.TrimSpace(mediaType) != "" {
+		return ""
+	}
+	switch strings.ToLower(filepath.Ext(fileName)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return ""
+	}
 }

@@ -67,6 +67,9 @@ func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink 
 		return nil
 	}
 	handler := telegram.NewWebhookHandler(cfg.Telegram.OwnerID, secrets.TelegramWebhookSecret, sink, w.acknowledger)
+	if w.client != nil {
+		handler.WithImageDownloader(w.client)
+	}
 	if w.selector != nil {
 		handler.WithSelectionResolver(w.selector.Resolve)
 	}

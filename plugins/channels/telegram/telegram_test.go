@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,111 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+type recordingImageDownloader struct {
+	fileID    string
+	size      int64
+	mediaType string
+	part      ports.ContentPart
+	err       error
+}
+
+func (d *recordingImageDownloader) DownloadImage(_ context.Context, fileID string, size int64, mediaType string) (ports.ContentPart, error) {
+	d.fileID, d.size, d.mediaType = fileID, size, mediaType
+	return d.part, d.err
+}
+
+func TestWebhookNormalizesPhotoWithCaption(t *testing.T) {
+	part := ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}
+	downloader := &recordingImageDownloader{part: part}
+	var got events.Event
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error {
+		got = event
+		return nil
+	}, nil).WithImageDownloader(downloader)
+	body := `{"update_id":13,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"caption":"read this list","photo":[{"file_id":"small","file_size":100},{"file_id":"large","file_size":300}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if downloader.fileID != "large" || downloader.size != 300 || downloader.mediaType != "image/jpeg" {
+		t.Fatalf("download=%q %d %q", downloader.fileID, downloader.size, downloader.mediaType)
+	}
+	var message events.Message
+	if err := json.Unmarshal(got.Payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "read this list" || len(message.Parts) != 1 || string(message.Parts[0].Data) != "jpeg" {
+		t.Fatalf("message=%#v", message)
+	}
+}
+
+func TestWebhookNormalizesCaptionlessPhoto(t *testing.T) {
+	downloader := &recordingImageDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}}
+	var got events.Event
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
+	body := `{"update_id":14,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"photo":[{"file_id":"photo","file_size":100}]}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	var message events.Message
+	_ = json.Unmarshal(got.Payload, &message)
+	if response.Code != http.StatusNoContent || message.Text != "Describe this image." {
+		t.Fatalf("status=%d message=%#v", response.Code, message)
+	}
+}
+
+func TestWebhookNormalizesImageDocument(t *testing.T) {
+	downloader := &recordingImageDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}
+	var got events.Event
+	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
+	body := `{"update_id":15,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"caption":"original","document":{"file_id":"document","file_name":"list.png","mime_type":"image/png","file_size":400}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+
+	var message events.Message
+	_ = json.Unmarshal(got.Payload, &message)
+	if response.Code != http.StatusNoContent || downloader.fileID != "document" || downloader.mediaType != "image/png" || message.Text != "original" || len(message.Parts) != 1 {
+		t.Fatalf("status=%d downloader=%#v message=%#v", response.Code, downloader, message)
+	}
+}
+
+func TestWebhookRejectsUnsupportedOrFailedImageDocuments(t *testing.T) {
+	tests := []struct {
+		name        string
+		document    string
+		downloadErr error
+	}{
+		{name: "PDF", document: `{"file_id":"pdf","file_name":"list.pdf","mime_type":"application/pdf","file_size":400}`},
+		{name: "unknown file", document: `{"file_id":"unknown","file_name":"list.bin","file_size":400}`},
+		{name: "download failure", document: `{"file_id":"image","file_name":"list.png","mime_type":"image/png","file_size":400}`, downloadErr: errors.New("download failed")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			downloader := &recordingImageDownloader{err: tc.downloadErr}
+			enqueued := false
+			handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithImageDownloader(downloader)
+			body := `{"update_id":16,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"document":` + tc.document + `}}`
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code < 400 || enqueued {
+				t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+			}
+		})
+	}
+}
 
 func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	var got events.Event

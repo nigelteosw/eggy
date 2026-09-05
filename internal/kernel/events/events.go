@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 type Type string
@@ -38,7 +39,8 @@ type Event struct {
 }
 
 type Message struct {
-	Text string `json:"text"`
+	Text  string              `json:"text"`
+	Parts []ports.ContentPart `json:"parts,omitempty"`
 }
 
 type ApprovalDecision struct {

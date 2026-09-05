@@ -1,13 +1,118 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+func TestClientDownloadImage(t *testing.T) {
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...)
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/bottoken/getFile":
+			var payload map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			if payload["file_id"] != "file-1" {
+				t.Fatalf("payload=%#v", payload)
+			}
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/list.png","file_size":40}}`)
+		case "/file/bottoken/photos/list.png":
+			_, _ = w.Write(png)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	part, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(
+		context.Background(), "file-1", int64(len(png)), "image/png",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if part.Type != ports.ContentTypeImage || part.MediaType != "image/png" || !bytes.Equal(part.Data, png) {
+		t.Fatalf("part=%#v", part)
+	}
+	if len(paths) != 2 || paths[0] != "/bottoken/getFile" || paths[1] != "/file/bottoken/photos/list.png" {
+		t.Fatalf("paths=%v", paths)
+	}
+}
+
+func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
+	tests := []struct {
+		name          string
+		declaredSize  int64
+		declaredType  string
+		body          []byte
+		wantNoRequest bool
+	}{
+		{name: "declared too large", declaredSize: maxImageBytes + 1, declaredType: "image/png", wantNoRequest: true},
+		{name: "unsupported declared type", declaredSize: 4, declaredType: "application/pdf", wantNoRequest: true},
+		{name: "downloaded text", declaredSize: 4, declaredType: "image/png", body: []byte("text")},
+		{name: "streamed too large", declaredSize: 0, declaredType: "image/png", body: bytes.Repeat([]byte{0}, int(maxImageBytes+1))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if strings.HasSuffix(r.URL.Path, "/getFile") {
+					_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"files/input","file_size":0}}`)
+					return
+				}
+				_, _ = w.Write(tc.body)
+			}))
+			defer server.Close()
+			_, err := NewClient(server.URL, "top-secret-token", "42", server.Client()).DownloadImage(
+				context.Background(), "file-1", tc.declaredSize, tc.declaredType,
+			)
+			if err == nil {
+				t.Fatal("DownloadImage succeeded")
+			}
+			if tc.wantNoRequest && requests != 0 {
+				t.Fatalf("requests=%d, want none", requests)
+			}
+			if strings.Contains(err.Error(), "top-secret-token") || strings.Contains(err.Error(), "/file/bot") {
+				t.Fatalf("error leaked authenticated download details: %v", err)
+			}
+		})
+	}
+}
+
+func TestClientDownloadImageHonorsCancellation(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getFile") {
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/wait.png"}}`)
+			return
+		}
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(ctx, "file-1", 0, "image/png")
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v, want context.Canceled", err)
+	}
+}
 
 func TestSplitMessageKeepsShortTextWhole(t *testing.T) {
 	chunks := splitMessage("short message")

@@ -2,6 +2,7 @@ package turns
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -21,18 +22,23 @@ type fakeLoop struct {
 	options agent.RunOptions
 	history []ports.Message
 	input   ports.Message
-	reply   string
+	// inputs is every input across runs, for the turns that run more than
+	// once: an undrained steer becomes a second Run on the same loop.
+	inputs []ports.Message
+	reply  string
 	// onRun stands in for a tool call: it runs inside Run, which is the only
 	// point at which a real tool could reach the turn's context.
 	onRun func(context.Context)
+	err   error
 }
 
 func (l *fakeLoop) Run(ctx context.Context, _, _ string, input ports.Message, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
 	l.ctx, l.options, l.history, l.input = ctx, options, history, input
+	l.inputs = append(l.inputs, input)
 	if l.onRun != nil {
 		l.onRun(ctx)
 	}
-	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply}}, nil
+	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply}}, l.err
 }
 
 func (l *fakeLoop) ToolNames(options agent.RunOptions) []string {
@@ -43,10 +49,20 @@ func (l *fakeLoop) ToolNames(options agent.RunOptions) []string {
 	return names
 }
 
-type fakeRegistry struct{ steered bool }
+type fakeRegistry struct {
+	steered bool
+	// undrained is what release reports once: a steer the turn accepted and
+	// never read. Once, so a test sees exactly one follow-up turn rather than
+	// an endless chain of them.
+	undrained []ports.Message
+}
 
-func (r *fakeRegistry) Begin(ctx context.Context, _ bool) (context.Context, func()) {
-	return ctx, func() {}
+func (r *fakeRegistry) Begin(ctx context.Context, _ bool) (context.Context, func() []ports.Message) {
+	return ctx, func() []ports.Message {
+		undrained := r.undrained
+		r.undrained = nil
+		return undrained
+	}
 }
 func (r *fakeRegistry) Steer(context.Context, ports.Message) bool { return r.steered }
 func (r *fakeRegistry) Pending(context.Context) []ports.Message   { return nil }
@@ -124,6 +140,92 @@ func newTestServiceWithWatch(loop *fakeLoop, channel *fakeChannel, watch string)
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
+}
+
+// A steered message joins the running turn and says nothing on its own. The
+// running turn's reply is the only acknowledgement that can describe what the
+// steer actually did, so a canned one here would be a second notification
+// making a claim ahead of the turn that has to honour it.
+func TestSteeredMessageIsRecordedWithoutDeliveringAnything(t *testing.T) {
+	channel := &fakeChannel{}
+	conversation := &fakeConversation{}
+	loop := &fakeLoop{reply: "should not run"}
+	service := New(Options{
+		Registry: &fakeRegistry{steered: true}, Conversation: conversation, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+
+	if err := service.OwnerMessage(context.Background(), ports.Message{Content: "actually, skip the tests"}, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(channel.delivered) != 0 {
+		t.Fatalf("delivered=%#v, want nothing", channel.delivered)
+	}
+	if len(conversation.recorded) != 1 || conversation.recorded[0].Content != "actually, skip the tests" {
+		t.Fatalf("recorded=%#v", conversation.recorded)
+	}
+	if loop.ctx != nil {
+		t.Fatal("steered message started a competing turn")
+	}
+}
+
+// A steer that arrives after the turn's last step boundary is accepted and
+// never read. It runs as a turn of its own once the first one has delivered,
+// so the owner gets an answer instead of silence.
+func TestUndrainedSteerRunsAsItsOwnTurn(t *testing.T) {
+	channel := &fakeChannel{}
+	conversation := &fakeConversation{}
+	loop := &fakeLoop{reply: "done"}
+	registry := &fakeRegistry{undrained: []ports.Message{{Role: ports.RoleUser, Content: "and push it"}}}
+	service := New(Options{
+		Registry: registry, Conversation: conversation, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+
+	if err := service.OwnerMessage(context.Background(), ports.Message{Content: "ship it"}, "telegram"); err != nil {
+		t.Fatal(err)
+	}
+	if len(loop.inputs) != 2 || loop.inputs[0].Content != "ship it" || loop.inputs[1].Content != "and push it" {
+		t.Fatalf("loop inputs=%#v", loop.inputs)
+	}
+	if len(channel.delivered) != 2 {
+		t.Fatalf("delivered=%#v, want a reply from each turn", channel.delivered)
+	}
+	// The steered message was recorded when it was steered, so the follow-up
+	// turn records only its own reply: "and push it" must appear once.
+	steers := 0
+	for _, message := range conversation.recorded {
+		if message.Content == "and push it" {
+			steers++
+		}
+	}
+	if steers != 0 {
+		t.Fatalf("follow-up turn re-recorded the steered message: %#v", conversation.recorded)
+	}
+	if len(conversation.recorded) != 3 {
+		t.Fatalf("recorded=%#v, want the first input plus both replies", conversation.recorded)
+	}
+}
+
+// A failed turn stops there. Its error is what the owner needs to see, and
+// answering the steer on top of it would bury that.
+func TestUndrainedSteerIsNotRunAfterAFailedTurn(t *testing.T) {
+	loop := &fakeLoop{reply: "done", err: errors.New("model unavailable")}
+	registry := &fakeRegistry{undrained: []ports.Message{{Role: ports.RoleUser, Content: "and push it"}}}
+	service := New(Options{
+		Registry: registry, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+
+	if err := service.OwnerMessage(context.Background(), ports.Message{Content: "ship it"}, "telegram"); err == nil {
+		t.Fatal("want the turn's error")
+	}
+	if len(loop.inputs) != 1 {
+		t.Fatalf("loop inputs=%#v, want only the original turn", loop.inputs)
+	}
 }
 
 func TestOwnerImageBypassesCommandsAndPersistsOnlyAMarker(t *testing.T) {

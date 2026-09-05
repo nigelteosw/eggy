@@ -41,7 +41,9 @@ type CommandExecutor interface {
 // Registry is the live-turn bookkeeping a turn participates in: it registers
 // itself, accepts owner steering while it runs, and drains what arrived.
 type Registry interface {
-	Begin(ctx context.Context, steerable bool) (context.Context, func())
+	// Begin registers the turn and returns the release function, which
+	// reports whatever was steered into the turn but never drained.
+	Begin(ctx context.Context, steerable bool) (context.Context, func() []ports.Message)
 	Steer(ctx context.Context, message ports.Message) bool
 	Pending(ctx context.Context) []ports.Message
 	Active() bool
@@ -184,6 +186,11 @@ type Policy struct {
 	// own working memory and has no bearing on a turn the owner is present
 	// for.
 	IncludeWatchDocument bool
+	// InputAlreadyRecorded marks a turn whose input is a message the
+	// conversation already holds: a steer that its turn never got to read,
+	// re-run as a turn of its own. Recording it a second time would show the
+	// owner saying the same thing twice.
+	InputAlreadyRecorded bool
 	// Kind labels the turn in its trace: ports.TraceKindOwner,
 	// TraceKindScheduled or TraceKindHeartbeat. It records which entry point
 	// ran, which is the first thing worth knowing about a turn nobody
@@ -306,7 +313,26 @@ func silentReply(content string) bool {
 
 // run is one turn, whatever kind. Everything above differs only in the tool
 // allowlist, the policy, and whether the context is marked unprompted.
-func (s *Service) run(ctx context.Context, input ports.Message, options agent.RunOptions, policy Policy) error {
+func (s *Service) run(ctx context.Context, input ports.Message, options agent.RunOptions, policy Policy) (err error) {
+	// A steer that landed after the turn's last step boundary was accepted
+	// and never read. It becomes a turn of its own once this one has
+	// delivered, rather than being dropped: from the owner's side a steer is
+	// a message they sent, and the one thing it may never do is disappear.
+	//
+	// A defer, so it runs after every path that delivers a reply, and it runs
+	// after the deferred release below because defers unwind in reverse. The
+	// error paths leave err set and take nothing further on: a turn that
+	// failed has already told the owner something went wrong, and following
+	// it with an answer to the steer would bury that.
+	var steered []ports.Message
+	defer func() {
+		if err != nil || len(steered) == 0 {
+			return
+		}
+		followUp := policy
+		followUp.InputAlreadyRecorded = true
+		err = s.run(ctx, mergeSteered(steered), options, followUp)
+	}()
 	text := input.Content
 	durableText := durableMessageText(input)
 	if s.Commands != nil && len(input.Parts) == 0 {
@@ -321,11 +347,17 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	// that turn rather than starting a competing one. The owner gets to
 	// redirect work in progress -- "actually, skip the tests" -- instead of
 	// waiting for it to finish or racing it.
+	//
+	// Silently: the running turn's own reply is the acknowledgement, and it
+	// is the only one that can say anything true about what the steer did.
+	// A canned "folding that in" arrives before the turn has read the
+	// message, claims on its behalf, and turns every mid-turn aside into two
+	// notifications instead of one.
 	if policy.RecordConversation && s.Registry.Steer(ctx, input) {
-		if err := s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source); err != nil {
-			return err
+		if policy.InputAlreadyRecorded {
+			return nil
 		}
-		return s.Channel.Deliver(ctx, "Got it — folding that into what I'm working on.")
+		return s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source)
 	}
 	agentContext, err := s.Context.Load(ctx)
 	if err != nil {
@@ -404,7 +436,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	result, runErr := s.Loop.Run(turnContext, alias, effort, input, history, options)
 	stopTyping()
 	finishToolProgress()
-	endTurn()
+	steered = endTurn()
 	// Completed here rather than in a defer, and before any of the branches
 	// below can return: a turn that hit the step limit or that the owner
 	// stopped is the one whose trace is most worth having.
@@ -432,8 +464,10 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	}
 	if policy.RecordConversation {
 		conversationID := dest.ConversationID()
-		if err := s.Conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source); err != nil {
-			return err
+		if !policy.InputAlreadyRecorded {
+			if err := s.Conversation.Record(ctx, conversationID, ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source); err != nil {
+				return err
+			}
 		}
 		if err := s.Conversation.Record(ctx, conversationID, result.Message, policy.Source); err != nil {
 			return err
@@ -475,6 +509,29 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 		}
 	}
 	return s.Channel.Deliver(ctx, result.Message.Content)
+}
+
+// mergeSteered folds undrained steers into the single input a turn takes.
+//
+// They are one turn rather than one each because that is what they would have
+// been had the turn drained them: steering appends everything pending to the
+// same step, and two messages the owner typed seconds apart are almost always
+// one thought. Parts carry over so a steered image is not silently reduced to
+// its caption.
+func mergeSteered(messages []ports.Message) ports.Message {
+	if len(messages) == 1 {
+		return messages[0]
+	}
+	merged := ports.Message{Role: ports.RoleUser}
+	texts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if trimmed := strings.TrimSpace(message.Content); trimmed != "" {
+			texts = append(texts, trimmed)
+		}
+		merged.Parts = append(merged.Parts, message.Parts...)
+	}
+	merged.Content = strings.Join(texts, "\n")
+	return merged
 }
 
 const imageAttachmentMarker = "[image attached]"

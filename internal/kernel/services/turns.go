@@ -42,7 +42,13 @@ func NewActiveTurns() *ActiveTurns {
 // registers it. steerable declares whether a message arriving mid-turn may
 // join it. The returned release function must be called when the turn ends;
 // it cancels and deregisters, and is safe to call more than once.
-func (t *ActiveTurns) Begin(ctx context.Context, steerable bool) (context.Context, func()) {
+//
+// Release returns whatever was steered but never drained -- a message that
+// arrived after the turn's last step boundary, which the turn accepted and
+// then had no step left to read it in. The caller is what makes that message
+// a turn of its own; dropping it here is the one outcome steering must never
+// have, because the owner was told nothing and the turn did nothing.
+func (t *ActiveTurns) Begin(ctx context.Context, steerable bool) (context.Context, func() []ports.Message) {
 	conversation := destination.FromContext(ctx).ConversationID()
 	turnContext, cancel := context.WithCancel(ctx)
 	t.mu.Lock()
@@ -52,15 +58,21 @@ func (t *ActiveTurns) Begin(ctx context.Context, steerable bool) (context.Contex
 	// cancellation target; the first still cancels through its own release.
 	t.active[conversation] = turn
 	t.mu.Unlock()
-	return turnContext, func() {
+	return turnContext, func() []ports.Message {
 		t.mu.Lock()
 		// Only deregister if this turn is still the registered one, so a
 		// finishing turn never clears a newer turn's cancellation.
 		if current, ok := t.active[conversation]; ok && current.id == turn.id {
 			delete(t.active, conversation)
 		}
+		// Taken under the same lock that deregisters, so no steer can land
+		// between the two and be lost: after this, Steer can no longer find
+		// this turn, and anything it did find is in undrained.
+		undrained := turn.pending
+		turn.pending = nil
 		t.mu.Unlock()
 		cancel()
+		return undrained
 	}
 }
 

@@ -42,6 +42,43 @@ func TestSteerJoinsTheRunningTurnAndDrainsExactlyOnce(t *testing.T) {
 	}
 }
 
+// The last-step-boundary case: a steer the turn accepted but never drained
+// must come back out of release, so the caller can run it rather than lose it.
+func TestReleaseReportsUndrainedSteers(t *testing.T) {
+	turns := NewActiveTurns()
+	ctx := webThread("thread-a")
+	_, release := turns.Begin(ctx, true)
+
+	if !turns.Steer(ctx, ports.Message{Content: "and push it"}) {
+		t.Fatal("a steerable turn must accept an owner message")
+	}
+	undrained := release()
+	if len(undrained) != 1 || undrained[0].Content != "and push it" {
+		t.Fatalf("undrained=%#v", undrained)
+	}
+	// Release is called twice on every turn -- deferred and explicitly -- so
+	// the second call must not hand the same message out again.
+	if again := release(); len(again) != 0 {
+		t.Fatalf("undrained reported twice: %#v", again)
+	}
+}
+
+// A steer that the turn did drain is gone: release must not resurrect it as a
+// turn of its own after the turn already acted on it.
+func TestReleaseReportsNothingAfterTheTurnDrained(t *testing.T) {
+	turns := NewActiveTurns()
+	ctx := webThread("thread-a")
+	_, release := turns.Begin(ctx, true)
+
+	turns.Steer(ctx, ports.Message{Content: "actually, skip the tests"})
+	if pending := turns.Pending(ctx); len(pending) != 1 {
+		t.Fatalf("pending=%#v", pending)
+	}
+	if undrained := release(); len(undrained) != 0 {
+		t.Fatalf("undrained=%#v, want nothing", undrained)
+	}
+}
+
 // A scheduled or heartbeat turn is deliberately self-contained: folding an
 // owner message into one would hand it exactly the ambient instruction that
 // isolation exists to prevent.

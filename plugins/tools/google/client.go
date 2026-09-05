@@ -111,21 +111,9 @@ func (w *Workspace) call(ctx context.Context, method, endpoint string, query url
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := client.Do(request)
-	if err != nil {
-		if errors.Is(err, ErrNotAuthorized) {
-			return ErrNotAuthorized
-		}
-		return fmt.Errorf("Google request failed: %w", err)
-	}
-	defer response.Body.Close()
-	bounded := io.LimitReader(response.Body, w.maxOutput)
-	raw, err := io.ReadAll(bounded)
+	raw, _, err := w.send(client, request, w.maxOutput)
 	if err != nil {
 		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return googleError(response.StatusCode, raw)
 	}
 	if out == nil {
 		return nil
@@ -140,6 +128,31 @@ func (w *Workspace) call(ctx context.Context, method, endpoint string, query url
 		return err
 	}
 	return nil
+}
+
+// send performs the request and returns the response together with its body,
+// read under bound. It is the half of every Google call that is identical
+// whatever the endpoint: an authorization failure has to keep its identity so
+// callers can tell "sign in again" from "that request was wrong", the body is
+// always bounded, and a non-2xx always becomes the API's own message rather
+// than a status code. All three callers spelled this out separately.
+func (w *Workspace) send(client *http.Client, request *http.Request, bound int64) ([]byte, *http.Response, error) {
+	response, err := client.Do(request)
+	if err != nil {
+		if errors.Is(err, ErrNotAuthorized) {
+			return nil, nil, ErrNotAuthorized
+		}
+		return nil, nil, fmt.Errorf("Google request failed: %w", err)
+	}
+	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, bound))
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, nil, googleError(response.StatusCode, raw)
+	}
+	return raw, response, nil
 }
 
 // callRaw is call for the two endpoints that do not answer in JSON: Drive's
@@ -160,22 +173,11 @@ func (w *Workspace) callRaw(ctx context.Context, endpoint string, query url.Valu
 	if err != nil {
 		return nil, "", err
 	}
-	response, err := client.Do(request)
-	if err != nil {
-		if errors.Is(err, ErrNotAuthorized) {
-			return nil, "", ErrNotAuthorized
-		}
-		return nil, "", fmt.Errorf("Google request failed: %w", err)
-	}
-	defer response.Body.Close()
 	// One byte past the bound, so filling it exactly is distinguishable from
 	// landing on it: a file whose size happens to equal the limit is complete.
-	raw, err := io.ReadAll(io.LimitReader(response.Body, w.maxOutput+1))
+	raw, response, err := w.send(client, request, w.maxOutput+1)
 	if err != nil {
 		return nil, "", err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, "", googleError(response.StatusCode, raw)
 	}
 	if int64(len(raw)) > w.maxOutput {
 		return nil, "", fmt.Errorf("that file is larger than google.max_output_bytes (%d); open it in Drive instead", w.maxOutput)
@@ -220,20 +222,9 @@ func (w *Workspace) upload(ctx context.Context, metadata map[string]any, content
 	// related, not form-data: Drive reads the parts positionally, and the
 	// boundary has to be the one the writer actually used.
 	request.Header.Set("Content-Type", "multipart/related; boundary="+writer.Boundary())
-	response, err := client.Do(request)
-	if err != nil {
-		if errors.Is(err, ErrNotAuthorized) {
-			return ErrNotAuthorized
-		}
-		return fmt.Errorf("Google request failed: %w", err)
-	}
-	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, w.maxOutput))
+	raw, _, err := w.send(client, request, w.maxOutput)
 	if err != nil {
 		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return googleError(response.StatusCode, raw)
 	}
 	if out == nil {
 		return nil

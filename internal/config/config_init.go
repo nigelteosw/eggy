@@ -101,40 +101,26 @@ func mappingValue(node *yaml.Node, key string) *yaml.Node {
 // remaining key, value, and comment exactly as the owner wrote it. A config
 // that has none is not rewritten at all.
 func pruneRetiredFields(path string) error {
-	return filelock.With(path, func() error {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("open config: %w", err)
-		}
-		var document yaml.Node
-		if err := yaml.Unmarshal(data, &document); err != nil {
-			return fmt.Errorf("decode config: %w", err)
-		}
-		if len(document.Content) == 0 {
-			return nil
-		}
-		root := document.Content[0]
+	var removed []string
+	err := editYAMLDocument(path, func(root *yaml.Node) (bool, error) {
 		changed := carryOverCalendarTimezone(root)
-		removed := make([]string, 0, len(retiredConfigFields))
 		for _, field := range retiredConfigFields {
 			if deleteMappingKey(root, field) {
 				removed = append(removed, strings.Join(field, "."))
 			}
 		}
-		if len(removed) == 0 && !changed {
-			return nil
-		}
-		if err := writeYAMLDocument(path, &document); err != nil {
-			return err
-		}
-		// Logging is not configured until after the config loads, so this
-		// goes to the default logger on purpose: the owner should see which
-		// settings stopped applying, not discover it from behaviour.
-		if len(removed) > 0 {
-			slog.Warn("dropped retired config settings", "path", path, "settings", strings.Join(removed, ", "))
-		}
-		return nil
+		return changed || len(removed) > 0, nil
 	})
+	if err != nil {
+		return err
+	}
+	// Logging is not configured until after the config loads, so this goes to
+	// the default logger on purpose: the owner should see which settings
+	// stopped applying, not discover it from behaviour.
+	if len(removed) > 0 {
+		slog.Warn("dropped retired config settings", "path", path, "settings", strings.Join(removed, ", "))
+	}
+	return nil
 }
 
 // deleteMappingKey removes the entry at field from a YAML mapping node,

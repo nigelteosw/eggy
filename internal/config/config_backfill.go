@@ -3,10 +3,8 @@ package config
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
-	"github.com/nigelteosw/eggy/plugins/filelock"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,23 +71,8 @@ not sit on disk forever either.`,
 // key for, leaving every existing key, value, and comment exactly as the owner
 // wrote it. A config that already names them all is not rewritten at all.
 func backfillDefaultedSections(path string) error {
-	return filelock.With(path, func() error {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("open config: %w", err)
-		}
-		var document yaml.Node
-		if err := yaml.Unmarshal(data, &document); err != nil {
-			return fmt.Errorf("decode config: %w", err)
-		}
-		if len(document.Content) == 0 {
-			return nil
-		}
-		root := document.Content[0]
-		if root.Kind != yaml.MappingNode {
-			return nil
-		}
-		added := make([]string, 0, len(defaultedSections))
+	var added []string
+	err := editYAMLDocument(path, func(root *yaml.Node) (bool, error) {
 		for _, section := range defaultedSections {
 			// An owner who wrote the section themselves owns it, whatever
 			// they put in it -- including an empty block, which is a
@@ -99,24 +82,25 @@ func backfillDefaultedSections(path string) error {
 			}
 			key, value, err := sectionNodes(section)
 			if err != nil {
-				return err
+				return false, err
 			}
 			root.Content = append(root.Content, key, value)
 			added = append(added, section.key)
 		}
-		if len(added) == 0 {
-			return nil
-		}
-		if err := writeYAMLDocument(path, &document); err != nil {
-			return err
-		}
-		// Logging is not configured until after the config loads, so this
-		// goes to the default logger for the same reason the retired-field
-		// warning does. It is Info rather than Warn: nothing stopped
-		// applying, a setting the owner can now see and change appeared.
-		slog.Info("added new config settings at their defaults", "path", path, "settings", strings.Join(added, ", "))
-		return nil
+		return len(added) > 0, nil
 	})
+	if err != nil {
+		return err
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	// Logging is not configured until after the config loads, so this goes to
+	// the default logger for the same reason the retired-field warning does.
+	// It is Info rather than Warn: nothing stopped applying, a setting the
+	// owner can now see and change appeared.
+	slog.Info("added new config settings at their defaults", "path", path, "settings", strings.Join(added, ", "))
+	return nil
 }
 
 // sectionNodes renders one section as the key/value pair a YAML mapping is

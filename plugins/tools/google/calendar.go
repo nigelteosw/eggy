@@ -84,6 +84,28 @@ func (w *Workspace) Calendars(ctx context.Context) ([]Calendar, error) {
 	return calendars, nil
 }
 
+// calendarWindow resolves the pair of bounds every calendar read takes. An
+// absent start means now and an absent end means a week out, which is the
+// range an owner asking "what's on" means and the one both callers had to
+// agree on when each spelled it out.
+func calendarWindow(start, end string, now time.Time) (string, string, error) {
+	from, err := rfc3339(start)
+	if err != nil {
+		return "", "", err
+	}
+	to, err := rfc3339(end)
+	if err != nil {
+		return "", "", err
+	}
+	if from == "" {
+		from = now.Format(time.RFC3339)
+	}
+	if to == "" {
+		to = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
+	}
+	return from, to, nil
+}
+
 // CalendarList defaults to the next seven days when the window is left open,
 // which is what "what's on my calendar" almost always means and what Hermes'
 // CLI defaults to.
@@ -93,19 +115,9 @@ func (w *Workspace) Calendars(ctx context.Context) ([]Calendar, error) {
 // while a work or shared calendar is full, is worse than an error: it is
 // confidently wrong, and the owner has no way to tell from the answer.
 func (w *Workspace) CalendarList(ctx context.Context, calendarID, start, end string, now time.Time) ([]Event, error) {
-	from, err := rfc3339(start)
+	from, to, err := calendarWindow(start, end, now)
 	if err != nil {
 		return nil, err
-	}
-	to, err := rfc3339(end)
-	if err != nil {
-		return nil, err
-	}
-	if from == "" {
-		from = now.Format(time.RFC3339)
-	}
-	if to == "" {
-		to = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	}
 	if strings.TrimSpace(calendarID) != "" {
 		return w.eventsIn(ctx, calendarID, calendarID, from, to)
@@ -418,19 +430,9 @@ type Busy struct {
 // event details nobody asked for. It reports busy blocks rather than free
 // ones: the gaps depend on working hours Google does not know.
 func (w *Workspace) CalendarFreeBusy(ctx context.Context, calendarIDs []string, start, end string, now time.Time) ([]Busy, error) {
-	from, err := rfc3339(start)
+	from, to, err := calendarWindow(start, end, now)
 	if err != nil {
 		return nil, err
-	}
-	to, err := rfc3339(end)
-	if err != nil {
-		return nil, err
-	}
-	if from == "" {
-		from = now.Format(time.RFC3339)
-	}
-	if to == "" {
-		to = now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	}
 	items := make([]map[string]string, 0, len(calendarIDs))
 	for _, id := range calendarIDs {

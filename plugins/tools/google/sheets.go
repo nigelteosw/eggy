@@ -40,6 +40,32 @@ func (p sheetProperties) sheet() Sheet {
 	return Sheet{ID: p.SheetID, Title: p.Title, Rows: p.GridProperties.RowCount, Columns: p.GridProperties.ColumnCount}
 }
 
+// spreadsheetResponse is the workbook shape both the info read and the create
+// return. It was written out twice, identically, which meant a field added for
+// one was silently absent from the other.
+type spreadsheetResponse struct {
+	SpreadsheetID  string `json:"spreadsheetId"`
+	SpreadsheetURL string `json:"spreadsheetUrl"`
+	Properties     struct {
+		Title string `json:"title"`
+	} `json:"properties"`
+	Sheets []struct {
+		Properties sheetProperties `json:"properties"`
+	} `json:"sheets"`
+}
+
+// spreadsheet converts it to the shape callers return.
+func (r spreadsheetResponse) spreadsheet() Spreadsheet {
+	converted := Spreadsheet{
+		ID: r.SpreadsheetID, Title: r.Properties.Title,
+		Link: r.SpreadsheetURL, Sheets: make([]Sheet, 0, len(r.Sheets)),
+	}
+	for _, sheet := range r.Sheets {
+		converted.Sheets = append(converted.Sheets, sheet.Properties.sheet())
+	}
+	return converted
+}
+
 // SheetsInfo names the tabs. The field mask matters as much as the call: a bare
 // spreadsheets.get returns every cell in the workbook, which would blow the
 // output bound on any real sheet and answer a question about structure with
@@ -49,28 +75,12 @@ func (w *Workspace) SheetsInfo(ctx context.Context, id string) (Spreadsheet, err
 		return Spreadsheet{}, errors.New("a spreadsheet id is required")
 	}
 	values := url.Values{"fields": {"spreadsheetId,spreadsheetUrl,properties.title,sheets.properties(sheetId,title,gridProperties)"}}
-	var response struct {
-		SpreadsheetID  string `json:"spreadsheetId"`
-		SpreadsheetURL string `json:"spreadsheetUrl"`
-		Properties     struct {
-			Title string `json:"title"`
-		} `json:"properties"`
-		Sheets []struct {
-			Properties sheetProperties `json:"properties"`
-		} `json:"sheets"`
-	}
+	var response spreadsheetResponse
 	endpoint := fmt.Sprintf("%s/spreadsheets/%s", w.endpoints.Sheets, url.PathEscape(id))
 	if err := w.call(ctx, http.MethodGet, endpoint, values, nil, &response); err != nil {
 		return Spreadsheet{}, err
 	}
-	spreadsheet := Spreadsheet{
-		ID: response.SpreadsheetID, Title: response.Properties.Title,
-		Link: response.SpreadsheetURL, Sheets: make([]Sheet, 0, len(response.Sheets)),
-	}
-	for _, sheet := range response.Sheets {
-		spreadsheet.Sheets = append(spreadsheet.Sheets, sheet.Properties.sheet())
-	}
-	return spreadsheet, nil
+	return response.spreadsheet(), nil
 }
 
 // SheetsCreate makes a new workbook, optionally naming its first tab so the
@@ -83,24 +93,11 @@ func (w *Workspace) SheetsCreate(ctx context.Context, title, firstSheet string) 
 	if name := strings.TrimSpace(firstSheet); name != "" {
 		request["sheets"] = []map[string]any{{"properties": map[string]any{"title": name}}}
 	}
-	var response struct {
-		SpreadsheetID  string `json:"spreadsheetId"`
-		SpreadsheetURL string `json:"spreadsheetUrl"`
-		Properties     struct {
-			Title string `json:"title"`
-		} `json:"properties"`
-		Sheets []struct {
-			Properties sheetProperties `json:"properties"`
-		} `json:"sheets"`
-	}
+	var response spreadsheetResponse
 	if err := w.call(ctx, http.MethodPost, w.endpoints.Sheets+"/spreadsheets", nil, request, &response); err != nil {
 		return Spreadsheet{}, err
 	}
-	spreadsheet := Spreadsheet{ID: response.SpreadsheetID, Title: response.Properties.Title, Link: response.SpreadsheetURL}
-	for _, sheet := range response.Sheets {
-		spreadsheet.Sheets = append(spreadsheet.Sheets, sheet.Properties.sheet())
-	}
-	return spreadsheet, nil
+	return response.spreadsheet(), nil
 }
 
 // SheetsAddSheet adds a tab to an existing workbook and reports its title back,

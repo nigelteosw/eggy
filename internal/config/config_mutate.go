@@ -81,6 +81,40 @@ func writeFileAtomic(path string, body []byte) error {
 // migration that finds nothing to migrate must not touch the file at all.
 var errNoConfigChange = errors.New("config unchanged")
 
+// editYAMLDocument opens path's document, hands its mapping root to edit, and
+// rewrites the file only when edit reports it changed something.
+//
+// It is the counterpart to mutate for the two callers that must not go through
+// Config at all: re-marshalling would discard the owner's comments and key
+// order, so the retired-field sweep and the defaults backfill edit the node
+// tree in place. Both spelled out the same read-parse-guard preamble, and both
+// have to keep the "no change, no write" rule -- a rewrite that changed nothing
+// would still reformat the file.
+func editYAMLDocument(path string, edit func(root *yaml.Node) (bool, error)) error {
+	return filelock.With(path, func() error {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("open config: %w", err)
+		}
+		var document yaml.Node
+		if err := yaml.Unmarshal(data, &document); err != nil {
+			return fmt.Errorf("decode config: %w", err)
+		}
+		if len(document.Content) == 0 {
+			return nil
+		}
+		root := document.Content[0]
+		if root.Kind != yaml.MappingNode {
+			return nil
+		}
+		changed, err := edit(root)
+		if err != nil || !changed {
+			return err
+		}
+		return writeYAMLDocument(path, &document)
+	})
+}
+
 // writeYAMLDocument replaces path with an edited node tree, at the two-space
 // indentation the rest of the file already uses.
 //

@@ -171,26 +171,10 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 	// preserved is everything the caller handed in: instructions, durable
 	// context, recent conversation, and the request itself. Compaction only
 	// ever touches what the loop appended after it.
-	preserved := append([]ports.Message(nil), messages...)
-	tail := []ports.Message(nil)
-	summary := ""
-	// checkpoint folds the oldest steps away when the live window is over
-	// budget. It runs at a step boundary, so
-	// no assistant message is ever separated from its tool results.
-	checkpoint := func() {
-		compacted, nextSummary, dropped := l.policy.compact(tail, summary)
-		if !dropped {
-			return
-		}
-		tail, summary = compacted, nextSummary
-	}
-	live := func() []ports.Message {
-		window := append([]ports.Message(nil), preserved...)
-		if summary != "" {
-			window = append(window, CheckpointMessage(summary))
-		}
-		return append(window, tail...)
-	}
+	window := newContextWindow(l.policy, messages)
+	// overhead is what the request carries besides messages. The tool
+	// catalog is snapshotted once per turn, so it is counted once too.
+	overhead := DefinitionChars(definitions)
 	result := RunResult{}
 	steps := 0
 	for {
@@ -202,14 +186,17 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		}
 		// The step boundary is where steering lands: after any tool results
 		// from the previous step are in the live history, before the model is
-		// asked what to do next.
+		// asked what to do next. Once a step is folded away the steer is kept
+		// verbatim rather than summarized -- see contextWindow.
 		if options.PendingInput != nil {
-			tail = append(tail, options.PendingInput()...)
+			window.tail = append(window.tail, options.PendingInput()...)
 		}
 		// The step boundary is also the compaction checkpoint: the live
 		// window is brought back inside its budget here, never mid-step.
-		checkpoint()
-		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: live(), Tools: definitions, ReasoningEffort: effort})
+		if err := window.fit(overhead); err != nil {
+			return result, err
+		}
+		response, err := target.Model.Generate(ctx, ports.ModelRequest{Model: target.ModelID, Messages: window.messages(), Tools: definitions, ReasoningEffort: effort})
 		if err != nil {
 			return result, err
 		}
@@ -223,7 +210,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		if l.policy.MaxSteps > 0 && steps >= l.policy.MaxSteps {
 			return result, ErrToolStepLimit
 		}
-		tail = append(tail, assistant)
+		window.tail = append(window.tail, assistant)
 		emit(Event{Kind: EventAssistantMessage, Message: assistant})
 		for _, call := range assistant.ToolCalls {
 			tool, ok := tools[call.Name]
@@ -240,8 +227,11 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 				output, _ = json.Marshal(map[string]string{"error": toolErr.Error()})
 				kind = EventToolError
 			}
-			toolMessage := ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(output)}
-			tail = append(tail, toolMessage)
+			// Bounded here rather than at compaction time: the newest step is
+			// never folded away, so an unbounded result would otherwise be the
+			// one input that can evade the budget entirely.
+			toolMessage := ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: l.policy.boundToolResult(string(output))}
+			window.tail = append(window.tail, toolMessage)
 			emit(Event{Kind: kind, Call: call, Output: string(output), Err: toolErr, Message: toolMessage})
 		}
 		steps++

@@ -363,6 +363,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		BudgetChars:        96000,
 		RecentSteps:        16,
 		OutputExcerptChars: 8192,
+		RequestChars:       320000,
+		ReserveChars:       16000,
 		MaxSteps:           maxToolStepsPerTurn,
 	}
 	app.loop = agent.NewSelectedLoop(targets, registry, contextPolicy)

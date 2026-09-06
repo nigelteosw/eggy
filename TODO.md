@@ -8,35 +8,6 @@ Reviewed against the checkout on 2026-09-06. Findings below are from source
 inspection, not production measurements. S/M/L indicate relative effort, not
 delivery promises. Line budgets are estimates to refine before implementation.
 
-## P1 — Preserve useful context through long turns (M)
-
-`internal/kernel/agent/compaction.go` reduces tool results to `Used <name>`,
-discarding their findings and arguments. `AppendSummary` keeps the first 4096
-runes, so once full it loses newer findings. `OutputExcerptChars` is unused.
-Steered messages enter the compactable tail in `loop.go`, so owner corrections
-can disappear too. The 96K-character budget excludes preserved history, schemas,
-images, and the newest whole step. `services/conversation.go` bounds history by
-message count, not size.
-
-- Pin an early finding needed after compaction, a late correction after the
-  summary fills, large history, and one oversized tool result with scripted
-  model/tool tests.
-- Replace activity-name summaries with bounded factual checkpoints retaining
-  current instructions, findings, unresolved work, and failures. Keep external
-  content marked as untrusted data rather than elevating it to instructions.
-- Preserve steering explicitly. Bound the complete outgoing request and reserve
-  answer space; start with conservative size accounting, without treating
-  characters as tokens. Preserve assistant/tool pairs and report when mandatory
-  input alone cannot fit.
-- Remove the unused excerpt setting or actually use it.
-
-Done when long turns retain evidence and obey the latest correction, and large
-inputs cannot silently evade the budget.
-
-Deletion budget: replace lossy summaries; allow ~150 net production lines for
-correctness, 0 tools/record types/loops; at most 1 model-budget config key if
-existing metadata cannot supply it.
-
 ## P1 — Establish a small harness regression set (S, alongside fixes)
 
 Extend existing Go fakes and integration tests rather than add an evaluation
@@ -158,8 +129,8 @@ Deletion budget: replace stale prose, 0 runtime additions.
 
 ## Delivery order and verification
 
-1. Fix context preservation, adding regression cases alongside it. This is the
-   biggest remaining correctness win.
+1. Build the harness regression set around the landed context-preservation
+   work. This is the biggest remaining correctness win.
 2. Measure prompt/provider costs and bound optional initialization and skills.
    Let results determine performance work.
 3. Design and stage SQLite migration; roll out after interruption/recovery tests.

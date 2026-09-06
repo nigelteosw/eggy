@@ -6,8 +6,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
+
+// recentWindowChars bounds the live window by size as well as by message
+// count. A count alone is not a bound: twenty messages can be twenty lines or
+// twenty pasted files, and the second kind would push a turn's instructions
+// out of the model budget before the loop's own compaction ever ran.
+const recentWindowChars = 48000
 
 // ConversationService records and recalls one thread's live turn-context
 // window. SQLite (ports.MemoryStore) is its only dependency: since it is
@@ -48,6 +55,11 @@ func (s *ConversationService) RecentMessages(ctx context.Context, conversationID
 	messages := make([]ports.Message, 0, len(stored))
 	for _, message := range stored {
 		messages = append(messages, ports.Message{Role: message.Role, Content: message.Content})
+	}
+	// Oldest first, so an oversized window is trimmed from the front: the
+	// most recent exchange is the part of the history a turn actually needs.
+	for len(messages) > 1 && agent.MessageChars(messages) > recentWindowChars {
+		messages = messages[1:]
 	}
 	return messages, nil
 }

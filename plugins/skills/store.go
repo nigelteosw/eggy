@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,6 +63,19 @@ func (s *Store) path(name string) string {
 	return filepath.Join(s.dir, name+".md")
 }
 
+// maxIndexBytes bounds the aggregate size of the summaries List returns.
+// Every summary is resident in the system prompt on every turn (see
+// agent.renderSkills), so the index is a context cost the owner never sees
+// billed directly: cap it here rather than letting a skills directory grow
+// the prompt without limit.
+const maxIndexBytes = 16 << 10
+
+// List returns the summaries of every readable skill, in name order. A file
+// that is oversized, unreadable, or malformed is skipped with a warning
+// instead of failing the whole listing, so one bad file cannot disable the
+// skills the owner can still use. Once the summaries reach maxIndexBytes the
+// remaining files are skipped, again with a warning naming them: an index at
+// capacity is reported, never silently trimmed.
 func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -76,18 +90,36 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 		return nil, err
 	}
 	summaries := make([]ports.SkillSummary, 0, len(entries))
+	indexBytes := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			slog.Warn("skipping unreadable skill file", "file", entry.Name(), "error", err)
+			continue
+		}
+		if info.Size() > s.maxBytes {
+			slog.Warn("skipping oversized skill file", "file", entry.Name(), "bytes", info.Size(), "limit", s.maxBytes)
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
 		if err != nil {
-			return nil, err
+			slog.Warn("skipping unreadable skill file", "file", entry.Name(), "error", err)
+			continue
 		}
 		front, _, err := parse(data)
 		if err != nil {
-			return nil, fmt.Errorf("skill file %q: %w", entry.Name(), err)
+			slog.Warn("skipping malformed skill file", "file", entry.Name(), "error", err)
+			continue
 		}
+		cost := len(front.Name) + len(front.Description) + 2
+		if indexBytes+cost > maxIndexBytes {
+			slog.Warn("skill index is at capacity, skipping skill", "file", entry.Name(), "limit", maxIndexBytes)
+			continue
+		}
+		indexBytes += cost
 		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description})
 	}
 	slices.SortFunc(summaries, func(a, b ports.SkillSummary) int { return cmp.Compare(a.Name, b.Name) })

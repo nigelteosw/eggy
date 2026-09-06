@@ -59,9 +59,3 @@ func (m *memoryRecords) raw(section, key string) []byte {
 	defer m.mu.Unlock()
 	return append([]byte(nil), m.records[section+"/"+key]...)
 }
-
-func (m *memoryRecords) put(section, key string, record json.RawMessage) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.records[section+"/"+key] = record
-}

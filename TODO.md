@@ -64,18 +64,6 @@ artificially optional.
 Deletion budget: move existing construction under existing conditions; neutral
 or fewer production lines, 0 config keys/tools/record types/loops.
 
-## P2 — Bound skill indexing before enabling authorship (S)
-
-`plugins/skills/store.go:List` reads every Markdown file and returns all summaries.
-It does not apply `readFile`'s size bound; one malformed file aborts the list.
-The prompt includes every returned summary.
-
-Bound individual reads and aggregate index size; surface malformed entries to the
-owner without disabling usable skills. Test many, oversized, and malformed files.
-Prefer explicit capacity reporting or owner selection over silently hiding skills.
-
-Deletion budget: replace the unbounded listing path, up to ~60 net production
-lines, 0 config keys/tools/record types/loops; prefer internal bounds initially.
 
 ## Later — Capabilities requiring demonstrated demand
 

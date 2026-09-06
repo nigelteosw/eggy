@@ -1,3 +1,5 @@
+import { activeHeadingId } from "./outline";
+
 type SearchItem = {
   title: string;
   description: string;
@@ -190,15 +192,43 @@ const outlineLinks = new Map(
     (link) => [link.dataset.outlineLink!, link],
   ),
 );
-if ("IntersectionObserver" in window && outlineLinks.size) {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries.find((entry) => entry.isIntersecting);
-      if (!visible) return;
-      outlineLinks.forEach((link) => link.classList.remove("active"));
-      outlineLinks.get(visible.target.id)?.classList.add("active");
-    },
-    { rootMargin: "-18% 0px -70% 0px" },
-  );
-  document.querySelectorAll<HTMLElement>("h2[id], h3[id]").forEach((heading) => observer.observe(heading));
+const outlineHeadings = [
+  ...document.querySelectorAll<HTMLElement>("h2[id], h3[id]"),
+].filter((heading) => outlineLinks.has(heading.id));
+
+if (outlineHeadings.length) {
+  // Read from the headings on every update rather than caching an
+  // IntersectionObserver's band: the band excluded the top of the viewport,
+  // which is exactly where a clicked outline link lands its own heading, so
+  // clicking one highlighted the next.
+  const syncOutline = () => {
+    const active = activeHeadingId(
+      outlineHeadings.map((heading) => ({
+        id: heading.id,
+        top: heading.getBoundingClientRect().top,
+        scrollMargin:
+          parseFloat(window.getComputedStyle(heading).scrollMarginTop) || 0,
+      })),
+    );
+    outlineLinks.forEach((link, id) =>
+      link.classList.toggle("active", id === active),
+    );
+  };
+
+  let pending = false;
+  const scheduleOutlineSync = () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      syncOutline();
+    });
+  };
+
+  window.addEventListener("scroll", scheduleOutlineSync, { passive: true });
+  window.addEventListener("resize", scheduleOutlineSync);
+  // A same-page jump can finish without a scroll event when the page is
+  // already at that position, so the hash is its own trigger.
+  window.addEventListener("hashchange", scheduleOutlineSync);
+  syncOutline();
 }

@@ -41,14 +41,19 @@ For a persistent hosted instance, continue to [Deploy on Railway](/eggy/get-star
 
 ## What Eggy can do
 
-- Hold direct conversations in web chat and Telegram.
-- Switch among configured model aliases.
-- Remember successful conversation turns in an embedded SQLite database.
-- Read owner-maintained identity and memory from Markdown.
+- Hold direct conversations in web chat and Telegram, including images sent to Telegram.
+- Take a correction mid-task: a message sent while a turn is running [steers it](/eggy/use/long-turns/) instead of queueing behind it.
+- Switch among configured model aliases, and browse a provider's live catalog to add one.
+- Remember successful conversation turns in an embedded SQLite database, and curate durable memory in Markdown you can read and edit.
 - Inspect configured GitHub repositories without changing them.
+- Reach the open web with Tavily search and page extraction.
+- Work across Gmail, Calendar, Drive, Docs, Sheets, and Contacts on one Google grant.
 - Connect trusted MCP servers over Streamable HTTP or stdio.
 - Create, review, and cancel exact and recurring schedules for agent turns or deterministic reminders.
-- Load reviewed procedural skills from local Markdown files.
+- Check in on its own, on a [self-paced heartbeat](/eggy/configure/automation/) driven by a watch list, and speak only when there is something to say.
+- Load [reviewed procedural skills](/eggy/use/skills/) from local Markdown files.
+- Show you [every turn as it actually ran](/eggy/use/traces/) — the prompt behind each model call, the arguments and output of each tool call.
+- Be repaired from the browser when its own config will not load ([safe mode](/eggy/operate/safe-mode/)).
 
 ## How Eggy works
 
@@ -77,9 +82,12 @@ Configured repositories are trusted inputs, but repository access is read-only. 
 
 Native tools declare whether they write, and `/mode normal` — the default — lets the reads run while everything that writes asks you first. `/mode strict` asks about all of it; `/mode auto` asks about none. Adding an MCP server to configuration is a trust decision of its own, so its tools run without asking until you name them under that server's `require_approval`.
 
+A capability that is not configured costs nothing at runtime: no tool schema on any model call, no store, no background loop, no HTTP route. The features listed above are what Eggy *can* have, not what every instance pays for.
+
 ## Quick links
 
 - [Run Eggy locally](/eggy/get-started/quickstart/)
 - [Configure model providers](/eggy/configure/model-providers/)
+- [See the whole tool catalog](/eggy/use/tools/)
 - [Understand the security model](/eggy/operate/security/)
 - [Read the architecture](/eggy/project/architecture/)

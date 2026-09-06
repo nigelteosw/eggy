@@ -15,55 +15,64 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `owner` | Canonical single-owner identity |
 | `telegram` | Optional numeric Telegram owner |
 | `agent` | Default model alias and timezone |
-| `providers` | Model adapter connections |
-| `models` | Owner-facing model aliases |
+| `providers` | Model adapter connections and catalog discovery |
+| `models` | Owner-facing model aliases and their reasoning efforts |
 | `repositories` | Trusted read-only Git repositories |
 | `runner` | Checkout root, timeout, retention, output, and environment bounds |
 | `mcp` | Optional trusted remote or local servers |
+| `google` | Optional Google Workspace grant, products, and approval overrides |
+| `tavily` | Optional web search and page extraction |
 | `heartbeat` | Optional periodic check-in that speaks only when warranted |
+| `approvals` | Where a fresh deployment's approval mode starts |
+| `appearance` | Web panel theme |
 | `tracing` | Turn traces: the prompt behind every model call and every tool call |
+
+Each section links to the guide that explains it:
+[model providers](/eggy/configure/model-providers/),
+[MCP servers](/eggy/configure/mcp-servers/),
+[Google Workspace](/eggy/configure/google-workspace/),
+[web search](/eggy/configure/web-search/),
+[repositories](/eggy/configure/repositories/),
+[schedules and heartbeat](/eggy/configure/automation/), and
+[approvals](/eggy/use/approvals/).
 
 ## Heartbeat
 
-Omitted, the heartbeat costs nothing: no ticker, no model call. Set an interval to turn it on:
+The heartbeat and its watch list have their own guide:
+[Schedules and heartbeat](/eggy/configure/automation/). Omitted, the section
+costs nothing at runtime — no ticker, no goroutine, no model call.
+
+## Appearance
 
 ```yaml
-heartbeat:
-  interval: 3h
-  # instruction: "Check the deploy and open pull requests."
-  # active_hours:
-  #   start: "08:00"
-  #   end: "22:00"
-  # include_recent_history: false
+appearance:
+  theme: dark   # or light
 ```
 
-`3h` is the recommended starting interval. Each tick runs an isolated read-only turn and delivers to Telegram only when there is something worth saying — so a heartbeat is not one message per tick. A tick is skipped while another turn is running. Without a `telegram` block there is nowhere to deliver unprompted output, so the heartbeat stays off and says so once at startup.
+`dark` is the default, so an absent section needs no migration. It lives in YAML
+rather than in the browser because the owner is one person across several
+devices: a preference kept in `localStorage` is a preference set again on every
+laptop they log in from. **Settings → Appearance** writes it.
 
-### What a beat looks at
+It is the one config section that changes nothing at runtime — no adapter reads
+it, no tool schema depends on it — so unlike every other section it takes effect
+on the next page load rather than on restart.
 
-A beat checks `memories/WATCH.md`, the standing list of what you have asked Eggy to keep an eye on. It annotates that list with what it has already reported, and reads those notes on the next beat — which is how it tells "already mentioned this" from "new", and what stops a finding worth reporting once from being reported every interval.
+## Approvals
 
-A watch entry is a thing to look at, never a thing with its own cadence. Anything that should happen at a particular time is a schedule, not a watch entry.
+```yaml
+approvals:
+  mode: normal   # strict | normal | auto
+```
 
-**An empty watch list skips the beat entirely, with no model call**, and warns once so the silence is distinguishable from a bug. So an interval alone does nothing until you write down something to watch.
-
-### Active hours
-
-`active_hours` confines beats to a window of your day, read in `agent.timezone` rather than the host's clock. `start` is inclusive, `end` is exclusive, and `"24:00"` is accepted as an end so a window can run to midnight without the wrapped `"00:00"` that would mean the opposite. A window whose `end` is before its `start` wraps midnight, which is how an overnight watch is written. Both bounds are required together, and a malformed window fails the config load rather than silently suppressing every beat.
-
-A beat that would fall inside quiet hours is moved to the window opening rather than dropped, so the first beat of the day arrives at `start` instead of whenever the interval happens to land after it. The gap between beats is also measured from the end of one beat to the start of the next, so a slow check-in does not shorten the interval that follows it.
-
-### Conversation history
-
-`include_recent_history` lets a beat see the recent conversation window, so it can notice that you said you would ship something on Friday. It is **off by default**: unprompted turns carry no ambient history, so your earlier chat cannot silently steer a turn you are not present for and did not review when it fired. Tools stay read-only either way — this changes what a beat knows, never what it can do.
-
-It is the one heartbeat setting no surface writes. Relaxing a safety invariant should cost more than a tap on a phone, so it lives in `config.yaml` only.
-
-The settings panel edits the rest of this section. A blank interval there means off, rather than leaving the previous interval in place; blank active hours likewise clear the window. The instruction is preserved either way, so turning the heartbeat back on does not mean retyping it. Like every other section, the panel writes `config.yaml` and the change applies on the next restart, which `/restart` in chat performs.
+This decides only where a *fresh* deployment starts. A mode you have chosen with
+`/mode` or in the panel is durable runtime state and outranks the file from then
+on — otherwise every restart would undo your choice. See
+[Approvals and protected actions](/eggy/use/approvals/).
 
 ## Tracing
 
-A trace is one turn as it actually ran: every model call with the exact prompt that produced it, every tool call with its arguments and its output, in the order they happened. The transcript shows what Eggy said; a trace shows what it did to get there. Read them in the web panel under **Traces**.
+A trace is one turn as it actually ran: every model call with the exact prompt that produced it, every tool call with its arguments and its output, in the order they happened. The transcript shows what Eggy said; a trace shows what it did to get there. Read them in the web panel under **Traces** — see [Reading traces](/eggy/use/traces/).
 
 Tracing is **on unless you turn it off**:
 
@@ -107,7 +116,7 @@ When the configured path does not exist, Eggy atomically generates a valid basel
 
 The web settings panel writes supported sections directly to `config.yaml`. Nothing in the running process re-reads that file, because bootstrap builds providers, tools, channels, and routes once at startup. A write takes effect on the next restart, and both surfaces say so on every write.
 
-Procedural skills are not YAML configuration: they live as reviewed Markdown files under `skills/` in the Eggy home. Schedules are not configuration either, and are machine-managed records in `eggy.db`, created and cancelled through the `schedule` tool or the web panel.
+Procedural skills are not YAML configuration: they live as reviewed Markdown files under `skills/` in the Eggy home, and take effect on the next turn rather than on restart — see [Skills](/eggy/use/skills/). Schedules are not configuration either, and are machine-managed records in `eggy.db`, created and cancelled through the `schedule` tool or the web panel — see [Schedules and heartbeat](/eggy/configure/automation/).
 
 ## Restarting to apply config
 

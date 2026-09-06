@@ -17,7 +17,11 @@ Eggy's Telegram command surface is intentionally small.
 | `/stop` | Cancel the turn currently running in this conversation |
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
+| `/model providers` | Name every provider and say which can be browsed |
+| `/model available <provider> [filter]` | List what a provider actually serves |
+| `/model add <alias> <provider> <model> [efforts]` | Write a new alias into `config.yaml` |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
+| `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
@@ -51,10 +55,6 @@ A bare `/mode` reports the current one without changing it. It names the mode ra
 | `/mcp login <name>` | Start OAuth and return the provider authorization URL |
 | `/mcp login <name> <pasted redirect URL or code>` | Finish a login the browser could not deliver to the callback |
 | `/mcp logout <name>` | Discard stored credentials for one server |
-| `/google` | Whether Google Workspace is authorized, and with which scopes |
-| `/google set client_id=… [client_secret_env=VAR] [products=…] [enabled=…]` | Configure Google without editing config.yaml |
-| `/google login [pasted redirect URL or code]` | Start authorization, or finish it from the paste |
-| `/google logout` | Discard the stored Google grant |
 
 Edits go through the same `internal/config` helpers the web settings panel calls, under the same file lock and the same validation. There is one administration authority and two views onto it.
 
@@ -63,6 +63,46 @@ Three limits are deliberate:
 - **No secret value is ever accepted as a chat argument.** `bearer_env` and `client_secret_env` name environment variables; the token and client secret themselves must exist in the deployment's environment. An OAuth `client_id` is accepted directly because it is not a secret — it travels in the authorization URL.
 - **stdio servers are edited in `config.yaml`.** A subprocess command line and environment allowlist belong in reviewed configuration, not a chat message.
 - **A config write needs a restart.** Adapters are built once at startup, so a newly added server reads as `not running — restart eggy to apply.` until then. Every write says so, and `/restart` is the restart it is asking for.
+
+## Authorizing Google Workspace
+
+`/google` is the same idea for the one grant that covers Gmail, Calendar, Drive,
+Docs, Sheets, and Contacts. See [Google Workspace](/eggy/configure/google-workspace/).
+
+| Command | Behavior |
+| --- | --- |
+| `/google` | Whether Google Workspace is authorized, and with which scopes |
+| `/google set client_id=… [client_secret_env=VAR] [products=…] [enabled=…]` | Configure Google without editing `config.yaml` |
+| `/google login [pasted redirect URL or code]` | Start authorization, or finish it from the paste |
+| `/google logout` | Discard the stored Google grant |
+
+## Choosing a model without leaving chat
+
+`/model` alone reports the active alias and the ones available. The three
+subcommands exist so an alias can be written from what a provider actually
+serves, instead of from an ID copied out of a vendor's web page:
+
+```text
+/model providers
+/model available openrouter sonnet
+/model add sonnet openrouter anthropic/claude-sonnet-4.5 low,medium,high
+/restart
+```
+
+A subcommand only wins when no configured alias answers to that name, so adding
+these words cannot make an existing alias unselectable. `/model add` deliberately
+does not select the new alias: the running daemon still holds the old catalog, so
+selecting it would fail on an alias you can already see in `config.yaml`.
+Listing a model does not enable it — `models` still governs what Eggy will run.
+See [Model providers](/eggy/configure/model-providers/).
+
+## Steering, stopping, and clearing
+
+Sending an ordinary message while Eggy is working joins the turn already running
+rather than queueing behind it, so a correction lands where it can still change
+the next decision. `/stop` cancels the running turn; `/clear` drops the recent
+window without touching durable memory. See
+[Long turns, steering, and stopping](/eggy/use/long-turns/).
 
 ## Inline selections
 

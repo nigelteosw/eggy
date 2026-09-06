@@ -32,6 +32,30 @@ MCP servers are trusted at configuration time: a server's tools run without aski
 
 `/mode auto` disables every gate until the mode is changed back. It is durable across restarts and `status` names it, but it is a real bypass: in auto mode a gated tool is exactly as trusted as an ungated one. `/mode strict` is the other end — every tool call asks, reading included.
 
+## Skills and traces
+
+A skill is a Markdown file you placed in `skills/`. That placement is the review,
+which is why Eggy has no skill installer or marketplace: fetching agent-readable
+instructions from the internet would delete the security model. A skill is text
+the agent reads, never something Eggy executes, and it grants no tool and lifts
+no approval. See [Skills](/eggy/use/skills/).
+
+Traces record the exact prompt behind every model call, which makes them the most
+sensitive records Eggy holds — a prompt carries `SOUL.md`, `USER.md`, `MEMORY.md`,
+and recent conversation. They are stored in the same `eggy.db` as messages, served
+only behind the owner session, and passed through the same secret redaction that
+guards durable context before they are written. Nothing in the agent's own context
+reads a trace back, so a recorded prompt cannot feed itself into the next one.
+
+## Recovering from a bad config
+
+A startup failure serves the [safe-mode](/eggy/operate/safe-mode/) repair page
+rather than exiting. It is owner-authenticated like the normal panel, serves no
+chat, agent, or memory, and can change nothing but `config.yaml` — and only
+through a candidate the config loader has already accepted.
+
 ## Scheduled turns
 
-Scheduled agent turns are read-only and do not gain authority from instruction text. Deterministic message schedules do not invoke a model at all.
+Scheduled agent turns and heartbeat beats are read-only, carry no ambient conversation history unless `heartbeat.include_recent_history` is set, cannot reach MCP, and do not gain authority from instruction text. The `schedule` tool is offered to them with the `list` action alone. Deterministic message schedules do not invoke a model at all.
+
+Only direct owner turns accept steering. A message arriving during an unprompted turn cannot redirect work the owner was not present for.

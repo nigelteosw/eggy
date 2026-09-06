@@ -33,7 +33,11 @@ Successful direct turns persist user and assistant messages in embedded SQLite. 
 
 `/clear` removes recent conversation history for that conversation. It does not delete `SOUL.md`, owner memory files, or other durable memory.
 
-The model can call `recall_conversation` explicitly. Recall is bounded and is never silently injected into every prompt.
+The model can call `recall_conversation` explicitly. Recall is bounded to ten results and is never silently injected into every prompt.
+
+Within one turn, the live window is governed by a context budget rather than a step cap: work the loop itself produced can be folded into a checkpoint, while the instructions, durable context, the request, and any steering are preserved. See [Long turns, steering, and stopping](/eggy/use/long-turns/).
+
+Turn traces live in `eggy.db` too, bounded by `tracing.keep_turns` and `tracing.retention` — see [Reading traces](/eggy/use/traces/).
 
 ## Schedules and skills
 
@@ -41,7 +45,7 @@ Exact and five-field cron schedules live in `eggy.db`. A schedule can run a read
 
 One `schedule` tool covers the subject: `action=list` reports what exists, `action=create` takes an instruction plus either `cron` (recurring) or `at` (one-time RFC3339), and `action=cancel` removes one by id. So a schedule created in conversation can be reviewed and taken back there too. The web panel lists the same schedules and cancels them; creating one stays conversational. The unprompted allowlist grants only `schedule:list` — a heartbeat may see what else is due, but may not change it, and on that turn the tool is described to the model with the list action alone.
 
-Skills are local Markdown procedures. The prompt receives only enabled skill summaries; the model loads full instructions by exact name with `skill_read`. A skill cannot grant a tool or bypass policy.
+Skills are local Markdown procedures. The prompt receives only skill summaries; the model loads full instructions by exact name with `skill_read`. A skill cannot grant a tool or bypass policy, and changing one takes effect on the next turn without a restart. See [Skills](/eggy/use/skills/) and [Schedules and heartbeat](/eggy/configure/automation/).
 
 ## Backups
 

@@ -39,11 +39,14 @@ deployment's environment.
 stdio servers stay file-only, since a subprocess command line is not a chat
 argument.
 
-The authenticated web UI provides chat and a settings panel for providers,
-model aliases, MCP servers, and tracing, plus `/auth/mcp/{server}` to start an
-OAuth flow in the browser. Its Traces view shows each turn as it ran: the
-prompt behind every model call, and the arguments and output of every tool
-call.
+The authenticated web UI has three views — chat at `/`, traces at `/traces`,
+and settings at `/settings` — plus `/auth/mcp/{server}` to start an OAuth flow
+in the browser. Settings covers providers and model aliases (including browsing
+a provider's live catalog), MCP servers and Google, the live tool catalog,
+schedules and the heartbeat with its watch list, approvals, theme, tracing, and
+raw `config.yaml` with the restart that applies it. The Traces view shows each
+turn as it ran, grouped by conversation: the prompt behind every model call,
+and the arguments and output of every tool call.
 
 Both surfaces are views onto one administration authority: every config write
 goes through `internal/config` under the same file lock with the same
@@ -53,6 +56,27 @@ shared path: it rebuilds the daemon from the file on disk inside the running
 process, after checking the new config loads and letting in-flight turns
 finish. Config edited from a phone is therefore applicable from a phone, with
 no redeploy.
+
+## Turns
+
+A turn ends when the model stops calling tools, not when it has done a fixed
+amount of work. A message sent while a turn is running steers it at the next
+step boundary rather than queueing behind it; a steer that arrives too late to
+be read is delivered as its own turn rather than dropped. When the exchange the
+loop produced outgrows its context budget, the oldest steps fold into a running
+checkpoint and the turn continues — instructions, durable context, the request,
+and every steer are never compacted away. `/stop` cancels at the same step
+boundary.
+
+## Skills
+
+`skills/` holds one Markdown file per procedure, each with `name` and
+`description` frontmatter. Only the summaries are resident in the prompt; the
+model loads a full body by exact name with `skill_read`. Placing the file is the
+review — there is no installer and no marketplace — and a skill grants no tool
+and lifts no approval. A file that is oversized, unreadable, or malformed is
+skipped with a warning naming it, and the aggregate index is capped, so one bad
+file cannot break the list.
 
 ## Repository inspection
 

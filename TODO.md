@@ -1,208 +1,171 @@
 # Eggy TODO
 
-Unfinished work only. Delete an item once it lands.
+Unfinished work only; delete items when they land. Durable rules and settled
+decisions live in `AGENTS.md`; current behavior belongs in `README.md` and the
+docs site.
 
-Everything durable lives elsewhere and is not restated here: engineering rules,
-safety invariants, settled decisions, and declined capabilities are in
-`AGENTS.md`; current behavior is in `README.md` and `docs/src/content/docs/`;
-completed work is in git.
+Reviewed against the checkout on 2026-09-06. Findings below are from source
+inspection, not production measurements. S/M/L indicate relative effort, not
+delivery promises. Line budgets are estimates to refine before implementation.
 
-Every item states what it costs. An item that only adds code needs an argument
-for why the thing it prevents is worse than the thing it costs.
+## P1 — Preserve useful context through long turns (M)
 
-## Capability roadmap
+`internal/kernel/agent/compaction.go` reduces tool results to `Used <name>`,
+discarding their findings and arguments. `AppendSummary` keeps the first 4096
+runes, so once full it loses newer findings. `OutputExcerptChars` is unused.
+Steered messages enter the compactable tail in `loop.go`, so owner corrections
+can disappear too. The 96K-character budget excludes preserved history, schemas,
+images, and the newest whole step. `services/conversation.go` bounds history by
+message count, not size.
 
-Ordered. Each states a deletion budget, per the rule in `AGENTS.md`.
+- Pin an early finding needed after compaction, a late correction after the
+  summary fills, large history, and one oversized tool result with scripted
+  model/tool tests.
+- Replace activity-name summaries with bounded factual checkpoints retaining
+  current instructions, findings, unresolved work, and failures. Keep external
+  content marked as untrusted data rather than elevating it to instructions.
+- Preserve steering explicitly. Bound the complete outgoing request and reserve
+  answer space; start with conservative size accounting, without treating
+  characters as tokens. Preserve assistant/tool pairs and report when mandatory
+  input alone cannot fit.
+- Remove the unused excerpt setting or actually use it.
 
-Read on 2026-08-03 against two comparable projects, from their primary sources
-rather than summaries: **OpenClaw** (`github.com/openclaw/openclaw`,
-`docs.openclaw.ai`) and **Hermes Agent** (`github.com/NousResearch/hermes-agent`).
-Both are broader than Eggy and neither is a target. What was worth taking is
-below; what was not is in `AGENTS.md` under "Declined capabilities".
+Done when long turns retain evidence and obey the latest correction, and large
+inputs cannot silently evade the budget.
 
-Already matched, do not rebuild: an adapter-per-channel port, MCP as the
-extension path, cron plus a silence-permitted heartbeat, FTS5 conversation
-search, owner-editable Markdown context, config-not-code model providers, and an
-approval mechanism with payload binding.
+Deletion budget: replace lossy summaries; allow ~150 net production lines for
+correctness, 0 tools/record types/loops; at most 1 model-budget config key if
+existing metadata cannot supply it.
 
-### R3 — Voice in
+## P1 — Establish a small harness regression set (S, alongside fixes)
 
-Both references transcribe voice memos, and both are right to: the owner surface
-is a phone, and dictating is the natural input there. Eggy handles no audio at
-all today — `plugins/channels/telegram` ignores a voice message.
+Extend existing Go fakes and integration tests rather than add an evaluation
+framework. Cover multi-step lookup, steering across compaction, approval,
+rejection and expiry, MCP reconnect, provider failure, and unprompted turns
+attempting forbidden tools. Assert outcomes and underlying call counts.
 
-This is ingest, not a tool: a narrow `Transcriber` port, one adapter, and the
-Telegram webhook turning a voice update into ordinary user text before it ever
-reaches the loop. It adds no tool schema and no prompt bytes, which is why it is
-cheap despite being new capability. Voice *out* is not part of this.
+For an owner-authorized live sample, use existing traces to compare task success,
+model calls, prompt/cached tokens, tool failures, and elapsed time. Keep private
+trace bodies and credentials out of fixtures. Do not claim production improvement
+without a comparable baseline.
 
-Deletion budget: +1 narrow port, +1 plugin package (~150 lines), +2 config keys,
-0 tools, 0 durable records, 0 background loops.
+Deletion budget: 0 production lines initially, 0 config keys/tools/record
+types/loops; reuse existing tests and traces.
 
-### R4 — Agent-authored skills
+## P2 — Measure remaining prompt and provider costs (S–M)
 
-`ports.SkillsStore` already has `Write` and `Delete`; `plugins/skills` already
-implements and validates them; the web panel already reaches them. The kernel
-exposes `skill_read` and nothing else, so the agent can consume procedural
-memory but never record it. Eggy is one tool away from closing that loop with no
-new port, no new store, and no new durable form.
+The old cache implementation tasks are stale: `plugins/models/openaicompat/model.go`
+already sends OpenRouter `session_id` and ephemeral `cache_control` for Anthropic
+model IDs. `agent/prompt.go` orders stable sections first, `services/tools.go`
+sorts tools, and `agent/loop.go` snapshots the catalog once per turn.
 
-Two caveats that are the actual work, not the tool:
+- Test unchanged prefix/schema byte stability with time held fixed; separately
+  allow temporal context to change. Requiring the whole real prompt to remain
+  identical between turns would be wrong.
+- Pin reconnect behavior during and between turns. Preserve next-turn catalog
+  refresh rather than freezing the tool set for an entire chat.
+- Measure kernel and MCP schema bytes separately, skill-index bytes, cache-hit
+  ratio, and latency by model. Use existing MCP filters before adding discovery
+  machinery; replace the old arbitrary 10K-token trigger with measured evidence.
+- Recheck official provider docs at implementation time and validate automatic
+  Claude cache hints against real routing and usage. Session IDs do not by
+  themselves prove a cache hit.
+- Inspect rate-limit traces before tuning retries: the adapter currently makes
+  three attempts with 100/200ms delays and no `Retry-After` handling. If failures
+  justify it, add bounded, cancellation-aware backoff inside the adapter.
 
-- A skill the agent wrote is prompt-injection persistence. Anything reaching
-  disk must pass the same `services.NewSecretGuard(activeSecrets)` filter the
-  durable context documents already pass, and the write path must be pinned by a
-  test the way `Secrets.Values()` is.
-- Skills grow without bound and stale ones cost context on every turn, since
-  summaries are always resident. Cap the resident summary list and let the owner
-  prune from the web panel — a bound, not a background curator loop.
+Done when a repeatable baseline identifies the largest cost and a before/after
+comparison demonstrates improvement.
 
-Deletion budget: +2 tools, +~80 production lines, 0 config keys, 0 new ports,
-0 new durable records, 0 background loops.
+Deletion budget: tests and existing trace analysis first, ~0 production lines;
+allow ~60 net lines for justified retry changes, 0 config keys/tools/record
+types/loops initially.
 
-### R5 — An Anthropic Messages adapter
+## P2 — Finish SQLite consolidation (L)
 
-The one model backend that is genuinely earned rather than a `providers` entry.
-Different wire format: top-level system prompt, content blocks, required
-`max_tokens`. Roadmapped rather than merely decided, because until it exists
-every claim that Eggy is provider-neutral rests on one adapter and a switch
-statement with a single case — `newModelAdapter`'s `default` branch has never
-been exercised by a real second implementation.
+`internal/bootstrap/app_wiring.go` still opens JSON state and cron-file stores
+alongside SQLite; OAuth grants also use encrypted file persistence. This is
+migration debt against the three-durable-forms rule, not a reason to merge the
+two OAuth protocols.
 
-Deletion budget: +1 plugin package, +1 name in `config.supportedModelAdapters`,
-+1 case in `bootstrap.newModelAdapter`, 0 config fields, 0 tools, 0 ports
-changes.
+- Inventory all consumers and grant files, including Google and MCP. Write a
+  schema-versioned migration and recovery design before coding.
+- Move operational state behind existing ports, then schedules, then grant
+  persistence. Retain encryption and per-record associated data.
+- Test interruption at each boundary, retries, duplicate prevention, and old-home
+  startup. Keep recoverable source backups and specify rollback behavior; avoid
+  indefinite dual writes to two authorities.
+- Remove obsolete adapters after migration coverage passes. Document backup and
+  restore for SQLite plus owner Markdown/config.
 
-### R6 — Pin the prompt cache
+Done when a migrated home restarts with approvals, mode, deduplication, schedules,
+and grants intact, using SQLite as machine-state authority.
 
-Eggy already *measures* the thing — `ModelUsage.CachedPromptTokens` — but nothing
-pins it, and the MCP manager reconnects at runtime, which can change the tool set
-inside a live conversation. That is a cache invalidation the owner pays for
-silently, and it is a live property of today's code rather than a hypothetical.
+Deletion budget: remove replaced JSON-state, cron-file, and grant-file storage
+paths; target net reduction after migration code, quantified in the design.
+0 config keys/tools/loops; existing records move, plus a migration-version record.
 
-Establish the rule, then pin it: a test that the rendered system prompt is byte
-stable across two turns with unchanged config, and a decision on whether an MCP
-reconnection may alter the tool set mid-conversation or must wait. Absorbs the
-old prompt-and-tool-budget item: re-measure the per-turn floor, report MCP schema
-bytes separately from kernel schema bytes, and do not build deferred tool loading
-until MCP schemas alone exceed ~10K tokens.
+## P2 — Enforce zero-cost optional initialization (S)
 
-Deletion budget: +2 tests, ~0 production lines, 0 config keys, 0 tools.
+Repository tools are conditional in `bootstrap/app.go`, but the runner, GitHub
+adapter, and workspace service are constructed even without repositories.
+Audit initialization side effects and gate construction with registration.
+Extend bootstrap tests to check absent resources as well as absent schemas;
+apply the audit to disabled integrations without making mandatory services
+artificially optional.
 
-R10 is the other half of this and is cheaper: R6 stops invalidating the cache,
-R10 makes the cache more likely to be hit in the first place. Do them together.
+Deletion budget: move existing construction under existing conditions; neutral
+or fewer production lines, 0 config keys/tools/record types/loops.
 
-### R7 — Does Eggy write code?
+## P2 — Bound skill indexing before enabling authorship (S)
 
-Still undecided between read-only inspection and a bounded edit tool plus bounded
-shell. Both defensible, not compatible. The comparison does not settle it: Hermes
-ships seven terminal backends and treats the shell as the point, OpenClaw runs
-tools host-side by default with sandboxing optional. Eggy's answer has to come
-from its own threat model, not theirs. Until decided, do not reintroduce write
-tools opportunistically — and note that a write-capable MCP server answers this
-question by configuration, so it is the same decision wearing a different hat.
+`plugins/skills/store.go:List` reads every Markdown file and returns all summaries.
+It does not apply `readFile`'s size bound; one malformed file aborts the list.
+The prompt includes every returned summary.
 
-The safety invariant in `AGENTS.md` binds either way: if it becomes yes,
-independent payload-bound approvals and protected-branch denial are mandatory,
-and no commit, push, or pull-request capability arrives as a side effect.
-Protected-branch denial is currently unbuilt — `ProtectedBranches` is validated
-at config load and reported by `repository_list`, but nothing enforces it,
-because there is no write path to enforce against.
+Bound individual reads and aggregate index size; surface malformed entries to the
+owner without disabling usable skills. Test many, oversized, and malformed files.
+Prefer explicit capacity reporting or owner selection over silently hiding skills.
 
-### R8 — Decide the sandbox question out loud
+Deletion budget: replace the unbounded listing path, up to ~60 net production
+lines, 0 config keys/tools/record types/loops; prefer internal bounds initially.
 
-`AGENTS.md` says configured repositories and stdio MCP servers are trusted code
-running as Eggy's user, and that timeouts and environment allowlists are not a
-sandbox. Both references offer isolation — Hermes containers and remote terminal
-backends, OpenClaw optional tool sandboxing — so "we trust them" now reads as an
-omission unless it is argued.
+## Later — Capabilities requiring demonstrated demand
 
-Argue it in `docs/src/content/docs/project/architecture.md`: single owner, single
-process, one replica, configuration reachable only by the owner. Then either keep
-trusting them on the record, or scope what a sandbox would cost. Do not build one
-first.
+Choose these after correctness work, based on owner use rather than feature parity.
 
-Deletion budget: 0 production lines. This is a documentation item.
+| Candidate | Evidence and next step | Deletion budget |
+| --- | --- | --- |
+| Telegram voice input (M) | Image ingestion exists but voice transcription does not. Prioritize for frequent dictation; use one optional transcriber adapter and narrow port, with download/time/size bounds and clear failure replies. | ~150–250 production lines, 1 port/package, ~2–3 config keys, 0 tools/records/loops. |
+| Agent-authored skills (M) | Store write/delete already exist; the agent has only `skill_read`. First demonstrate reusable procedures and finish index bounds. Prefer extending the existing skill surface; writes need approval, secret filtering and locking. The memory-only `InternalTool` exception does not apply. | Estimate after schema design; target ~80–150 net lines, replace existing tool where practical, 0 config keys/loops, existing Markdown records only. |
+| Anthropic Messages adapter (M) | Add for a real direct-provider or wire-feature need. Provider-neutrality alone is not owner value. Test port fit and wire through the existing selector. | 1 package/selector case, 0 tools/record types/loops; quantify lines and essential config in design. |
+| Recall beyond keywords (M) | Capture a real FTS5 miss; try query reformulation and existing search before embeddings. An embedding index inside SQLite is not inherently a fourth durable form, but still needs a measured benefit. | Baseline first: 0 production/config/tool/record/loop additions; estimate implementation only after a failed case. |
 
-### R9 — Session recall beyond keywords
+## Documentation and operational follow-through (S)
 
-Hermes pairs FTS5 with LLM summarization for cross-session recall and a
-persistent user model. Eggy has the FTS5 half and `memories/USER.md` as a
-hand-curated stand-in for the other. Lowest priority on this list, and gated on
-evidence: it earns a slot only after a recorded instance of
-`recall_conversation` failing on a question the owner actually asked. Measure
-before building — an embedding store is a new durable form, and there are
-exactly three.
+- Reconcile comments mentioning writable workspaces, terminal tools, implementation
+  sessions, and retired commands in `agent/loop.go`, `agent/compaction.go`, and
+  `services/tools.go`. Update operator docs with each landed phase.
+- Document the existing trusted-code execution boundary in the architecture guide.
+  Repository mutation or sandboxing needs a separate owner use case and threat
+  model; it is not an automatic next phase.
+- Verify deployment state before carrying forward old Railway chores: proxy hops,
+  MCP server status, and Google client setup require live evidence.
+  `internal/config/config_init.go` already prunes retired fields. Do not reset
+  `/data/config.yaml` merely to remove them; preserve owner configuration.
 
-### R10 — Make the prompt cache actually hit on OpenRouter
+Deletion budget: replace stale prose, 0 runtime additions.
 
-R6 stops Eggy from invalidating its own cache. This is the other half: making a
-hit likelier to begin with. Eggy already *measures* it — `CachedPromptTokens` is
-recorded per turn and visible in traces — so the effect of anything here is
-observable rather than argued.
+## Delivery order and verification
 
-Stay on Chat Completions. OpenRouter routes across many underlying providers, so
-provider-held conversation state is less predictable than it would be against a
-single vendor, and `plugins/models/openaicompat` is the adapter every
-`openai_compatible` provider shares.
+1. Fix context preservation, adding regression cases alongside it. This is the
+   biggest remaining correctness win.
+2. Measure prompt/provider costs and bound optional initialization and skills.
+   Let results determine performance work.
+3. Design and stage SQLite migration; roll out after interruption/recovery tests.
+4. Select at most one demand-backed capability from the later list.
 
-Two changes, in order:
-
-1. **Send the thread ID as OpenRouter's `session_id`.** It keeps a conversation
-   pinned to the same provider endpoint and model, which is what makes a prompt
-   cache hit possible at all. It does not stop Eggy resending the conversation —
-   nothing here does — it reduces what that resend costs to process. Eggy already
-   has the identifier: the conversation ID a turn carries.
-2. **Then `cache_control`, only where a model needs it.** OpenAI, DeepSeek and
-   Gemini cache automatically through OpenRouter. Claude generally needs an
-   explicit top-level `cache_control`, and adding it narrows which Claude
-   endpoints OpenRouter may select — so it is per-provider configuration, not a
-   default, and it is the second step because the first one costs nothing.
-
-Verify against `cached_tokens` in traces before and after. If the number does not
-move, the change did not work, whatever the documentation says.
-
-**Not the Responses API, and not response caching.** OpenRouter serves
-`/api/v1/responses` with `previous_response_id`, which would be a genuinely
-separate adapter persisting the latest response ID per chat. Rejected as a
-starting point, for reasons that are structural rather than effort: system
-instructions still generally have to be supplied on each response, so the saving
-is smaller than it looks; response IDs are external conversation state Eggy would
-have to keep in step with SQLite, which is the sole conversation authority and
-should stay that way; model changes, provider fallback, deleted responses and
-expired state each need a recovery path; and it makes a conversation less
-portable between models. OpenRouter's separate "response caching" feature is for
-identical retries and tests — every new message changes the request, so an
-ordinary chat should produce a fresh response and never hit it. If either is ever
-declined outright rather than deferred, move it to `AGENTS.md`.
-
-The specifics above are from OpenRouter's own documentation and should be re-read
-at implementation time rather than trusted from here — this records the decision,
-not the current shape of someone else's API:
-
-- <https://openrouter.ai/docs/guides/best-practices/prompt-caching>
-- <https://openrouter.ai/docs/api/api-reference/responses/create-responses>
-- <https://openrouter.ai/docs/guides/features/response-caching>
-
-Deletion budget: +~30 production lines in `plugins/models/openaicompat`, +1
-optional provider config key for `cache_control`, 0 tools, 0 durable records,
-0 background loops, 0 new ports, 0 new durable forms — SQLite stays the only
-conversation authority, which is the whole reason the Responses API is not step
-one.
-
-## Chores
-
-- **Consolidate durable state in SQLite** — move approvals, processed event IDs,
-  selected model, and schedules out of `state.json`/`cron/` behind the existing
-  ports; keep the Markdown files as files. Needs a schema-versioned, retry-safe
-  migration design written first, and preserves encrypted payloads. The largest
-  net-new-code item on the list, which is why it is parked.
-- **Docs pass** — `README.md` becomes a short operator guide;
-  `docs/src/content/docs/project/architecture.md` is the only architectural
-  narrative. Audit `AGENTS.md`, the docs site, and `config.example.yaml` after
-  every phase.
-- **Railway operations** — set `server.trusted_proxy_hops: 1`; reset
-  `/data/config.yaml` to the current shape before the next deploy (retired
-  `scheduler`, `embeddings`, `implementation_sessions`, `calendar` sections);
-  remove the `calendar` MCP server, which never authorized; keep
-  `GOOGLE_CLIENT_SECRET` set to the **Desktop** client's secret.
+For behavior changes, run the focused regression first, then
+`make fmt vet test race build`. Run `make smoke` when Docker is available;
+otherwise report the environment blocker. A roadmap-only review does not
+establish a passing runtime or production baseline.

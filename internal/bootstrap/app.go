@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -323,22 +324,31 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// turn sees without restarting the process. It is a provider on the one
 		// registry rather than a second source on the loop: MCP supplies tools,
 		// it does not modify the agent.
-		provider := app.mcp.Tools
-		if app.mcp.HasApprovalGates() {
-			// Wrapped inside the provider rather than once at wiring time,
-			// because the catalog this reads is rebuilt on every reconnect: a
-			// gate applied to the tools that existed at startup would silently
-			// come off the moment a server reconnected.
-			manager := app.mcp
-			provider = func() []ports.Tool {
-				tools := manager.Tools()
-				for index, tool := range tools {
-					if manager.RequiresApproval(tool.Definition().Name) {
-						tools[index] = services.NewApprovalGatedTool(tool, asker, app.approvals)
-					}
+		// Wrapped inside the provider rather than once at wiring time,
+		// because the catalog this reads is rebuilt on every reconnect: a
+		// gate applied to the tools that existed at startup would silently
+		// come off the moment a server reconnected.
+		//
+		// Every tool is wrapped, not just the configured ones. The mode is
+		// durable runtime state that changes without a restart, so a tool left
+		// unwrapped because nothing gated it in normal mode would still be
+		// unwrapped when the owner switched to strict -- and strict's promise
+		// is that no call runs unapproved. The rule is what keeps normal mode
+		// on the server's own require_approval: an unlisted tool answers
+		// "not gated" there and runs inline exactly as it did unwrapped,
+		// without Eggy guessing what a remote call does.
+		manager := app.mcp
+		notGated := func(json.RawMessage) bool { return false }
+		provider := func() []ports.Tool {
+			tools := manager.Tools()
+			for index, tool := range tools {
+				rule := services.ApprovalRule{}
+				if !manager.RequiresApproval(tool.Definition().Name) {
+					rule.Gated = notGated
 				}
-				return tools
+				tools[index] = services.NewApprovalGatedToolIf(tool, asker, app.approvals, rule)
 			}
+			return tools
 		}
 		registry.AddProvider("mcp", provider)
 	}

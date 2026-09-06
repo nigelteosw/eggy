@@ -1100,3 +1100,117 @@ func TestRestartCommandStopsRunAfterDeliveringItsAcknowledgement(t *testing.T) {
 		t.Fatal("Run stopped before the restart acknowledgement was delivered")
 	}
 }
+
+// mcpToolNamed finds a tool the MCP provider supplies, as the loop would.
+func mcpToolNamed(t *testing.T, app *App, name string) ports.Tool {
+	t.Helper()
+	tool, ok := app.tools.Lookup(name)
+	if !ok {
+		t.Fatalf("MCP tool %q is not in the catalog", name)
+	}
+	return tool
+}
+
+// mcpTestApp boots a fake MCP deployment. require lists the tools the server
+// itself asks approval for; everything in include is otherwise unlisted.
+func mcpTestApp(t *testing.T, include, require []string) *App {
+	t.Helper()
+	cfg := appTestConfig(t.TempDir())
+	cfg.MCP.Servers = map[string]config.MCPServerConfig{
+		"railway": {
+			Enabled: true, URL: "https://mcp.railway.com", Transport: "streamable-http", Auth: "oauth",
+			ToolFilter:      config.MCPToolFilterConfig{Include: include},
+			RequireApproval: require,
+		},
+	}
+	secrets := appTestSecrets("deepseek")
+	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+	app, err := NewApp(cfg, secrets, AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app
+}
+
+// Strict mode's promise is that no tool call runs before the owner approves
+// it, and the mode is durable state that changes without a restart. A tool
+// left unwrapped at boot because the server listed nothing would execute for
+// real under strict, which is the hole this pins shut. The result is the
+// evidence: "fake MCP result" means the underlying call ran.
+func TestStrictModeGatesMCPToolsTheServerDoesNotList(t *testing.T) {
+	app := mcpTestApp(t, []string{"list-projects"}, nil)
+	ctx := context.Background()
+	if err := app.approvals.SetMode(ctx, ports.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	result, err := mcpToolNamed(t, app, "railway__list_projects").Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result), "awaiting_approval") {
+		t.Fatalf("strict mode executed an unlisted MCP tool: %s", result)
+	}
+}
+
+// The other half: normal mode still follows the server's own require_approval
+// rather than Eggy guessing what a remote call does. An unlisted tool runs
+// inline exactly as it did unwrapped; a listed one is deferred.
+func TestNormalModeKeepsMCPToolsOnTheServersOwnPolicy(t *testing.T) {
+	app := mcpTestApp(t, []string{"list-projects", "delete-project"}, []string{"delete-project"})
+	ctx := context.Background()
+	if err := app.approvals.SetMode(ctx, ports.ModeNormal); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := mcpToolNamed(t, app, "railway__list_projects").Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "awaiting_approval") {
+		t.Fatalf("normal mode gated a tool the server does not list: %s", plain)
+	}
+	gated, err := mcpToolNamed(t, app, "railway__delete_project").Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gated), "awaiting_approval") {
+		t.Fatalf("normal mode ran a tool the server requires approval for: %s", gated)
+	}
+}
+
+// Auto is the owner's explicit bypass and must still reach the real tool
+// through the wrapper every MCP tool now carries.
+func TestAutoModeRunsGatedMCPToolsInline(t *testing.T) {
+	app := mcpTestApp(t, []string{"delete-project"}, []string{"delete-project"})
+	ctx := context.Background()
+	if err := app.approvals.SetMode(ctx, ports.ModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	result, err := mcpToolNamed(t, app, "railway__delete_project").Execute(ctx, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(result), "awaiting_approval") {
+		t.Fatalf("auto mode deferred a call the owner asked to run: %s", result)
+	}
+}
+
+// The catalog is rebuilt on every reconnect, so the gate has to be applied by
+// the provider on each read rather than once at wiring time. Reading the
+// catalog twice stands in for that: a wrapper applied to the boot-time tools
+// would not survive the second read.
+func TestMCPGateSurvivesCatalogRebuild(t *testing.T) {
+	app := mcpTestApp(t, []string{"list-projects"}, nil)
+	ctx := context.Background()
+	if err := app.approvals.SetMode(ctx, ports.ModeStrict); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := range 2 {
+		result, err := mcpToolNamed(t, app, "railway__list_projects").Execute(ctx, json.RawMessage(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(result), "awaiting_approval") {
+			t.Fatalf("read %d executed an ungated MCP call: %s", attempt, result)
+		}
+	}
+}

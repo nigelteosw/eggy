@@ -16,7 +16,6 @@ import { RestartCard } from "./RestartCard";
 import { Sidebar, SidebarItem, SidebarSeparator } from "./components/ui/sidebar";
 import {
   CheckShieldIcon,
-  ChevronLeftIcon,
   ClockIcon,
   CpuIcon,
   FileCodeIcon,
@@ -50,12 +49,10 @@ export function ConfigPage({
   theme,
   onThemeChange,
   onSessionExpired,
-  onBackToChat,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onSessionExpired: () => void;
-  onBackToChat: () => void;
 }) {
   const [active, setActive] = useState<SectionId>("models");
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
@@ -74,14 +71,6 @@ export function ConfigPage({
     <div className="flex h-full min-h-0 flex-col md:flex-row">
       <div className="sticky top-0 z-20 shrink-0 border-b bg-background md:hidden">
         <div className="flex items-center gap-2 px-3 py-2">
-          <button
-            type="button"
-            onClick={onBackToChat}
-            className="flex h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <ChevronLeftIcon />
-            <span>Chat</span>
-          </button>
           <select
             aria-label="Mobile settings navigation"
             value={active}
@@ -107,13 +96,7 @@ export function ConfigPage({
       </div>
 
       <Sidebar collapsed={false} className="hidden md:flex">
-        <SidebarItem
-          icon={<ChevronLeftIcon />}
-          label="Back to chat"
-          collapsed={false}
-          onClick={onBackToChat}
-        />
-        <SidebarSeparator />
+        <p className="px-2.5 pb-3 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings</p>
         {SECTIONS.map((candidate) => (
           <SidebarItem
             key={candidate.id}
@@ -132,7 +115,7 @@ export function ConfigPage({
       <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto">
         <div className="page-shell max-w-3xl">
           <header className="flex flex-col gap-1.5 pb-1">
-            <h1 className="text-3xl font-semibold tracking-tight">{section.title}</h1>
+            <h1 className="text-xl font-semibold tracking-tight">{section.title}</h1>
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{section.description}</p>
           </header>
           {active === "models" && (

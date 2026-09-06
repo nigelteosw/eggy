@@ -4,12 +4,12 @@
 
 @layer base {
   :root {
-    /* Warm off-white paper, deep ink, and a botanical green primary. */
-    --background: 105 24% 98%;
-    --foreground: 150 12% 12%;
+    /* Neutral surfaces with a restrained green accent for actions and selection. */
+    --background: 210 14% 97%;
+    --foreground: 210 12% 15%;
 
     --card: 0 0% 100%;
-    --card-foreground: 150 12% 12%;
+    --card-foreground: 210 12% 15%;
 
     --primary: 107 55% 33%;
     --primary-foreground: 105 30% 98%;
@@ -17,16 +17,16 @@
     --secondary: 105 16% 94%;
     --secondary-foreground: 150 12% 20%;
 
-    --muted: 105 14% 95%;
+    --muted: 210 12% 94%;
     --muted-foreground: 150 6% 40%;
 
-    --accent: 105 30% 92%;
+    --accent: 150 12% 93%;
     --accent-foreground: 107 55% 24%;
 
     --destructive: 0 65% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 120 8% 86%;
+    --border: 210 10% 87%;
     --input: 120 8% 83%;
     --ring: 107 55% 33%;
 
@@ -72,7 +72,19 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
     text-rendering: optimizeLegibility;
+  }
+
+  :where(button, a, summary):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
   }
 
   h1,
@@ -137,32 +149,102 @@
   }
 
   .user-message {
-    --tw-prose-body: hsl(var(--primary-foreground));
-    --tw-prose-headings: hsl(var(--primary-foreground));
-    --tw-prose-lead: hsl(var(--primary-foreground));
-    --tw-prose-links: hsl(var(--primary-foreground));
-    --tw-prose-bold: hsl(var(--primary-foreground));
-    --tw-prose-counters: hsl(var(--primary-foreground) / 0.75);
-    --tw-prose-bullets: hsl(var(--primary-foreground) / 0.75);
-    --tw-prose-hr: hsl(var(--primary-foreground) / 0.3);
-    --tw-prose-quotes: hsl(var(--primary-foreground));
-    --tw-prose-quote-borders: hsl(var(--primary-foreground) / 0.45);
-    --tw-prose-captions: hsl(var(--primary-foreground) / 0.75);
-    --tw-prose-kbd: hsl(var(--primary-foreground));
-    --tw-prose-kbd-shadows: hsl(var(--primary-foreground) / 0.2);
-    --tw-prose-code: hsl(var(--primary-foreground));
-    --tw-prose-pre-code: hsl(var(--primary-foreground));
-    --tw-prose-pre-bg: hsl(var(--primary-foreground) / 0.12);
-    --tw-prose-th-borders: hsl(var(--primary-foreground) / 0.35);
-    --tw-prose-td-borders: hsl(var(--primary-foreground) / 0.25);
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--foreground));
+    --tw-prose-lead: hsl(var(--foreground));
+    --tw-prose-links: hsl(var(--foreground));
+    --tw-prose-bold: hsl(var(--foreground));
+    --tw-prose-counters: hsl(var(--foreground) / 0.75);
+    --tw-prose-bullets: hsl(var(--foreground) / 0.75);
+    --tw-prose-hr: hsl(var(--foreground) / 0.3);
+    --tw-prose-quotes: hsl(var(--foreground));
+    --tw-prose-quote-borders: hsl(var(--foreground) / 0.45);
+    --tw-prose-captions: hsl(var(--foreground) / 0.75);
+    --tw-prose-kbd: hsl(var(--foreground));
+    --tw-prose-kbd-shadows: hsl(var(--foreground) / 0.2);
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-pre-code: hsl(var(--foreground));
+    --tw-prose-pre-bg: hsl(var(--foreground) / 0.12);
+    --tw-prose-th-borders: hsl(var(--foreground) / 0.35);
+    --tw-prose-td-borders: hsl(var(--foreground) / 0.25);
   }
 
   .composer-dock {
     background: linear-gradient(to top, hsl(var(--background)) 58%, hsl(var(--background) / 0));
   }
 
-  .trace-detail-panel {
-    @apply border-t border-border bg-background/45 px-4 py-5 sm:px-6;
+  .trace-browser {
+    @apply grid min-h-0 flex-1 overflow-y-auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trace-conversations {
+    @apply min-w-0 border-b bg-background p-4;
+  }
+  .trace-conversation-list {
+    @apply flex gap-2 overflow-x-auto pb-1;
+  }
+  .trace-conversation-list > button {
+    @apply w-48 shrink-0;
+  }
+  .trace-turns {
+    @apply min-w-0 bg-card;
+  }
+  .trace-inspector {
+    @apply min-w-0 bg-card p-5 sm:p-7;
+  }
+  .trace-step {
+    @apply grid w-full items-center gap-x-3 gap-y-3 border-t border-l-2 px-3 py-3 text-left first:border-t-0;
+    grid-template-columns: minmax(0, 1fr) 1rem;
+  }
+  .trace-step > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .trace-step > :nth-child(3) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .trace-axis > :first-child {
+    @apply font-medium;
+  }
+
+  @media (min-width: 1024px) {
+    .trace-browser {
+      grid-template-columns: 13rem 18rem minmax(0, 1fr);
+      overflow: hidden;
+    }
+    .trace-conversations,
+    .trace-turns,
+    .trace-inspector {
+      overflow-y: auto;
+    }
+    .trace-conversations,
+    .trace-turns {
+      @apply border-r;
+    }
+    .trace-conversations {
+      @apply border-b-0;
+    }
+    .trace-conversation-list {
+      @apply block space-y-1 overflow-visible;
+    }
+    .trace-conversation-list > button {
+      @apply w-full;
+    }
+  }
+  @media (min-width: 1440px) {
+    .trace-browser {
+      grid-template-columns: 15rem 20rem minmax(0, 1fr);
+    }
+    .trace-step {
+      grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 1rem;
+    }
+    .trace-step > :nth-child(2),
+    .trace-step > :nth-child(3) {
+      grid-column: auto;
+      grid-row: auto;
+    }
   }
 }
 

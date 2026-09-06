@@ -197,7 +197,7 @@ export function ChatPage({
                   className={cn(
                     "text-sm",
                     isUser
-                      ? "max-w-[88%] rounded-lg bg-primary px-4 py-3 text-primary-foreground sm:max-w-[72%] sm:px-5"
+                      ? "max-w-[88%] rounded-lg border bg-muted/60 px-4 py-3 text-foreground sm:max-w-[72%] sm:px-5"
                       : "w-full",
                   )}
                 >

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getTrace,
   listThreads,
@@ -12,17 +12,7 @@ import {
 import { Button } from "./components/ui/button";
 import { ChevronLeftIcon, ChevronDownIcon } from "./components/ui/icons";
 
-// The traces view answers one question: what did that turn actually do. The
-// transcript already shows what Eggy said, and the config pages show what it
-// is allowed to do -- neither shows the prompt that produced a reply or the
-// tool output the model was reacting to, which is everything you want the
-// moment a turn surprises you.
-//
-// Turns are a log, so they are a table: one row per turn, newest first,
-// expanding in place into that turn's steps. The steps are drawn as a
-// waterfall against a shared clock, because the second question after "what
-// did it do" is always "where did the 37 seconds go" -- and a stack of
-// durations cannot answer that while a bar chart of them can.
+// Browse conversations, inspect one turn, then select a step without moving the timeline.
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -33,7 +23,13 @@ function formatDuration(ms: number): string {
 function formatTime(iso: string): string {
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return iso;
-  return at.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return at.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function formatTokens(count: number): string {
@@ -54,7 +50,13 @@ function prettyBody(body: string): string {
 }
 
 type PromptMessage = { role?: string; content?: string; name?: string; tool_call_id?: string; tool_calls?: unknown[] };
-type PromptRecord = { model?: string; reasoning_effort?: string; messages?: PromptMessage[]; tool_names?: string[]; tools?: unknown[] };
+type PromptRecord = {
+  model?: string;
+  reasoning_effort?: string;
+  messages?: PromptMessage[];
+  tool_names?: string[];
+  tools?: unknown[];
+};
 
 function parsePrompt(request: string): PromptRecord | null {
   try {
@@ -91,22 +93,12 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
   const prompted = trace.kind === "owner";
   return (
     <span
-      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide ${
         prompted ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground"
       }`}
     >
       {sourceOf(trace)}
     </span>
-  );
-}
-
-export function Body({ label, text }: { label: string; text: string }) {
-  if (!text) return null;
-  return (
-    <details className="rounded-md border bg-card">
-      <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-medium">{label}</summary>
-      <div className="border-t p-3"><pre className="code-panel max-h-96">{prettyBody(text)}</pre></div>
-    </details>
   );
 }
 
@@ -122,14 +114,16 @@ function Prompt({ request }: { request: string }) {
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground">Request</span>
           {prompt && (
-            <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(false)}>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onClick={() => setRaw(false)}
+            >
               Show as conversation
             </button>
           )}
         </div>
-        <pre className="code-panel max-h-96">
-          {prettyBody(request)}
-        </pre>
+        <pre className="code-panel max-h-96">{prettyBody(request)}</pre>
       </div>
     );
   }
@@ -139,14 +133,18 @@ function Prompt({ request }: { request: string }) {
         <span className="text-xs font-medium text-muted-foreground">
           Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
         </span>
-        <button type="button" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline" onClick={() => setRaw(true)}>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => setRaw(true)}
+        >
           Show raw JSON
         </button>
       </div>
       <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
           <div key={index} className="rounded-md border bg-card p-3.5">
-            <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
               {Array.isArray(message.tool_calls) && message.tool_calls.length > 0 && (
@@ -154,13 +152,14 @@ function Prompt({ request }: { request: string }) {
               )}
             </div>
             <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
-              {message.content || (Array.isArray(message.tool_calls) ? JSON.stringify(message.tool_calls, null, 2) : "")}
+              {message.content ||
+                (Array.isArray(message.tool_calls) ? JSON.stringify(message.tool_calls, null, 2) : "")}
             </pre>
           </div>
         ))}
       </div>
       {prompt.tool_names && prompt.tool_names.length > 0 && (
-        <p className="text-[11px] text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
+        <p className="text-xs text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
       )}
     </div>
   );
@@ -232,7 +231,11 @@ function TickLines({ ticks, window }: { ticks: number[]; window: number }) {
   return (
     <div className="pointer-events-none absolute inset-0">
       {ticks.map((at) => (
-        <div key={at} className="absolute top-0 bottom-0 w-px bg-border/70" style={{ left: `${(at / window) * 100}%` }} />
+        <div
+          key={at}
+          className="absolute top-0 bottom-0 w-px bg-border/70"
+          style={{ left: `${(at / window) * 100}%` }}
+        />
       ))}
     </div>
   );
@@ -261,7 +264,7 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
         title={`${item.span.name}: ${label} at +${formatDuration(item.offset)}`}
       />
       <span
-        className={`absolute top-0 flex h-full items-center whitespace-nowrap text-[10px] tabular-nums ${
+        className={`absolute top-0 flex h-full items-center whitespace-nowrap text-xs tabular-nums ${
           placement === "inside" ? "px-2 font-medium text-primary-foreground" : "px-1.5 text-muted-foreground"
         }`}
         style={labelStyle}
@@ -272,246 +275,235 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
   );
 }
 
-function SpanRow({ item, window, ticks }: { item: Placed; window: number; ticks: number[] }) {
-  const [open, setOpen] = useState(false);
+function SpanRow({
+  item,
+  window,
+  ticks,
+  selected,
+  onSelect,
+}: {
+  item: Placed;
+  window: number;
+  ticks: number[];
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const span = item.span;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={`Inspect step ${span.sequence}: ${span.name}`}
+      className={`trace-step ${selected ? "bg-accent border-l-primary" : "border-l-transparent hover:bg-muted/60"}`}
+    >
+      <span className="flex min-w-0 items-center gap-3">
+        <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">{span.name}</span>
+          <span className="block text-xs text-muted-foreground">
+            {span.kind === "model_call" ? "Model generation" : "Tool call"}
+            {span.error ? " · Failed" : ""}
+          </span>
+        </span>
+      </span>
+      <span className="relative flex min-w-0 items-center">
+        <TickLines ticks={ticks} window={window} />
+        <WaterfallBar item={item} window={window} />
+      </span>
+      <ChevronDownIcon className={`h-4 w-4 text-muted-foreground ${selected ? "" : "-rotate-90"}`} />
+    </button>
+  );
+}
+
+function StepInspector({ item }: { item: Placed }) {
   const span = item.span;
   const model = span.kind === "model_call";
   return (
-    <div className="border-t border-border/80 first:border-t-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-controls={`span-${span.sequence}-detail`}
-        className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/50 sm:flex-nowrap"
-      >
-        <span className="order-1 flex min-w-0 w-full items-center gap-2 sm:order-none sm:w-[19rem] sm:shrink-0">
-          <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
-          <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
-          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {model ? "model" : "tool"}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{span.name}</span>
+    <section aria-label="Step inspector" className="mt-5 border-t pt-5">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">
+          Step {span.sequence} · {span.name}
+        </h3>
+        <span className="text-xs text-muted-foreground">
+          Started +{formatDuration(item.offset)} · {formatDuration(item.duration)}
         </span>
-        <span className="order-3 relative flex min-w-0 w-full items-center sm:order-none sm:flex-1">
-          <TickLines ticks={ticks} window={window} />
-          <WaterfallBar item={item} window={window} />
-        </span>
-        <span className="order-2 ml-auto shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:order-none sm:ml-0 sm:w-16">
-          <span className="mr-1 sm:hidden">Tokens</span>
-          {span.total_tokens ? `${formatTokens(span.total_tokens)} tok` : ""}
-        </span>
-        <span className={`order-2 inline-flex shrink-0 text-muted-foreground transition-transform sm:order-none ${open ? "rotate-180" : ""}`}>
-          <ChevronDownIcon />
-        </span>
-      </button>
-      {open && (
-        <div id={`span-${span.sequence}-detail`} className="flex flex-col gap-4 border-t bg-background/60 p-4 sm:p-5">
-          {span.error && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">{span.error}</div>
-          )}
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-muted-foreground">
-            <span>Started +{formatDuration(item.offset)} into the turn</span>
-            <span>Took {formatDuration(item.duration)}</span>
-            {span.prompt_tokens ? <span>Prompt {formatTokens(span.prompt_tokens)} tok</span> : null}
-            {span.cached_prompt_tokens ? <span>Cached {formatTokens(span.cached_prompt_tokens)} tok</span> : null}
-            {span.completion_tokens ? <span>Completion {formatTokens(span.completion_tokens)} tok</span> : null}
-          </div>
-          {model ? (
-            <details className="rounded-md border bg-card">
-              <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-medium">Prompt</summary>
-              <div className="border-t p-3"><Prompt request={span.request} /></div>
-            </details>
-          ) : <Body label="Arguments" text={span.request} />}
-          <Body label={model ? "Response" : "Output"} text={span.response} />
-        </div>
+      </div>
+      {span.error && (
+        <p role="alert" className="mb-4 text-sm text-destructive">
+          {span.error}
+        </p>
       )}
-    </div>
+      {model && (
+        <p className="mb-4 text-xs text-muted-foreground">
+          {formatTokens(span.prompt_tokens || 0)} prompt · {formatTokens(span.cached_prompt_tokens || 0)} cached ·{" "}
+          {formatTokens(span.completion_tokens || 0)} completion tokens
+        </p>
+      )}
+      <div className="grid min-w-0 gap-5 xl:grid-cols-2">
+        <div className="min-w-0">
+          <h4 className="mb-3 text-sm font-medium">{model ? "Request" : "Arguments"}</h4>
+          {model ? (
+            <Prompt request={span.request} />
+          ) : (
+            <pre className="code-panel max-h-96">{prettyBody(span.request) || "No arguments recorded."}</pre>
+          )}
+        </div>
+        <div className="min-w-0">
+          <h4 className="mb-3 text-sm font-medium">{model ? "Response" : "Output"}</h4>
+          <pre className="code-panel max-h-96">{prettyBody(span.response) || "No output recorded."}</pre>
+        </div>
+      </div>
+    </section>
   );
 }
 
 export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceSpan[] }) {
   const { placed, window, ticks } = useMemo(() => layoutSpans(trace, spans), [trace, spans]);
-  if (spans.length === 0) {
-    return (
-      <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-        This turn recorded no steps.
-      </div>
-    );
-  }
+  const [sequence, setSequence] = useState<number | null>(null);
+  const selected = placed.find((item) => item.span.sequence === sequence);
+  if (!spans.length) return <p className="py-6 text-sm text-muted-foreground">This turn recorded no steps.</p>;
   return (
-    <div className="overflow-hidden rounded-md border bg-card">
-      {/* The axis header carries the tick labels; the same tick positions are
-          repeated as hairlines behind every bar so a bar can be read against
-          the ruler without tracing back up to it. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/80 px-4 py-2.5">
-        <span className="w-full text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:w-[19rem] sm:shrink-0">
-          Step
-        </span>
-        <span className="relative h-4 w-full min-w-0 sm:flex-1">
-          {ticks.map((at) => (
-            <span
-              key={at}
-              className="absolute top-0 -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground"
-              style={{ left: `${(at / window) * 100}%` }}
-            >
-              {formatDuration(at)}
-            </span>
-          ))}
-          <span className="absolute top-0 right-0 text-[10px] tabular-nums text-muted-foreground">{formatDuration(window)}</span>
-        </span>
-        <span className="hidden w-16 shrink-0 sm:block" />
-        <span className="hidden w-4 shrink-0 sm:block" />
-      </div>
-      <div className="relative">
+    <div>
+      <div className="overflow-hidden rounded-md border bg-card">
+        <div className="trace-step trace-axis bg-muted/50 text-xs text-muted-foreground">
+          <span>Step</span>
+          <span className="relative h-4">
+            {ticks.map((at) => (
+              <span
+                key={at}
+                className="absolute -translate-x-1/2 text-xs tabular-nums"
+                style={{ left: `${(at / window) * 100}%` }}
+              >
+                {formatDuration(at)}
+              </span>
+            ))}
+            <span className="absolute right-0 text-xs tabular-nums">{formatDuration(window)}</span>
+          </span>
+          <span />
+        </div>
         {placed.map((item) => (
-          <SpanRow key={item.span.sequence} item={item} window={window} ticks={ticks} />
+          <SpanRow
+            key={item.span.sequence}
+            item={item}
+            window={window}
+            ticks={ticks}
+            selected={sequence === item.span.sequence}
+            onSelect={() => setSequence(item.span.sequence)}
+          />
         ))}
       </div>
-      <div className="flex items-center gap-4 border-t border-border bg-muted/40 px-4 py-2.5 text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-primary" /> LLM generation</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-sky-500 dark:bg-sky-400" /> Tool call</span>
-        <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-destructive" /> Failed</span>
-      </div>
+      {selected ? (
+        <StepInspector key={selected.span.sequence} item={selected} />
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">Select a step to inspect its request and response.</p>
+      )}
     </div>
   );
 }
 
-// --- The expanded turn ---------------------------------------------------
-
-function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
+export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
-    <div className="trace-detail-panel flex flex-col gap-5">
+    <article className="min-w-0 space-y-7">
+      <header>
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <SourceBadge trace={trace} />
+          <span>{formatTime(trace.started_at)}</span>
+          <TraceStatus trace={trace} />
+        </div>
+        <h2 className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed">
+          {trace.input || "Unprompted turn"}
+        </h2>
+        {trace.output && (
+          <details className="mt-3">
+            <summary className="cursor-pointer text-sm text-muted-foreground">View reply</summary>
+            <p className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{trace.output}</p>
+          </details>
+        )}
+      </header>
       {trace.error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{trace.error}</div>
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          {trace.error}
+        </p>
       )}
-      <div className="flex flex-col gap-2 border-b border-border/70 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-foreground">{trace.model || "Unknown model"}</p>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y py-4 2xl:grid-cols-4">
+        {[
+          ["Duration", formatDuration(trace.duration_ms)],
+          ["Tokens", formatTokens(trace.total_tokens)],
+          ["Steps", trace.spans],
+          ["Model", trace.model || "Unknown"],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="mt-1 break-words text-sm font-medium tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <section aria-label="Execution timeline">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold">Execution timeline</h3>
+          <span className="text-xs text-muted-foreground">
+            {formatTokens(trace.prompt_tokens)} prompt · {formatTokens(trace.completion_tokens)} completion ·{" "}
+            {formatTokens(trace.cached_prompt_tokens || 0)} cached tokens
+            {trace.effort ? ` · ${trace.effort} effort` : ""}
+          </span>
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{trace.spans} {trace.spans === 1 ? "step" : "steps"}</span>
-          <span className="text-border">/</span>
-          <span>{formatDuration(trace.duration_ms)}</span>
-          <span className="text-border">/</span>
-          <span>{formatTokens(trace.total_tokens)} tokens</span>
-          {!trace.complete && (
-            <span className="rounded border border-amber-500/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-              incomplete
-            </span>
-          )}
-        </div>
-      </div>
-      {/* The turn's own message and reply are not repeated here: the row above
-          already shows the message, and the transcript is where the reply is
-          read. What the transcript cannot show is the shape of the run, so
-          that is all this panel is. */}
-      <Waterfall trace={trace} spans={spans} />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>Replied on {trace.channel || "an unknown surface"}</span>
-        {trace.effort && <><span className="text-border">/</span><span>{trace.effort} effort</span></>}
-        <span className="text-border">/</span>
-        <span>{formatTokens(trace.prompt_tokens)} tok prompt</span>
-        {trace.cached_prompt_tokens ? <><span className="text-border">/</span><span>{formatTokens(trace.cached_prompt_tokens)} tok cached</span></> : null}
-        <span className="text-border">/</span>
-        <span>{formatTokens(trace.completion_tokens)} tok completion</span>
-      </div>
-    </div>
+        <Waterfall key={trace.id} trace={trace} spans={spans} />
+      </section>
+    </article>
   );
 }
 
-// The expanded turn loads its own detail. Fetching on expand rather than on
-// selection keeps a collapsed table cheap however many turns are listed.
-function TraceRow({
-  trace,
-  open,
-  onToggle,
-  onSessionExpired,
-}: {
-  trace: TraceSummary;
-  open: boolean;
-  onToggle: () => void;
-  onSessionExpired: (reason: unknown) => void;
-}) {
-  const [detail, setDetail] = useState<TraceDetail | null>(null);
-  const [failed, setFailed] = useState("");
+function TraceStatus({ trace }: { trace: TraceSummary }) {
+  return (
+    <span className={`text-xs ${trace.error ? "text-destructive" : "text-muted-foreground"}`}>
+      {trace.error ? "Failed" : trace.complete ? "Completed" : "Incomplete"}
+    </span>
+  );
+}
 
+function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired: (reason: unknown) => void }) {
+  const [detail, setDetail] = useState<TraceDetail | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!open || detail) return;
     let current = true;
-    getTrace(trace.id)
-      .then((loaded) => {
-        if (current) setDetail(loaded);
+    setError("");
+    getTrace(id)
+      .then((value) => {
+        if (current) setDetail(value);
       })
       .catch((reason) => {
-        if (current) setFailed(reason instanceof Error ? reason.message : "Could not load this turn");
+        if (!current) return;
+        setError(reason instanceof Error ? reason.message : "Could not load this turn");
         onSessionExpired(reason);
       });
     return () => {
       current = false;
     };
-  }, [open, detail, trace.id, onSessionExpired]);
-
-  return (
-    <tbody className="block border-t border-border/80 sm:table-row-group">
-      <tr className={`relative block transition-colors sm:table-row ${open ? "bg-accent/70" : "hover:bg-muted/40"}`}>
-        <td className="absolute left-3 top-4 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label={`${open ? "Collapse" : "Expand"} turn ${trace.input || trace.output || "without a message"}`}
-            aria-expanded={open}
-            aria-controls={`trace-${trace.id}-detail`}
-            className="flex h-11 w-8 items-center justify-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <span className={`inline-flex transition-transform ${open ? "rotate-180" : ""}`}><ChevronDownIcon /></span>
-          </button>
-        </td>
-        <td className="inline-block px-3 pb-1 pl-14 pt-4 align-middle sm:table-cell sm:px-3 sm:py-3.5 sm:pl-3"><SourceBadge trace={trace} /></td>
-        <td className="inline-block whitespace-nowrap px-3 pb-1 pt-4 align-middle text-xs text-muted-foreground sm:table-cell sm:px-3 sm:py-3.5">{formatTime(trace.started_at)}</td>
-        <td className="block max-w-none px-3 pb-1 pl-14 pt-1 align-middle sm:table-cell sm:w-full sm:max-w-0 sm:px-3 sm:py-3.5">
-          <div className="line-clamp-2 text-sm font-medium text-foreground sm:truncate">{trace.input || trace.output || "(no message)"}</div>
-        </td>
-        <td className="inline-block whitespace-nowrap px-3 pb-3 pl-14 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
-          <span className="mr-1 sm:hidden">Steps</span>{trace.spans}
-        </td>
-        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5">
-          <span className="mr-1 sm:hidden">Duration</span>
-          {formatDuration(trace.duration_ms)}
-        </td>
-        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:px-3 sm:py-2.5 sm:pr-4">
-          <span className="mr-1 sm:hidden">Tokens</span>
-          {formatTokens(trace.total_tokens)}
-        </td>
-        <td className="inline-block whitespace-nowrap px-3 pb-3 pt-1 pr-4 align-middle text-xs sm:table-cell sm:px-3 sm:py-2.5 sm:pr-4">
-          {trace.error ? <span className="text-destructive">error</span> : null}
-        </td>
-      </tr>
-      {open && (
-        <tr id={`trace-${trace.id}-detail`} className="block sm:table-row">
-          <td colSpan={8} className="block p-0 sm:table-cell">
-            {failed ? (
-              <div className="border-l-2 border-destructive/60 bg-destructive/10 px-4 py-3 text-sm text-destructive">{failed}</div>
-            ) : detail ? (
-              <TraceDetailPanel detail={detail} />
-            ) : (
-              <div className="border-l-2 border-border px-4 py-4 text-sm text-muted-foreground">Loading this turn...</div>
-            )}
-          </td>
-        </tr>
-      )}
-    </tbody>
-  );
+  }, [id, attempt, onSessionExpired]);
+  if (error)
+    return (
+      <div role="alert">
+        <p className="mb-3 text-sm text-destructive">{error}</p>
+        <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
+          Try again
+        </Button>
+      </div>
+    );
+  if (!detail)
+    return (
+      <p role="status" className="text-sm text-muted-foreground">
+        Loading turn…
+      </p>
+    );
+  return <TraceDetailPanel detail={detail} />;
 }
-
-// --- Grouping ------------------------------------------------------------
-//
-// A turn is rarely interesting on its own: a question, its follow-up and the
-// correction after it are one piece of work, and the thing you want to see is
-// how that work ran. So the table's unit is the conversation and the turns sit
-// inside it -- the list stays newest-first, and a conversation sits wherever
-// its newest turn put it.
 
 export type TraceGroup = {
   // key identifies the group; conversationId only names it. /clear splits one
@@ -539,7 +531,17 @@ export function groupTracesByConversation(traces: TraceSummary[]): TraceGroup[] 
     const key = `${conversationId}\u0000${trace.session || ""}`;
     let group = byConversation.get(key);
     if (!group) {
-      group = { key, conversationId, traces: [], startedAt: trace.started_at, lastAt: trace.started_at, durationMs: 0, totalTokens: 0, spans: 0, errors: 0 };
+      group = {
+        key,
+        conversationId,
+        traces: [],
+        startedAt: trace.started_at,
+        lastAt: trace.started_at,
+        durationMs: 0,
+        totalTokens: 0,
+        spans: 0,
+        errors: 0,
+      };
       byConversation.set(key, group);
       groups.push(group);
     }
@@ -569,135 +571,131 @@ export function conversationLabel(group: TraceGroup, titles: Record<string, stri
   return channel ? `${SOURCE_LABEL[channel] ?? channel} conversation` : group.conversationId;
 }
 
-function ConversationHeader({
-  group,
-  label,
-  collapsed,
-  onToggle,
-}: {
-  group: TraceGroup;
-  label: string;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <tr className="block border-t bg-muted/50 transition-colors hover:bg-muted sm:table-row">
-      <td className="absolute left-3 top-3 w-auto p-0 align-middle sm:static sm:w-8 sm:pl-3">
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={`${collapsed ? "Expand" : "Collapse"} conversation ${label}`}
-          aria-expanded={!collapsed}
-          className="flex h-11 w-8 items-center justify-center text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <span className={`inline-flex transition-transform ${collapsed ? "-rotate-90" : ""}`}><ChevronDownIcon /></span>
-        </button>
-      </td>
-      <td colSpan={3} className="block px-3 pb-1 pl-14 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-semibold text-foreground">{label}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {group.traces.length} {group.traces.length === 1 ? "turn" : "turns"}
-          </span>
-          {group.errors > 0 && (
-            <span className="shrink-0 text-[11px] text-destructive">
-              {group.errors} failed
-            </span>
-          )}
-        </div>
-        <div className="mt-0.5 text-[11px] text-muted-foreground">Last turn {formatTime(group.lastAt)}</div>
-      </td>
-      <td className="inline-block px-3 pb-3 pl-14 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pl-3">
-        <span className="mr-1 sm:hidden">Steps</span>
-        {group.spans}
-      </td>
-      <td className="inline-block px-3 pb-3 pt-1 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5">
-        <span className="mr-1 sm:hidden">Duration</span>
-        {formatDuration(group.durationMs)}
-      </td>
-      <td className="inline-block px-3 pb-3 pt-1 pr-4 text-right align-middle text-xs tabular-nums text-muted-foreground sm:table-cell sm:py-2.5 sm:pr-4">
-        <span className="mr-1 sm:hidden">Tokens</span>
-        {formatTokens(group.totalTokens)}
-      </td>
-      <td className="hidden sm:table-cell" />
-    </tr>
-  );
-}
-
-export function TraceTable({
+export function TraceBrowser({
   traces,
-  expanded,
-  onToggle,
-  onSessionExpired,
   titles = {},
+  onSessionExpired,
 }: {
   traces: TraceSummary[];
-  expanded: string | null;
-  onToggle: (traceId: string) => void;
-  onSessionExpired: (reason: unknown) => void;
   titles?: Record<string, string>;
+  onSessionExpired: (reason: unknown) => void;
 }) {
   const groups = useMemo(() => groupTracesByConversation(traces), [traces]);
-  // Conversations open by default: collapsing is for putting a conversation
-  // you have read away, not a wall the turns start behind.
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [groupKey, setGroupKey] = useState<string | null>(null);
+  const [traceId, setTraceId] = useState<string | null>(null);
+  const group = groups.find((item) => item.key === groupKey) ?? groups[0];
+  const selected = group?.traces.find((trace) => trace.id === traceId);
+  const browserRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLElement>(null);
+  const turnControl = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (selected) {
+      inspectorRef.current?.focus({ preventScroll: true });
+      if (inspectorRef.current) inspectorRef.current.scrollTop = 0;
+      if (browserRef.current) browserRef.current.scrollTop = 0;
+    } else if (turnControl.current?.isConnected) {
+      turnControl.current.focus({ preventScroll: true });
+    }
+  }, [selected?.id]);
   return (
-    <div className="scrollbar-slim overflow-x-auto rounded-md border bg-card">
-      <table className="block w-full min-w-0 border-collapse text-left sm:table">
-        <thead className="hidden bg-muted/80 sm:table-header-group">
-          <tr className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-            <th className="w-8" />
-            <th className="px-3 py-2">Source</th>
-            <th className="px-3 py-2">Started</th>
-            <th className="px-3 py-2">Turn</th>
-            <th className="px-3 py-2 text-right">Steps</th>
-            <th className="px-3 py-2 text-right">Duration</th>
-            <th className="px-3 py-2 pr-4 text-right">Tokens</th>
-            <th className="px-3 py-2 pr-4" />
-          </tr>
-        </thead>
-        {groups.map((group) => {
-          const shut = collapsed[group.key] ?? false;
-          return (
-            <Fragment key={group.key || "unassigned"}>
-              <tbody className="relative block sm:table-row-group">
-                <ConversationHeader
-                  group={group}
-                  label={conversationLabel(group, titles)}
-                  collapsed={shut}
-                  onToggle={() =>
-                    setCollapsed((current) => ({ ...current, [group.key]: !shut }))
-                  }
-                />
-              </tbody>
-              {!shut &&
-                group.traces.map((trace) => (
-                  <TraceRow
-                    key={trace.id}
-                    trace={trace}
-                    open={expanded === trace.id}
-                    onToggle={() => onToggle(trace.id)}
-                    onSessionExpired={onSessionExpired}
-                  />
-                ))}
-            </Fragment>
-          );
-        })}
-      </table>
+    <div ref={browserRef} className="trace-browser">
+      <aside aria-label="Conversations" className={`trace-conversations ${selected ? "hidden lg:block" : ""}`}>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Conversations</h2>
+          <span className="text-xs text-muted-foreground">{groups.length}</span>
+        </div>
+        <div className="trace-conversation-list">
+          {groups.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-label={`Select conversation ${conversationLabel(item, titles)}`}
+              aria-pressed={group?.key === item.key}
+              onClick={() => {
+                setGroupKey(item.key);
+                setTraceId(null);
+              }}
+              className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${group?.key === item.key ? "border-border bg-card shadow-sm" : "border-transparent hover:bg-muted"}`}
+            >
+              <span className="block truncate text-sm font-medium">{conversationLabel(item, titles)}</span>
+              <span className="mt-1.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+                <span>
+                  {item.traces.length} {item.traces.length === 1 ? "turn" : "turns"}
+                </span>
+                {item.errors > 0 && <span className="text-destructive">{item.errors} failed</span>}
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">{formatTime(item.lastAt)}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+      <section aria-label="Turns" className={`trace-turns ${selected ? "hidden lg:block" : ""}`}>
+        <div className="border-b px-5 py-4">
+          <h2 className="truncate text-sm font-semibold">{group ? conversationLabel(group, titles) : "Turns"}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">Select a turn to inspect</p>
+        </div>
+        {group?.traces.map((trace) => (
+          <button
+            key={trace.id}
+            type="button"
+            aria-label={`Inspect turn ${trace.input || "Unprompted turn"}`}
+            aria-pressed={selected?.id === trace.id}
+            onClick={(event) => {
+              turnControl.current = event.currentTarget;
+              setGroupKey(group.key);
+              setTraceId(trace.id);
+            }}
+            className={`w-full border-b border-l-2 px-5 py-4 text-left transition-colors ${selected?.id === trace.id ? "border-l-primary bg-accent/60" : "border-l-transparent hover:bg-muted/50"}`}
+          >
+            <span className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">{formatTime(trace.started_at)}</span>
+              <TraceStatus trace={trace} />
+            </span>
+            <span className="line-clamp-2 break-words text-sm font-medium leading-6">
+              {trace.input || "Unprompted turn"}
+            </span>
+            <span className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+              <span>{formatDuration(trace.duration_ms)}</span>
+              <span>
+                {trace.spans} {trace.spans === 1 ? "step" : "steps"}
+              </span>
+              <span className="ml-auto">Inspect →</span>
+            </span>
+          </button>
+        ))}
+      </section>
+      <section
+        ref={inspectorRef}
+        tabIndex={-1}
+        aria-label="Turn inspector"
+        className={`trace-inspector ${selected ? "" : "hidden lg:block"}`}
+      >
+        {selected ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setTraceId(null)}
+              className="mb-5 flex min-h-11 items-center gap-2 text-sm text-muted-foreground lg:hidden"
+            >
+              <ChevronLeftIcon />
+              Back to turns
+            </button>
+            <TraceInspector key={selected.id} id={selected.id} onSessionExpired={onSessionExpired} />
+          </>
+        ) : (
+          <div className="flex min-h-64 flex-col justify-center gap-2 text-center">
+            <h2 className="text-base font-medium">Select a turn to inspect</h2>
+            <p className="text-sm text-muted-foreground">Review its outcome, timing, and individual steps.</p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
-export function TracesPage({
-  onSessionExpired,
-  onBackToChat,
-}: {
-  onSessionExpired: () => void;
-  onBackToChat: () => void;
-}) {
+export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -712,8 +710,7 @@ export function TracesPage({
     [onSessionExpired],
   );
 
-  // A row that fails on its own reports the failure inline; only an expired
-  // session has to reach the app, so the row handler passes through the rest.
+  // Detail failures stay in the inspector; expired sessions return to login.
   const rowFailed = useCallback(
     (reason: unknown) => {
       if (reason instanceof SessionExpiredError) onSessionExpired();
@@ -751,60 +748,33 @@ export function TracesPage({
   useEffect(reload, [reload]);
 
   return (
-    <div className="app-canvas flex h-full min-h-0 flex-col">
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-5">
-        <button
-          type="button"
-          onClick={onBackToChat}
-          className="flex h-11 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <ChevronLeftIcon />
-          Back to chat
-        </button>
-        <div className="ml-auto">
-          <Button variant="ghost" onClick={reload} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-5 sm:px-7">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Traces</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Follow a conversation from request to execution.</p>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-muted-foreground">{traces.length} recent turns</span>
+          <Button variant="outline" onClick={reload} disabled={loading}>
+            {loading ? "Loading…" : "Refresh"}
           </Button>
         </div>
-      </div>
-      <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-8 sm:px-8 sm:py-10">
-          <header className="flex max-w-3xl flex-col gap-1.5">
-            <h1 className="text-3xl font-semibold tracking-tight">Traces</h1>
-            <p className="text-sm leading-6 text-muted-foreground">
-              Inspect model calls, tool activity, timing, and token use by conversation.
-            </p>
-          </header>
-          {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-          {traces.length === 0 ? (
-            !error && (
-              <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-                {loading ? "Loading turns..." : "No turns recorded yet. Send a message and it will appear here."}
-              </div>
-            )
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4">
-                {[
-                  ["Conversations", groupTracesByConversation(traces).length],
-                  ["Turns", traces.length],
-                  ["Tokens", formatTokens(traces.reduce((sum, trace) => sum + trace.total_tokens, 0))],
-                  ["Failed", traces.filter((trace) => trace.error).length],
-                ].map(([label, value]) => (
-                  <div key={label} className="bg-card px-4 py-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-medium tabular-nums">{value}</p></div>
-                ))}
-              </div>
-              <TraceTable
-                traces={traces}
-                expanded={expanded}
-                titles={titles}
-                onToggle={(traceId) => setExpanded((current) => (current === traceId ? null : traceId))}
-                onSessionExpired={rowFailed}
-              />
-            </>
-          )}
-        </div>
-      </div>
+      </header>
+      {error && (
+        <p role="alert" className="m-5 rounded-md border border-destructive/30 p-4 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {traces.length ? (
+        <TraceBrowser traces={traces} titles={titles} onSessionExpired={rowFailed} />
+      ) : (
+        !error && (
+          <div role="status" className="p-12 text-center text-sm text-muted-foreground">
+            {loading ? "Loading turns…" : "No turns recorded yet. Send a message and it will appear here."}
+          </div>
+        )
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ConfigPage } from "../src/ConfigPage";
-import { TraceTable, Waterfall } from "../src/TracesPage";
+import { TraceBrowser, Waterfall } from "../src/TracesPage";
 import { Button } from "../src/components/ui/button";
 import { Input } from "../src/components/ui/input";
 import { Select } from "../src/components/ui/select";
@@ -45,7 +45,6 @@ test("settings expose a compact mobile section navigation", () => {
       theme: "dark",
       onThemeChange: () => {},
       onSessionExpired: () => {},
-      onBackToChat: () => {},
     }),
   );
 
@@ -54,30 +53,26 @@ test("settings expose a compact mobile section navigation", () => {
   expect(html).toContain("hidden md:flex");
 });
 
-test("trace rows expose their metrics as a stacked mobile card", () => {
+test("trace list presents labelled turn controls and duration without a wide table", () => {
   const html = renderToStaticMarkup(
-    createElement(TraceTable, {
+    createElement(TraceBrowser, {
       traces: [trace],
-      expanded: null,
-      onToggle: () => {},
       onSessionExpired: () => {},
     }),
   );
 
-  expect(html).toContain("min-w-0");
-  expect(html).toContain("sm:table-row");
-  expect(html).toContain("Steps");
-  expect(html).toContain("Duration");
-  expect(html).toContain("Tokens");
-  expect(html).not.toContain("min-w-[58rem]");
+  expect(html).toContain('aria-label="Inspect turn question"');
+  expect(html).toContain("7.5s");
+  expect(html).toContain("1 step");
+  expect(html).not.toContain("<table");
 });
 
-test("waterfall span rows give the chart the full mobile width", () => {
+test("waterfall steps are keyboard selectable", () => {
   const html = renderToStaticMarkup(createElement(Waterfall, { trace, spans }));
 
-  expect(html).toContain("min-w-0 w-full");
-  expect(html).toContain("order-3");
-  expect(html).toContain("sm:order-none");
+  expect(html).toContain('aria-label="Inspect step 1: deepseek-v4-pro"');
+  expect(html).toContain('aria-pressed="false"');
+  expect(html).toContain("trace-step");
 });
 
 test("form controls expose phone-sized touch targets", () => {

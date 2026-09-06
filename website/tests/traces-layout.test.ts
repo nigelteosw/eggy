@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Body, timelineTicks, TraceTable, Waterfall } from "../src/TracesPage";
+import { timelineTicks, TraceBrowser, Waterfall } from "../src/TracesPage";
 import type { TraceSpan, TraceSummary } from "../src/api";
 
 test("timeline omits a tick that would collide with the duration label", () => {
@@ -41,7 +41,7 @@ test("timeline grid lines stay inside each step row", () => {
   for (const button of stepButtons) expect(button).toContain("bg-border/70");
 });
 
-test("trace expansion is exposed through keyboard controls", () => {
+test("trace selection is exposed through keyboard controls", () => {
   const trace: TraceSummary = {
     id: "trace-1",
     conversation_id: "thread-1",
@@ -60,24 +60,14 @@ test("trace expansion is exposed through keyboard controls", () => {
     completion_tokens: 20,
   };
   const html = renderToStaticMarkup(
-    createElement(TraceTable, {
+    createElement(TraceBrowser, {
       traces: [trace],
-      expanded: null,
       titles: { "thread-1": "Deploy Eggy" },
-      onToggle: () => {},
       onSessionExpired: () => {},
     }),
   );
 
-  expect(html).toContain('aria-label="Collapse conversation Deploy Eggy"');
-  expect(html).toContain('aria-label="Expand turn question"');
-  expect(html).toContain('aria-expanded="false"');
-});
-
-test("recorded payloads start collapsed", () => {
-  const html = renderToStaticMarkup(createElement(Body, { label: "Arguments", text: '{"path":"/tmp"}' }));
-
-  expect(html).toContain("<details");
-  expect(html).not.toContain("<details open");
-  expect(html).toContain("Arguments");
+  expect(html).toContain('aria-label="Select conversation Deploy Eggy"');
+  expect(html).toContain('aria-label="Inspect turn question"');
+  expect(html).toContain('aria-pressed="true"');
 });

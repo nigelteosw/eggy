@@ -5,8 +5,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["'Encode Sans Semi Expanded'", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
-        mono: ["'DM Mono'", "'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
+        sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+        mono: ["'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",

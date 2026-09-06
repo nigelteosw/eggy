@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { conversationLabel, groupTracesByConversation, TraceTable } from "../src/TracesPage";
+import { conversationLabel, groupTracesByConversation, TraceBrowser } from "../src/TracesPage";
 import type { TraceSummary } from "../src/api";
 
 function trace(id: string, conversation: string, startedAt: string, extra: Partial<TraceSummary> = {}): TraceSummary {
@@ -56,13 +56,11 @@ test("a conversation is named by its thread title, and by its surface without on
   expect(conversationLabel(telegram, {})).toBe("Telegram");
 });
 
-test("the table renders one header per conversation above its turns", () => {
+test("the browser shows only the selected conversation turns", () => {
   const html = renderToStaticMarkup(
-    createElement(TraceTable, {
+    createElement(TraceBrowser, {
       traces,
-      expanded: null,
       titles: { "thread-1": "Roof repairs" },
-      onToggle: () => {},
       onSessionExpired: () => {},
     }),
   );
@@ -70,6 +68,8 @@ test("the table renders one header per conversation above its turns", () => {
   expect(html).toContain("Roof repairs");
   expect(html).toContain("2 turns");
   expect(html).toContain("1 failed");
+  expect(html).not.toContain("question t2");
+  expect(html).not.toContain("<table");
   expect(html.indexOf("Roof repairs")).toBeLessThan(html.indexOf("question t3"));
 });
 

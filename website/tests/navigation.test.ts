@@ -24,7 +24,6 @@ test("settings navigation groups configuration by user intent", () => {
       theme: "dark",
       onThemeChange: () => {},
       onSessionExpired: () => {},
-      onBackToChat: () => {},
     }),
   );
   const labels = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
@@ -39,3 +38,16 @@ test("settings navigation groups configuration by user intent", () => {
     "Advanced",
   ]);
 });
+
+import { AppNavigation } from "../src/App";
+
+for (const view of ["chat", "traces", "config"] as const) {
+  test(`global navigation keeps all destinations reachable from ${view}`, () => {
+    const html = renderToStaticMarkup(createElement(AppNavigation, { view, onNavigate: () => {} }));
+    expect(html).toContain('aria-label="Main navigation"');
+    expect(html).toContain('href="/"');
+    expect(html).toContain('href="/traces"');
+    expect(html).toContain('href="/settings"');
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1);
+  });
+}

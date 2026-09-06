@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { Thread, deleteThread, listThreads, renameThread } from "./api";
-import { PanelIcon, PlusIcon, SettingsIcon, TraceIcon } from "./components/ui/icons";
+import { PanelIcon, PlusIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 const initialThreadMaxAgeMs = 5 * 60 * 1000;
@@ -78,8 +78,6 @@ export function ThreadSidebar({
   onDeleted,
   onActiveTitleChange,
   onCollapse,
-  onOpenSettings,
-  onOpenTraces,
   reloadKey,
   draftOpen,
 }: {
@@ -92,8 +90,6 @@ export function ThreadSidebar({
   // the component that already holds the list and reloads it after a rename.
   onActiveTitleChange: (title: string) => void;
   onCollapse: () => void;
-  onOpenSettings: () => void;
-  onOpenTraces: () => void;
   reloadKey: number;
   draftOpen: boolean;
 }) {
@@ -244,7 +240,7 @@ export function ThreadSidebar({
       className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col border-r bg-background md:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
-      <div className="flex h-16 items-center gap-2 border-b border-border/60 px-3">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3">
         <button
           type="button"
           onClick={onCollapse}
@@ -254,7 +250,7 @@ export function ThreadSidebar({
         >
           <PanelIcon />
         </button>
-        <span className="text-base font-semibold tracking-tight">Eggy</span>
+        <span className="text-base font-semibold tracking-tight">Conversations</span>
       </div>
 
       <div className="flex items-center justify-between px-4 pb-2 pt-5">
@@ -378,32 +374,6 @@ export function ThreadSidebar({
         )}
       </div>
 
-      {/* Settings is the last thing in the rail rather than a button floating
-          over the transcript: it is a destination like every chat above it,
-          and pinning it here means the corner of the chat pane belongs to the
-          conversation. */}
-      <div className="shrink-0 border-t border-border p-2">
-        <button
-          type="button"
-          onClick={onOpenTraces}
-          className="flex h-11 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-            <TraceIcon />
-          </span>
-          Traces
-        </button>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="flex h-11 w-full items-center gap-3 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-            <SettingsIcon />
-          </span>
-          Settings
-        </button>
-      </div>
       <button
         type="button"
         role="separator"

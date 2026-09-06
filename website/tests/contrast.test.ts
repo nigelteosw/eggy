@@ -45,9 +45,9 @@ test("assistant markdown inherits Eggy's readable foreground palette", () => {
   for (const declaration of required) expect(declaration.test(rule)).toBeTrue();
 });
 
-test("user markdown keeps every text treatment readable on the green bubble", () => {
+test("user markdown keeps every text treatment readable on the neutral bubble", () => {
   const rule = ruleFor("user-message");
   for (const property of ["body", "headings", "lead", "links", "bold", "quotes", "kbd", "code", "pre-code"]) {
-    expect(rule).toContain(`--tw-prose-${property}: hsl(var(--primary-foreground))`);
+    expect(rule).toContain(`--tw-prose-${property}: hsl(var(--foreground))`);
   }
 });

@@ -107,7 +107,7 @@ When the configured path does not exist, Eggy atomically generates a valid basel
 
 The web settings panel writes supported sections directly to `config.yaml`. Nothing in the running process re-reads that file, because bootstrap builds providers, tools, channels, and routes once at startup. A write takes effect on the next restart, and both surfaces say so on every write.
 
-Schedules and procedural skills are not YAML configuration. They live as reviewed files under `cron/` and `skills/` in the Eggy home.
+Procedural skills are not YAML configuration: they live as reviewed Markdown files under `skills/` in the Eggy home. Schedules are not configuration either, and are machine-managed records in `eggy.db`, created and cancelled through the `schedule` tool or the web panel.
 
 ## Restarting to apply config
 
@@ -122,7 +122,7 @@ What happens, in order:
 3. **The old daemon closes down.** MCP clients disconnect and the conversation database closes, then the HTTP listener shuts down gracefully so requests already in flight get their responses — including the panel's own restart request, which is why the button gets an answer rather than a dropped connection.
 4. **A new daemon is built from the current `config.yaml`.** Providers, model aliases, MCP servers, repositories, the heartbeat, the scheduler, and the listen address are all rebuilt from what the file says now.
 
-Durable state is on the volume, not in memory, so it survives: conversation history, memory, approvals, the auto-mode setting, schedules in `cron/`, and thread-attached checkouts are all reattached by the new daemon exactly as a redeploy would leave them.
+Durable state is on the volume, not in memory, so it survives: conversation history, memory, approvals, the auto-mode setting, schedules, and thread-attached checkouts are all reattached by the new daemon exactly as a redeploy would leave them.
 
 The panel goes quiet while this happens: its chat stream is served by the daemon being replaced, so reload the page once the new one is listening.
 

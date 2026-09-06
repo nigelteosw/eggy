@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/auth/authfile"
+	"github.com/nigelteosw/eggy/plugins/auth/grants"
 )
 
 var (
@@ -35,25 +35,25 @@ type OAuthRecord struct {
 	TokenEndpointAuthMethod string    `json:"token_endpoint_auth_method,omitempty"`
 }
 
-// OAuthStore keeps every server's OAuth record in the shared auth.json
-// document (section "mcp", one key per server) rather than in a file tree of
-// its own. Each record is sealed with AES-256-GCM under EGGY_ENCRYPTION_KEY
-// and bound to its server name and URL, so a record cannot be replayed
-// against a different server even by an owner editing auth.json by hand.
+// OAuthStore keeps every server's OAuth record in the shared auth-record
+// store (section "mcp", one key per server) rather than in a file tree of its
+// own. Each record is sealed with AES-256-GCM under EGGY_ENCRYPTION_KEY and
+// bound to its server name and URL, so a record cannot be replayed against a
+// different server even by someone who can read the database.
 type OAuthStore struct {
-	file   *authfile.Store
-	sealer *authfile.Sealer
+	records grants.Records
+	sealer  *grants.Sealer
 }
 
 const oauthSection = "mcp"
 
-// OpenOAuthStore opens the store over an auth.json path.
-func OpenOAuthStore(authPath, encodedKey string) (*OAuthStore, error) {
-	sealer, err := authfile.NewSealer("MCP OAuth", encodedKey)
+// OpenOAuthStore opens the store over the shared auth-record container.
+func OpenOAuthStore(records grants.Records, encodedKey string) (*OAuthStore, error) {
+	sealer, err := grants.NewSealer("MCP OAuth", encodedKey)
 	if err != nil {
 		return nil, err
 	}
-	return &OAuthStore{file: authfile.Open(authPath), sealer: sealer}, nil
+	return &OAuthStore{records: records, sealer: sealer}, nil
 }
 
 func (s *OAuthStore) Save(server, serverURL string, record OAuthRecord) error {
@@ -64,15 +64,15 @@ func (s *OAuthStore) Save(server, serverURL string, record OAuthRecord) error {
 	if err != nil {
 		return err
 	}
-	return s.file.Write(oauthSection, server, sealed)
+	return s.records.Write(oauthSection, server, sealed)
 }
 
 func (s *OAuthStore) Load(server, serverURL string) (OAuthRecord, error) {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return OAuthRecord{}, err
 	}
-	stored, err := s.file.Read(oauthSection, server)
-	if errors.Is(err, authfile.ErrNotFound) {
+	stored, err := s.records.Read(oauthSection, server)
+	if errors.Is(err, grants.ErrNotFound) {
 		return OAuthRecord{}, ErrOAuthRecordNotFound
 	}
 	if err != nil {
@@ -85,7 +85,7 @@ func (s *OAuthStore) Update(server, serverURL string, update func(*OAuthRecord) 
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return err
 	}
-	return s.file.Update(oauthSection, server, func(stored json.RawMessage) (json.RawMessage, error) {
+	return s.records.Update(oauthSection, server, func(stored json.RawMessage) (json.RawMessage, error) {
 		record := OAuthRecord{Version: 1, ServerURL: serverURL}
 		if stored != nil {
 			opened, err := s.open(stored, server, serverURL)
@@ -105,7 +105,7 @@ func (s *OAuthStore) Delete(server, serverURL string) error {
 	if err := validateOAuthKey(server, serverURL); err != nil {
 		return err
 	}
-	return s.file.Delete(oauthSection, server)
+	return s.records.Delete(oauthSection, server)
 }
 
 func (s *OAuthStore) seal(server, serverURL string, record OAuthRecord) (json.RawMessage, error) {

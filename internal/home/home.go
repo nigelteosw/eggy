@@ -5,18 +5,19 @@
 //	<home>/
 //	  config.yaml   startup settings
 //	  .env          API keys and secrets, never read through the web API
-//	  auth.json     OAuth provider credentials for MCP servers
 //	  SOUL.md       durable agent identity, first slot in the system prompt
 //	  memories/     MEMORY.md, USER.md, WATCH.md
 //	  skills/       reviewed procedural skills
-//	  cron/         scheduled jobs, one file per job
 //	  logs/         gateway.log, errors.log (secrets redacted)
-//	  state.json    internal runtime state
-//	  eggy.db       conversation memory
+//	  eggy.db       every machine-managed record: conversation history and
+//	                traces, runtime state, approvals, schedules, and sealed
+//	                OAuth grants
 //	  runs/         read-only repository checkouts
 //
-// Owner-facing Markdown is edited outside Eggy. Machine-managed files are not
-// exposed through the web API.
+// Owner-facing Markdown is edited outside Eggy. Machine-managed records live
+// in eggy.db and are not exposed through the web API. A home written before
+// the SQLite consolidation also carries state.json, cron/, and auth.json;
+// those are imported on the first boot of this build and renamed aside.
 package home
 
 import (
@@ -54,24 +55,33 @@ const (
 	ErrorsLogName  = "errors.log"
 )
 
-func (l Layout) Config() string   { return filepath.Join(l.Root, "config.yaml") }
-func (l Layout) Env() string      { return filepath.Join(l.Root, ".env") }
-func (l Layout) Auth() string     { return filepath.Join(l.Root, "auth.json") }
+func (l Layout) Config() string { return filepath.Join(l.Root, "config.yaml") }
+func (l Layout) Env() string    { return filepath.Join(l.Root, ".env") }
+
 func (l Layout) Soul() string     { return filepath.Join(l.Root, "SOUL.md") }
 func (l Layout) Memories() string { return filepath.Join(l.Root, "memories") }
 func (l Layout) Memory() string   { return filepath.Join(l.Memories(), "MEMORY.md") }
 func (l Layout) User() string     { return filepath.Join(l.Memories(), "USER.md") }
 func (l Layout) Watch() string    { return filepath.Join(l.Memories(), "WATCH.md") }
 func (l Layout) Skills() string   { return filepath.Join(l.Root, "skills") }
-func (l Layout) Cron() string     { return filepath.Join(l.Root, "cron") }
-func (l Layout) Logs() string     { return filepath.Join(l.Root, "logs") }
-func (l Layout) State() string    { return filepath.Join(l.Root, "state.json") }
+
+func (l Layout) Logs() string { return filepath.Join(l.Root, "logs") }
+
 func (l Layout) Database() string { return filepath.Join(l.Root, "eggy.db") }
 func (l Layout) Runs() string     { return filepath.Join(l.Root, "runs") }
 
+// The legacy artifacts a home kept before machine state consolidated into
+// eggy.db. Nothing writes them: they exist so the boot import can find what
+// an older Eggy left behind, and so the archive it renames them to is named
+// in one place. They stay until a home that predates the consolidation is no
+// longer a thing anyone can be running.
+func (l Layout) LegacyState() string { return filepath.Join(l.Root, "state.json") }
+func (l Layout) LegacyAuth() string  { return filepath.Join(l.Root, "auth.json") }
+func (l Layout) LegacyCron() string  { return filepath.Join(l.Root, "cron") }
+
 // Directories lists every directory the layout owns, in creation order.
 func (l Layout) Directories() []string {
-	return []string{l.Root, l.Memories(), l.Skills(), l.Cron(), l.Logs()}
+	return []string{l.Root, l.Memories(), l.Skills(), l.Logs()}
 }
 
 // Ensure creates the home directory and its subdirectories.

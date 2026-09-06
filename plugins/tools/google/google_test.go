@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +21,7 @@ func testStore(t *testing.T) *TokenStore {
 	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)
 	}
-	store, err := OpenTokenStore(filepath.Join(t.TempDir(), "auth.json"), base64.StdEncoding.EncodeToString(key))
+	store, err := OpenTokenStore(newMemoryRecords(), base64.StdEncoding.EncodeToString(key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,34 +541,25 @@ func TestToolsPointAtTheLoginCommand(t *testing.T) {
 }
 
 func TestTokenRecordIsSealedAtRest(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.json")
+	records := newMemoryRecords()
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)
 	}
-	store, err := OpenTokenStore(path, base64.StdEncoding.EncodeToString(key))
+	store, err := OpenTokenStore(records, base64.StdEncoding.EncodeToString(key))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(TokenRecord{Version: 1, RefreshToken: "a-very-secret-refresh-token"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := readFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(raw, "a-very-secret-refresh-token") {
+	if strings.Contains(string(records.raw(tokenSection, tokenKey)), "a-very-secret-refresh-token") {
 		t.Fatal("the refresh token was written in the clear")
 	}
 	record, err := store.Load()
 	if err != nil || record.RefreshToken != "a-very-secret-refresh-token" {
 		t.Fatalf("record=%#v err=%v", record, err)
 	}
-}
-
-func readFile(path string) (string, error) {
-	body, err := os.ReadFile(path)
-	return string(body), err
 }
 
 // Reading only the primary calendar answers "nothing today" while a work or

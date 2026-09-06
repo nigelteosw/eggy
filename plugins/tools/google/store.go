@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/auth/authfile"
+	"github.com/nigelteosw/eggy/plugins/auth/grants"
 )
 
 var ErrNotAuthorized = errors.New("Google Workspace is not authorized")
@@ -37,13 +37,13 @@ type TokenRecord struct {
 // forcing consent.
 func (r TokenRecord) Authorized() bool { return r.RefreshToken != "" || r.AccessToken != "" }
 
-// TokenStore keeps the record in the shared auth.json document under section
+// TokenStore keeps the record in the shared auth-record store under section
 // "google", sealed with AES-256-GCM under EGGY_ENCRYPTION_KEY. Hermes writes
 // the equivalent as plaintext JSON in the home directory; there is no reason
 // to give up the store Eggy already has.
 type TokenStore struct {
-	file   *authfile.Store
-	sealer *authfile.Sealer
+	records grants.Records
+	sealer  *grants.Sealer
 }
 
 const (
@@ -51,19 +51,19 @@ const (
 	tokenKey     = "workspace"
 )
 
-func OpenTokenStore(authPath, encodedKey string) (*TokenStore, error) {
-	sealer, err := authfile.NewSealer("Google", encodedKey)
+func OpenTokenStore(records grants.Records, encodedKey string) (*TokenStore, error) {
+	sealer, err := grants.NewSealer("Google", encodedKey)
 	if err != nil {
 		return nil, err
 	}
-	return &TokenStore{file: authfile.Open(authPath), sealer: sealer}, nil
+	return &TokenStore{records: records, sealer: sealer}, nil
 }
 
 // Load returns a zero record rather than an error when nothing is stored: an
 // unauthorized daemon is an ordinary state on first boot, not a fault.
 func (s *TokenStore) Load() (TokenRecord, error) {
-	stored, err := s.file.Read(tokenSection, tokenKey)
-	if errors.Is(err, authfile.ErrNotFound) {
+	stored, err := s.records.Read(tokenSection, tokenKey)
+	if errors.Is(err, grants.ErrNotFound) {
 		return TokenRecord{Version: 1}, nil
 	}
 	if err != nil {
@@ -77,11 +77,11 @@ func (s *TokenStore) Save(record TokenRecord) error {
 	if err != nil {
 		return err
 	}
-	return s.file.Write(tokenSection, tokenKey, sealed)
+	return s.records.Write(tokenSection, tokenKey, sealed)
 }
 
 func (s *TokenStore) Update(update func(*TokenRecord) error) error {
-	return s.file.Update(tokenSection, tokenKey, func(stored json.RawMessage) (json.RawMessage, error) {
+	return s.records.Update(tokenSection, tokenKey, func(stored json.RawMessage) (json.RawMessage, error) {
 		record := TokenRecord{Version: 1}
 		if stored != nil {
 			opened, err := s.open(stored)
@@ -97,7 +97,7 @@ func (s *TokenStore) Update(update func(*TokenRecord) error) error {
 	})
 }
 
-func (s *TokenStore) Delete() error { return s.file.Delete(tokenSection, tokenKey) }
+func (s *TokenStore) Delete() error { return s.records.Delete(tokenSection, tokenKey) }
 
 func (s *TokenStore) seal(record TokenRecord) (json.RawMessage, error) {
 	record.Version = 1

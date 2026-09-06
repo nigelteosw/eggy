@@ -15,11 +15,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/grants"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
-	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
-	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
-	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 )
 
 // This file holds the parts of NewApp's wiring that are self-contained enough
@@ -45,18 +44,23 @@ func (o *AppOptions) applyDefaults() {
 	}
 }
 
-// stores is every durable artifact NewApp opens, already migrated.
+// stores is every durable artifact NewApp opens, already migrated. Only two
+// things are actually opened: the owner's Markdown, and the one database that
+// is the authority for everything machine-managed. State, schedules, and
+// sealed grants are views onto that database rather than stores of their own.
 type stores struct {
-	layout  home.Layout
-	state   ports.StateStore
-	cron    *cronfile.Store
-	context ports.ContextStore
-	memory  *memorysqlite.Store
+	layout    home.Layout
+	state     ports.StateStore
+	schedules *sqlitestore.ScheduleStore
+	auth      grants.Records
+	context   ports.ContextStore
+	database  *sqlitestore.Store
 }
 
-// openStores resolves the home layout and opens every store off it. The caller
-// owns closing stores.memory: this returns it open on success.
-func openStores(config config.Config) (stores, error) {
+// openStores resolves the home layout, opens the database, and migrates a
+// home written before machine state consolidated into it. The caller owns
+// closing stores.database: this returns it open on success.
+func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 	// config.DataDir is the home root: every durable artifact resolves off
 	// this one layout instead of a path literal spread across the wiring.
 	// Migrate first, so a home written by an older Eggy is current before
@@ -65,19 +69,31 @@ func openStores(config config.Config) (stores, error) {
 	if err := layout.Migrate(); err != nil {
 		return stores{}, err
 	}
-	opened := stores{
-		layout: layout,
-		cron:   cronfile.Open(layout.Cron()),
-	}
-	opened.state = jsonfile.Open(layout.State())
+	opened := stores{layout: layout}
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
 		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Watch: layout.Watch(),
 	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes, contextmarkdown.DefaultWatchMaxBytes)
-	memoryStore, err := memorysqlite.Open(layout.Database())
+	database, err := sqlitestore.Open(layout.Database())
 	if err != nil {
-		return stores{}, fmt.Errorf("open conversation memory: %w", err)
+		return stores{}, fmt.Errorf("open eggy database: %w", err)
 	}
-	opened.memory = memoryStore
+	// The import runs before any of the views below is read, so a home
+	// upgraded by this boot is already current when the first Load happens.
+	// It is idempotent and silent on a home that has nothing left to move.
+	report, err := database.ImportLegacy(context.Background(), sqlitestore.LegacyHome{
+		State: layout.LegacyState(), Cron: layout.LegacyCron(), Auth: layout.LegacyAuth(),
+	}, nil)
+	if err != nil {
+		_ = database.Close()
+		return stores{}, err
+	}
+	if report.Any() {
+		logger.Info("migrated home into sqlite", "moved", report.Moved)
+	}
+	opened.database = database
+	opened.state = database.State()
+	opened.schedules = database.Schedules()
+	opened.auth = database.Auth()
 	return opened, nil
 }
 

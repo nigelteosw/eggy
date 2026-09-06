@@ -34,7 +34,7 @@ CI checks Go formatting, vet, tests, the race detector, the embedded website bui
 
 ## Persistence compatibility
 
-Preserve `/data/state.json` schema compatibility. If a change cannot remain compatible, add an explicit migration and schema-version change. Apply the same care to readable cron files, encrypted OAuth data, and the SQLite schema.
+Preserve `/data/eggy.db` compatibility. If a change cannot remain compatible, add an explicit migration and raise the machine-state schema version. Apply the same care to encrypted OAuth data and to owner-facing Markdown and configuration.
 
 ## Release boundary
 

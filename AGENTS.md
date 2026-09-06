@@ -87,7 +87,7 @@ should only ever add a new package under
 - Add or change behavior test-first and run the focused test before the full suite.
 - Prefer the standard library and small interfaces. Do not introduce a web framework, ORM, DI framework, agent framework, native plugin runtime, or database.
 - Run `make fmt vet test race build` before completing a change. Run `make smoke` when Docker is available; report an unavailable Docker daemon as an environment blocker, not a passing smoke test.
-- Preserve `/data/state.json` schema compatibility or introduce an explicit migration and schema-version change.
+- Preserve `/data/eggy.db` compatibility or introduce an explicit migration and raise `sqlite.MachineStateVersion`. Machine-managed records -- runtime state, approvals, schedules, sealed OAuth grants -- live only there; a boot import moves a pre-consolidation home and archives its `state.json`, `cron/`, and `auth.json` rather than deleting them.
 
 ## Do not introduce
 

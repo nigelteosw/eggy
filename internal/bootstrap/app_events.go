@@ -386,8 +386,8 @@ func (a *App) finishHeartbeat(ctx context.Context, requested time.Duration) {
 }
 
 func (a *App) Run(ctx context.Context) error {
-	if a.memory != nil {
-		defer a.memory.Close()
+	if a.database != nil {
+		defer a.database.Close()
 	}
 	defer a.workers.Wait()
 	if a.mcp != nil {

@@ -3,17 +3,12 @@ package mcp
 import (
 	"bytes"
 	"encoding/base64"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
-// authPath is where every record now lives: one auth.json for the whole
-// home, not a file per server.
-func authPath(t *testing.T) string { return filepath.Join(t.TempDir(), "auth.json") }
-
-func TestOAuthStoreRoundTripIsEncryptedAndAtomic(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+func TestOAuthStoreRoundTripIsEncrypted(t *testing.T) {
+	records := newMemoryRecords()
+	store, err := OpenOAuthStore(records, testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,16 +16,9 @@ func TestOAuthStoreRoundTripIsEncryptedAndAtomic(t *testing.T) {
 	if err := store.Save("railway", record.ServerURL, record); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(store.file.Path())
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := records.raw(oauthSection, "railway")
 	if bytes.Contains(raw, []byte("refresh-secret")) || bytes.Contains(raw, []byte("client")) {
 		t.Fatalf("credential written in plaintext: %s", raw)
-	}
-	info, err := os.Stat(store.file.Path())
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode=%v err=%v", info.Mode().Perm(), err)
 	}
 	got, err := store.Load("railway", record.ServerURL)
 	if err != nil || got.RefreshToken != record.RefreshToken || got.ClientID != record.ClientID {
@@ -39,7 +27,8 @@ func TestOAuthStoreRoundTripIsEncryptedAndAtomic(t *testing.T) {
 }
 
 func TestOAuthStoreUsesRandomNoncesAndRejectsTampering(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	records := newMemoryRecords()
+	store, err := OpenOAuthStore(records, testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,25 +36,23 @@ func TestOAuthStoreUsesRandomNoncesAndRejectsTampering(t *testing.T) {
 	if err := store.Save("railway", record.ServerURL, record); err != nil {
 		t.Fatal(err)
 	}
-	first, _ := os.ReadFile(store.file.Path())
+	first := records.raw(oauthSection, "railway")
 	if err := store.Save("railway", record.ServerURL, record); err != nil {
 		t.Fatal(err)
 	}
-	second, _ := os.ReadFile(store.file.Path())
+	second := records.raw(oauthSection, "railway")
 	if bytes.Equal(first, second) {
 		t.Fatal("encrypted records reused a nonce")
 	}
-	second[len(second)-1] ^= 1
-	if err := os.WriteFile(store.file.Path(), second, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	second[len(second)-2] ^= 1
+	records.put(oauthSection, "railway", second)
 	if _, err := store.Load("railway", record.ServerURL); err == nil {
 		t.Fatal("tampered OAuth record was accepted")
 	}
 }
 
 func TestOAuthStoreBindsRecordToServerURLAndDeletes(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, err := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}

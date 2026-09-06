@@ -102,7 +102,7 @@ Set the secret in the deployment's environment:
 GOOGLE_CLIENT_SECRET=<the client secret>
 ```
 
-`EGGY_ENCRYPTION_KEY` must also be set — the grant is sealed with it in the same `auth.json` that holds MCP records.
+`EGGY_ENCRYPTION_KEY` must also be set — the grant is sealed with it in the same auth-record store that holds MCP records.
 
 Restart. Tools are built at startup, so a config edit takes effect on the next boot.
 

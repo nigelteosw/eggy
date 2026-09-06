@@ -12,6 +12,12 @@ import (
 
 var ErrStateVersionConflict = errors.New("state version conflict")
 
+// ErrScheduleNotFound reports a schedule id with no record behind it. It
+// lives here rather than in the store because the scheduler branches on it --
+// a job cancelled between the listing and the claim is ordinary, not a
+// failure -- and the kernel may not import the adapter that raises it.
+var ErrScheduleNotFound = errors.New("schedule not found")
+
 type Role string
 
 const (

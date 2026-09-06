@@ -15,12 +15,12 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
-	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 )
 
-func newTestMemoryStore(t *testing.T) *memorysqlite.Store {
+func newTestMemoryStore(t *testing.T) *sqlitestore.Store {
 	t.Helper()
-	store, err := memorysqlite.Open(filepath.Join(t.TempDir(), "eggy.db"), 100)
+	store, err := sqlitestore.Open(filepath.Join(t.TempDir(), "eggy.db"), 100)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/kernel/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
+	_ "modernc.org/sqlite"
 )
 
 func TestNewAppRegistersMCPToolsOnlyForDirectOwnerTurns(t *testing.T) {
@@ -206,7 +208,7 @@ func TestNewAppOpensDurableMemoryAndRegistersTextRecallWithoutEmbeddings(t *test
 	if _, err := os.Stat(filepath.Join(dataDir, "eggy.db")); err != nil {
 		t.Fatalf("stat eggy.db: %v", err)
 	}
-	if app.memory == nil {
+	if app.database == nil {
 		t.Fatal("durable memory store is nil")
 	}
 	if !slices.Contains(app.loop.ToolNames(agent.RunOptions{}), "recall_conversation") {
@@ -239,7 +241,7 @@ func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t
 		t.Fatal(err)
 	}
 
-	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +286,7 @@ func TestImageEventReachesModelButOnlyMarkerReachesDurableHistory(t *testing.T) 
 	if !strings.Contains(string(modelBody), `"type":"image_url"`) || !strings.Contains(string(modelBody), `data:image/png;base64,cGl4ZWxz`) {
 		t.Fatalf("model body=%s", modelBody)
 	}
-	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +329,7 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 		t.Fatal("missing approval returned nil error")
 	}
 
-	messages, err := app.memory.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,9 +365,11 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.memory.Close(); err != nil {
-		t.Fatal(err)
-	}
+	// The conversation window and machine state now share one database, so
+	// an outage is injected at the conversation tables rather than by closing
+	// the handle: closing it would take approvals and mode down with it,
+	// which is a different failure than the one under test.
+	breakConversationTables(t, cfg.DataDir)
 	payload, _ := json.Marshal(events.Message{Text: "keep the live turn working"})
 	if err := app.HandleEvent(context.Background(), events.Event{
 		ID: "direct", Type: events.TypeMessage, Source: "telegram", Owner: "42", Payload: payload,
@@ -380,6 +384,22 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	}
 	if count := strings.Count(logs.String(), "durable conversation write failed"); count != 2 {
 		t.Fatalf("durable failure logs=%d: %s", count, logs.String())
+	}
+}
+
+// breakConversationTables drops the message tables through a second
+// connection, leaving the rest of the database intact.
+func breakConversationTables(t *testing.T, dataDir string) {
+	t.Helper()
+	database, err := sql.Open("sqlite", filepath.Join(dataDir, "eggy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	for _, statement := range []string{`DROP TRIGGER IF EXISTS messages_ai`, `DROP TABLE IF EXISTS messages`} {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -406,7 +426,7 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.memory.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := app.database.WriteMessage(context.Background(), ports.StoredMessage{
 		Role: ports.RoleUser, Content: "remembered bare-ui-password", Source: "web", CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -717,7 +737,7 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.memory.CreateThread(context.Background(), "thread-a", "web", time.Now()); err != nil {
+	if _, err := app.database.CreateThread(context.Background(), "thread-a", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	_, threadEvents, unregisterThread := app.chatHub.Register("thread-a")

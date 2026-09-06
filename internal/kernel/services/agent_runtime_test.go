@@ -2,15 +2,29 @@ package services
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/state/jsonfile"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 )
 
+// newStateStore backs the runtime with the real store, because what these
+// tests exercise is the compare-and-set around a selection: a map behind a
+// mutex would pass while the concurrent case that matters went untested.
+func newStateStore(t *testing.T) ports.StateStore {
+	t.Helper()
+	database, err := sqlitestore.Open(filepath.Join(t.TempDir(), "eggy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	return database.State()
+}
+
 func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
-	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "medium", "high", "max"}})
+	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "medium", "high", "max"}})
 	ctx := context.Background()
 	if got, err := runtime.SelectedModel(ctx); err != nil || got != "deepseek-pro" {
 		t.Fatalf("selected=%q err=%v", got, err)
@@ -33,7 +47,7 @@ func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
 }
 
 func TestAgentRuntimeFallsBackWhenTheSelectedAliasWasRemoved(t *testing.T) {
-	store := jsonfile.Open(t.TempDir() + "/state.json")
+	store := newStateStore(t)
 	before := NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro", "retired"}, nil)
 	if err := before.SelectModel(context.Background(), "retired"); err != nil {
 		t.Fatal(err)
@@ -45,7 +59,7 @@ func TestAgentRuntimeFallsBackWhenTheSelectedAliasWasRemoved(t *testing.T) {
 }
 
 func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
-	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
+	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
 	ctx := context.Background()
 
 	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "" {
@@ -80,7 +94,7 @@ func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
 }
 
 func TestAgentRuntimeRecordsConcurrentUsageAndResets(t *testing.T) {
-	runtime := NewAgentRuntime(jsonfile.Open(t.TempDir()+"/state.json"), "deepseek-pro", []string{"deepseek-pro"}, nil)
+	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro"}, nil)
 	ctx := context.Background()
 	var workers sync.WaitGroup
 	errorsChannel := make(chan error, 16)

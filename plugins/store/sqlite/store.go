@@ -1,4 +1,14 @@
-// Package sqlite provides SQLite-backed durable conversation storage.
+// Package sqlite is Eggy's machine-state authority: the one database at
+// <home>/eggy.db holding everything the daemon manages for itself --
+// conversation history and traces, operational state, schedules, and sealed
+// OAuth grants. It is the third of the three durable forms (YAML for startup
+// config, Markdown for owner-facing documents, SQLite for everything
+// machine-managed), and the reason a home no longer carries state.json,
+// cron/, or auth.json beside it.
+//
+// One *sql.DB with a single connection backs every store handed out here, so
+// a state update, a schedule claim, and a message append are serialized
+// against each other rather than racing for the same file lock.
 package sqlite
 
 import (
@@ -114,6 +124,14 @@ func Open(path string, _ ...int) (*Store, error) {
 		return nil, err
 	}
 	if _, err := db.Exec(schema); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(machineSchema); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := recordMachineStateVersion(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

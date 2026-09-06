@@ -14,7 +14,7 @@ import (
 )
 
 func TestOAuthProviderDiscoversRegistersExchangesAndRestores(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, err := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func (r *oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 }
 
 func TestOAuthHandlerAuthorizeReturnsLoginRequired(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example"}, store, http.DefaultClient)
 	response := &http.Response{Body: io.NopCloser(strings.NewReader("unauthorized"))}
 	if err := provider.Authorize(context.Background(), nil, response); err != ErrLoginRequired {
@@ -94,7 +94,7 @@ func TestOAuthHandlerAuthorizeReturnsLoginRequired(t *testing.T) {
 }
 
 func TestOAuthProviderRejectsMismatchedState(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}, store, &http.Client{Transport: &oauthRoundTripper{}})
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestOAuthProviderRejectsMismatchedState(t *testing.T) {
 }
 
 func TestOAuthProviderPersistsRotatedRefreshToken(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	client := &http.Client{Transport: &oauthRoundTripper{}}
 	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
 	record := OAuthRecord{
@@ -158,7 +158,7 @@ func (r *googleIssuerRoundTripper) RoundTrip(request *http.Request) (*http.Respo
 }
 
 func TestOAuthDiscoveryToleratesTrailingSlashIssuer(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, err := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestOAuthDiscoveryToleratesTrailingSlashIssuer(t *testing.T) {
 // Discovery returns no registration endpoint, so without a configured client
 // there is nothing to authorize with and BeginLogin fails outright.
 func TestOAuthUsesPreRegisteredClientWhenRegistrationIsUnsupported(t *testing.T) {
-	store, err := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, err := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestOAuthUsesPreRegisteredClientWhenRegistrationIsUnsupported(t *testing.T)
 // A client ID with no secret is a public client: PKCE alone authorizes it, and
 // no auth method may be asserted at the token endpoint.
 func TestOAuthPreRegisteredPublicClientHasNoSecret(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	cfg := ServerConfig{
 		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
 		RedirectURL:   "https://eggy.example/auth/mcp/calendar/callback",
@@ -287,7 +287,7 @@ func TestCompleteLoginKeepsAnExistingRefreshTokenWhenNoneIsReturned(t *testing.T
 // no state to send. The pending session must still exist and be unexpired --
 // that, not the echoed state, is what bounds the window.
 func TestCompleteLoginAcceptsAPastedRedirectWithoutState(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
 	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &oauthRoundTripper{}})
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
@@ -309,7 +309,7 @@ func TestCompleteLoginAcceptsAPastedRedirectWithoutState(t *testing.T) {
 }
 
 func TestCompleteLoginRejectsAnExpiredPendingSession(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
 	provider := newOAuthProvider(cfg, store, &http.Client{Transport: &oauthRoundTripper{}})
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
@@ -330,7 +330,7 @@ func TestCompleteLoginRejectsAnExpiredPendingSession(t *testing.T) {
 // An unset server.public_base_url leaves a bare path, and the authorization
 // server answers that with a complaint about the client instead.
 func TestBeginLoginRequiresAnAbsoluteRedirect(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{
 		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
 		RedirectURL: "/auth/mcp/calendar/callback",
@@ -359,7 +359,7 @@ func TestCompleteLoginStoresGrantedScopes(t *testing.T) {
 		t.Fatalf("scopes=%v", record.Scopes)
 	}
 
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	cfg := ServerConfig{
 		Name: "calendar", URL: "https://calendarmcp.googleapis.com/mcp/v1",
 		RedirectURL:   "https://eggy.example/auth/mcp/calendar/callback",
@@ -388,7 +388,7 @@ func TestCompleteLoginStoresGrantedScopes(t *testing.T) {
 // to be forced, or a second authorization returns an access token that cannot
 // be renewed.
 func TestBeginLoginForcesConsentSoARefreshTokenIsIssued(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	provider := newOAuthProvider(ServerConfig{
 		Name: "railway", URL: "https://resource.example",
 		RedirectURL: "https://eggy.example/auth/mcp/railway/callback",

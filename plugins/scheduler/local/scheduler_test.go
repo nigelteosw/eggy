@@ -2,22 +2,28 @@ package local
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 )
 
-// newCronStore backs the scheduler with a real cron directory, since that is
-// now the whole of its persistence: there is no in-memory schedule state to
-// fake.
-func newCronStore(t *testing.T) *cronfile.Store {
+// newCronStore backs the scheduler with a real database, since that is now
+// the whole of its persistence: there is no in-memory schedule state to fake,
+// and claiming a due job is a transaction rather than a struct field.
+func newCronStore(t *testing.T) *sqlitestore.ScheduleStore {
 	t.Helper()
-	return cronfile.Open(t.TempDir())
+	database, err := sqlitestore.Open(filepath.Join(t.TempDir(), "eggy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	return database.Schedules()
 }
 
-func mustGet(t *testing.T, store *cronfile.Store, id string) ports.Schedule {
+func mustGet(t *testing.T, store *sqlitestore.ScheduleStore, id string) ports.Schedule {
 	t.Helper()
 	schedule, err := store.Get(id)
 	if err != nil {
@@ -67,7 +73,7 @@ func TestSchedulerDeliversExactOnceAndAdvancesRecurring(t *testing.T) {
 func TestSchedulerRestartCatchupEmitsRecurringOnlyOnce(t *testing.T) {
 	now := time.Date(2026, 7, 19, 10, 17, 0, 0, time.UTC)
 	store := newCronStore(t)
-	if err := store.Put(ports.Schedule{ID: "cron", Kind: ports.ScheduleRecurring, Instruction: "status", Expression: "*/5 * * * *", NextRun: time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC), Enabled: true}); err != nil {
+	if err := store.Create(ports.Schedule{ID: "cron", Kind: ports.ScheduleRecurring, Instruction: "status", Expression: "*/5 * * * *", NextRun: time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC), Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	due, err := New(store).Due(context.Background(), now)
@@ -85,7 +91,7 @@ func TestSchedulerRestartCatchupEmitsRecurringOnlyOnce(t *testing.T) {
 func TestSchedulerRecoveryRetriesUnfinishedDispatch(t *testing.T) {
 	now := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
 	store := newCronStore(t)
-	if err := store.Put(ports.Schedule{ID: "once", Kind: ports.ScheduleExact, Instruction: "retry", NextRun: now, PendingRun: now, Enabled: true}); err != nil {
+	if err := store.Create(ports.Schedule{ID: "once", Kind: ports.ScheduleExact, Instruction: "retry", NextRun: now, PendingRun: now, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	scheduler := New(store)

@@ -23,11 +23,11 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
-	memorysqlite "github.com/nigelteosw/eggy/plugins/memory/sqlite"
 	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
 	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
 	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
 	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
@@ -83,7 +83,7 @@ type App struct {
 	approvals   *services.ApprovalService
 	workspaces  *repo.WorkspaceSessions
 	mcp         *mcpadapter.Manager
-	memory      *memorysqlite.Store
+	database    *sqlitestore.Store
 	now         func() time.Time
 	// location is the owner's timezone, resolved once at construction. The
 	// heartbeat's active-hours window is read on the owner's clock, not the
@@ -135,20 +135,20 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, fmt.Errorf("load owner timezone: %w", err)
 	}
-	opened, err := openStores(config)
+	opened, err := openStores(config, options.Logger)
 	if err != nil {
 		return nil, err
 	}
-	layout, stateStore, contextStore, memoryStore := opened.layout, opened.state, opened.context, opened.memory
-	keepMemory := false
+	layout, stateStore, contextStore, database := opened.layout, opened.state, opened.context, opened.database
+	keepDatabase := false
 	defer func() {
-		if !keepMemory {
-			_ = memoryStore.Close()
+		if !keepDatabase {
+			_ = database.Close()
 		}
 	}()
 	app := &App{
-		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.cron),
-		memory: memoryStore, location: location,
+		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.schedules),
+		database: database, location: location,
 		now: options.Now, eventQueue: make(chan events.Event, 64), heartbeatWake: make(chan time.Duration, 1), logger: options.Logger,
 		restart: make(chan struct{}),
 	}
@@ -196,7 +196,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
 	skillsService := services.NewSkillsService(skillsStore)
 	approvalExecutors := map[approvals.Action]ApprovalExecutor{}
-	conversation := services.NewConversationService(memoryStore, 20, options.Now, options.Logger)
+	conversation := services.NewConversationService(database, 20, options.Now, options.Logger)
 
 	// The recorder is built before the model catalog because it wraps it:
 	// tracing is applied at the ports.Model boundary, so every backend --
@@ -205,7 +205,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// wrapped, and nothing downstream carries a branch for it.
 	var tracer *services.TraceRecorder
 	if config.Tracing.Active() {
-		tracer = services.NewTraceRecorder(memoryStore, services.NewSecretGuard(activeSecrets), services.TraceOptions{
+		tracer = services.NewTraceRecorder(database, services.NewSecretGuard(activeSecrets), services.TraceOptions{
 			Keep:         config.Tracing.KeepTurns,
 			Retention:    config.Tracing.Retention.Value(),
 			MaxBodyBytes: int(config.Tracing.MaxBodyBytes),
@@ -224,7 +224,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// this deployment traces.
 	var traceReader web.TraceDirectory
 	if tracer != nil {
-		traceReader = memoryStore
+		traceReader = database
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
@@ -232,7 +232,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
 	// it to mean something else in.
-	app.workspaces = repo.NewWorkspaceSessions(stateStore, memoryStore, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
+	app.workspaces = repo.NewWorkspaceSessions(stateStore, database, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
 	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
 	registry := services.NewToolRegistry()
 	app.tools = registry
@@ -248,7 +248,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	baseTools := []ports.Tool{
 		repo.NewStatusTool(stateStore, app.scheduler),
 		services.NewCurrentTimeTool(options.Now, location, timezone),
-		services.NewRecallConversationTool(memoryStore, services.NewSecretGuard(activeSecrets)),
+		services.NewRecallConversationTool(database, services.NewSecretGuard(activeSecrets)),
 	}
 	baseTools = append(baseTools, services.NewContextTools(contextStore, services.NewSecretGuard(activeSecrets))...)
 	baseTools = append(baseTools, services.NewHeartbeatTools(contextStore, services.NewSecretGuard(activeSecrets))...)
@@ -285,7 +285,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// Unlike MCP these are not a live provider: the tool set is decided by
 	// config.products at startup and does not change when a login completes --
 	// only whether a call succeeds does.
-	googleAuth, googleWorkspace, err := newGoogleWorkspace(config, secrets, options)
+	googleAuth, googleWorkspace, err := newGoogleWorkspace(config, secrets, options, opened.auth)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +302,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(newTavilyTools(config, secrets, options)...); err != nil {
 		return nil, err
 	}
-	app.mcp, err = newMCPManager(context.Background(), config, secrets, options)
+	app.mcp, err = newMCPManager(context.Background(), config, secrets, options, opened.auth)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +412,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Commands: app.commands, Registry: activeTurns, Conversation: conversation,
 		Context: contextStore, Store: stateStore, Runtime: agentRuntime,
 		Skills: skillsService, Loop: app.loop, Channel: app.channel,
-		Threads: memoryStore, Approvals: app.approvals, Executors: approvalExecutors,
+		Threads: database, Approvals: app.approvals, Executors: approvalExecutors,
 		Presenter: turnPresenter{channel: app.channel},
 		Traces:    tracer,
 		Manifest:  manifest, Logger: app.logger, Now: app.now,
@@ -427,7 +427,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: memoryStore, Threads: memoryStore, OwnerID: owner,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: owner,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,
@@ -450,7 +450,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	})
 	telegramSurface.registerCommands(context.Background(), app.logger)
 	keepMCP = true
-	keepMemory = true
+	keepDatabase = true
 	return app, nil
 }
 

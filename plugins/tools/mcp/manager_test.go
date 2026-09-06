@@ -301,7 +301,7 @@ func TestManagerSkipsCollidingToolAndKeepsServerReady(t *testing.T) {
 // Logging out removes one server's tools from the live catalog; every other
 // server keeps working, and no restart is involved.
 func TestManagerLogoutDropsOnlyThatServersTools(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	sessions := map[string]*fakeSession{
 		"railway": {tools: []*sdk.Tool{{Name: "deploy", InputSchema: objectSchema()}}},
 		"other":   {tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}},
@@ -365,7 +365,7 @@ func TestNewFakeManagerProjectsConfiguredIncludes(t *testing.T) {
 }
 
 func TestManagerMarksOAuthServerLoginRequiredAndCanBeginLogin(t *testing.T) {
-	store, _ := OpenOAuthStore(authPath(t), testEncryptionKey())
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
 	client := &http.Client{Transport: &oauthRoundTripper{}}
 	connect := func(ctx context.Context, _ ServerConfig, _ *http.Client, handler auth.OAuthHandler, _ *sdk.ClientOptions) (clientSession, error) {
 		tokenSource, err := handler.TokenSource(ctx)

@@ -10,12 +10,12 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/web"
+	"github.com/nigelteosw/eggy/plugins/auth/grants"
 	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
 )
 
-func newMCPManager(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions) (*mcpadapter.Manager, error) {
+func newMCPManager(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions, records grants.Records) (*mcpadapter.Manager, error) {
 	if len(config.MCP.Servers) == 0 {
 		return nil, nil
 	}
@@ -47,8 +47,7 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 	var oauthStore *mcpadapter.OAuthStore
 	if needsOAuthStore {
 		var err error
-		layout := home.At(config.DataDir)
-		oauthStore, err = mcpadapter.OpenOAuthStore(layout.Auth(), secrets.EncryptionKey)
+		oauthStore, err = mcpadapter.OpenOAuthStore(records, secrets.EncryptionKey)
 		if err != nil {
 			return nil, fmt.Errorf("open MCP OAuth store: %w", err)
 		}

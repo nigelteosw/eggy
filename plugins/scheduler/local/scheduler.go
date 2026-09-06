@@ -7,16 +7,26 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/scheduler/cronfile"
 )
 
-// Scheduler owns the timing rules -- cron parsing, what is due, what happens
-// after a run succeeds or fails -- over jobs kept as files in <home>/cron by
-// cronfile.Store. It holds no schedule state of its own, so a job an owner
-// edits on disk takes effect on the next tick.
-type Scheduler struct{ store *cronfile.Store }
+// Store is the durable half of scheduling: the records themselves, with no
+// opinion about cron syntax or when a job is due. It is declared here, at the
+// consumer, so the scheduler names only what it calls and the SQLite store
+// satisfies it without knowing this package exists.
+type Store interface {
+	List() ([]ports.Schedule, error)
+	Create(ports.Schedule) error
+	Update(id string, mutate func(*ports.Schedule) error) error
+	Delete(id string) error
+}
 
-func New(store *cronfile.Store) *Scheduler { return &Scheduler{store: store} }
+// Scheduler owns the timing rules -- cron parsing, what is due, what happens
+// after a run succeeds or fails -- over jobs a Store keeps. It holds no
+// schedule state of its own, so every claim and completion is read back from
+// the store rather than cached across ticks.
+type Scheduler struct{ store Store }
+
+func New(store Store) *Scheduler { return &Scheduler{store: store} }
 
 func (s *Scheduler) Add(_ context.Context, schedule ports.Schedule) error {
 	if schedule.ID == "" || schedule.Instruction == "" {
@@ -68,7 +78,7 @@ func (s *Scheduler) Due(_ context.Context, now time.Time) ([]ports.Schedule, err
 			claimed = *current
 			return nil
 		})
-		if errors.Is(err, errNotDue) || errors.Is(err, cronfile.ErrNotFound) {
+		if errors.Is(err, errNotDue) || errors.Is(err, ports.ErrScheduleNotFound) {
 			continue
 		}
 		if err != nil {
@@ -132,7 +142,7 @@ func (s *Scheduler) Recover(_ context.Context) error {
 			current.PendingRun = time.Time{}
 			return nil
 		})
-		if err != nil && !errors.Is(err, cronfile.ErrNotFound) {
+		if err != nil && !errors.Is(err, ports.ErrScheduleNotFound) {
 			return err
 		}
 	}

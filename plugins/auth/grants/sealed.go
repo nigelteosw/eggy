@@ -1,4 +1,4 @@
-package authfile
+package grants
 
 import (
 	"crypto/aes"

@@ -52,30 +52,6 @@ Deletion budget: tests and existing trace analysis first, ~0 production lines;
 allow ~60 net lines for justified retry changes, 0 config keys/tools/record
 types/loops initially.
 
-## P2 — Finish SQLite consolidation (L)
-
-`internal/bootstrap/app_wiring.go` still opens JSON state and cron-file stores
-alongside SQLite; OAuth grants also use encrypted file persistence. This is
-migration debt against the three-durable-forms rule, not a reason to merge the
-two OAuth protocols.
-
-- Inventory all consumers and grant files, including Google and MCP. Write a
-  schema-versioned migration and recovery design before coding.
-- Move operational state behind existing ports, then schedules, then grant
-  persistence. Retain encryption and per-record associated data.
-- Test interruption at each boundary, retries, duplicate prevention, and old-home
-  startup. Keep recoverable source backups and specify rollback behavior; avoid
-  indefinite dual writes to two authorities.
-- Remove obsolete adapters after migration coverage passes. Document backup and
-  restore for SQLite plus owner Markdown/config.
-
-Done when a migrated home restarts with approvals, mode, deduplication, schedules,
-and grants intact, using SQLite as machine-state authority.
-
-Deletion budget: remove replaced JSON-state, cron-file, and grant-file storage
-paths; target net reduction after migration code, quantified in the design.
-0 config keys/tools/loops; existing records move, plus a migration-version record.
-
 ## P2 — Enforce zero-cost optional initialization (S)
 
 Repository tools are conditional in `bootstrap/app.go`, but the runner, GitHub
@@ -133,8 +109,7 @@ Deletion budget: replace stale prose, 0 runtime additions.
    work. This is the biggest remaining correctness win.
 2. Measure prompt/provider costs and bound optional initialization and skills.
    Let results determine performance work.
-3. Design and stage SQLite migration; roll out after interruption/recovery tests.
-4. Select at most one demand-backed capability from the later list.
+3. Select at most one demand-backed capability from the later list.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet test race build`. Run `make smoke` when Docker is available;

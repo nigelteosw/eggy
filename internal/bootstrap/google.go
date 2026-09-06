@@ -10,9 +10,9 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/web"
+	"github.com/nigelteosw/eggy/plugins/auth/grants"
 	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
 
@@ -38,12 +38,11 @@ var defaultGoogleScopes = map[string]string{
 // newGoogleWorkspace returns nil when Google is not configured, which is what
 // makes an absent capability cost nothing: no store is opened, no tool is
 // built, and no scope is ever requested.
-func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOptions) (*googleadapter.Auth, *googleadapter.Workspace, error) {
+func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOptions, records grants.Records) (*googleadapter.Auth, *googleadapter.Workspace, error) {
 	if !cfg.Google.Enabled {
 		return nil, nil, nil
 	}
-	layout := home.At(cfg.DataDir)
-	store, err := googleadapter.OpenTokenStore(layout.Auth(), secrets.EncryptionKey)
+	store, err := googleadapter.OpenTokenStore(records, secrets.EncryptionKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open Google token store: %w", err)
 	}

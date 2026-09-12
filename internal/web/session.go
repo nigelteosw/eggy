@@ -89,10 +89,39 @@ func resolveAccountSession(webConfig WebUIConfig, r *http.Request, now time.Time
 	}
 	account, ok := webConfig.Accounts.Account(accountID)
 	if !ok {
-		_ = webConfig.Sessions.RevokeAccountSessions(r.Context(), accountID)
+		_ = revokeAccountSessions(r.Context(), webConfig, accountID)
 		return accountSession{}, errors.New("not authenticated")
 	}
 	return accountSession{hash: hash, account: account}, nil
+}
+
+// sessionRevalidator is the check an open stream runs on each keepalive: is
+// the session that opened it still live? In legacy mode the signed cookie is
+// re-verified for expiry; in account mode the row is looked up again, which
+// is what makes logout and account removal reach an open tab.
+func sessionRevalidator(webConfig WebUIConfig, now func() time.Time) func(*http.Request) bool {
+	if webConfig.AccountMode {
+		return func(r *http.Request) bool {
+			_, err := resolveAccountSession(webConfig, r, now())
+			return err == nil
+		}
+	}
+	return func(r *http.Request) bool {
+		cookie, err := r.Cookie(webSessionCookie)
+		return err == nil && session.VerifySession(webConfig.SigningKey, cookie.Value, now())
+	}
+}
+
+// revokeAccountSessions ends every session and every open stream of the
+// account, in that order: nothing must be delivered after the row is gone.
+func revokeAccountSessions(ctx context.Context, webConfig WebUIConfig, accountID string) error {
+	if err := webConfig.Sessions.RevokeAccountSessions(ctx, accountID); err != nil {
+		return err
+	}
+	if webConfig.ChatHub != nil {
+		webConfig.ChatHub.CloseAccount(accountID)
+	}
+	return nil
 }
 
 // mutating reports whether a request changes something, which is what
@@ -193,6 +222,14 @@ func handleAccountLogout(webConfig WebUIConfig) http.HandlerFunc {
 			if err := webConfig.Sessions.RevokeSession(r.Context(), current.hash); err != nil {
 				writeWebError(w, http.StatusInternalServerError, "could not end the session")
 				return
+			}
+			// The person's other tabs on other sessions keep streaming; only
+			// this session's streams end. Streams are keyed by account, so
+			// this closes the account's streams -- the keepalive check
+			// reopens nothing for the revoked one and the live sessions'
+			// tabs reconnect on their own.
+			if webConfig.ChatHub != nil {
+				webConfig.ChatHub.CloseAccount(current.account.ID)
 			}
 		}
 		clearSessionCookie(w)

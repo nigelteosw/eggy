@@ -35,7 +35,7 @@ func TestClientDownloadImage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	part, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(
+	part, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(
 		context.Background(), "file-1", int64(len(png)), "image/png",
 	)
 	if err != nil {
@@ -75,7 +75,7 @@ func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 				_, _ = w.Write(tc.body)
 			}))
 			defer server.Close()
-			_, err := NewClient(server.URL, "top-secret-token", "42", server.Client()).DownloadImage(
+			_, err := NewClient(server.URL, "top-secret-token", FixedChat("42"), server.Client()).DownloadImage(
 				context.Background(), "file-1", tc.declaredSize, tc.declaredType,
 			)
 			if err == nil {
@@ -98,7 +98,7 @@ func TestClientDownloadImageRejectsNegativeResolvedSize(t *testing.T) {
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/list.png","file_size":-1}}`)
 	}))
 	defer server.Close()
-	_, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
 	if err == nil {
 		t.Fatal("DownloadImage accepted a negative resolved size")
 	}
@@ -123,7 +123,7 @@ func TestClientDownloadImageDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer source.Close()
 
-	_, err := NewClient(source.URL, "top-secret-token", "42", source.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	_, err := NewClient(source.URL, "top-secret-token", FixedChat("42"), source.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
 	if err == nil {
 		t.Fatal("DownloadImage followed a redirect")
 	}
@@ -149,7 +149,7 @@ func TestClientDownloadImageHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := NewClient(server.URL, "token", "42", server.Client()).DownloadImage(ctx, "file-1", 0, "image/png")
+		_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(ctx, "file-1", 0, "image/png")
 		done <- err
 	}()
 	<-started
@@ -192,7 +192,7 @@ func TestClientDeliverSplitsLongMessagesAcrossMultipleSends(t *testing.T) {
 		sends++
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":1}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	var lines []string
 	for i := 0; i < 400; i++ {
 		lines = append(lines, "line number is here")
@@ -209,7 +209,7 @@ func TestClientDeliverTrackableReturnsFinalChunkMessageID(t *testing.T) {
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":555}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	messageID, err := client.DeliverTrackable(context.Background(), "hello there")
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestClientEditTextSendsMessageIDAndFormattedText(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	if err := client.EditText(context.Background(), "555", "**Approved.**"); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestClientAnswerCallbackCallsAnswerCallbackQuery(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	if err := client.AnswerCallback(context.Background(), "cb-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestClientSendTypingCallsSendChatAction(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	if err := client.SendTyping(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestClientSetCommandsSendsCommandListToTelegram(t *testing.T) {
 		_ = json.Unmarshal(body, &request)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	err := client.SetCommands(context.Background(), []BotCommand{
 		{Name: "status", Description: "Show operational status"},
 		{Name: "clear", Description: "Clear the context window"},
@@ -315,7 +315,7 @@ func TestClientDeliverFallsBackToPlainTextWhenTelegramRejectsFormatting(t *testi
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":9}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	if err := client.Deliver(context.Background(), "some *odd_ markdown"); err != nil {
 		t.Fatal(err)
 	}

@@ -37,8 +37,9 @@ type Event struct {
 const connectionBuffer = 32
 
 type connection struct {
-	threadID string
-	events   chan Event
+	accountID string
+	threadID  string
+	events    chan Event
 }
 
 type Hub struct {
@@ -54,15 +55,18 @@ func NewHub() *Hub {
 	return &Hub{connections: map[uint64]connection{}}
 }
 
-// Register opens a new connection scoped to threadID and returns its event
-// stream and an unregister function the caller must call exactly once
-// (typically via defer) when the connection closes.
-func (h *Hub) Register(threadID string) (connID string, events <-chan Event, unregister func()) {
+// Register opens a new connection scoped to one account's thread and
+// returns its event stream and an unregister function the caller must call
+// exactly once (typically via defer) when the connection closes. The account
+// comes from the caller's verified session, never from the browser: a
+// connection registered for another account's thread ID receives nothing,
+// because broadcasts are keyed by both.
+func (h *Hub) Register(accountID, threadID string) (connID string, events <-chan Event, unregister func()) {
 	h.mu.Lock()
 	id := h.nextConnID
 	h.nextConnID++
 	channel := make(chan Event, connectionBuffer)
-	h.connections[id] = connection{threadID: threadID, events: channel}
+	h.connections[id] = connection{accountID: accountID, threadID: threadID, events: channel}
 	h.mu.Unlock()
 
 	return strconv.FormatUint(id, 10), channel, func() {
@@ -75,20 +79,35 @@ func (h *Hub) Register(threadID string) (connID string, events <-chan Event, unr
 	}
 }
 
-// Broadcast sends event to every connection currently registered for
-// threadID, without ever blocking the caller: a connection whose buffer is
-// full has the event dropped for that connection only.
-func (h *Hub) Broadcast(threadID string, event Event) {
+// Broadcast sends event to every connection currently registered for the
+// account's thread, without ever blocking the caller: a connection whose
+// buffer is full has the event dropped for that connection only.
+func (h *Hub) Broadcast(accountID, threadID string, event Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, conn := range h.connections {
-		if conn.threadID != threadID {
+		if conn.accountID != accountID || conn.threadID != threadID {
 			continue
 		}
 		select {
 		case conn.events <- event:
 		default:
 		}
+	}
+}
+
+// CloseAccount ends every stream the account has open. It is what session
+// revocation calls, so a signed-out or removed person's tab stops receiving
+// the moment the session goes rather than when its next request fails.
+func (h *Hub) CloseAccount(accountID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for id, conn := range h.connections {
+		if conn.accountID != accountID {
+			continue
+		}
+		delete(h.connections, id)
+		close(conn.events)
 	}
 }
 

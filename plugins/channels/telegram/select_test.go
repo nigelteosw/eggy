@@ -25,7 +25,7 @@ func TestSelectorDeliversModelAuthoredOptionsAndResolvesOnce(t *testing.T) {
 		}, nil
 	})}
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	selector := NewSelector(NewClient("https://api.telegram.test", "token", "99", httpClient), func() time.Time { return now }, 10*time.Minute)
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient), func() time.Time { return now }, 10*time.Minute)
 
 	result, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{
 		"prompt":"Which deployment?",
@@ -71,7 +71,7 @@ func TestSelectorDeliversModelAuthoredOptionsAndResolvesOnce(t *testing.T) {
 }
 
 func TestSelectorRejectsInvalidOrOverlappingQuestions(t *testing.T) {
-	selector := NewSelector(NewClient("https://api.telegram.test", "token", "99", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}), time.Now, 10*time.Minute)
 
@@ -98,7 +98,7 @@ func TestSelectorRejectsInvalidOrOverlappingQuestions(t *testing.T) {
 
 func TestSelectorExpiresPendingQuestion(t *testing.T) {
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	selector := NewSelector(NewClient("https://api.telegram.test", "token", "99", &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}), func() time.Time { return now }, time.Minute)
 	if _, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
@@ -114,7 +114,7 @@ func TestSelectorExpiresPendingQuestion(t *testing.T) {
 }
 
 func TestSelectorRefusesCallsFromWebChat(t *testing.T) {
-	selector := NewSelector(NewClient("https://api.telegram.test", "token", "99", nil), time.Now, time.Minute)
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), nil), time.Now, time.Minute)
 	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-1"})
 	if _, err := selector.Tool().Execute(ctx, json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err == nil {
 		t.Fatal("web chat was allowed to send a Telegram selection")

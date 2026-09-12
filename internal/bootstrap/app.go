@@ -411,6 +411,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		ModelDiscovery: discovery,
 		PublicBaseURL:  config.Server.PublicBaseURL,
 		SigningKey:     []byte(secrets.EncryptionKey),
+		AccountMode:    config.AccountMode(),
 		Now:            options.Now,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route

@@ -270,7 +270,7 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 		got = event
 		return nil
 	}
-	handler := newThreadSendHandler(enqueue, "owner-42", memory)
+	handler := newThreadSendHandler(enqueue, memory)
 
 	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`{"text":"hello Eggy"}`)), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -285,8 +285,8 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 	if got.Destination.Kind != destination.Web || got.Destination.ThreadID != "thread-1" {
 		t.Fatalf("Destination=%#v, want the thread ID", got.Destination)
 	}
-	if got.Owner != "owner-42" {
-		t.Fatalf("Owner=%q, want the dispatcher's configured owner (Dispatcher.Handle rejects anything else)", got.Owner)
+	if got.Owner != "42" {
+		t.Fatalf("Owner=%q, want the authenticated session's account (Dispatcher.Handle rejects anything else)", got.Owner)
 	}
 	if got.ID == "" || got.CorrelationID != got.ID {
 		t.Fatalf("ID=%q CorrelationID=%q, want both set and equal, matching Telegram's event shape", got.ID, got.CorrelationID)
@@ -302,7 +302,7 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 
 func TestThreadSendReturns404ForAnUnknownThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
-	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, "owner-42", memory)
+	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, memory)
 
 	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/missing/send", strings.NewReader(`{"text":"hi"}`)), "id", "missing")
 	response := httptest.NewRecorder()
@@ -318,7 +318,7 @@ func TestThreadSendRejectsEmptyText(t *testing.T) {
 	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, "owner-42", memory)
+	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, memory)
 
 	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`{"text":""}`)), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -334,7 +334,7 @@ func TestThreadSendRejectsInvalidBody(t *testing.T) {
 	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, "owner-42", memory)
+	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, memory)
 
 	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`not json`)), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -350,7 +350,7 @@ func TestThreadSendReturns500WhenEnqueueFails(t *testing.T) {
 	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	handler := newThreadSendHandler(func(context.Context, events.Event) error { return errors.New("queue full") }, "owner-42", memory)
+	handler := newThreadSendHandler(func(context.Context, events.Event) error { return errors.New("queue full") }, memory)
 
 	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`{"text":"hi"}`)), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -367,7 +367,7 @@ func TestThreadStreamDeliversABroadcastEventScopedToThatThreadAsSSE(t *testing.T
 		t.Fatal(err)
 	}
 	hub := webchat.NewHub()
-	handler := newThreadStreamHandler(hub, memory)
+	handler := newThreadStreamHandler(hub, memory, nil)
 
 	ctx, cancel := context.WithTimeout(asOwner(), 200*time.Millisecond)
 	defer cancel()
@@ -381,16 +381,17 @@ func TestThreadStreamDeliversABroadcastEventScopedToThatThreadAsSSE(t *testing.T
 	}()
 
 	time.Sleep(20 * time.Millisecond) // let the handler register with the hub
-	hub.Broadcast("thread-1", webchat.Event{Kind: webchat.EventMessage, ID: "1", Text: "hello"})
-	hub.Broadcast("other-thread", webchat.Event{Kind: webchat.EventMessage, ID: "2", Text: "not this thread"})
+	hub.Broadcast("42", "thread-1", webchat.Event{Kind: webchat.EventMessage, ID: "1", Text: "hello"})
+	hub.Broadcast("42", "other-thread", webchat.Event{Kind: webchat.EventMessage, ID: "2", Text: "not this thread"})
+	hub.Broadcast("someone-else", "thread-1", webchat.Event{Kind: webchat.EventMessage, ID: "3", Text: "not this account"})
 
 	<-done
 	body := response.Body.String()
 	if !strings.Contains(body, "event: message") || !strings.Contains(body, `"text":"hello"`) {
 		t.Fatalf("body=%q", body)
 	}
-	if strings.Contains(body, "not this thread") {
-		t.Fatalf("body=%q, want no events from another thread", body)
+	if strings.Contains(body, "not this thread") || strings.Contains(body, "not this account") {
+		t.Fatalf("body=%q, want no events from another thread or account", body)
 	}
 }
 
@@ -400,7 +401,7 @@ func TestThreadStreamSetsSSEHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	hub := webchat.NewHub()
-	handler := newThreadStreamHandler(hub, memory)
+	handler := newThreadStreamHandler(hub, memory, nil)
 
 	ctx, cancel := context.WithTimeout(asOwner(), 20*time.Millisecond)
 	defer cancel()
@@ -416,7 +417,7 @@ func TestThreadStreamSetsSSEHeaders(t *testing.T) {
 func TestThreadStreamReturns404ForAnUnknownThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
 	hub := webchat.NewHub()
-	handler := newThreadStreamHandler(hub, memory)
+	handler := newThreadStreamHandler(hub, memory, nil)
 
 	request := withPathValue(ownerRequest(http.MethodGet, "/api/chat/threads/missing/stream", nil), "id", "missing")
 	response := httptest.NewRecorder()
@@ -433,7 +434,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T)
 		got = event
 		return nil
 	}
-	handler := newChatApproveHandler(enqueue, "owner-42")
+	handler := newChatApproveHandler(enqueue)
 
 	request := ownerRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approval_id":"approval-1","approved":true}`))
 	response := httptest.NewRecorder()
@@ -442,7 +443,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if got.Type != events.TypeApproval || got.Owner != "owner-42" {
+	if got.Type != events.TypeApproval || got.Owner != "42" {
 		t.Fatalf("event=%#v", got)
 	}
 	var decision events.ApprovalDecision
@@ -458,7 +459,7 @@ func TestChatApproveEnqueuesAnApprovalDecisionEventWithTheOwnerSet(t *testing.T)
 }
 
 func TestChatApproveRejectsMissingApprovalID(t *testing.T) {
-	handler := newChatApproveHandler(func(context.Context, events.Event) error { return nil }, "owner-42")
+	handler := newChatApproveHandler(func(context.Context, events.Event) error { return nil })
 
 	request := ownerRequest(http.MethodPost, "/api/chat/approve", strings.NewReader(`{"approved":true}`))
 	response := httptest.NewRecorder()

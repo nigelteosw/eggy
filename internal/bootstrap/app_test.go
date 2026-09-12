@@ -740,9 +740,9 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	if _, err := app.database.CreateThread(ownerCtx(), "thread-a", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	_, threadEvents, unregisterThread := app.chatHub.Register("thread-a")
+	_, threadEvents, unregisterThread := app.chatHub.Register("42", "thread-a")
 	defer unregisterThread()
-	_, telegramEvents, unregisterOther := app.chatHub.Register("some-other-thread")
+	_, telegramEvents, unregisterOther := app.chatHub.Register("42", "some-other-thread")
 	defer unregisterOther()
 
 	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})

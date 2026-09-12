@@ -9,8 +9,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // AccountConfig is one person. There is no role field, and none is coming:
@@ -368,4 +372,54 @@ func SetMigrationOwner(path, id string) error {
 		cfg.MigrationOwnerID = id
 		return nil
 	})
+}
+
+// RecoveryIdentity is the least a broken config must still establish for
+// safe mode to let anyone in: who the accounts are, the login client, the
+// public origin the callback hangs off, and where the session database
+// lives. Safe mode never falls back to a password in account mode, so if
+// this cannot be read the repair happens on the host.
+type RecoveryIdentity struct {
+	AccountMode bool
+	Config      Config
+	Secrets     Secrets
+}
+
+// LoadRecoveryIdentity reads the identity-bearing parts of a config that
+// failed to load. It decodes leniently -- unknown keys are exactly the kind
+// of mistake that lands a deployment in safe mode -- and validates only the
+// account rules and the public base URL. A document with no accounts is the
+// legacy shape and reports AccountMode false with nothing else checked.
+func LoadRecoveryIdentity(path string, getenv func(string) string) (RecoveryIdentity, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RecoveryIdentity{}, fmt.Errorf("open config: %w", err)
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return RecoveryIdentity{}, fmt.Errorf("decode config: %w", err)
+	}
+	cfg.normalizeAccounts()
+	if cfg.DataDir == "" {
+		cfg.DataDir = "/data"
+	}
+	if !cfg.AccountMode() {
+		return RecoveryIdentity{AccountMode: false}, nil
+	}
+	if err := cfg.validateAccounts(); err != nil {
+		return RecoveryIdentity{AccountMode: true}, err
+	}
+	u, err := url.Parse(cfg.Server.PublicBaseURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return RecoveryIdentity{AccountMode: true}, errors.New("server.public_base_url must be an HTTP(S) URL")
+	}
+	secrets := SecretsFromEnv(getenv)
+	secrets.GoogleLoginClientSecret = getenv(cfg.Web.GoogleLogin.ClientSecretEnv)
+	if strings.TrimSpace(secrets.GoogleLoginClientSecret) == "" {
+		return RecoveryIdentity{AccountMode: true}, fmt.Errorf("required environment variable %s is missing", cfg.Web.GoogleLogin.ClientSecretEnv)
+	}
+	if strings.TrimSpace(secrets.EncryptionKey) == "" {
+		return RecoveryIdentity{AccountMode: true}, errors.New("required environment variable EGGY_ENCRYPTION_KEY is missing")
+	}
+	return RecoveryIdentity{AccountMode: true, Config: cfg, Secrets: secrets}, nil
 }

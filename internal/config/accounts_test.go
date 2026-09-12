@@ -264,3 +264,38 @@ func TestMigrationOwnerMutation(t *testing.T) {
 		t.Fatalf("MigrationOwnerID = %q", cfg.MigrationOwnerID)
 	}
 }
+
+func TestLoadRecoveryIdentityReadsAccountsFromABrokenConfig(t *testing.T) {
+	// A stray key is what puts a deployment in safe mode; the accounts are
+	// still readable around it.
+	body := strings.Replace(accountConfig(), "agent:", "typo_section: 1\nagent:", 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadConfig(path, mapEnv(accountSecrets())); err == nil {
+		t.Fatal("the broken config loaded")
+	}
+	identity, err := LoadRecoveryIdentity(path, mapEnv(accountSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !identity.AccountMode || len(identity.Config.Accounts) != 2 || identity.Secrets.GoogleLoginClientSecret != "login-secret" {
+		t.Fatalf("identity=%+v", identity)
+	}
+	// Without the login secret nobody can be identified, and safe mode
+	// must say so rather than fall back to anything.
+	env := accountSecrets()
+	delete(env, "EGGY_GOOGLE_LOGIN_CLIENT_SECRET")
+	if identity, err := LoadRecoveryIdentity(path, mapEnv(env)); err == nil || !identity.AccountMode {
+		t.Fatalf("missing secret: identity=%+v err=%v", identity, err)
+	}
+	// A legacy document is not account mode, and nothing else is checked.
+	legacy := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(legacy, []byte("owner:\n  id: 42\nbroken: yes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if identity, err := LoadRecoveryIdentity(legacy, mapEnv(nil)); err != nil || identity.AccountMode {
+		t.Fatalf("legacy: identity=%+v err=%v", identity, err)
+	}
+}

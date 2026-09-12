@@ -271,8 +271,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("PATCH /api/chat/threads/{id}", guard(newThreadRenameHandler(webConfig.Threads)))
 	mux.Handle("DELETE /api/chat/threads/{id}", guard(newThreadDeleteHandler(webConfig.Threads)))
 	mux.Handle("GET /api/chat/threads/{id}/history", guard(newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
-	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
-	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
+	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads, sessionRevalidator(webConfig, now))))
+	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.Threads)))
 	mux.Handle("GET /api/tools", guard(newToolListHandler(webConfig.Tools)))
 	mux.Handle("GET /api/approvals", guard(newApprovalListHandler(webConfig.Approvals, now)))
 	mux.Handle("GET /api/approvals/mode", guard(newApprovalModeHandler(webConfig.ApprovalMode, false)))
@@ -291,7 +291,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 
 	mux.Handle("POST /api/restart", guard(newRestartHandler(webConfig.Restarter, configPath, webConfig.Getenv)))
 
-	mux.Handle("POST /api/chat/approve", guard(newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("POST /api/chat/approve", guard(newChatApproveHandler(webConfig.Enqueue)))
 
 	return mux
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,11 +34,11 @@ func TestWebhookNormalizesPhotoWithCaption(t *testing.T) {
 	part := ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}
 	downloader := &recordingImageDownloader{part: part}
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error {
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
 		got = event
 		return nil
 	}, nil).WithImageDownloader(downloader)
-	body := `{"update_id":13,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"caption":"read this list","photo":[{"file_id":"small","file_size":100},{"file_id":"large","file_size":300}]}}`
+	body := `{"update_id":13,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"caption":"read this list","photo":[{"file_id":"small","file_size":100},{"file_id":"large","file_size":300}]}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -61,8 +62,8 @@ func TestWebhookNormalizesPhotoWithCaption(t *testing.T) {
 func TestWebhookNormalizesCaptionlessPhoto(t *testing.T) {
 	downloader := &recordingImageDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}}
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
-	body := `{"update_id":14,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"photo":[{"file_id":"photo","file_size":100}]}}`
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
+	body := `{"update_id":14,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"photo":[{"file_id":"photo","file_size":100}]}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -78,8 +79,8 @@ func TestWebhookNormalizesCaptionlessPhoto(t *testing.T) {
 func TestWebhookNormalizesImageDocument(t *testing.T) {
 	downloader := &recordingImageDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
-	body := `{"update_id":15,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"caption":"original","document":{"file_id":"document","file_name":"list.png","mime_type":"image/png","file_size":400}}}`
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithImageDownloader(downloader)
+	body := `{"update_id":15,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"caption":"original","document":{"file_id":"document","file_name":"list.png","mime_type":"image/png","file_size":400}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -106,8 +107,8 @@ func TestWebhookRejectsUnsupportedOrFailedImageDocuments(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			downloader := &recordingImageDownloader{err: tc.downloadErr}
 			enqueued := false
-			handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithImageDownloader(downloader)
-			body := `{"update_id":16,"message":{"message_id":5,"from":{"id":42},"chat":{"id":99},"document":` + tc.document + `}}`
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithImageDownloader(downloader)
+			body := `{"update_id":16,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"document":` + tc.document + `}}`
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 			response := httptest.NewRecorder()
@@ -121,8 +122,8 @@ func TestWebhookRejectsUnsupportedOrFailedImageDocuments(t *testing.T) {
 
 func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	var got events.Event
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil)
-	body := `{"update_id":7,"message":{"message_id":3,"from":{"id":42},"chat":{"id":99},"text":"hello"}}`
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil)
+	body := `{"update_id":7,"message":{"message_id":3,"from":{"id":42},"chat":{"id":42},"text":"hello"}}`
 
 	for _, tc := range []struct {
 		name, secret string
@@ -176,8 +177,8 @@ func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryI
 func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	var got events.Event
 	acknowledger := &recordingAcknowledger{}
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, acknowledger)
-	body := `{"update_id":8,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":99}}}}`
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, acknowledger)
+	body := `{"update_id":8,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":42}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -201,14 +202,14 @@ func TestWebhookRoutesSelectionCallbackAsOwnerMessage(t *testing.T) {
 	var got events.Event
 	var resolved []string
 	acknowledger := &recordingAcknowledger{}
-	handler := NewWebhookHandler(42, "secret", func(_ context.Context, event events.Event) error {
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
 		got = event
 		return nil
 	}, acknowledger).WithSelectionResolver(func(callbackData string) (string, bool) {
 		resolved = append(resolved, callbackData)
 		return "staging", true
 	})
-	body := `{"update_id":10,"callback_query":{"id":"cb-select","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	body := `{"update_id":10,"callback_query":{"id":"cb-select","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -231,12 +232,12 @@ func TestWebhookRoutesSelectionCallbackAsOwnerMessage(t *testing.T) {
 
 func TestWebhookRejectsNonOwnerSelectionWithoutConsumingIt(t *testing.T) {
 	called := false
-	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { return nil }, nil).
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { return nil }, nil).
 		WithSelectionResolver(func(string) (string, bool) {
 			called = true
 			return "staging", true
 		})
-	body := `{"update_id":11,"callback_query":{"id":"cb-select","from":{"id":43},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	body := `{"update_id":11,"callback_query":{"id":"cb-select","from":{"id":43},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -253,13 +254,13 @@ func TestWebhookRejectsNonOwnerSelectionWithoutConsumingIt(t *testing.T) {
 func TestWebhookAcknowledgesConsumedSelectionWithoutEnqueuingAnEvent(t *testing.T) {
 	acknowledger := &recordingAcknowledger{}
 	enqueued := false
-	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error {
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error {
 		enqueued = true
 		return nil
 	}, acknowledger).WithSelectionResolver(func(string) (string, bool) {
 		return "", false
 	})
-	body := `{"update_id":12,"callback_query":{"id":"duplicate","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":99}}}}`
+	body := `{"update_id":12,"callback_query":{"id":"duplicate","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -277,8 +278,8 @@ func TestWebhookAcknowledgesConsumedSelectionWithoutEnqueuingAnEvent(t *testing.
 // for a tap Eggy has actually accepted.
 func TestWebhookDoesNotAcknowledgeARejectedCallback(t *testing.T) {
 	acknowledger := &recordingAcknowledger{}
-	handler := NewWebhookHandler(42, "secret", func(context.Context, events.Event) error { return nil }, acknowledger)
-	body := `{"update_id":9,"callback_query":{"id":"cb","from":{"id":43},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":99}}}}`
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { return nil }, acknowledger)
+	body := `{"update_id":9,"callback_query":{"id":"cb","from":{"id":43},"data":"approval:abc:approve","message":{"message_id":123,"chat":{"id":42}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
@@ -299,7 +300,7 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 		requests = append(requests, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
 	if err := client.Deliver(context.Background(), `<ready> & "safe"`); err != nil {
 		t.Fatal(err)
 	}
@@ -323,3 +324,69 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+// A sender is mapped to an account by number, never by name, and only in a
+// private chat: a group message from the same person is refused, because a
+// reply would land where other people read it.
+func TestWebhookMapsSendersToAccountsAndRefusesGroupsAndStrangers(t *testing.T) {
+	var got events.Event
+	resolve := func(sender int64) (string, bool) {
+		switch sender {
+		case 42:
+			return "nigel", true
+		case 77:
+			return "partner", true
+		}
+		return "", false
+	}
+	handler := NewWebhookHandler(resolve, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil)
+	post := func(body string) int {
+		request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(body))
+		request.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+	if code := post(`{"update_id":1,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":"hi"}}`); code != http.StatusNoContent || got.Owner != "partner" {
+		t.Fatalf("mapped sender: status=%d owner=%q", code, got.Owner)
+	}
+	got = events.Event{}
+	if code := post(`{"update_id":2,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"hi"}}`); code != http.StatusForbidden || got.Owner != "" {
+		t.Fatalf("stranger: status=%d owner=%q", code, got.Owner)
+	}
+	if code := post(`{"update_id":3,"message":{"message_id":1,"from":{"id":42},"chat":{"id":-100123},"text":"hi"}}`); code != http.StatusForbidden || got.Owner != "" {
+		t.Fatalf("group: status=%d owner=%q", code, got.Owner)
+	}
+	if code := post(`{"update_id":4,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:a1:approve","message":{"message_id":9,"chat":{"id":-100123}}}}`); code != http.StatusForbidden || got.Owner != "" {
+		t.Fatalf("group callback: status=%d owner=%q", code, got.Owner)
+	}
+}
+
+// Delivery goes to the acting account's chat and nowhere else: an account
+// without a Telegram chat gets an error, not the first configured chat.
+func TestClientDeliversToTheActingAccountsChatOnly(t *testing.T) {
+	var chats []string
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+		chats = append(chats, fmt.Sprint(payload["chat_id"]))
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":1}}`))}, nil
+	})}
+	client := NewClient("https://api.telegram.test", "token", func(account string) (string, bool) {
+		if account == "nigel" {
+			return "42", true
+		}
+		return "", false
+	}, httpClient)
+	nigel := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "nigel"})
+	if err := client.Deliver(nigel, "hello"); err != nil || len(chats) != 1 || chats[0] != "42" {
+		t.Fatalf("chats=%v err=%v", chats, err)
+	}
+	webOnly := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "partner"})
+	if err := client.Deliver(webOnly, "hello"); !errors.Is(err, ErrNoRecipient) || len(chats) != 1 {
+		t.Fatalf("web-only account: chats=%v err=%v", chats, err)
+	}
+	if err := client.SendTyping(context.Background()); !errors.Is(err, ErrNoRecipient) {
+		t.Fatalf("no principal: err=%v", err)
+	}
+}

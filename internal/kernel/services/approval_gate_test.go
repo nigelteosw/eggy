@@ -63,7 +63,7 @@ func newGateFixture(t *testing.T) (*ApprovalService, *recordingTool, ports.Tool)
 // the server on the model's say-so alone.
 func TestGatedToolDoesNotCallTheServerWithoutApproval(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
-	raw, err := gated.Execute(context.Background(), json.RawMessage(`{"to":"someone@example.com"}`))
+	raw, err := gated.Execute(asAccount("42"), json.RawMessage(`{"to":"someone@example.com"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestGatedToolDoesNotCallTheServerWithoutApproval(t *testing.T) {
 	if response.Status != "awaiting_approval" || response.ApprovalID == "" {
 		t.Fatalf("gated call did not report an approval: %s", raw)
 	}
-	pending, err := service.Pending(context.Background())
+	pending, err := service.Pending(asAccount("42"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestGatedToolDescriptionAnnouncesTheGate(t *testing.T) {
 
 func TestApprovedCallExecutesOnce(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
-	ctx := context.Background()
+	ctx := asAccount("42")
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestApprovedCallExecutesOnce(t *testing.T) {
 func TestApprovalDoesNotAuthorizeDifferentArgumentsOrTool(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
 	other := &recordingTool{name: "mail__delete_message"}
-	ctx := context.Background()
+	ctx := asAccount("42")
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestApprovalDoesNotAuthorizeDifferentArgumentsOrTool(t *testing.T) {
 // decides.
 func TestRejectedApprovalNeverExecutes(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
-	ctx := context.Background()
+	ctx := asAccount("42")
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRejectedApprovalNeverExecutes(t *testing.T) {
 // replaced it.
 func TestApprovedCallResolvesTheLiveToolNotTheGatedOne(t *testing.T) {
 	service, _, gated := newGateFixture(t)
-	ctx := context.Background()
+	ctx := asAccount("42")
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"to":"someone@example.com"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestApprovedCallResolvesTheLiveToolNotTheGatedOne(t *testing.T) {
 
 func TestAutoModeRunsTheCallAndReturnsItsResult(t *testing.T) {
 	service, inner, gated := newGateFixture(t)
-	ctx := context.Background()
+	ctx := asAccount("42")
 	if err := service.SetMode(ctx, ports.ModeAuto); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestRuleGatesOnlyTheCallsItNames(t *testing.T) {
 		Notice: " Only delete asks.",
 	}
 	gated := NewApprovalGatedToolIf(inner, service, service, rule)
-	ctx := context.Background()
+	ctx := asAccount("42")
 
 	raw, err := gated.Execute(ctx, json.RawMessage(`{"action":"list"}`))
 	if err != nil {
@@ -333,7 +333,7 @@ func TestUnreadableArgumentsAreGated(t *testing.T) {
 	// than reaching the tool, which is the safe end of that failure. What must
 	// hold either way is that nothing executed.
 	for _, arguments := range []string{``, `not json`, `{}`} {
-		_, _ = gated.Execute(context.Background(), json.RawMessage(arguments))
+		_, _ = gated.Execute(asAccount("42"), json.RawMessage(arguments))
 	}
 	if len(inner.calls) != 0 {
 		t.Fatalf("an unreadable call ran ungated: %v", inner.calls)
@@ -343,7 +343,7 @@ func TestUnreadableArgumentsAreGated(t *testing.T) {
 // The three modes on one tool. Strict is the only one that stops a read, and
 // it has to stop one, or "ask me about everything" is not what it says.
 func TestModesDecideWhatStops(t *testing.T) {
-	ctx := context.Background()
+	ctx := asAccount("42")
 	for _, mode := range []ports.ApprovalMode{ports.ModeStrict, ports.ModeNormal, ports.ModeAuto} {
 		store := newFakeStateStore()
 		service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeNormal)
@@ -373,7 +373,7 @@ func TestModesDecideWhatStops(t *testing.T) {
 // change without a restart -- otherwise tightening the setting does nothing
 // until the next one, which is the wrong direction for this particular knob.
 func TestChangingTheModeTakesEffectOnTheNextCall(t *testing.T) {
-	ctx := context.Background()
+	ctx := asAccount("42")
 	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
 	inner := &recordingTool{name: "read_file"}
 	tool := NewApprovalGatedToolIf(inner, service, service, RuleFor(ports.ToolDefinition{Effect: ports.ReadOnlyTool()}))
@@ -398,7 +398,7 @@ func TestChangingTheModeTakesEffectOnTheNextCall(t *testing.T) {
 // An owner who left the old boolean bypass on must not have the gate come back
 // on under them because a field was renamed.
 func TestTheRetiredAutoBooleanIsHonouredOnce(t *testing.T) {
-	ctx := context.Background()
+	ctx := asAccount("42")
 	store := newFakeStateStore()
 	if _, err := store.Update(ctx, 0, func(state *ports.State) error {
 		state.ApprovalAutoMode = true
@@ -427,7 +427,7 @@ func TestTheRetiredAutoBooleanIsHonouredOnce(t *testing.T) {
 // Config says where a deployment starts; the owner's choice outranks it from
 // then on, or /mode would be undone by the next restart.
 func TestConfiguredDefaultOnlyAppliesUntilTheOwnerChooses(t *testing.T) {
-	ctx := context.Background()
+	ctx := asAccount("42")
 	store := newFakeStateStore()
 	service := NewApprovalService(store, time.Now, 30*time.Minute, ports.ModeStrict)
 	if mode, _ := service.Mode(ctx); mode != ports.ModeStrict {
@@ -445,10 +445,10 @@ func TestConfiguredDefaultOnlyAppliesUntilTheOwnerChooses(t *testing.T) {
 
 func TestUnknownModesAreRefused(t *testing.T) {
 	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
-	if err := service.SetMode(context.Background(), ports.ApprovalMode("readonly")); err == nil {
+	if err := service.SetMode(asAccount("42"), ports.ApprovalMode("readonly")); err == nil {
 		t.Fatal("an unknown mode was stored")
 	}
-	if mode, _ := service.Mode(context.Background()); mode != ports.ModeNormal {
+	if mode, _ := service.Mode(asAccount("42")); mode != ports.ModeNormal {
 		t.Fatalf("mode=%q, want the refusal to have changed nothing", mode)
 	}
 }
@@ -458,7 +458,7 @@ func TestUnknownModesAreRefused(t *testing.T) {
 func TestUnreadableAutoModeDoesNotOpenTheGate(t *testing.T) {
 	inner := &recordingTool{name: "mail__send_message"}
 	gated := NewApprovalGatedTool(inner, failingApprovals{}, failingApprovals{})
-	if _, err := gated.Execute(context.Background(), json.RawMessage(`{}`)); err == nil {
+	if _, err := gated.Execute(asAccount("42"), json.RawMessage(`{}`)); err == nil {
 		t.Fatal("expected an unreadable auto-mode switch to fail the call")
 	}
 	if len(inner.calls) != 0 {

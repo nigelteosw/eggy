@@ -64,7 +64,7 @@ func TestRecallConversationTextDefaultsBoundsAndRedactsResults(t *testing.T) {
 	store := &fakeMemoryStore{searchText: results}
 	tool := NewRecallConversationTool(store, NewSecretGuard([]string{"active-secret"}))
 
-	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"query":"past work"}`))
+	raw, err := tool.Execute(asAccount("42"), json.RawMessage(`{"query":"past work"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestRecallConversationRejectsInvalidInput(t *testing.T) {
 	for _, input := range []string{
 		`{}`, `{"query":""}`, `{"query":"x","mode":null}`, `{"query":"x","mode":"unknown"}`, `{"query":"x","limit":null}`, `{"query":"x","limit":0}`, `{"query":"x","limit":11}`, `{"query":"x","extra":true}`,
 	} {
-		if _, err := tool.Execute(context.Background(), json.RawMessage(input)); err == nil {
+		if _, err := tool.Execute(asAccount("42"), json.RawMessage(input)); err == nil {
 			t.Fatalf("input %s succeeded", input)
 		}
 	}

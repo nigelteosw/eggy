@@ -25,6 +25,24 @@ type ApprovalService struct {
 	// deployment starts, not a standing instruction that overrides the person
 	// operating it.
 	defaultMode ports.ApprovalMode
+	// generation reports the current shared integration generation, bound
+	// into every approval and rechecked before it is consumed. Nil means
+	// no shared integration is connected and every approval is at 0.
+	generation func(context.Context) uint64
+}
+
+// BindGeneration makes approvals carry and recheck the shared integration
+// generation. Bootstrap wires it to the Google grant store once that exists;
+// until then approvals are stamped 0 and 0 is what they are checked against.
+func (s *ApprovalService) BindGeneration(generation func(context.Context) uint64) {
+	s.generation = generation
+}
+
+func (s *ApprovalService) currentGeneration(ctx context.Context) uint64 {
+	if s.generation == nil {
+		return 0
+	}
+	return s.generation(ctx)
 }
 
 func NewApprovalService(store ports.StateStore, now func() time.Time, ttl time.Duration, defaultMode ports.ApprovalMode) *ApprovalService {
@@ -39,11 +57,17 @@ func (s *ApprovalService) Request(ctx context.Context, action approvals.Action, 
 	if err != nil {
 		return approvals.Approval{}, err
 	}
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return approvals.Approval{}, err
+	}
 	now := s.now()
 	approval := approvals.Approval{
 		ID: randomID(), Action: action, PayloadDigest: digest, Payload: canonical, Summary: summary,
 		Status: approvals.Pending, CreatedAt: now, ExpiresAt: now.Add(s.ttl),
-		Destination: destination.FromContext(ctx),
+		Destination:           destination.FromContext(ctx),
+		AccountID:             principal.AccountID,
+		IntegrationGeneration: s.currentGeneration(ctx),
 	}
 	state, err := s.store.Load(ctx)
 	if err != nil {
@@ -190,6 +214,11 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 	if err != nil {
 		return err
 	}
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	generation := s.currentGeneration(ctx)
 	state, err := s.store.Load(ctx)
 	if err != nil {
 		return err
@@ -199,6 +228,13 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 		if !ok || approval.Action != action || approval.Status != approvals.Approved {
 			return approvals.ErrNotAuthorized
 		}
+		// The store only returned this account's approvals, so a mismatch
+		// here is a record written by an older build or a bug; either way
+		// it is not this account's to consume. A legacy approval carries
+		// no account and is refused the same way.
+		if approval.AccountID != principal.AccountID {
+			return approvals.ErrNotAuthorized
+		}
 		if !s.now().Before(approval.ExpiresAt) {
 			approval.Status = approvals.Expired
 			state.Approvals[approvalID] = approval
@@ -206,6 +242,12 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 		}
 		if approval.PayloadDigest != digest {
 			return approvals.ErrPayloadMismatch
+		}
+		if approval.IntegrationGeneration != generation {
+			approval.Status = approvals.Invalidated
+			approval.DecidedAt = s.now()
+			state.Approvals[approvalID] = approval
+			return approvals.ErrStaleGeneration
 		}
 		approval.Status = approvals.Used
 		state.Approvals[approvalID] = approval

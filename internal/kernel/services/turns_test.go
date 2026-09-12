@@ -2,7 +2,6 @@ package services
 
 import (
 	"bytes"
-	"context"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -162,7 +161,7 @@ func TestActiveReportsWhetherAnyTurnIsRunning(t *testing.T) {
 	if turns.Active() {
 		t.Fatal("no turn has begun")
 	}
-	_, release := turns.Begin(context.Background(), true)
+	_, release := turns.Begin(asAccount("42"), true)
 	if !turns.Active() {
 		t.Fatal("a begun turn must be reported active")
 	}

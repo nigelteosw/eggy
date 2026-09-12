@@ -466,16 +466,20 @@ func (a *App) Run(ctx context.Context) error {
 					eventType = events.TypeScheduledMessage
 				}
 				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
+				// The owner is the stored schedule's, never the instruction's
+				// and never a configured default: the dispatcher validates it
+				// and the completion below acts as it.
+				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: schedule.Owner, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
+				ownerCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: schedule.Owner})
 				a.workers.Go(func() {
 					if err := a.HandleEvent(ctx, event); err != nil {
-						if failErr := a.scheduler.Fail(ctx, schedule.ID, schedule.PendingRun); failErr != nil {
+						if failErr := a.scheduler.Fail(ownerCtx, schedule.ID, schedule.PendingRun); failErr != nil {
 							slog.Error("schedule failure acknowledgement failed", "schedule_id", schedule.ID, "error", failErr)
 						}
 						slog.Error("scheduled event failed", "schedule_id", schedule.ID, "error", err)
 						return
 					}
-					if err := a.scheduler.Complete(ctx, schedule.ID, schedule.PendingRun, a.now()); err != nil {
+					if err := a.scheduler.Complete(ownerCtx, schedule.ID, schedule.PendingRun, a.now()); err != nil {
 						slog.Error("schedule completion acknowledgement failed", "schedule_id", schedule.ID, "error", err)
 					}
 				})

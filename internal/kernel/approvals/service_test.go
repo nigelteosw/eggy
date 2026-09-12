@@ -18,28 +18,28 @@ func TestApprovalBindsActionPayloadAndExpiry(t *testing.T) {
 	service := services.NewApprovalService(store, func() time.Time { return now }, 10*time.Minute, ports.ModeNormal)
 	writeAction := approvalspkg.Action("write")
 	deleteAction := approvalspkg.Action("delete")
-	approval, err := service.Request(context.Background(), writeAction, map[string]any{"name": "test", "body": "abc"}, "Write skill")
+	approval, err := service.Request(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), writeAction, map[string]any{"name": "test", "body": "abc"}, "Write skill")
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := store.Load(context.Background())
+	stored, _ := store.Load(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}))
 	if string(stored.Approvals[approval.ID].Payload) != `{"body":"abc","name":"test"}` {
 		t.Fatalf("approval payload not durably canonicalized: %s", stored.Approvals[approval.ID].Payload)
 	}
-	if err := service.Decide(context.Background(), approval.ID, true); err != nil {
+	if err := service.Decide(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), approval.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Authorize(context.Background(), writeAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); err != nil {
+	if err := service.Authorize(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), writeAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); err != nil {
 		t.Fatalf("equivalent canonical payload rejected: %v", err)
 	}
-	if err := service.Authorize(context.Background(), deleteAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
+	if err := service.Authorize(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), deleteAction, map[string]any{"body": "abc", "name": "test"}, approval.ID); !errors.Is(err, approvalspkg.ErrNotAuthorized) {
 		t.Fatalf("reused/wrong action should fail, got %v", err)
 	}
 
-	expiring, _ := service.Request(context.Background(), writeAction, map[string]any{"title": "Lunch"}, "Create Lunch")
-	_ = service.Decide(context.Background(), expiring.ID, true)
+	expiring, _ := service.Request(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), writeAction, map[string]any{"title": "Lunch"}, "Create Lunch")
+	_ = service.Decide(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), expiring.ID, true)
 	now = now.Add(11 * time.Minute)
-	if err := service.Authorize(context.Background(), writeAction, map[string]any{"title": "Lunch"}, expiring.ID); !errors.Is(err, approvalspkg.ErrExpired) {
+	if err := service.Authorize(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), writeAction, map[string]any{"title": "Lunch"}, expiring.ID); !errors.Is(err, approvalspkg.ErrExpired) {
 		t.Fatalf("expected expiry, got %v", err)
 	}
 }
@@ -48,9 +48,9 @@ func TestApprovalRejectsChangedPayload(t *testing.T) {
 	store := newMemoryStateStore()
 	service := services.NewApprovalService(store, time.Now, time.Hour, ports.ModeNormal)
 	action := approvalspkg.Action("write")
-	approval, _ := service.Request(context.Background(), action, map[string]any{"name": "test", "body": "abc"}, "Write skill")
-	_ = service.Decide(context.Background(), approval.ID, true)
-	if err := service.Authorize(context.Background(), action, map[string]any{"name": "test", "body": "changed"}, approval.ID); !errors.Is(err, approvalspkg.ErrPayloadMismatch) {
+	approval, _ := service.Request(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), action, map[string]any{"name": "test", "body": "abc"}, "Write skill")
+	_ = service.Decide(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), approval.ID, true)
+	if err := service.Authorize(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), action, map[string]any{"name": "test", "body": "changed"}, approval.ID); !errors.Is(err, approvalspkg.ErrPayloadMismatch) {
 		t.Fatalf("expected changed payload, got %v", err)
 	}
 }

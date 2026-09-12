@@ -78,7 +78,7 @@ func TestNilRecorderRecordsNothingAndStaysUsable(t *testing.T) {
 	t.Parallel()
 
 	var recorder *TraceRecorder
-	ctx, turn := recorder.Begin(context.Background(), ports.Trace{Input: "hello"})
+	ctx, turn := recorder.Begin(asAccount("42"), ports.Trace{Input: "hello"})
 	if TraceIDFromContext(ctx) != "" {
 		t.Fatal("a nil recorder must not stamp a trace ID")
 	}
@@ -98,7 +98,7 @@ func TestTracedModelRecordsPromptAndResponseAgainstTheOpenTurn(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, turn := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner, Model: "main", Input: "what changed?"})
+	ctx, turn := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner, Model: "main", Input: "what changed?"})
 
 	model := NewTracedModel(&stubModel{response: ports.ModelResponse{
 		Message: ports.Message{Role: ports.RoleAssistant, Content: "nothing"},
@@ -153,7 +153,7 @@ func TestTracedModelRecordsPromptAndResponseAgainstTheOpenTurn(t *testing.T) {
 func TestTracedModelReplacesImageBytesWithAMarker(t *testing.T) {
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, _ := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	ctx, _ := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	model := NewTracedModel(&stubModel{response: ports.ModelResponse{Message: ports.Message{Content: "seen"}}}, recorder)
 
 	_, err := model.Generate(ctx, ports.ModelRequest{Model: "gpt-x", Messages: []ports.Message{{
@@ -180,7 +180,7 @@ func TestTracedModelIgnoresCallsOutsideATurn(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	model := NewTracedModel(&stubModel{}, newTestRecorder(t, store))
-	if _, err := model.Generate(context.Background(), ports.ModelRequest{Model: "gpt-x"}); err != nil {
+	if _, err := model.Generate(asAccount("42"), ports.ModelRequest{Model: "gpt-x"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.spans) != 0 {
@@ -193,7 +193,7 @@ func TestTracedModelRecordsAFailedCall(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, _ := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	ctx, _ := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	model := NewTracedModel(&stubModel{err: errors.New("provider timeout")}, recorder)
 	if _, err := model.Generate(ctx, ports.ModelRequest{Model: "gpt-x"}); err == nil {
 		t.Fatal("the wrapper must not swallow the provider error")
@@ -208,7 +208,7 @@ func TestToolSpansInterleaveWithModelCallsInOneSequence(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, turn := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	ctx, turn := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	model := NewTracedModel(&stubModel{}, recorder)
 
 	if _, err := model.Generate(ctx, ports.ModelRequest{Model: "gpt-x"}); err != nil {
@@ -247,7 +247,7 @@ func TestToolFailureIsRecordedAsTheSpansError(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	_, turn := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	_, turn := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	call := ports.ToolCall{ID: "call-1", Name: "read_file", Arguments: []byte(`{}`)}
 	turn.ToolStarted(call)
 	turn.ToolFinished(call, `{"error":"no such file"}`, errors.New("no such file"))
@@ -262,7 +262,7 @@ func TestCompleteRecordsOutcomeAndPrunesToTheConfiguredBudget(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, turn := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	ctx, turn := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	turn.Complete(ctx, "all done", errors.New("step limit"), ports.ModelUsage{TotalTokens: 9})
 
 	if len(store.completed) != 1 {
@@ -282,7 +282,7 @@ func TestCompleteStillWritesOnACancelledContext(t *testing.T) {
 
 	store := &fakeTraceStore{}
 	recorder := newTestRecorder(t, store)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(asAccount("42"))
 	ctx, turn := recorder.Begin(ctx, ports.Trace{Kind: ports.TraceKindOwner})
 	// A turn the owner stopped is exactly the one whose trace they will read.
 	cancel()
@@ -301,7 +301,7 @@ func TestRecordedBodiesAreRedactedAndCapped(t *testing.T) {
 		Keep: 3, Retention: time.Hour, MaxBodyBytes: 64,
 		Now: func() time.Time { return time.Unix(1700000000, 0).UTC() },
 	})
-	_, turn := recorder.Begin(context.Background(), ports.Trace{Kind: ports.TraceKindOwner})
+	_, turn := recorder.Begin(asAccount("42"), ports.Trace{Kind: ports.TraceKindOwner})
 	call := ports.ToolCall{ID: "call-1", Name: "terminal", Arguments: []byte(`{"cmd":"echo hunter2"}`)}
 	turn.ToolStarted(call)
 	turn.ToolFinished(call, strings.Repeat("x", 500), nil)

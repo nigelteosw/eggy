@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,18 +62,8 @@ func ValidateDocument(data []byte) error {
 }
 
 func (c Config) Validate() error {
-	if strings.TrimSpace(c.Owner.ID) == "" {
-		return errors.New("owner.id must be set")
-	}
-	// owner.id is the system-wide identity; Telegram is one optional channel
-	// onto it. A negative owner_id is a typo rather than an omission, so it
-	// is still rejected -- but omitting the block entirely is a web-only
-	// deployment, not an error.
-	if c.Telegram.OwnerID < 0 {
-		return errors.New("telegram.owner_id must be positive when set")
-	}
-	if c.Telegram.Configured() && strconv.FormatInt(c.Telegram.OwnerID, 10) != c.Owner.ID {
-		return errors.New("owner.id must match telegram.owner_id when Telegram is configured")
+	if err := c.validateAccounts(); err != nil {
+		return err
 	}
 	u, err := url.Parse(c.Server.PublicBaseURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
@@ -139,6 +128,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.validateGoogle(); err != nil {
+		return err
+	}
+	if err := c.validateGoogleIdentity(); err != nil {
 		return err
 	}
 	if err := c.validateTavily(); err != nil {
@@ -235,6 +227,16 @@ func (c Config) validateGoogle() error {
 	}
 	if google.MaxOutputBytes < 0 {
 		return errors.New("google.max_output_bytes must not be negative")
+	}
+	return nil
+}
+
+// validateGoogleIdentity checks the expected shared address whenever it is
+// set, enabled or not: a malformed address is a typo now and a refused
+// connection later.
+func (c Config) validateGoogleIdentity() error {
+	if email := normalizeEmail(c.Google.ExpectedEmail); email != "" && !validEmail(email) {
+		return fmt.Errorf("google.expected_email %q is not an email address", c.Google.ExpectedEmail)
 	}
 	return nil
 }
@@ -449,7 +451,7 @@ func (c Config) validateSecrets(s Secrets) error {
 	}
 	// Telegram credentials are required only when Telegram is a channel for
 	// this deployment; a web-only one must not have to invent them.
-	if c.Telegram.Configured() {
+	if c.TelegramEnabled() {
 		require("TELEGRAM_BOT_TOKEN", s.TelegramBotToken)
 		require("TELEGRAM_WEBHOOK_SECRET", s.TelegramWebhookSecret)
 	}
@@ -487,6 +489,18 @@ func (c Config) validateSecrets(s Secrets) error {
 	}
 	if c.Tavily.Enabled && c.Tavily.APIKeyEnv != "" {
 		require(c.Tavily.APIKeyEnv, s.TavilyAPIKey)
+	}
+	if c.AccountMode() {
+		require(c.Web.GoogleLogin.ClientSecretEnv, s.GoogleLoginClientSecret)
+		// Sessions and login transactions are sealed with the same key the
+		// grant store uses.
+		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
+		// The password login is the legacy owner's. In account mode every
+		// browser identity is a verified Google subject, and a password that
+		// still worked would be a way into every account at once.
+		if strings.TrimSpace(s.UIPassword) != "" || strings.TrimSpace(s.UIUserEmail) != "" {
+			return errors.New("EGGY_UI_PASSWORD and EGGY_UI_USER_EMAIL cannot be set when accounts are configured; sign in with Google instead")
+		}
 	}
 	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {
 		require("EGGY_UI_USER_EMAIL", s.UIUserEmail)

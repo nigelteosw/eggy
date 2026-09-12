@@ -34,7 +34,7 @@ type telegramWiring struct {
 }
 
 func newTelegramWiring(cfg config.Config, secrets config.Secrets, options AppOptions) telegramWiring {
-	if options.FakeAdapters || !cfg.Telegram.Configured() {
+	if options.FakeAdapters || !cfg.TelegramEnabled() {
 		return telegramWiring{}
 	}
 	client := telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(cfg.Telegram.OwnerID, 10), options.HTTPClient)
@@ -63,7 +63,7 @@ func (w telegramWiring) tools() []ports.Tool {
 // outbound call is faked, so the route must exist even when the client does
 // not.
 func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink telegram.EventSink) http.Handler {
-	if !cfg.Telegram.Configured() {
+	if !cfg.TelegramEnabled() {
 		return nil
 	}
 	handler := telegram.NewWebhookHandler(cfg.Telegram.OwnerID, secrets.TelegramWebhookSecret, sink, w.acknowledger)

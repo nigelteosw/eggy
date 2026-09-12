@@ -34,22 +34,33 @@ func (d Duration) MarshalYAML() (any, error) { return d.Value().String(), nil }
 // ModelAliases is the only field whose Go name and YAML key differ, and a tag
 // says that in one line.
 type Config struct {
-	Server       ServerConfig                `yaml:"server"`
-	DataDir      string                      `yaml:"data_dir"`
-	Owner        OwnerConfig                 `yaml:"owner"`
-	Telegram     TelegramConfig              `yaml:"telegram,omitempty"`
-	Agent        AgentConfig                 `yaml:"agent"`
-	Providers    map[string]ProviderConfig   `yaml:"providers"`
-	ModelAliases map[string]ModelAliasConfig `yaml:"models"`
-	Repositories []RepositoryConfig          `yaml:"repositories"`
-	Runner       RunnerConfig                `yaml:"runner"`
-	MCP          MCPConfig                   `yaml:"mcp,omitempty"`
-	Google       GoogleConfig                `yaml:"google,omitempty"`
-	Tavily       TavilyConfig                `yaml:"tavily,omitempty"`
-	Heartbeat    HeartbeatConfig             `yaml:"heartbeat,omitempty"`
-	Appearance   AppearanceConfig            `yaml:"appearance,omitempty"`
-	Approvals    ApprovalsConfig             `yaml:"approvals,omitempty"`
-	Tracing      TracingConfig               `yaml:"tracing,omitempty"`
+	Server   ServerConfig   `yaml:"server"`
+	DataDir  string         `yaml:"data_dir"`
+	Owner    OwnerConfig    `yaml:"owner,omitempty"`
+	Telegram TelegramConfig `yaml:"telegram,omitempty"`
+	// Accounts is the explicit allowlist of people who may use this
+	// deployment. Set, it replaces owner.id and telegram.owner_id, and every
+	// browser login goes through Google Sign-In (web.google_login). See
+	// accounts.go for the rules and the legacy normalization.
+	Accounts []AccountConfig `yaml:"accounts,omitempty"`
+	Web      WebConfig       `yaml:"web,omitempty"`
+	// MigrationOwnerID names the account that receives every private record
+	// written before accounts existed. It is required when a legacy home is
+	// converted -- order in the list never decides it -- and stays as a
+	// record of the mapping once the import has run.
+	MigrationOwnerID string                      `yaml:"migration_owner_id,omitempty"`
+	Agent            AgentConfig                 `yaml:"agent"`
+	Providers        map[string]ProviderConfig   `yaml:"providers"`
+	ModelAliases     map[string]ModelAliasConfig `yaml:"models"`
+	Repositories     []RepositoryConfig          `yaml:"repositories"`
+	Runner           RunnerConfig                `yaml:"runner"`
+	MCP              MCPConfig                   `yaml:"mcp,omitempty"`
+	Google           GoogleConfig                `yaml:"google,omitempty"`
+	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
+	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
+	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`
+	Approvals        ApprovalsConfig             `yaml:"approvals,omitempty"`
+	Tracing          TracingConfig               `yaml:"tracing,omitempty"`
 }
 
 // ApprovalsConfig sets where a deployment starts. It is only a default: once
@@ -252,6 +263,12 @@ type GoogleConfig struct {
 	// OAuth sense, but it is still a credential and is treated as one.
 	ClientID        string `yaml:"client_id,omitempty"`
 	ClientSecretEnv string `yaml:"client_secret_env,omitempty"`
+	// ExpectedEmail is the Workspace address the shared grant must belong to:
+	// Eggy's own user, never a person's. A connection whose verified identity
+	// is any other address is refused before it can replace the stored
+	// grant, which is what stops a user from authorizing their personal
+	// mailbox as Eggy by tapping through the wrong consent screen.
+	ExpectedEmail string `yaml:"expected_email,omitempty"`
 	// Products decides which tools exist at all. An unlisted product costs no
 	// schema, no prompt bytes, and no code path -- the same rule every other
 	// configurable capability follows.
@@ -422,9 +439,13 @@ type Secrets struct {
 	MCPBearerTokens       map[string]string
 	MCPOAuthClientSecrets map[string]string
 	GoogleClientSecret    string
-	TavilyAPIKey          string
-	UIUserEmail           string
-	UIPassword            string
+	// GoogleLoginClientSecret belongs to the inbound Web client (Google
+	// Sign-In); GoogleClientSecret to the outbound Desktop client. Two
+	// clients, two secrets.
+	GoogleLoginClientSecret string
+	TavilyAPIKey            string
+	UIUserEmail             string
+	UIPassword              string
 }
 
 // Values returns every secret Eggy currently holds, for redaction. Empty
@@ -434,6 +455,7 @@ func (s Secrets) Values() []string {
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
 		s.EncryptionKey,
 		s.GoogleClientSecret,
+		s.GoogleLoginClientSecret,
 		s.TavilyAPIKey,
 		s.UIPassword,
 	}
@@ -507,6 +529,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if cfg.Google.ClientSecretEnv != "" {
 		secrets.GoogleClientSecret = getenv(cfg.Google.ClientSecretEnv)
 	}
+	if cfg.Web.GoogleLogin.ClientSecretEnv != "" {
+		secrets.GoogleLoginClientSecret = getenv(cfg.Web.GoogleLogin.ClientSecretEnv)
+	}
 	if cfg.Tavily.Enabled && cfg.Tavily.APIKeyEnv != "" {
 		secrets.TavilyAPIKey = getenv(cfg.Tavily.APIKeyEnv)
 	}
@@ -553,9 +578,10 @@ func (c *Config) applyDefaults() error {
 	// deployments keep working unchanged. A config that sets owner.id
 	// directly (a web-only deployment with no Telegram section) needs no
 	// Telegram configuration at all.
-	if c.Owner.ID == "" && c.Telegram.OwnerID != 0 {
+	if c.Owner.ID == "" && c.Telegram.OwnerID != 0 && !c.AccountMode() {
 		c.Owner.ID = strconv.FormatInt(c.Telegram.OwnerID, 10)
 	}
+	c.normalizeAccounts()
 	if c.Runner.Root == "" {
 		c.Runner.Root = filepath.Join(c.DataDir, "runs")
 	}

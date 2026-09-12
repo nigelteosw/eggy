@@ -141,7 +141,7 @@ func (a *App) heartbeatTicks() *heartbeatClock {
 	if interval <= 0 {
 		return nil
 	}
-	if !a.config.Telegram.Configured() {
+	if !a.config.TelegramEnabled() {
 		slog.Warn("heartbeat.interval is set but no Telegram channel is configured; heartbeat disabled")
 		return nil
 	}

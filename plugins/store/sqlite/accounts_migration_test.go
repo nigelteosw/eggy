@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -190,24 +191,42 @@ func TestMigrateAccountsInvalidatesPendingApprovalsOnConversion(t *testing.T) {
 	}
 }
 
-func TestMigrateAccountsIsIdempotentAndRefusesAConflictingMapping(t *testing.T) {
+func TestMigrateAccountsIsIdempotentAndFollowsARename(t *testing.T) {
 	store, err := Open(writeVersion6Database(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	ctx := context.Background()
-	if err := store.MigrateAccounts(ctx, "nigel", false); err != nil {
+	// A legacy boot: the single owner is named by its Telegram number.
+	if err := store.MigrateAccounts(ctx, "42", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.MigrateAccounts(ctx, "nigel", false); err != nil {
+	if err := store.MigrateAccounts(ctx, "42", false); err != nil {
 		t.Fatalf("same mapping again: %v", err)
 	}
-	if err := store.MigrateAccounts(ctx, "partner", false); err == nil {
-		t.Fatal("a different owner for already-migrated records must be refused")
+	if recorded, _ := store.LegacyAccount(ctx); recorded != "42" {
+		t.Fatalf("recorded=%q", recorded)
 	}
-	if recent, _ := store.RecentMessages(as("nigel"), "owner", 10); len(recent) != 1 {
-		t.Fatalf("records moved by the refused retry: %+v", recent)
+	// Conversion names the same person "nigel": everything "42" owned,
+	// including what it wrote after the first migration, moves across.
+	if err := store.WriteMessage(as("42"), ports.StoredMessage{ConversationID: "owner", Role: "user", Content: "after", Source: "telegram", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MigrateAccounts(ctx, "nigel", true); err != nil {
+		t.Fatal(err)
+	}
+	if recent, _ := store.RecentMessages(as("nigel"), "owner", 10); len(recent) != 2 {
+		t.Fatalf("nigel's history after rename: %+v", recent)
+	}
+	if recent, _ := store.RecentMessages(as("42"), "owner", 10); len(recent) != 0 {
+		t.Fatalf("42 still owns records: %+v", recent)
+	}
+	if recorded, _ := store.LegacyAccount(ctx); recorded != "nigel" {
+		t.Fatalf("recorded=%q", recorded)
+	}
+	if state, _ := store.State().Load(as("nigel")); state.Version != 12 || state.ApprovalMode != ports.ModeStrict {
+		t.Fatalf("state after rename=%#v", state)
 	}
 }
 

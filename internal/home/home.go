@@ -82,8 +82,11 @@ func (l Layout) LegacyAuth() string  { return filepath.Join(l.Root, "auth.json")
 func (l Layout) LegacyCron() string  { return filepath.Join(l.Root, "cron") }
 
 // Directories lists every directory the layout owns, in creation order.
+// The pre-accounts memories/ directory is not among them: private documents
+// live under accounts/<id>/memories now, created on first use, and an empty
+// memories/ would only look like somewhere to put them.
 func (l Layout) Directories() []string {
-	return []string{l.Root, l.Memories(), l.Skills(), l.Logs()}
+	return []string{l.Root, l.Accounts(), l.Skills(), l.Logs()}
 }
 
 // Ensure creates the home directory and its subdirectories.

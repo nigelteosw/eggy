@@ -11,8 +11,31 @@ server:
 # Eggy's home directory. Config, Markdown context, SQLite memory, schedules,
 # OAuth records, logs, state, and read-only repository checkouts live here.
 data_dir: "/data"
-telegram:
-  owner_id: 123456789
+# Who may use this Eggy. One shape or the other, never both:
+#
+#   telegram:
+#     owner_id: 123456789        # a single owner, password login on the web
+#
+# or an explicit account list, each person signing in with their own Google
+# account and holding private conversations, memory, schedules and traces.
+# Every account can change every setting; there are no roles.
+accounts:
+  - id: nigel
+    google_email: nigel@example.com
+    # Optional: the numeric Telegram user that speaks for this account. Never
+    # a username. Leave it out for a web-only person.
+    telegram_user_id: 123456789
+  - id: partner
+    google_email: partner@example.com
+web:
+  # The Web application OAuth client people sign in with. Register its
+  # redirect URI as <public_base_url>/auth/google/callback. The secret is
+  # read from the named environment variable, never written here. This is a
+  # different client from google.client_id below, which is a Desktop client
+  # for Eggy's own Workspace grant.
+  google_login:
+    client_id: "web-login.apps.googleusercontent.com"
+    client_secret_env: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"
 agent:
   # Telegram: /model changes the active alias; /model default restores this one.
   # /model effort <low|medium|high|max> sets reasoning effort for aliases that support it.
@@ -100,12 +123,21 @@ runner:
 # returns a URL, the browser fails to load the page it lands on, and the owner
 # pastes that address back -- the code is in its query string.
 #
+# The grant is Eggy's own: a Google Workspace user provisioned for it, with its
+# own mailbox and calendar, shared by every Eggy account. expected_email names
+# that user, and a connection made as any other account -- someone's personal
+# Gmail tapped through the consent screen -- is refused. Eggy never holds a
+# grant on a person's own Google account; people share calendars and files
+# with, or forward mail to, Eggy's address, and whatever it can see is visible
+# to every Eggy user. Required when accounts are configured.
+#
 # Leave the whole section out and none of it exists: no token store is opened,
 # no tool schema is built, no scope is ever requested.
 # google:
 #   enabled: true
 #   client_id: "xxxx.apps.googleusercontent.com"
 #   client_secret_env: "GOOGLE_CLIENT_SECRET"
+#   expected_email: "eggy@example.com"
 #   # Only the products named here become tools. Adding one later needs a new
 #   # login, because scopes are granted once for the whole client.
 #   products: ["calendar", "gmail", "contacts"]

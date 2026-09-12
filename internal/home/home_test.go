@@ -83,6 +83,9 @@ func TestMigrateKeepsTheCurrentFileWhenBothExist(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(layout.Root, "MEMORY.md"), []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(layout.Memories(), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(layout.Memory(), []byte("current"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -179,6 +182,9 @@ func (r *recordingPhases) RecordDocumentMigrationPhase(phase string) error {
 func writeLegacyMemories(t *testing.T, layout Layout) {
 	t.Helper()
 	if err := layout.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(layout.Memories(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{"USER.md": "# Eggy User\n\n- likes tea\n", "MEMORY.md": "# Eggy Memory\n\n- fact\n", "WATCH.md": "# Eggy Watch\n"} {

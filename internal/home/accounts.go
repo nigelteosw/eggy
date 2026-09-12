@@ -104,6 +104,41 @@ func (l Layout) MigrateAccountDocuments(accountID string, progress DocumentMigra
 	return progress.RecordDocumentMigrationPhase(DocumentMigrationComplete)
 }
 
+// RenameAccount moves one account's directory to a new ID, for a deployment
+// converted from a single owner whose records were recorded under the old
+// name. Nothing to move is fine; a destination that already exists is left
+// alone and the old directory kept beside it, which the operator resolves.
+func (l Layout) RenameAccount(oldID, newID string) error {
+	from, err := l.AccountMemories(oldID)
+	if err != nil {
+		return err
+	}
+	to, err := l.AccountMemories(newID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(to); err == nil {
+		return fmt.Errorf("%s already exists; %s was left in place", to, from)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return err
+	}
+	if err := os.Rename(from, to); err != nil {
+		return err
+	}
+	// The old account directory is empty now; removing it keeps the home
+	// from accumulating names nobody uses. Non-empty is left as it is.
+	_ = os.Remove(filepath.Dir(from))
+	return nil
+}
+
 func hasAnyPrivateDocument(dir string) (bool, error) {
 	for _, name := range privateDocuments {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {

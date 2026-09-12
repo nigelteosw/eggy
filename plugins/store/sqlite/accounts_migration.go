@@ -129,10 +129,17 @@ func (s *Store) HasUnownedRecords(ctx context.Context) bool {
 // so history is invisible until whoever operates the deployment has said whose
 // it is.
 //
-// Run again with the same account it does nothing; with a different one it
-// refuses, because the first mapping already moved the rows and the second
-// would be a silent transfer. A database that never had unowned rows records
-// no mapping at all.
+// A legacy deployment runs this on every boot as its single owner, whose ID
+// is the Telegram number or owner.id the config carried. Converting that
+// deployment to accounts names the same person by a new ID, so when the
+// recorded owner differs from accountID the recorded owner's rows are moved
+// across as well: they are the same history under a better name. Refusing
+// that move when the recorded owner is a live, different account is the
+// caller's decision, since only the caller knows the account list; see
+// bootstrap.assignLegacyRecords.
+//
+// Run again with the same account it does nothing. A database that never
+// had unowned rows records no mapping at all.
 //
 // invalidatePending drops the pending approvals that came across. A legacy
 // approval was requested before there was an account or an integration
@@ -154,40 +161,41 @@ func (s *Store) MigrateAccounts(ctx context.Context, accountID string, invalidat
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
 		return err
-	case recorded != accountID:
-		return fmt.Errorf("legacy records were already assigned to account %q; they cannot be reassigned to %q", recorded, accountID)
+	}
+	// Unowned rows always move; the previously recorded owner's rows move
+	// too when the name is changing.
+	sources := []string{""}
+	if recorded != "" && recorded != accountID {
+		sources = append(sources, recorded)
 	}
 	moved := int64(0)
-	for _, table := range privateTables {
-		var statement string
-		switch {
-		case table == "approvals" && invalidatePending:
-			statement = `DELETE FROM approvals WHERE account_id = ''`
-		case table == "machine_state":
-			// A state row for the account can only pre-exist on a retry that
-			// died between the commit and the marker, in which case it is
-			// the migrated row itself; the unowned copy is the stale one.
-			if _, err := tx.ExecContext(ctx, `DELETE FROM machine_state WHERE account_id = '' AND EXISTS (SELECT 1 FROM machine_state WHERE account_id = ?)`, accountID); err != nil {
-				return err
+	for _, source := range sources {
+		for _, table := range privateTables {
+			var result sql.Result
+			switch {
+			case table == "approvals" && invalidatePending:
+				result, err = tx.ExecContext(ctx, `DELETE FROM approvals WHERE account_id = ?`, source)
+			case table == "machine_state":
+				// A state row for the account can only pre-exist on a retry
+				// that died between the commit and the marker, in which
+				// case it is the migrated row itself; the source copy is
+				// the stale one.
+				if _, err := tx.ExecContext(ctx, `DELETE FROM machine_state WHERE account_id = ? AND EXISTS (SELECT 1 FROM machine_state WHERE account_id = ?)`, source, accountID); err != nil {
+					return err
+				}
+				result, err = tx.ExecContext(ctx, `UPDATE machine_state SET account_id = ? WHERE account_id = ?`, accountID, source)
+			default:
+				result, err = tx.ExecContext(ctx, `UPDATE `+table+` SET account_id = ? WHERE account_id = ?`, accountID, source)
 			}
-			statement = `UPDATE machine_state SET account_id = ? WHERE account_id = ''`
-		default:
-			statement = `UPDATE ` + table + ` SET account_id = ? WHERE account_id = ''`
+			if err != nil {
+				return fmt.Errorf("assign %s: %w", table, err)
+			}
+			affected, _ := result.RowsAffected()
+			moved += affected
 		}
-		var result sql.Result
-		if table == "approvals" && invalidatePending {
-			result, err = tx.ExecContext(ctx, statement)
-		} else {
-			result, err = tx.ExecContext(ctx, statement, accountID)
-		}
-		if err != nil {
-			return fmt.Errorf("assign %s: %w", table, err)
-		}
-		affected, _ := result.RowsAffected()
-		moved += affected
 	}
-	if moved > 0 && recorded == "" {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_meta (key, value) VALUES (?, ?)`, legacyAccountKey, accountID); err != nil {
+	if moved > 0 || (recorded != "" && recorded != accountID) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, legacyAccountKey, accountID); err != nil {
 			return err
 		}
 	}

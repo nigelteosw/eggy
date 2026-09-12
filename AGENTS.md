@@ -100,8 +100,8 @@ should only ever add a new package under
 
 ## Safety invariants
 
-- Telegram keeps webhook authentication, owner allowlisting, and update
-  deduplication.
+- Telegram keeps webhook authentication, sender allowlisting (numeric IDs
+  mapped to accounts, private chats only), and update deduplication.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
   consolidates their approvals.
@@ -166,6 +166,35 @@ delete eight lines.
 **`parseOAuthRedirect` stays in `internal/commands`.** Its header calls itself
 homeless, but both callers *are* the command surface, and moving it would have
 two plugin packages import a third.
+
+**Accounts are ownership, not roles.** A deployment names its people in
+`accounts:`; each signs in with their own Google identity (`plugins/auth/google`,
+an inbound OIDC adapter that keeps no token) and owns private conversations,
+memory, watch list, schedules, traces, approvals, and `/mode` and `/model`
+choices. Every account holds every capability — config, restart, MCP, the
+shared Google connection — and the only authorization question anywhere is
+"does this account own this record". A role field, a member tier, or an RBAC
+layer was considered and deliberately not added: it would be a second
+authorization mechanism protecting nothing the ownership check does not. The
+principal is `ports.Principal`, resolved once at a trusted ingress (a verified
+session, a verified Telegram sender, a schedule's stored owner) and put on the
+context by the dispatcher or the session guard; every private store fails closed
+without one, and nothing downstream — JSON body, URL, tool argument, message
+text — may choose the acting account. `/mode` is account-scoped for the same
+reason: one person's `auto` must not switch off the gate for another. `memory`
+keeps `InternalTool()` under accounts because its writes still land only in the
+calling account's own USER.md and MEMORY.md, which nobody else reads.
+
+**Eggy's Google identity is its own.** The one shared grant belongs to a
+Workspace user provisioned for Eggy, named by `google.expected_email`; the
+outbound adapter verifies whose account a new token is through Google's
+identity endpoint before storing it and refuses any other address, leaving the
+existing grant untouched. Eggy never holds a grant on a person's own Google
+account, there is no domain-wide delegation, and no service account. What Eggy
+can see through that grant — its inbox, what is shared with it — is visible to
+every Eggy user, and the panel says so beside the connection. The grant carries
+a generation that advances on every reconnect or disconnect, and approvals bind
+to it, so a reconnect cannot execute what was approved against the old identity.
 
 **Owner authentication stays separate from outbound authorization.**
 `plugins/auth/session` answers "who may talk to Eggy"; the OAuth grants under
@@ -241,18 +270,18 @@ Each is something a comparable project (OpenClaw, Hermes Agent) has and Eggy wil
 not build. Recorded with the reason so re-reading their READMEs does not restart
 the argument.
 
-**Channel breadth.** Both front 10-20+ messaging platforms. Eggy has one owner,
-reachable on Telegram and on the web. A tenth channel does not let the owner do
+**Channel breadth.** Both front 10-20+ messaging platforms. Eggy's people are
+reachable on Telegram and on the web. A tenth channel does not let anyone do
 anything an existing one does not — it multiplies adapters, webhook
 authentication, deduplication ledgers, and approval-delivery paths for zero new
 capability. `ports.Channel` stays the extension point if that ever changes;
 adding a channel should remain a plugin package plus one line of bootstrap, and
 that property is worth more than any particular channel.
 
-**Multi-agent routing and per-sender session isolation.** OpenClaw isolates
-sessions per agent, workspace, and sender because it serves groups. Eggy is
-single-owner by definition — every message is from the same person — so the
-routing key has one value and the isolation protects nothing.
+**Multi-agent routing.** OpenClaw routes to several agents per workspace
+because it serves groups. Eggy has one agent, one loop, and one scheduler for
+everyone it serves; what changed with accounts (below) is who owns a record,
+not how many agents there are.
 
 **Subagent delegation (`delegate_task`).** Hermes spawns isolated subagents with
 spawn-depth and concurrency bounds, an orchestrator/leaf role split, and an
@@ -285,5 +314,7 @@ for startup config, Markdown for owner-facing documents, SQLite for everything
 machine-managed. A memory provider port would be a second way to do a job that
 SQLite and Markdown already do.
 
-**Profiles / multi-instance isolation.** Eggy has one home, one owner, one
-replica; `EGGY_CONFIG` already relocates it for tests and local runs.
+**Profiles / multi-instance isolation.** Eggy has one home, one process, one
+replica; `EGGY_CONFIG` already relocates it for tests and local runs. Several
+people share that one instance as accounts (below) rather than each running
+their own.

@@ -35,6 +35,7 @@ export const navigation: readonly DocNavGroup[] = [
     label: "Configure",
     items: [
       { title: "Configuration overview", path: "/configure/configuration", description: "Configure the daemon without storing secrets in YAML." },
+      { title: "Accounts", path: "/configure/accounts", description: "Several people, each with their own Google sign-in, sharing one Eggy." },
       { title: "Model providers", path: "/configure/model-providers", description: "Connect OpenAI-compatible model providers." },
       { title: "MCP servers", path: "/configure/mcp-servers", description: "Connect trusted HTTP or stdio MCP servers." },
       { title: "Schedules and heartbeat", path: "/configure/automation", description: "Run turns you are not present for, paced by a watch list." },

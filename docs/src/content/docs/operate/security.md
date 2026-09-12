@@ -6,9 +6,13 @@ eyebrow: Operate
 
 Eggy is designed for one owner and repositories the owner already trusts. It reduces accidental authority and credential exposure; it is not a hostile-code sandbox.
 
-## Owner boundary
+## Account boundary
 
-Telegram accepts one configured numeric owner. Web chat requires the configured email and password, issues a signed HTTP-only session, and throttles login failures. Every channel maps back to the same canonical `owner.id`.
+Every request and turn acts as one account, resolved at a trusted ingress and never from anything the caller sends: a verified browser session, a verified numeric Telegram sender in a private chat, or a schedule's stored owner. Private records — conversations, memory, watch list, schedules, traces, approvals — are keyed by account in the database and on disk, and every read and write fails closed without one. A cross-account request answers as if the record did not exist. Ownership is checked before the approval mode is consulted, so `auto` never bypasses it, and an approval is answered and consumed only by the account that asked. See [Accounts](/eggy/configure/accounts/).
+
+With accounts configured, web chat requires Google Sign-In (OpenID Connect with PKCE and a nonce, verified server-side; no login token is kept), issues an opaque HTTP-only session whose hash alone is stored, and checks a per-session CSRF header plus same-origin on every mutating route. A single-owner deployment keeps the configured email and password with a signed HTTP-only session, and throttles login failures. Telegram accepts only configured numeric senders, in private chats.
+
+Eggy's Google connection is its own Workspace user, verified against `google.expected_email` before a grant is stored. Eggy holds no grant on any person's Google account. Anything Eggy can reach through its own account is shared by everyone who uses it.
 
 ## Secrets
 

@@ -99,7 +99,7 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 	// account. A legacy owner is that account on every boot; an explicit
 	// accounts list has to say so through migration_owner_id, because the
 	// list's order does not decide whose history this was.
-	if err := assignLegacyRecords(context.Background(), database, config); err != nil {
+	if err := assignLegacyRecords(context.Background(), database, layout, config); err != nil {
 		_ = database.Close()
 		return stores{}, err
 	}
@@ -123,18 +123,39 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 // names for them, or refuses to boot when there are such records and no
 // name. Conversion to accounts also invalidates pending legacy approvals: they
 // were requested before there was an account to bind them to.
-func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, config config.Config) error {
+func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, layout home.Layout, config config.Config) error {
 	owner := legacyOwner(config)
+	recorded, err := database.LegacyAccount(ctx)
+	if err != nil {
+		return err
+	}
 	if owner == "" {
-		if database.HasUnownedRecords(ctx) {
+		if database.HasUnownedRecords(ctx) || (recorded != "" && !accountConfigured(config, recorded)) {
 			return fmt.Errorf("this home holds history from before accounts were configured; set migration_owner_id to the account that should receive it")
 		}
 		return nil
 	}
+	// The recorded owner is the single owner's old name -- a Telegram number
+	// or owner.id -- and moves to the migration owner on conversion. A
+	// recorded owner that is a live account in its own right is a different
+	// person, and moving their history would be a silent transfer.
+	if recorded != "" && recorded != owner && accountConfigured(config, recorded) {
+		return fmt.Errorf("legacy records were already assigned to account %q; they cannot be reassigned to %q", recorded, owner)
+	}
 	if err := database.MigrateAccounts(ctx, owner, config.AccountMode()); err != nil {
 		return fmt.Errorf("assign legacy records: %w", err)
 	}
+	if recorded != "" && recorded != owner {
+		if err := layout.RenameAccount(recorded, owner); err != nil {
+			return fmt.Errorf("move %q's documents to %q: %w", recorded, owner, err)
+		}
+	}
 	return nil
+}
+
+func accountConfigured(config config.Config, id string) bool {
+	_, ok := config.Account(id)
+	return ok
 }
 
 // accountDirectory is the configured account list as the web layer sees it.

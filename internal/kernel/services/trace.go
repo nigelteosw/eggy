@@ -133,7 +133,7 @@ func (r *TraceRecorder) Begin(ctx context.Context, trace ports.Trace) (context.C
 	trace.ID = newTraceID()
 	trace.StartedAt = r.now().UTC()
 	trace.Input = r.body(trace.Input)
-	turn := &TraceTurn{recorder: r, trace: trace, pending: map[string]time.Time{}}
+	turn := &TraceTurn{recorder: r, trace: trace, ctx: r.detached(ctx), pending: map[string]time.Time{}}
 	r.mu.Lock()
 	r.active[trace.ID] = turn
 	r.mu.Unlock()
@@ -179,6 +179,10 @@ func (r *TraceRecorder) body(text string) string {
 type TraceTurn struct {
 	recorder *TraceRecorder
 	trace    ports.Trace
+	// ctx is the turn's context with cancellation stripped: it still carries
+	// the principal, which every span write needs, and outlives a stopped
+	// turn, whose trace is precisely the one worth keeping.
+	ctx context.Context
 
 	mu       sync.Mutex
 	sequence int
@@ -329,9 +333,10 @@ func (t *TraceTurn) append(span ports.TraceSpan) {
 	span.TraceID = t.trace.ID
 	span.Request = recorder.body(span.Request)
 	span.Response = recorder.body(span.Response)
-	// Spans are written on a background context: the span describes work
-	// that already happened, and a cancelled turn must still record it.
-	if err := recorder.store.AppendSpan(context.Background(), span); err != nil {
+	// Spans are written on the turn's detached context: the span describes
+	// work that already happened, and a cancelled turn must still record it
+	// -- as the account whose turn it was.
+	if err := recorder.store.AppendSpan(t.ctx, span); err != nil {
 		recorder.logger.Error("trace span write failed", "trace_id", span.TraceID, "kind", span.Kind, "error", err)
 	}
 }

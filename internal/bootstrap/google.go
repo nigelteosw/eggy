@@ -47,7 +47,7 @@ func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOp
 		return nil, nil, fmt.Errorf("open Google token store: %w", err)
 	}
 	adapterConfig := googleadapter.Config{
-		ClientID: cfg.Google.ClientID, ClientSecret: secrets.GoogleClientSecret,
+		ClientID: cfg.Google.ClientID, ClientSecret: secrets.GoogleClientSecret, ExpectedEmail: cfg.Google.ExpectedEmail,
 		Scopes: googleScopes(cfg.Google), Timeout: cfg.Google.Timeout.Value(), MaxOutputBytes: cfg.Google.MaxOutputBytes,
 	}
 	client := options.HTTPClient
@@ -193,11 +193,39 @@ func (a *googleAdmin) CompleteLogin(ctx context.Context, code, state string) err
 func (a *googleAdmin) Logout() error { return a.auth.Logout() }
 
 func (a *googleAdmin) Status() (commands.GoogleStatus, error) {
-	authorized, scopes, expiry, err := a.auth.Status()
+	status, err := a.auth.Status()
 	if err != nil {
 		return commands.GoogleStatus{}, err
 	}
-	return commands.GoogleStatus{Authorized: authorized, Scopes: scopes, Expiry: expiry}, nil
+	return commands.GoogleStatus{Authorized: status.Authorized, Scopes: status.Scopes, Expiry: status.Expiry,
+		Email: status.Email, ExpectedEmail: status.ExpectedEmail, Generation: status.Generation}, nil
+}
+
+// Connection is the panel's view of the same status, so the Google card can
+// show whose account the grant is beside the configuration.
+func (a *googleAdmin) Connection() (web.GoogleConnection, error) {
+	status, err := a.auth.Status()
+	if err != nil {
+		return web.GoogleConnection{}, err
+	}
+	return web.GoogleConnection{Authorized: status.Authorized, Email: status.Email, ExpectedEmail: status.ExpectedEmail}, nil
+}
+
+// webView is the nil-safe interface handoff commandsView makes, for the panel.
+func (a *googleAdmin) webView() web.GoogleConnectionReader {
+	if a == nil {
+		return nil
+	}
+	return a
+}
+
+// generation is what approvals bind to. Without Google there is no shared
+// integration to bind, and every approval is at generation 0.
+func (a *googleAdmin) generation() func(context.Context) uint64 {
+	if a == nil {
+		return nil
+	}
+	return func(context.Context) uint64 { return a.auth.Generation() }
 }
 
 // commandsView hands out an explicit nil interface when Google is absent, the

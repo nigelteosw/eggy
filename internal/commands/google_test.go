@@ -212,3 +212,22 @@ func storedGoogle(path string) (config.GoogleConfig, error) {
 	cfg, err := config.LoadDocument(path)
 	return cfg.Google, err
 }
+
+// The connection is one grant for everyone, so the status says whose account
+// it is and that it is shared -- and flags a grant that is not Eggy's own.
+func TestGoogleStatusNamesTheSharedIdentityAndFlagsAMismatch(t *testing.T) {
+	runtime := &fakeGoogleRuntime{status: GoogleStatus{Authorized: true, Email: "eggy@example.com", ExpectedEmail: "eggy@example.com"}}
+	service := googleService(runtime)
+	output := run(t, service, "/google")
+	if !strings.Contains(output, "connected as eggy@example.com") || !strings.Contains(output, "shared with all Eggy users") || strings.Contains(output, "expected") {
+		t.Fatalf("output=%q", output)
+	}
+	runtime.status = GoogleStatus{Authorized: true, Email: "nigel@example.com", ExpectedEmail: "eggy@example.com"}
+	if output := run(t, service, "/google"); !strings.Contains(output, "expected eggy@example.com") {
+		t.Fatalf("mismatch output=%q", output)
+	}
+	runtime.status = GoogleStatus{Authorized: true, ExpectedEmail: "eggy@example.com"}
+	if output := run(t, service, "/google"); !strings.Contains(output, "not yet verified") {
+		t.Fatalf("unverified output=%q", output)
+	}
+}

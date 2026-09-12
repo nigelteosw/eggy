@@ -74,6 +74,10 @@ type WebUIConfig struct {
 	// exist fails at startup, which for a config edit means the owner lands in
 	// safe mode over a typo the form could have refused.
 	GoogleActions map[string]GoogleProductActions
+	// GoogleConnection reports whose account the shared grant is, so the
+	// card can show the verified address against the expected one. Nil when
+	// Google is disabled.
+	GoogleConnection GoogleConnectionReader
 	// ModelDiscovery browses a provider's catalog so the models card can offer
 	// what is on sale instead of asking the owner to type an ID from memory.
 	// Nil leaves the route answering 404 and the card's browse control absent,
@@ -140,6 +144,19 @@ const (
 	webInfo    = "info"
 	webError   = "error"
 )
+
+// GoogleConnection is the shared grant as the panel shows it: never a token,
+// only whose account it is and whose it should be.
+type GoogleConnection struct {
+	Authorized    bool
+	Email         string
+	ExpectedEmail string
+}
+
+// GoogleConnectionReader is bootstrap's handoff of the live connection state.
+type GoogleConnectionReader interface {
+	Connection() (GoogleConnection, error)
+}
 
 // The two shapes the HTTP surface can take. The web app asks for this before
 // anything else, because in safe mode every other route it would call is

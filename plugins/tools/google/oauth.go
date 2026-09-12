@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -43,19 +45,33 @@ const pendingWindow = 10 * time.Minute
 var (
 	authorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
 	tokenEndpoint         = "https://oauth2.googleapis.com/token"
+	// identityEndpoint is Google's OpenID Connect userinfo endpoint: the one
+	// place the grant's own identity is read from, so a token issued to a
+	// person's account is recognised before it can be stored as Eggy's.
+	identityEndpoint = "https://openidconnect.googleapis.com/v1/userinfo"
 )
+
+// identityScopes are requested alongside the product scopes so the identity
+// endpoint answers. They grant nothing beyond reading who the grant is for.
+var identityScopes = []string{"openid", "https://www.googleapis.com/auth/userinfo.email"}
+
+// ErrIdentityMismatch reports a grant that belongs to someone other than the
+// configured Eggy identity. Tools refuse to run on it and nothing is deleted:
+// the repair is a reconnect as the right account, not a loss of the grant.
+var ErrIdentityMismatch = errors.New("the Google connection is not Eggy's own account")
 
 // Auth holds the one grant every product call borrows from. Its mutex covers
 // the read-modify-write of a login in progress; token refresh is serialized
 // separately by the oauth2 token source it hands out.
 type Auth struct {
-	clientID     string
-	clientSecret string
-	scopes       []string
-	store        *TokenStore
-	client       *http.Client
-	now          func() time.Time
-	mu           sync.Mutex
+	clientID      string
+	clientSecret  string
+	expectedEmail string
+	scopes        []string
+	store         *TokenStore
+	client        *http.Client
+	now           func() time.Time
+	mu            sync.Mutex
 }
 
 func NewAuth(config Config, store *TokenStore, client *http.Client, now func() time.Time) *Auth {
@@ -65,12 +81,14 @@ func NewAuth(config Config, store *TokenStore, client *http.Client, now func() t
 	if now == nil {
 		now = time.Now
 	}
-	return &Auth{clientID: config.ClientID, clientSecret: config.ClientSecret, scopes: config.Scopes, store: store, client: client, now: now}
+	return &Auth{clientID: config.ClientID, clientSecret: config.ClientSecret, expectedEmail: strings.ToLower(strings.TrimSpace(config.ExpectedEmail)),
+		scopes: config.Scopes, store: store, client: client, now: now}
 }
 
 func (a *Auth) config() *oauth2.Config {
+	scopes := append(append([]string(nil), a.scopes...), identityScopes...)
 	return &oauth2.Config{
-		ClientID: a.clientID, ClientSecret: a.clientSecret, RedirectURL: LoopbackRedirect, Scopes: a.scopes,
+		ClientID: a.clientID, ClientSecret: a.clientSecret, RedirectURL: LoopbackRedirect, Scopes: scopes,
 		Endpoint: oauth2.Endpoint{AuthURL: authorizationEndpoint, TokenURL: tokenEndpoint, AuthStyle: oauth2.AuthStyleInParams},
 	}
 }
@@ -138,23 +156,148 @@ func (a *Auth) CompleteLogin(ctx context.Context, code, state string) error {
 	if token.RefreshToken == "" && record.RefreshToken == "" {
 		return errors.New("Google returned no refresh token; revoke Eggy's access at myaccount.google.com/permissions and authorize again")
 	}
+	// Whose grant is this? Asked of Google with the new token before anything
+	// is written, so a user who tapped through the consent screen as
+	// themselves is told so and the existing connection -- Eggy's -- is kept
+	// exactly as it was, pending login cleared.
+	identity, err := a.identity(ctx, token.AccessToken)
+	if err != nil {
+		_ = a.clearPending()
+		return err
+	}
+	if err := a.checkExpected(identity); err != nil {
+		_ = a.clearPending()
+		return err
+	}
 	return a.store.Update(func(stored *TokenRecord) error {
 		applyToken(stored, token)
+		stored.State, stored.CodeVerifier, stored.StateExpires = "", "", time.Time{}
+		stored.Email, stored.Subject = identity.email, identity.subject
+		stored.Generation++
+		return nil
+	})
+}
+
+func (a *Auth) clearPending() error {
+	return a.store.Update(func(stored *TokenRecord) error {
 		stored.State, stored.CodeVerifier, stored.StateExpires = "", "", time.Time{}
 		return nil
 	})
 }
 
-func (a *Auth) Logout() error { return a.store.Delete() }
+// Logout disconnects: tokens and identity go, the generation advances and
+// stays, so an approval granted against the old connection cannot be
+// consumed by the next one.
+func (a *Auth) Logout() error {
+	return a.store.Update(func(stored *TokenRecord) error {
+		generation := stored.Generation + 1
+		*stored = TokenRecord{Version: 1, Generation: generation}
+		return nil
+	})
+}
 
-// Status reports what the owner needs to decide whether to re-authorize, and
-// deliberately returns no token material.
-func (a *Auth) Status() (authorized bool, scopes []string, expiry time.Time, err error) {
+// Generation is the current connection number, for approvals to bind to.
+// An unreadable record reports 0, which no approval granted after a
+// connection carries.
+func (a *Auth) Generation() uint64 {
 	record, err := a.store.Load()
 	if err != nil {
-		return false, nil, time.Time{}, err
+		return 0
 	}
-	return record.Authorized(), record.Scopes, record.Expiry, nil
+	return record.Generation
+}
+
+// Status is what a surface shows about the connection. It deliberately
+// carries no token material.
+type Status struct {
+	Authorized bool      `json:"authorized"`
+	Scopes     []string  `json:"scopes,omitempty"`
+	Expiry     time.Time `json:"expiry,omitzero"`
+	// Email is the verified address the grant belongs to; empty for a grant
+	// written before verification existed and not yet verified.
+	Email string `json:"email,omitempty"`
+	// ExpectedEmail is the configured Eggy identity, so a surface can show
+	// a mismatch beside the connection instead of a bare "authorized".
+	ExpectedEmail string `json:"expected_email,omitempty"`
+	Generation    uint64 `json:"generation"`
+}
+
+// Status reports what the owner needs to decide whether to re-authorize.
+func (a *Auth) Status() (Status, error) {
+	record, err := a.store.Load()
+	if err != nil {
+		return Status{}, err
+	}
+	return Status{Authorized: record.Authorized(), Scopes: record.Scopes, Expiry: record.Expiry,
+		Email: record.Email, ExpectedEmail: a.expectedEmail, Generation: record.Generation}, nil
+}
+
+type grantIdentity struct {
+	email, subject string
+}
+
+// identity asks Google's identity endpoint who accessToken belongs to.
+func (a *Auth) identity(ctx context.Context, accessToken string) (grantIdentity, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, identityEndpoint, nil)
+	if err != nil {
+		return grantIdentity{}, err
+	}
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+	response, err := a.client.Do(request)
+	if err != nil {
+		return grantIdentity{}, fmt.Errorf("verify Google identity: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return grantIdentity{}, fmt.Errorf("verify Google identity: Google answered %s", response.Status)
+	}
+	var claims struct {
+		Subject       string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&claims); err != nil {
+		return grantIdentity{}, fmt.Errorf("verify Google identity: %w", err)
+	}
+	email := strings.ToLower(strings.TrimSpace(claims.Email))
+	if claims.Subject == "" || email == "" || !claims.EmailVerified {
+		return grantIdentity{}, errors.New("verify Google identity: Google did not report a verified address for this grant")
+	}
+	return grantIdentity{email: email, subject: claims.Subject}, nil
+}
+
+// checkExpected is the guard against a personal account becoming Eggy's.
+func (a *Auth) checkExpected(identity grantIdentity) error {
+	if a.expectedEmail == "" || identity.email == a.expectedEmail {
+		return nil
+	}
+	return fmt.Errorf("%w: that consent screen was signed in as %s, but Eggy's account is %s; sign in as Eggy and try again (the existing connection was kept)", ErrIdentityMismatch, identity.email, a.expectedEmail)
+}
+
+// verified makes sure a grant written before identities were recorded
+// belongs to the expected account before it serves a tool. Verified once
+// and written back; a mismatch is refused every time and deletes nothing.
+func (a *Auth) verified(ctx context.Context, record TokenRecord, source oauth2.TokenSource) error {
+	if record.Email != "" || a.expectedEmail == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	token, err := source.Token()
+	if err != nil {
+		return err
+	}
+	identity, err := a.identity(ctx, token.AccessToken)
+	if err != nil {
+		return err
+	}
+	if err := a.checkExpected(identity); err != nil {
+		return err
+	}
+	return a.store.Update(func(stored *TokenRecord) error {
+		stored.Email, stored.Subject = identity.email, identity.subject
+		return nil
+	})
 }
 
 // Client returns an HTTP client that renews and re-persists the token as
@@ -171,7 +314,11 @@ func (a *Auth) Client(ctx context.Context) (*http.Client, error) {
 	}
 	token := &oauth2.Token{AccessToken: record.AccessToken, RefreshToken: record.RefreshToken, TokenType: record.TokenType, Expiry: record.Expiry}
 	source := a.config().TokenSource(oauthContext(ctx, a.client), token)
-	return oauth2.NewClient(ctx, &persistingSource{source: source, store: a.store}), nil
+	persisting := &persistingSource{source: source, store: a.store}
+	if err := a.verified(ctx, record, persisting); err != nil {
+		return nil, err
+	}
+	return oauth2.NewClient(ctx, persisting), nil
 }
 
 // persistingSource writes a renewed token back before it is used. Without

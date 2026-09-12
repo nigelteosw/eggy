@@ -24,6 +24,12 @@ type GoogleStatus struct {
 	Authorized bool
 	Scopes     []string
 	Expiry     time.Time
+	// Email is the verified address the shared grant belongs to; empty until
+	// a grant written before verification existed has been verified.
+	Email string
+	// ExpectedEmail is the configured Eggy identity, if any.
+	ExpectedEmail string
+	Generation    uint64
 }
 
 func (s *CommandService) googleCommand(ctx context.Context, args []string) (string, bool, error) {
@@ -96,6 +102,17 @@ func (s *CommandService) googleStatus() (string, bool, error) {
 		return "**Google** — not authorized\nRun /google login", true, nil
 	}
 	lines := []string{"**Google** — authorized"}
+	switch {
+	case status.Email != "":
+		// One grant, every user: say so where the connection is described,
+		// so nobody mistakes Eggy's mailbox for a private one.
+		lines = append(lines, "connected as "+status.Email+" (shared with all Eggy users)")
+		if status.ExpectedEmail != "" && status.Email != status.ExpectedEmail {
+			lines = append(lines, "⚠ expected "+status.ExpectedEmail+"; reconnect as Eggy")
+		}
+	case status.ExpectedEmail != "":
+		lines = append(lines, "identity not yet verified; expected "+status.ExpectedEmail)
+	}
 	if !status.Expiry.IsZero() {
 		// The access token's expiry, not the grant's. Saying so avoids a weekly
 		// panic about a token that renews itself every hour.

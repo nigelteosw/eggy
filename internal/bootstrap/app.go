@@ -294,6 +294,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	googleAdministration := newGoogleAdmin(googleAuth)
+	// Approvals bind the shared connection's generation, so reconnecting
+	// Google as anyone invalidates what was approved against the previous
+	// identity.
+	app.approvals.BindGeneration(googleAdministration.generation())
 	googleCatalog, err := googleClassifiedTools(googleWorkspace, config.Google, options.Now)
 	if err != nil {
 		return nil, err
@@ -452,6 +456,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Agent:            agentRuntime,
 		ModelDiscovery:   discovery,
 		GoogleActions:    googleActionCatalog(),
+		GoogleConnection: googleAdministration.webView(),
 		Restarter:        app,
 		Getenv:           options.Getenv,
 		TrustedProxyHops: config.Server.TrustedProxyHops,

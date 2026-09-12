@@ -431,11 +431,16 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
+	googleLogin, loginSealer, err := newGoogleLogin(config, secrets, options)
+	if err != nil {
+		return nil, err
+	}
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
 		AccountMode: config.AccountMode(), Sessions: database, Accounts: accountDirectory{config: config},
+		GoogleLogin: googleLogin, Identities: database, LoginSealer: loginSealer,
 		PublicBaseURL:    config.Server.PublicBaseURL,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,

@@ -23,6 +23,15 @@ func (f *fakeAccounts) Account(id string) (AccountRecord, bool) {
 	return record, ok
 }
 
+func (f *fakeAccounts) AccountForEmail(email string) (AccountRecord, bool) {
+	for _, record := range f.list {
+		if record.Email == email {
+			return record, true
+		}
+	}
+	return AccountRecord{}, false
+}
+
 func (f *fakeAccounts) Accounts() []AccountRecord {
 	records := make([]AccountRecord, 0, len(f.list))
 	for _, record := range f.list {

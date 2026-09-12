@@ -150,6 +150,14 @@ func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
 	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
 }
 
+func (d accountDirectory) AccountForEmail(email string) (web.AccountRecord, bool) {
+	account, ok := d.config.AccountForEmail(email)
+	if !ok {
+		return web.AccountRecord{}, false
+	}
+	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
+}
+
 func (d accountDirectory) Accounts() []web.AccountRecord {
 	accounts := d.config.Principals()
 	records := make([]web.AccountRecord, 0, len(accounts))

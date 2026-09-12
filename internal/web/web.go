@@ -37,6 +37,11 @@ type WebUIConfig struct {
 	AccountMode bool
 	Sessions    SessionStore
 	Accounts    AccountDirectory
+	// GoogleLogin, Identities and LoginSealer are the Sign-In routes'
+	// collaborators. All three are required in account mode.
+	GoogleLogin GoogleLogin
+	Identities  IdentityStore
+	LoginSealer VerifierSealer
 	// PublicBaseURL is the deployment's public origin, which the CSRF
 	// same-origin check accepts alongside the request's own Host.
 	PublicBaseURL string
@@ -207,6 +212,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		})
 		mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
 		mux.Handle("GET /api/session", guard(handleAccountSession))
+		if webConfig.GoogleLogin != nil {
+			// Neither route is session-gated: start is how a session begins,
+			// and the callback is authenticated by its single-use state.
+			mux.HandleFunc("GET /auth/google/start", handleGoogleStart(webConfig, now))
+			mux.HandleFunc("GET /auth/google/callback", handleGoogleCallback(webConfig, now))
+		}
 	} else {
 		mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
 		mux.HandleFunc("POST /api/logout", handleWebLogout())

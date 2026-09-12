@@ -36,6 +36,7 @@ type SessionStore interface {
 // enumerate for the accounts card.
 type AccountDirectory interface {
 	Account(id string) (AccountRecord, bool)
+	AccountForEmail(email string) (AccountRecord, bool)
 	Accounts() []AccountRecord
 }
 

@@ -435,6 +435,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
+		AccountMode: config.AccountMode(), Sessions: database, Accounts: accountDirectory{config: config},
+		PublicBaseURL:    config.Server.PublicBaseURL,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,

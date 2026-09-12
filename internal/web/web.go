@@ -31,11 +31,20 @@ type WebUIConfig struct {
 	Password   string
 	SigningKey []byte
 	Now        func() time.Time
-	ChatHub    ChatStream
-	Enqueue    func(context.Context, events.Event) error
-	Memory     HistoryReader
-	Threads    ThreadDirectory
-	OwnerID    string
+	// AccountMode switches the panel from the single-owner password login to
+	// Google Sign-In with revocable sessions. Sessions and Accounts must be
+	// set with it; the password and login-link routes are not mounted.
+	AccountMode bool
+	Sessions    SessionStore
+	Accounts    AccountDirectory
+	// PublicBaseURL is the deployment's public origin, which the CSRF
+	// same-origin check accepts alongside the request's own Host.
+	PublicBaseURL string
+	ChatHub       ChatStream
+	Enqueue       func(context.Context, events.Event) error
+	Memory        HistoryReader
+	Threads       ThreadDirectory
+	OwnerID       string
 	// MCP is the running MCP manager, or nil when no server is configured.
 	// The web panel edits MCP config through internal/config like every other
 	// section; this is only the part config cannot do -- starting an OAuth
@@ -183,16 +192,29 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// that visibly does not say guard, instead of one that happens to be
 	// missing two arguments among thirty that carry them.
 	guard := func(next http.HandlerFunc) http.Handler {
+		if webConfig.AccountMode {
+			return requireAccountSession(webConfig, now, next)
+		}
 		return requireWebSession(webConfig, now, next)
 	}
 	mux.Handle("GET /", webUIHandler())
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
-	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
-	mux.HandleFunc("POST /api/logout", handleWebLogout())
-	mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
-	mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
-		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
-	}))
+	if webConfig.AccountMode {
+		// No password, no one-tap link: the only way in is a verified
+		// Google identity, and the only way out is revoking the row.
+		mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, _ *http.Request) {
+			writeWebError(w, http.StatusUnauthorized, "sign in with Google")
+		})
+		mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
+		mux.Handle("GET /api/session", guard(handleAccountSession))
+	} else {
+		mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
+		mux.HandleFunc("POST /api/logout", handleWebLogout())
+		mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
+		mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
+			writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
+		}))
+	}
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))

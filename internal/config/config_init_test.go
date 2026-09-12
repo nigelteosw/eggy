@@ -183,7 +183,7 @@ func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 		mutate func(map[string]string)
 		want   string
 	}{
-		{"missing owner", func(values map[string]string) { delete(values, "EGGY_TELEGRAM_OWNER_ID") }, "EGGY_TELEGRAM_OWNER_ID is required, or EGGY_OWNER_ID for a web-only deployment"},
+		{"missing owner", func(values map[string]string) { delete(values, "EGGY_TELEGRAM_OWNER_ID") }, "EGGY_ACCOUNTS is required, or EGGY_TELEGRAM_OWNER_ID / EGGY_OWNER_ID for a single-owner deployment"},
 		{"invalid owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "not-a-number" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"zero owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "0" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"missing public URL", func(values map[string]string) { delete(values, "EGGY_PUBLIC_BASE_URL") }, "EGGY_PUBLIC_BASE_URL is required when RAILWAY_PUBLIC_DOMAIN is unavailable"},

@@ -331,3 +331,38 @@ func TestConvertToAccountsReplacesTheLegacyOwnerInOneWrite(t *testing.T) {
 		t.Fatal("converting twice must fail")
 	}
 }
+
+func TestFirstBootGeneratesAnAccountsConfig(t *testing.T) {
+	env := map[string]string{
+		"EGGY_ACCOUNTS":                   "nigel:Nigel@Example.com:42, partner:partner@example.com",
+		"EGGY_GOOGLE_LOGIN_CLIENT_ID":     "web-client",
+		"EGGY_GOOGLE_LOGIN_CLIENT_SECRET": "login-secret",
+		"EGGY_GOOGLE_EXPECTED_EMAIL":      "eggy@example.com",
+		"EGGY_PUBLIC_BASE_URL":            "https://eggy.example",
+		"DEEPSEEK_API_KEY":                "k",
+		"TELEGRAM_BOT_TOKEN":              "t",
+		"TELEGRAM_WEBHOOK_SECRET":         "s",
+		"EGGY_ENCRYPTION_KEY":             "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	cfg, _, err := LoadOrCreateConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AccountMode() || len(cfg.Accounts) != 2 || cfg.Owner.ID != "" || cfg.Telegram.OwnerID != 0 {
+		t.Fatalf("cfg=%+v", cfg)
+	}
+	if account, _ := cfg.Account("nigel"); account.GoogleEmail != "nigel@example.com" || account.TelegramUserID != 42 {
+		t.Fatalf("nigel=%+v", account)
+	}
+	if cfg.Web.GoogleLogin.ClientID != "web-client" || cfg.Web.GoogleLogin.ClientSecretEnv != "EGGY_GOOGLE_LOGIN_CLIENT_SECRET" || cfg.Google.ExpectedEmail != "eggy@example.com" {
+		t.Fatalf("login=%+v expected=%q", cfg.Web.GoogleLogin, cfg.Google.ExpectedEmail)
+	}
+	delete(env, "EGGY_GOOGLE_LOGIN_CLIENT_ID")
+	if _, _, err := LoadOrCreateConfig(filepath.Join(t.TempDir(), "config.yaml"), mapEnv(env)); err == nil {
+		t.Fatal("accounts without a login client id must be refused")
+	}
+	if _, err := firstBootAccounts("nigel"); err == nil {
+		t.Fatal("malformed entry accepted")
+	}
+}

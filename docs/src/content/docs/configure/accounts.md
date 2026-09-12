@@ -73,6 +73,13 @@ exclusive. With accounts configured, `EGGY_UI_USER_EMAIL` and
 `EGGY_UI_PASSWORD` must not be set: the password login stops existing, and so
 does the `/web` one-tap link.
 
+On a fresh deployment, first boot writes this section from `EGGY_ACCOUNTS`
+(`id:google_email[:telegram_user_id]`, comma-separated),
+`EGGY_GOOGLE_LOGIN_CLIENT_ID`, `EGGY_GOOGLE_LOGIN_CLIENT_SECRET` and
+`EGGY_GOOGLE_EXPECTED_EMAIL`; see the
+[Railway](/eggy/get-started/deploy-railway/) and
+[Quickstart](/eggy/get-started/quickstart/) guides.
+
 Everything here is operable from **Settings → Accounts** as well: adding,
 editing and removing people, resetting a binding, the sign-in client, and the
 expected Google account. Changes to the list take effect on restart; removing

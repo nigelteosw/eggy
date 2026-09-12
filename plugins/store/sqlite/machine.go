@@ -15,11 +15,17 @@ import (
 // than read with the wrong shape, and so a future migration has a number to
 // branch on.
 //
-// It starts at 6 rather than 1 because it continues state.json's own schema
+// It started at 6 rather than 1 because it continues state.json's own schema
 // series, which had reached 5 when these records moved into SQLite. Two
 // numbering schemes for one body of state is exactly the ambiguity a version
 // exists to remove.
-const MachineStateVersion = 6
+//
+// 7 is accounts: every private table carries an account_id, machine state is
+// one row per account, and conversation resets and processed events are keyed
+// by account as well as by their old key. A version-6 binary refuses a 7
+// database, which is deliberate -- it would read every account's records as
+// one owner's.
+const MachineStateVersion = 7
 
 const machineStateVersionKey = "machine_state_version"
 
@@ -40,7 +46,7 @@ CREATE TABLE IF NOT EXISTS imports (
 );
 
 CREATE TABLE IF NOT EXISTS machine_state (
-    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    account_id    TEXT PRIMARY KEY,
     version       INTEGER NOT NULL,
     approval_mode TEXT    NOT NULL DEFAULT '',
     approval_auto_mode INTEGER NOT NULL DEFAULT 0,
@@ -49,22 +55,27 @@ CREATE TABLE IF NOT EXISTS machine_state (
 );
 
 CREATE TABLE IF NOT EXISTS approvals (
-    id     TEXT PRIMARY KEY,
-    record TEXT NOT NULL
+    id         TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL DEFAULT '',
+    record     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS processed_events (
-    id      TEXT    PRIMARY KEY,
-    seen_at TEXT    NOT NULL
+    account_id TEXT NOT NULL DEFAULT '',
+    id         TEXT NOT NULL,
+    seen_at    TEXT NOT NULL,
+    PRIMARY KEY (account_id, id)
 );
 
 CREATE TABLE IF NOT EXISTS proactive_messages (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    sent_at TEXT    NOT NULL
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT    NOT NULL DEFAULT '',
+    sent_at    TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS schedules (
     id          TEXT PRIMARY KEY,
+    account_id  TEXT NOT NULL DEFAULT '',
     kind        TEXT NOT NULL,
     execution   TEXT NOT NULL DEFAULT '',
     instruction TEXT NOT NULL,
@@ -90,10 +101,10 @@ CREATE TABLE IF NOT EXISTS auth_records (
 // would have refused.
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// recordMachineStateVersion stamps a fresh database and refuses one written
-// by a newer binary. A lower stored version is not upgraded here: there is
-// only one version so far, and inventing an upgrade path before there is
-// something to upgrade is how a wrong one ships.
+// recordMachineStateVersion refuses a database written by a newer binary and
+// stamps the current version once every in-place upgrade has run. It runs
+// after those upgrades rather than before, so a crash mid-upgrade leaves the
+// old stamp and the next open runs the (idempotent) upgrade again.
 func recordMachineStateVersion(db *sql.DB) error {
 	var stored string
 	err := db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, machineStateVersionKey).Scan(&stored)
@@ -110,6 +121,10 @@ func recordMachineStateVersion(db *sql.DB) error {
 	}
 	if version > MachineStateVersion {
 		return fmt.Errorf("home was written by a newer Eggy: machine state version %d, this build understands %d", version, MachineStateVersion)
+	}
+	if version < MachineStateVersion {
+		_, err := db.Exec(`UPDATE schema_meta SET value = ? WHERE key = ?`, strconv.Itoa(MachineStateVersion), machineStateVersionKey)
+		return err
 	}
 	return nil
 }

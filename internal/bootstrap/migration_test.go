@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,7 +44,7 @@ func writeOldHome(t *testing.T, root string) {
 func TestOldHomeStartsWithApprovalsModeSchedulesAndGrantsIntact(t *testing.T) {
 	home := t.TempDir()
 	writeOldHome(t, home)
-	ctx := context.Background()
+	ctx := ownerCtx()
 
 	for _, boot := range []string{"first", "restart"} {
 		app, err := NewApp(appTestConfig(home), appTestSecrets("provider-secret"), AppOptions{})

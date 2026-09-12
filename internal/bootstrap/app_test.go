@@ -73,10 +73,10 @@ func TestDirectOwnerMessagesAndSchedulesExposeOnlyReadOnlyRepositoryTools(t *tes
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "yes make the change"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "message", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "message", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "schedule", Type: events.TypeSchedule, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "schedule", Type: events.TypeSchedule, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if len(modelBodies) != 2 {
@@ -162,11 +162,11 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 		t.Fatalf("unsafe or incomplete startup log: %s", logOutput)
 	}
 	statusPayload, _ := json.Marshal(events.Message{Text: "/status"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: statusPayload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: statusPayload}); err != nil {
 		t.Fatal(err)
 	}
 	messagePayload, _ := json.Marshal(events.Message{Text: "Say hello"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "2", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "2", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -177,7 +177,7 @@ func TestAppComposesReadyServiceAndHandlesCommandsAndAssistantTurns(t *testing.T
 	if !strings.Contains(string(modelBody), "Eggy Memory") || !strings.Contains(string(modelBody), "Hard runtime policy") || !strings.Contains(string(modelBody), "Capability manifest") || !strings.Contains(string(modelBody), `"model":"deepseek-v4-pro"`) || !strings.Contains(string(modelBody), "2026-07-19T12:34:56+08:00") || !strings.Contains(string(modelBody), "Asia/Singapore") {
 		t.Fatalf("unified context missing from model request: %s", modelBody)
 	}
-	state, err := app.store.Load(context.Background())
+	state, err := app.store.Load(ownerCtx())
 	if err != nil || state.Agent.Usage["deepseek-pro"].TotalTokens != 14 {
 		t.Fatalf("usage=%#v err=%v", state.Agent.Usage, err)
 	}
@@ -235,13 +235,13 @@ func TestDirectOwnerTurnStoresExactlyUserAndAssistantWithDefaultSourceAndClock(t
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "durable owner prompt"})
-	if err := app.HandleEvent(context.Background(), events.Event{
+	if err := app.HandleEvent(ownerCtx(), events.Event{
 		ID: "direct", Type: events.TypeMessage, Owner: "42", Payload: payload,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(ownerCtx(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,13 +280,13 @@ func TestImageEventReachesModelButOnlyMarkerReachesDurableHistory(t *testing.T) 
 		Text:  "read this list",
 		Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("pixels")}},
 	})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "image", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "image", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(modelBody), `"type":"image_url"`) || !strings.Contains(string(modelBody), `data:image/png;base64,cGl4ZWxz`) {
 		t.Fatalf("model body=%s", modelBody)
 	}
-	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(ownerCtx(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,25 +311,25 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 		t.Fatal(err)
 	}
 	commandPayload, _ := json.Marshal(events.Message{Text: "/status"})
-	if err := app.HandleEvent(context.Background(), events.Event{
+	if err := app.HandleEvent(ownerCtx(), events.Event{
 		ID: "command", Type: events.TypeMessage, Owner: "42", Payload: commandPayload,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	failedPayload, _ := json.Marshal(events.Message{Text: "this model turn fails"})
-	if err := app.HandleEvent(context.Background(), events.Event{
+	if err := app.HandleEvent(ownerCtx(), events.Event{
 		ID: "failed", Type: events.TypeMessage, Owner: "42", Payload: failedPayload,
 	}); err == nil {
 		t.Fatal("failed model turn returned nil error")
 	}
 	approvalPayload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: "missing", Approved: true})
-	if err := app.HandleEvent(context.Background(), events.Event{
+	if err := app.HandleEvent(ownerCtx(), events.Event{
 		ID: "approval", Type: events.TypeApproval, Owner: "42", Payload: approvalPayload,
 	}); err == nil {
 		t.Fatal("missing approval returned nil error")
 	}
 
-	messages, err := app.database.RecentMessages(context.Background(), "telegram", 10)
+	messages, err := app.database.RecentMessages(ownerCtx(), "telegram", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestDurableMemoryFailureIsLoggedWithoutBlockingReply(t *testing.T) {
 	// which is a different failure than the one under test.
 	breakConversationTables(t, cfg.DataDir)
 	payload, _ := json.Marshal(events.Message{Text: "keep the live turn working"})
-	if err := app.HandleEvent(context.Background(), events.Event{
+	if err := app.HandleEvent(ownerCtx(), events.Event{
 		ID: "direct", Type: events.TypeMessage, Source: "telegram", Owner: "42", Payload: payload,
 	}); err != nil {
 		t.Fatal(err)
@@ -426,12 +426,12 @@ func TestRecallConversationRedactsBareUIPasswordFromStoredHistory(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.database.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := app.database.WriteMessage(ownerCtx(), ports.StoredMessage{
 		Role: ports.RoleUser, Content: "remembered bare-ui-password", Source: "web", CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.loop.Run(context.Background(), "deepseek-pro", "", ports.Message{Content: "recall it"}, nil, agent.RunOptions{}); err != nil {
+	if _, err := app.loop.Run(ownerCtx(), "deepseek-pro", "", ports.Message{Content: "recall it"}, nil, agent.RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(secondBody), "bare-ui-password") || !strings.Contains(string(secondBody), "[redacted]") {
@@ -469,7 +469,7 @@ func TestHandleMessageDeliversReasoningContentBeforeAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 	messagePayload, _ := json.Marshal(events.Message{Text: "What is 6*7?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "1", Type: events.TypeMessage, Owner: "42", Payload: messagePayload}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
@@ -558,7 +558,7 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "What repositories can you work on?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "repo-question", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "repo-question", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if len(modelBodies) != 2 || !strings.Contains(string(modelBodies[1]), `\"status\":\"configured\"`) || !strings.Contains(string(modelBodies[1]), `\"name\":\"eggy\"`) {
@@ -572,7 +572,7 @@ func TestUnifiedAgentDefectTranscript(t *testing.T) {
 	if !strings.Contains(string(delivered), "configured eggy repository") {
 		t.Fatalf("telegram response=%s", delivered)
 	}
-	state, err := app.store.Load(context.Background())
+	state, err := app.store.Load(ownerCtx())
 	if err != nil || state.Agent.Usage["deepseek-pro"].TotalTokens != 19 {
 		t.Fatalf("usage=%#v err=%v", state.Agent.Usage, err)
 	}
@@ -585,7 +585,7 @@ func TestCommandServiceSupportsFiveConversationalCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, command := range []string{"/help", "/status", "/stop", "/clear", "/model"} {
-		output, handled, err := app.commands.Execute(context.Background(), command)
+		output, handled, err := app.commands.Execute(ownerCtx(), command)
 		if err != nil || !handled || output == "" {
 			t.Fatalf("%s output=%q handled=%v err=%v", command, output, handled, err)
 		}
@@ -606,12 +606,12 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 		if command.Description == "" {
 			t.Fatalf("command %q has no description", command.Name)
 		}
-		_, handled, err := app.commands.Execute(context.Background(), "/"+command.Name)
+		_, handled, err := app.commands.Execute(ownerCtx(), "/"+command.Name)
 		if err != nil || !handled {
 			t.Fatalf("registered command %q was not handled by commands.CommandService: handled=%v err=%v", command.Name, handled, err)
 		}
 	}
-	if output, handled, _ := app.commands.Execute(context.Background(), "/unknown"); !handled || !strings.Contains(output, "/help") {
+	if output, handled, _ := app.commands.Execute(ownerCtx(), "/unknown"); !handled || !strings.Contains(output, "/help") {
 		t.Fatalf("unknown command output=%q handled=%v", output, handled)
 	}
 }
@@ -644,7 +644,7 @@ func TestHandleMessageRepliesGracefullyWhenToolStepLimitReached(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "keep checking status forever"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "loop-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "loop-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatalf("expected the step-limit case to be handled gracefully, got error: %v", err)
 	}
 	if !strings.Contains(string(delivered), "ran out of tool-call steps") {
@@ -696,7 +696,7 @@ func TestToolCallSurfacesALiveIndicatorBeforeTheFinalReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "status-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "status-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if len(calls) < 2 {
@@ -737,7 +737,7 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.database.CreateThread(context.Background(), "thread-a", "web", time.Now()); err != nil {
+	if _, err := app.database.CreateThread(ownerCtx(), "thread-a", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	_, threadEvents, unregisterThread := app.chatHub.Register("thread-a")
@@ -746,7 +746,7 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	defer unregisterOther()
 
 	payload, _ := json.Marshal(events.Message{Text: "what's the status?"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "web-status-1", Type: events.TypeMessage, Source: "web", Owner: "42", Destination: destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}, Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "web-status-1", Type: events.TypeMessage, Source: "web", Owner: "42", Destination: destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -791,7 +791,7 @@ func TestWebhookQueuesSlowAssistantTurnBeforeAcknowledging(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ownerCtx())
 	runDone := make(chan struct{})
 	// The queued turn keeps writing its transcript and durable conversation
 	// into cfg's data dir after this test's assertion is satisfied, and that
@@ -854,7 +854,7 @@ func TestHandleMessageSendsTypingIndicatorDuringSlowAssistantTurn(t *testing.T) 
 	payload, _ := json.Marshal(events.Message{Text: "slow turn"})
 	done := make(chan struct{})
 	go func() {
-		_ = app.HandleEvent(context.Background(), events.Event{ID: "typing-1", Type: events.TypeMessage, Owner: "42", Payload: payload})
+		_ = app.HandleEvent(ownerCtx(), events.Event{ID: "typing-1", Type: events.TypeMessage, Owner: "42", Payload: payload})
 		close(done)
 	}()
 	<-started
@@ -961,7 +961,7 @@ func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T)
 		t.Fatal(err)
 	}
 	event := events.Event{ID: "schedule:1", Type: events.TypeScheduledMessage, Owner: "owner-42", Payload: payload}
-	if err := app.processEvent(context.Background(), event); err != nil {
+	if err := app.processEvent(ownerCtx(), event); err != nil {
 		t.Fatalf("an unprompted turn must not fail on a web-only deployment: %v", err)
 	}
 	if len(web.delivered) != 0 {
@@ -995,7 +995,7 @@ func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
 		ID: "schedule:1", Type: events.TypeScheduledMessage, Owner: "42",
 		Destination: destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}, Payload: payload,
 	}
-	if err := app.processEvent(context.Background(), event); err != nil {
+	if err := app.processEvent(ownerCtx(), event); err != nil {
 		t.Fatal(err)
 	}
 	if len(telegramChannel.delivered) != 1 || telegramChannel.delivered[0] != "scheduled reminder" {
@@ -1087,7 +1087,7 @@ func TestRestartCommandStopsRunAfterDeliveringItsAcknowledgement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ownerCtx())
 	defer cancel()
 	runErrors := make(chan error, 1)
 	go func() { runErrors <- app.Run(ctx) }()
@@ -1159,7 +1159,7 @@ func mcpTestApp(t *testing.T, include, require []string) *App {
 // evidence: "fake MCP result" means the underlying call ran.
 func TestStrictModeGatesMCPToolsTheServerDoesNotList(t *testing.T) {
 	app := mcpTestApp(t, []string{"list-projects"}, nil)
-	ctx := context.Background()
+	ctx := ownerCtx()
 	if err := app.approvals.SetMode(ctx, ports.ModeStrict); err != nil {
 		t.Fatal(err)
 	}
@@ -1177,7 +1177,7 @@ func TestStrictModeGatesMCPToolsTheServerDoesNotList(t *testing.T) {
 // inline exactly as it did unwrapped; a listed one is deferred.
 func TestNormalModeKeepsMCPToolsOnTheServersOwnPolicy(t *testing.T) {
 	app := mcpTestApp(t, []string{"list-projects", "delete-project"}, []string{"delete-project"})
-	ctx := context.Background()
+	ctx := ownerCtx()
 	if err := app.approvals.SetMode(ctx, ports.ModeNormal); err != nil {
 		t.Fatal(err)
 	}
@@ -1201,7 +1201,7 @@ func TestNormalModeKeepsMCPToolsOnTheServersOwnPolicy(t *testing.T) {
 // through the wrapper every MCP tool now carries.
 func TestAutoModeRunsGatedMCPToolsInline(t *testing.T) {
 	app := mcpTestApp(t, []string{"delete-project"}, []string{"delete-project"})
-	ctx := context.Background()
+	ctx := ownerCtx()
 	if err := app.approvals.SetMode(ctx, ports.ModeAuto); err != nil {
 		t.Fatal(err)
 	}
@@ -1220,7 +1220,7 @@ func TestAutoModeRunsGatedMCPToolsInline(t *testing.T) {
 // would not survive the second read.
 func TestMCPGateSurvivesCatalogRebuild(t *testing.T) {
 	app := mcpTestApp(t, []string{"list-projects"}, nil)
-	ctx := context.Background()
+	ctx := ownerCtx()
 	if err := app.approvals.SetMode(ctx, ports.ModeStrict); err != nil {
 		t.Fatal(err)
 	}

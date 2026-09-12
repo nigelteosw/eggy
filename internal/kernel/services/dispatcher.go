@@ -24,24 +24,36 @@ const processedEventRetention = 7 * 24 * time.Hour
 
 type EventHandler func(context.Context, events.Event) error
 
+// AccountResolver reports whether an account ID names a configured account.
+// It is a closure over validated config, wired by bootstrap, so the dispatcher
+// never sees config and a removed account stops resolving on the next event.
+type AccountResolver func(accountID string) bool
+
 type Dispatcher struct {
 	locksMu  sync.Mutex
 	locks    map[string]*eventLock
-	owner    string
+	accounts AccountResolver
 	store    ports.StateStore
 	handlers map[events.Type]EventHandler
 }
 
-func NewDispatcher(owner string, store ports.StateStore, handlers map[events.Type]EventHandler) *Dispatcher {
-	return &Dispatcher{owner: owner, store: store, handlers: handlers, locks: map[string]*eventLock{}}
+func NewDispatcher(accounts AccountResolver, store ports.StateStore, handlers map[events.Type]EventHandler) *Dispatcher {
+	return &Dispatcher{accounts: accounts, store: store, handlers: handlers, locks: map[string]*eventLock{}}
 }
 
+// Handle runs one event as the account that owns it. Event.Owner was set by
+// a trusted ingress -- a verified session, a verified Telegram sender, the
+// stored owner of a schedule -- and is checked against the configured
+// accounts here, once, before the principal is put on the context that every
+// private read and write downstream requires. Nothing after this point
+// decides who is acting.
 func (d *Dispatcher) Handle(ctx context.Context, event events.Event) error {
 	release := d.lockEvent(event.ID)
 	defer release()
-	if event.Owner != d.owner {
+	if event.Owner == "" || !d.accounts(event.Owner) {
 		return ErrOwnerDenied
 	}
+	ctx = ports.WithPrincipal(ctx, ports.Principal{AccountID: event.Owner})
 	state, err := d.store.Load(ctx)
 	if err != nil {
 		return err

@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,7 +20,7 @@ func TestOpenCreatesFTS5Schema(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	if _, err := store.db.ExecContext(context.Background(), `
+	if _, err := store.db.ExecContext(as("owner"), `
 		INSERT INTO messages (role, content, source, created_at)
 		VALUES (?, ?, ?, ?)
 	`, ports.RoleUser, "durable memory", "telegram", time.Now().UnixNano()); err != nil {
@@ -29,7 +28,7 @@ func TestOpenCreatesFTS5Schema(t *testing.T) {
 	}
 
 	var count int
-	if err := store.db.QueryRowContext(context.Background(), `
+	if err := store.db.QueryRowContext(as("owner"), `
 		SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'durable'
 	`).Scan(&count); err != nil {
 		t.Fatal(err)
@@ -50,11 +49,11 @@ func TestStoreWriteMessageAndSearchTextRoundTrips(t *testing.T) {
 		Source:    "telegram",
 		CreatedAt: createdAt,
 	}
-	if err := store.WriteMessage(context.Background(), stored); err != nil {
+	if err := store.WriteMessage(as("owner"), stored); err != nil {
 		t.Fatal(err)
 	}
 
-	results, err := store.SearchText(context.Background(), "durable", 5)
+	results, err := store.SearchText(as("owner"), "durable", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +77,7 @@ func TestStoreMessagesAndFTSSearchPersistAcrossCloseAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		Role: ports.RoleAssistant, Content: "persistent searchable phrase", Source: "web", CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -92,7 +91,7 @@ func TestStoreMessagesAndFTSSearchPersistAcrossCloseAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reopened.Close() })
-	results, err := reopened.SearchText(context.Background(), "searchable", 5)
+	results, err := reopened.SearchText(as("owner"), "searchable", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,11 +105,11 @@ func TestSearchTextRejectsEmptyQueryAndNonPositiveLimit(t *testing.T) {
 
 	store := newTestStore(t, 100)
 	for _, query := range []string{"", " \t "} {
-		if _, err := store.SearchText(context.Background(), query, 1); err == nil {
+		if _, err := store.SearchText(as("owner"), query, 1); err == nil {
 			t.Fatalf("SearchText(%q) error = nil, want validation error", query)
 		}
 	}
-	if _, err := store.SearchText(context.Background(), "durable", 0); err == nil {
+	if _, err := store.SearchText(as("owner"), "durable", 0); err == nil {
 		t.Fatal("SearchText zero limit error = nil, want validation error")
 	}
 }
@@ -119,7 +118,7 @@ func TestSearchTextReturnsNoMatchesForPunctuationOnlyQuery(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	results, err := store.SearchText(context.Background(), `":-++'"`, 1)
+	results, err := store.SearchText(as("owner"), `":-++'"`, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,13 +131,13 @@ func TestSearchTextTreatsPunctuationAsLiteralTokenSeparators(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		Role: ports.RoleUser, Content: "title quoted well known owner's C++ café", Source: "web", CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, query := range []string{`"quoted"`, "title:quoted", "well-known", "owner's", "C++", "cafe\u0301"} {
-		results, err := store.SearchText(context.Background(), query, 5)
+		results, err := store.SearchText(as("owner"), query, 5)
 		if err != nil {
 			t.Fatalf("SearchText(%q) error = %v", query, err)
 		}
@@ -152,7 +151,7 @@ func TestSearchTextRanksStrongestFTSMatchFirst(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	ctx := context.Background()
+	ctx := as("owner")
 	for index, content := range []string{
 		"durable durable durable memory",
 		"durable memory",
@@ -204,7 +203,7 @@ func TestOpenTightensDatabaseAndSidecarPermissions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		Role: ports.RoleUser, Content: "private files", Source: "web", CreatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -229,14 +228,14 @@ func TestCreateThreadIsUntitledAndListThreadsOrdersByMostRecentlyUpdated(t *test
 
 	store := newTestStore(t, 100)
 	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
-	if _, err := store.CreateThread(context.Background(), "thread-1", "web", base); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-1", "web", base); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateThread(context.Background(), "thread-2", "web", base.Add(time.Minute)); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-2", "web", base.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 
-	threads, err := store.ListThreads(context.Background(), "web")
+	threads, err := store.ListThreads(as("owner"), "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,14 +252,14 @@ func TestListThreadsOnlyReturnsMatchingChannel(t *testing.T) {
 
 	store := newTestStore(t, 100)
 	now := time.Now()
-	if _, err := store.CreateThread(context.Background(), "web-thread", "web", now); err != nil {
+	if _, err := store.CreateThread(as("owner"), "web-thread", "web", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateThread(context.Background(), "telegram", "telegram", now); err != nil {
+	if _, err := store.CreateThread(as("owner"), "telegram", "telegram", now); err != nil {
 		t.Fatal(err)
 	}
 
-	threads, err := store.ListThreads(context.Background(), "web")
+	threads, err := store.ListThreads(as("owner"), "web")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +272,7 @@ func TestGetThreadReportsNotFoundForAnUnknownID(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	if _, found, err := store.GetThread(context.Background(), "missing"); err != nil {
+	if _, found, err := store.GetThread(as("owner"), "missing"); err != nil {
 		t.Fatal(err)
 	} else if found {
 		t.Fatal("expected found=false for an unknown thread ID")
@@ -284,17 +283,17 @@ func TestSetThreadTitleNeverOverwritesAnAlreadyTitledThread(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	if _, err := store.CreateThread(context.Background(), "thread-1", "web", time.Now()); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-1", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetThreadTitle(context.Background(), "thread-1", "First title"); err != nil {
+	if err := store.SetThreadTitle(as("owner"), "thread-1", "First title"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetThreadTitle(context.Background(), "thread-1", "Second title"); err != nil {
+	if err := store.SetThreadTitle(as("owner"), "thread-1", "Second title"); err != nil {
 		t.Fatal(err)
 	}
 
-	thread, found, err := store.GetThread(context.Background(), "thread-1")
+	thread, found, err := store.GetThread(as("owner"), "thread-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,17 +306,17 @@ func TestRenameThreadOverwritesAnExistingTitle(t *testing.T) {
 	t.Parallel()
 
 	store := newTestStore(t, 100)
-	if _, err := store.CreateThread(context.Background(), "thread-1", "web", time.Now()); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-1", "web", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetThreadTitle(context.Background(), "thread-1", "Auto title"); err != nil {
+	if err := store.SetThreadTitle(as("owner"), "thread-1", "Auto title"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RenameThread(context.Background(), "thread-1", "Owner title"); err != nil {
+	if err := store.RenameThread(as("owner"), "thread-1", "Owner title"); err != nil {
 		t.Fatal(err)
 	}
 
-	thread, found, err := store.GetThread(context.Background(), "thread-1")
+	thread, found, err := store.GetThread(as("owner"), "thread-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,29 +331,29 @@ func TestDeleteThreadRemovesItsMessagesAndResetMarkerButLeavesOtherThreads(t *te
 	store := newTestStore(t, 100)
 	now := time.Date(2026, time.August, 2, 12, 0, 0, 0, time.UTC)
 	for _, id := range []string{"thread-1", "thread-2"} {
-		if _, err := store.CreateThread(context.Background(), id, "web", now); err != nil {
+		if _, err := store.CreateThread(as("owner"), id, "web", now); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 			ConversationID: id, Role: ports.RoleUser, Content: "hi from " + id, Source: "web", CreatedAt: now,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := store.ResetConversation(context.Background(), "thread-1", now); err != nil {
+	if err := store.ResetConversation(as("owner"), "thread-1", now); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.DeleteThread(context.Background(), "thread-1"); err != nil {
+	if err := store.DeleteThread(as("owner"), "thread-1"); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, found, err := store.GetThread(context.Background(), "thread-1"); err != nil || found {
+	if _, found, err := store.GetThread(as("owner"), "thread-1"); err != nil || found {
 		t.Fatalf("thread-1 still present: found=%v err=%v", found, err)
 	}
 	// SearchText reads the messages table directly, so it proves the rows
 	// are gone rather than merely hidden behind a reset marker.
-	found, err := store.SearchText(context.Background(), "hi from", 10)
+	found, err := store.SearchText(as("owner"), "hi from", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,15 +362,15 @@ func TestDeleteThreadRemovesItsMessagesAndResetMarkerButLeavesOtherThreads(t *te
 	}
 	// The reset marker is keyed by conversation ID, so a recycled ID must
 	// not inherit the deleted thread's cleared_at.
-	if _, err := store.CreateThread(context.Background(), "thread-1", "web", now); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-1", "web", now); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		ConversationID: "thread-1", Role: ports.RoleUser, Content: "second life", Source: "web", CreatedAt: now.Add(-time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	messages, err := store.RecentMessages(context.Background(), "thread-1", 10)
+	messages, err := store.RecentMessages(as("owner"), "thread-1", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,20 +385,20 @@ func TestRecentMessagesIsScopedToOneConversationOldestFirstAndBounded(t *testing
 	store := newTestStore(t, 100)
 	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
 	for index, text := range []string{"one", "two", "three"} {
-		if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+		if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 			ConversationID: "thread-a", Role: ports.RoleUser, Content: text, Source: "web",
 			CreatedAt: base.Add(time.Duration(index) * time.Minute),
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		ConversationID: "thread-b", Role: ports.RoleUser, Content: "other thread", Source: "web", CreatedAt: base,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	messages, err := store.RecentMessages(context.Background(), "thread-a", 2)
+	messages, err := store.RecentMessages(as("owner"), "thread-a", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,21 +412,21 @@ func TestResetConversationHidesEarlierMessagesButLeavesThemSearchable(t *testing
 
 	store := newTestStore(t, 100)
 	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		ConversationID: "thread-a", Role: ports.RoleUser, Content: "before reset unique-phrase", Source: "web", CreatedAt: base,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ResetConversation(context.Background(), "thread-a", base.Add(time.Minute)); err != nil {
+	if err := store.ResetConversation(as("owner"), "thread-a", base.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		ConversationID: "thread-a", Role: ports.RoleUser, Content: "after reset", Source: "web", CreatedAt: base.Add(2 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	messages, err := store.RecentMessages(context.Background(), "thread-a", 10)
+	messages, err := store.RecentMessages(as("owner"), "thread-a", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +434,7 @@ func TestResetConversationHidesEarlierMessagesButLeavesThemSearchable(t *testing
 		t.Fatalf("messages=%#v, want only the post-reset message", messages)
 	}
 
-	found, err := store.SearchText(context.Background(), "unique-phrase", 5)
+	found, err := store.SearchText(as("owner"), "unique-phrase", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,17 +448,17 @@ func TestWriteMessageTouchesItsThreadsUpdatedAt(t *testing.T) {
 
 	store := newTestStore(t, 100)
 	base := time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)
-	if _, err := store.CreateThread(context.Background(), "thread-a", "web", base); err != nil {
+	if _, err := store.CreateThread(as("owner"), "thread-a", "web", base); err != nil {
 		t.Fatal(err)
 	}
 	written := base.Add(time.Hour)
-	if err := store.WriteMessage(context.Background(), ports.StoredMessage{
+	if err := store.WriteMessage(as("owner"), ports.StoredMessage{
 		ConversationID: "thread-a", Role: ports.RoleUser, Content: "hi", Source: "web", CreatedAt: written,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	thread, found, err := store.GetThread(context.Background(), "thread-a")
+	thread, found, err := store.GetThread(as("owner"), "thread-a")
 	if err != nil {
 		t.Fatal(err)
 	}

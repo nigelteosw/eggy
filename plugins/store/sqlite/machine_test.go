@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -16,7 +15,7 @@ import (
 // rather than as an error: first boot is the common case.
 func TestStateStoreStartsEmptyAndRoundTripsEveryField(t *testing.T) {
 	state := newTestStore(t, 0).State()
-	ctx := context.Background()
+	ctx := as("owner")
 	initial, err := state.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +64,7 @@ func TestStateStoreStartsEmptyAndRoundTripsEveryField(t *testing.T) {
 // other. A stale expectation must fail rather than win.
 func TestStateStoreRefusesAStaleUpdateAndWritesNothing(t *testing.T) {
 	state := newTestStore(t, 0).State()
-	ctx := context.Background()
+	ctx := as("owner")
 	if _, err := state.Update(ctx, 0, func(next *ports.State) error {
 		next.ApprovalMode = ports.ModeNormal
 		return nil
@@ -89,7 +88,7 @@ func TestStateStoreRefusesAStaleUpdateAndWritesNothing(t *testing.T) {
 // write are one transaction, so there is no half-applied update to recover.
 func TestStateStoreRollsBackAFailedMutation(t *testing.T) {
 	state := newTestStore(t, 0).State()
-	ctx := context.Background()
+	ctx := as("owner")
 	if _, err := state.Update(ctx, 0, func(next *ports.State) error {
 		next.Approvals["keep"] = approvals.Approval{ID: "keep"}
 		return nil
@@ -118,7 +117,7 @@ func TestStateStoreRollsBackAFailedMutation(t *testing.T) {
 // come back on at the first write.
 func TestStateStoreCarriesTheRetiredAutoModeBoolean(t *testing.T) {
 	state := newTestStore(t, 0).State()
-	ctx := context.Background()
+	ctx := as("owner")
 	if _, err := state.Update(ctx, 0, func(next *ports.State) error {
 		next.ApprovalAutoMode = true
 		return nil
@@ -148,13 +147,13 @@ func TestScheduleStoreCreateIsUniqueAndTimesKeepTheirOffset(t *testing.T) {
 	next := time.Date(2026, 9, 7, 9, 0, 0, 0, singapore)
 	job := ports.Schedule{ID: "morning", Kind: ports.ScheduleRecurring, Execution: ports.ScheduleExecutionAgent,
 		Instruction: "status", Expression: "0 9 * * *", NextRun: next, Enabled: true}
-	if err := schedules.Create(job); err != nil {
+	if err := schedules.Create(as("owner"), job); err != nil {
 		t.Fatal(err)
 	}
-	if err := schedules.Create(job); err == nil {
+	if err := schedules.Create(as("owner"), job); err == nil {
 		t.Fatal("a second schedule took an id that was already taken")
 	}
-	stored, err := schedules.Get("morning")
+	stored, err := schedules.Get(as("owner"), "morning")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,17 +169,17 @@ func TestScheduleStoreCreateIsUniqueAndTimesKeepTheirOffset(t *testing.T) {
 
 func TestScheduleStoreReportsMissingJobsAndDeletesIdempotently(t *testing.T) {
 	schedules := newTestStore(t, 0).Schedules()
-	if _, err := schedules.Get("absent"); !errors.Is(err, ports.ErrScheduleNotFound) {
+	if _, err := schedules.Get(as("owner"), "absent"); !errors.Is(err, ports.ErrScheduleNotFound) {
 		t.Fatalf("err=%v", err)
 	}
-	if err := schedules.Update("absent", func(*ports.Schedule) error { return nil }); !errors.Is(err, ports.ErrScheduleNotFound) {
+	if err := schedules.Update(as("owner"), "absent", func(*ports.Schedule) error { return nil }); !errors.Is(err, ports.ErrScheduleNotFound) {
 		t.Fatalf("err=%v", err)
 	}
 	// Cancelling a job that is already gone is what the owner asked for.
-	if err := schedules.Delete("absent"); err != nil {
+	if err := schedules.Delete(as("owner"), "absent"); err != nil {
 		t.Fatal(err)
 	}
-	if err := schedules.Create(ports.Schedule{ID: "../escape", Kind: ports.ScheduleExact, Instruction: "no"}); err == nil {
+	if err := schedules.Create(as("owner"), ports.Schedule{ID: "../escape", Kind: ports.ScheduleExact, Instruction: "no"}); err == nil {
 		t.Fatal("an unusable schedule id was accepted")
 	}
 }

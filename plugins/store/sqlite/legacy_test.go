@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,15 +48,19 @@ func write(t *testing.T, path, body string) {
 func TestImportMovesAnOldHomeAndArchivesEverySource(t *testing.T) {
 	store := newTestStore(t, 0)
 	_, legacy := oldHome(t)
-	report, err := store.ImportLegacy(context.Background(), legacy, nil)
+	report, err := store.ImportLegacy(as("owner"), legacy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !report.Any() || report.Moved[importSchedules] != 2 || report.Moved[importAuth] != 2 {
 		t.Fatalf("report=%#v", report)
 	}
+	// Imported records are unowned until the boot names their account.
+	if err := store.MigrateAccounts(as("owner"), "owner", false); err != nil {
+		t.Fatal(err)
+	}
 
-	state, err := store.State().Load(context.Background())
+	state, err := store.State().Load(as("owner"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +73,7 @@ func TestImportMovesAnOldHomeAndArchivesEverySource(t *testing.T) {
 		t.Fatalf("collections=%#v", state)
 	}
 
-	schedules, err := store.Schedules().List()
+	schedules, err := store.Schedules().List(as("owner"))
 	if err != nil || len(schedules) != 2 {
 		t.Fatalf("schedules=%#v err=%v", schedules, err)
 	}
@@ -113,27 +116,30 @@ func TestImportMovesAnOldHomeAndArchivesEverySource(t *testing.T) {
 func TestImportIsSkippedOnEveryLaterBoot(t *testing.T) {
 	store := newTestStore(t, 0)
 	_, legacy := oldHome(t)
-	if _, err := store.ImportLegacy(context.Background(), legacy, nil); err != nil {
+	if _, err := store.ImportLegacy(as("owner"), legacy, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.State().Update(context.Background(), 12, func(next *ports.State) error {
+	if err := store.MigrateAccounts(as("owner"), "owner", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.State().Update(as("owner"), 12, func(next *ports.State) error {
 		next.ApprovalMode = ports.ModeNormal
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	report, err := store.ImportLegacy(context.Background(), legacy, nil)
+	report, err := store.ImportLegacy(as("owner"), legacy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.Any() {
 		t.Fatalf("a second boot imported again: %#v", report)
 	}
-	state, err := store.State().Load(context.Background())
+	state, err := store.State().Load(as("owner"))
 	if err != nil || state.ApprovalMode != ports.ModeNormal || state.Version != 13 {
 		t.Fatalf("state=%#v err=%v", state, err)
 	}
-	schedules, err := store.Schedules().List()
+	schedules, err := store.Schedules().List(as("owner"))
 	if err != nil || len(schedules) != 2 {
 		t.Fatalf("schedules=%#v err=%v", schedules, err)
 	}
@@ -145,20 +151,23 @@ func TestImportIsSkippedOnEveryLaterBoot(t *testing.T) {
 func TestImportArchivesASourceLeftBehindByAnInterruptedBoot(t *testing.T) {
 	store := newTestStore(t, 0)
 	_, legacy := oldHome(t)
-	if _, err := store.ImportLegacy(context.Background(), legacy, nil); err != nil {
+	if _, err := store.ImportLegacy(as("owner"), legacy, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MigrateAccounts(as("owner"), "owner", false); err != nil {
 		t.Fatal(err)
 	}
 	// Exactly what a crash between COMMIT and rename leaves: the marker is
 	// recorded and the source is still sitting there.
 	write(t, legacy.State, `{"schema_version": 5, "version": 999, "approval_mode": "auto"}`)
-	report, err := store.ImportLegacy(context.Background(), legacy, nil)
+	report, err := store.ImportLegacy(as("owner"), legacy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.Any() {
 		t.Fatalf("the leftover source was imported a second time: %#v", report)
 	}
-	state, err := store.State().Load(context.Background())
+	state, err := store.State().Load(as("owner"))
 	if err != nil || state.Version != 12 || state.ApprovalMode != ports.ModeStrict {
 		t.Fatalf("state=%#v err=%v", state, err)
 	}
@@ -175,10 +184,10 @@ func TestImportRollsBackAndRetriesAfterAFailure(t *testing.T) {
 	_, legacy := oldHome(t)
 	broken := filepath.Join(legacy.Cron, "broken.yaml")
 	write(t, broken, "id: broken\n\tinstruction: [\n")
-	if _, err := store.ImportLegacy(context.Background(), legacy, nil); err == nil {
+	if _, err := store.ImportLegacy(as("owner"), legacy, nil); err == nil {
 		t.Fatal("a corrupt schedule file was imported anyway")
 	}
-	schedules, err := store.Schedules().List()
+	schedules, err := store.Schedules().List(as("owner"))
 	if err != nil || len(schedules) != 0 {
 		t.Fatalf("a failed import left rows behind: %#v err=%v", schedules, err)
 	}
@@ -188,7 +197,7 @@ func TestImportRollsBackAndRetriesAfterAFailure(t *testing.T) {
 	if err := os.Remove(broken); err != nil {
 		t.Fatal(err)
 	}
-	report, err := store.ImportLegacy(context.Background(), legacy, nil)
+	report, err := store.ImportLegacy(as("owner"), legacy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +211,7 @@ func TestImportRollsBackAndRetriesAfterAFailure(t *testing.T) {
 func TestImportOnAFreshHomeIsSilent(t *testing.T) {
 	store := newTestStore(t, 0)
 	root := t.TempDir()
-	report, err := store.ImportLegacy(context.Background(), LegacyHome{
+	report, err := store.ImportLegacy(as("owner"), LegacyHome{
 		State: filepath.Join(root, "state.json"),
 		Cron:  filepath.Join(root, "cron"),
 		Auth:  filepath.Join(root, "auth.json"),

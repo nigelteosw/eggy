@@ -160,7 +160,7 @@ func (s *WorkspaceSessions) Recover(ctx context.Context) (int, error) {
 		if exists {
 			continue
 		}
-		if err := s.threads.DetachWorkspace(ctx, thread.ID); err != nil {
+		if err := s.threads.DetachWorkspace(ports.WithPrincipal(ctx, ports.Principal{AccountID: thread.Owner}), thread.ID); err != nil {
 			return dropped, err
 		}
 		s.logger.Info("dropped stale thread workspace binding", "thread_id", thread.ID, "workspace", thread.Workspace, "repository", thread.WorkspaceRepository)
@@ -186,7 +186,9 @@ func (s *WorkspaceSessions) CleanupIdle(ctx context.Context, cutoff time.Time) (
 		if !thread.UpdatedAt.Before(cutoff) {
 			continue
 		}
-		if err := s.closeThread(ctx, thread.ID); err != nil {
+		// Housekeeping acts as the thread's owner: the store hands back the
+		// owner precisely so the reaper never needs an account of its own.
+		if err := s.closeThread(ports.WithPrincipal(ctx, ports.Principal{AccountID: thread.Owner}), thread.ID); err != nil {
 			return reaped, err
 		}
 		s.logger.Info("reaped idle thread workspace", "thread_id", thread.ID, "workspace", thread.Workspace, "idle_since", thread.UpdatedAt)

@@ -13,11 +13,23 @@ import (
 // opinion about cron syntax or when a job is due. It is declared here, at the
 // consumer, so the scheduler names only what it calls and the SQLite store
 // satisfies it without knowing this package exists.
+//
+// Every method acts as the principal on the context: List, Create, Update
+// and Delete see one account's jobs. ListAll is the exception the tick
+// needs, and what it returns carries each job's Owner so the scheduler can
+// act as that account for the claim and the completion.
 type Store interface {
-	List() ([]ports.Schedule, error)
-	Create(ports.Schedule) error
-	Update(id string, mutate func(*ports.Schedule) error) error
-	Delete(id string) error
+	List(context.Context) ([]ports.Schedule, error)
+	ListAll(context.Context) ([]ports.Schedule, error)
+	Create(context.Context, ports.Schedule) error
+	Update(ctx context.Context, id string, mutate func(*ports.Schedule) error) error
+	Delete(ctx context.Context, id string) error
+}
+
+// asOwner returns ctx acting as the job's owner, for the steps the tick takes
+// on a job it found through ListAll.
+func asOwner(ctx context.Context, schedule ports.Schedule) context.Context {
+	return ports.WithPrincipal(ctx, ports.Principal{AccountID: schedule.Owner})
 }
 
 // Scheduler owns the timing rules -- cron parsing, what is due, what happens
@@ -28,7 +40,7 @@ type Scheduler struct{ store Store }
 
 func New(store Store) *Scheduler { return &Scheduler{store: store} }
 
-func (s *Scheduler) Add(_ context.Context, schedule ports.Schedule) error {
+func (s *Scheduler) Add(ctx context.Context, schedule ports.Schedule) error {
 	if schedule.ID == "" || schedule.Instruction == "" {
 		return errors.New("schedule id and instruction are required")
 	}
@@ -47,19 +59,20 @@ func (s *Scheduler) Add(_ context.Context, schedule ports.Schedule) error {
 	default:
 		return fmt.Errorf("unknown schedule execution %q", schedule.Execution)
 	}
-	return s.store.Create(schedule)
+	return s.store.Create(ctx, schedule)
 }
 
-func (s *Scheduler) Remove(_ context.Context, id string) error { return s.store.Delete(id) }
+func (s *Scheduler) Remove(ctx context.Context, id string) error { return s.store.Delete(ctx, id) }
 
-// List returns every schedule, for the /schedules command and the web UI.
-func (s *Scheduler) List(context.Context) ([]ports.Schedule, error) { return s.store.List() }
+// List returns the acting account's schedules, for the /schedules command
+// and the web UI.
+func (s *Scheduler) List(ctx context.Context) ([]ports.Schedule, error) { return s.store.List(ctx) }
 
 // Due claims every schedule whose next run has arrived by stamping it with a
 // pending run, so a second tick -- or a second reader -- never picks up a job
 // already in flight.
-func (s *Scheduler) Due(_ context.Context, now time.Time) ([]ports.Schedule, error) {
-	schedules, err := s.store.List()
+func (s *Scheduler) Due(ctx context.Context, now time.Time) ([]ports.Schedule, error) {
+	schedules, err := s.store.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +82,7 @@ func (s *Scheduler) Due(_ context.Context, now time.Time) ([]ports.Schedule, err
 			continue
 		}
 		claimed := schedule
-		err := s.store.Update(schedule.ID, func(current *ports.Schedule) error {
+		err := s.store.Update(asOwner(ctx, schedule), schedule.ID, func(current *ports.Schedule) error {
 			// Re-check under the file lock: the listing above is a snapshot.
 			if !current.Enabled || !current.PendingRun.IsZero() || current.NextRun.After(now) {
 				return errNotDue
@@ -91,8 +104,8 @@ func (s *Scheduler) Due(_ context.Context, now time.Time) ([]ports.Schedule, err
 
 var errNotDue = errors.New("schedule is no longer due")
 
-func (s *Scheduler) Complete(_ context.Context, id string, scheduledFor, completedAt time.Time) error {
-	return s.store.Update(id, func(schedule *ports.Schedule) error {
+func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, completedAt time.Time) error {
+	return s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
 		if !schedule.PendingRun.Equal(scheduledFor) {
 			return errors.New("schedule completion does not match pending run")
 		}
@@ -117,8 +130,8 @@ func (s *Scheduler) Complete(_ context.Context, id string, scheduledFor, complet
 	})
 }
 
-func (s *Scheduler) Fail(_ context.Context, id string, scheduledFor time.Time) error {
-	return s.store.Update(id, func(schedule *ports.Schedule) error {
+func (s *Scheduler) Fail(ctx context.Context, id string, scheduledFor time.Time) error {
+	return s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
 		if !schedule.PendingRun.Equal(scheduledFor) {
 			return errors.New("schedule failure does not match pending run")
 		}
@@ -129,8 +142,8 @@ func (s *Scheduler) Fail(_ context.Context, id string, scheduledFor time.Time) e
 
 // Recover clears pending runs left behind by a process that died mid-run, so
 // those schedules become due again instead of stalling forever.
-func (s *Scheduler) Recover(_ context.Context) error {
-	schedules, err := s.store.List()
+func (s *Scheduler) Recover(ctx context.Context) error {
+	schedules, err := s.store.ListAll(ctx)
 	if err != nil {
 		return err
 	}
@@ -138,7 +151,7 @@ func (s *Scheduler) Recover(_ context.Context) error {
 		if schedule.PendingRun.IsZero() {
 			continue
 		}
-		err := s.store.Update(schedule.ID, func(current *ports.Schedule) error {
+		err := s.store.Update(asOwner(ctx, schedule), schedule.ID, func(current *ports.Schedule) error {
 			current.PendingRun = time.Time{}
 			return nil
 		})

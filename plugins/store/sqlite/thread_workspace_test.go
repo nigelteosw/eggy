@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -27,7 +26,7 @@ func openThreadStore(t *testing.T) *Store {
 func TestAttachWorkspaceRecordsTheCheckoutAndDetachClearsIt(t *testing.T) {
 	t.Parallel()
 	store := openThreadStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	if _, err := store.CreateThread(ctx, "thread-1", "web", now); err != nil {
 		t.Fatal(err)
@@ -55,7 +54,7 @@ func TestAttachWorkspaceRecordsTheCheckoutAndDetachClearsIt(t *testing.T) {
 func TestAttachWorkspaceUpsertsAThreadThatWasNeverExplicitlyCreated(t *testing.T) {
 	t.Parallel()
 	store := openThreadStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 
 	if err := store.AttachWorkspace(ctx, "telegram", "telegram", "eggy", "/data/runs/workspace-1", now); err != nil {
@@ -70,7 +69,7 @@ func TestAttachWorkspaceUpsertsAThreadThatWasNeverExplicitlyCreated(t *testing.T
 func TestAttachWorkspaceReplacesAPreviouslyAttachedCheckout(t *testing.T) {
 	t.Parallel()
 	store := openThreadStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	if err := store.AttachWorkspace(ctx, "thread-1", "web", "eggy", "/data/runs/workspace-1", now); err != nil {
 		t.Fatal(err)
@@ -87,7 +86,7 @@ func TestAttachWorkspaceReplacesAPreviouslyAttachedCheckout(t *testing.T) {
 func TestThreadsWithWorkspaceReturnsOnlyAttachedThreadsStalestFirst(t *testing.T) {
 	t.Parallel()
 	store := openThreadStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	if _, err := store.CreateThread(ctx, "unattached", "web", now); err != nil {
 		t.Fatal(err)
@@ -143,15 +142,17 @@ func TestOpenMigratesAThreadsTableWithoutWorkspaceColumns(t *testing.T) {
 		t.Fatalf("an existing database must migrate in place: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-
-	thread, found, err := store.GetThread(context.Background(), "thread-1")
+	if err := store.MigrateAccounts(as("owner"), "owner", false); err != nil {
+		t.Fatal(err)
+	}
+	thread, found, err := store.GetThread(as("owner"), "thread-1")
 	if err != nil || !found || thread.Title != "Existing" {
 		t.Fatalf("thread=%#v found=%v err=%v", thread, found, err)
 	}
 	if thread.Workspace != "" {
 		t.Fatalf("a migrated thread must start with no workspace attached, got %q", thread.Workspace)
 	}
-	if err := store.AttachWorkspace(context.Background(), "thread-1", "web", "eggy", "/data/runs/workspace-1", time.Now()); err != nil {
+	if err := store.AttachWorkspace(as("owner"), "thread-1", "web", "eggy", "/data/runs/workspace-1", time.Now()); err != nil {
 		t.Fatalf("the migrated columns must be writable: %v", err)
 	}
 }

@@ -16,7 +16,7 @@ import (
 func TestDispatcherEnforcesOwnerAndDeduplicates(t *testing.T) {
 	store := newMemoryStore()
 	calls := 0
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(context.Context, events.Event) error { calls++; return nil },
 	})
 	event := events.Event{ID: "telegram:1", Type: events.TypeMessage, Owner: "42", Timestamp: time.Now(), Payload: json.RawMessage(`{"text":"hi"}`)}
@@ -39,7 +39,7 @@ func TestDispatcherEnforcesOwnerAndDeduplicates(t *testing.T) {
 func TestDispatcherDoesNotDeduplicateFailedHandler(t *testing.T) {
 	store := newMemoryStore()
 	calls := 0
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(context.Context, events.Event) error {
 			calls++
 			if calls == 1 {
@@ -62,7 +62,7 @@ func TestDispatcherDoesNotDeduplicateFailedHandler(t *testing.T) {
 
 func TestDispatcherMarksEventAfterHandlerMutatesSharedState(t *testing.T) {
 	store := newMemoryStore()
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(ctx context.Context, _ events.Event) error {
 			state, _ := store.Load(ctx)
 			_, err := store.Update(ctx, state.Version, func(state *ports.State) error {
@@ -86,7 +86,7 @@ func TestDispatcherPrunesProcessedEventsPastRetention(t *testing.T) {
 	now := time.Now().UTC()
 	store.state.ProcessedEvents["expired"] = now.Add(-processedEventRetention - time.Hour)
 	store.state.ProcessedEvents["recent"] = now.Add(-processedEventRetention + time.Hour)
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(context.Context, events.Event) error { return nil },
 	})
 	// A timestamp older than the window must still deduplicate: retention is
@@ -107,7 +107,7 @@ func TestDispatcherPrunesProcessedEventsPastRetention(t *testing.T) {
 	}
 
 	calls := 0
-	dispatcher = NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher = NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(context.Context, events.Event) error { calls++; return nil },
 	})
 	if err := dispatcher.Handle(context.Background(), event); err != nil {
@@ -123,7 +123,7 @@ func TestDispatcherSerializesConcurrentDuplicateEvents(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	calls := 0
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(context.Context, events.Event) error {
 			calls++
 			if calls == 1 {
@@ -155,7 +155,7 @@ func TestDispatcherAllowsDifferentEventsConcurrently(t *testing.T) {
 	firstStarted := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	secondDone := make(chan error, 1)
-	dispatcher := NewDispatcher("42", store, map[events.Type]EventHandler{
+	dispatcher := NewDispatcher(func(id string) bool { return id == "42" }, store, map[events.Type]EventHandler{
 		events.TypeMessage: func(_ context.Context, event events.Event) error {
 			if event.ID == "first" {
 				close(firstStarted)

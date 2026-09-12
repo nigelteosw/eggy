@@ -25,7 +25,7 @@ func newStateStore(t *testing.T) ports.StateStore {
 
 func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
 	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "medium", "high", "max"}})
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 	if got, err := runtime.SelectedModel(ctx); err != nil || got != "deepseek-pro" {
 		t.Fatalf("selected=%q err=%v", got, err)
 	}
@@ -49,18 +49,18 @@ func TestAgentRuntimeSelectsModelsAndResetsDefault(t *testing.T) {
 func TestAgentRuntimeFallsBackWhenTheSelectedAliasWasRemoved(t *testing.T) {
 	store := newStateStore(t)
 	before := NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro", "retired"}, nil)
-	if err := before.SelectModel(context.Background(), "retired"); err != nil {
+	if err := before.SelectModel(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), "retired"); err != nil {
 		t.Fatal(err)
 	}
 	after := NewAgentRuntime(store, "deepseek-pro", []string{"deepseek-pro"}, nil)
-	if got, err := after.SelectedModel(context.Background()); err != nil || got != "deepseek-pro" {
+	if got, err := after.SelectedModel(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})); err != nil || got != "deepseek-pro" {
 		t.Fatalf("selected model = %q, err=%v", got, err)
 	}
 }
 
 func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
 	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro", "openrouter-pro"}, map[string][]string{"deepseek-pro": {"low", "high"}})
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 
 	if got, err := runtime.ReasoningEffort(ctx); err != nil || got != "" {
 		t.Fatalf("effort=%q err=%v, want empty before anything is set", got, err)
@@ -95,7 +95,7 @@ func TestAgentRuntimeSelectsReasoningEffortPerActiveModel(t *testing.T) {
 
 func TestAgentRuntimeRecordsConcurrentUsageAndResets(t *testing.T) {
 	runtime := NewAgentRuntime(newStateStore(t), "deepseek-pro", []string{"deepseek-pro"}, nil)
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 	var workers sync.WaitGroup
 	errorsChannel := make(chan error, 16)
 	for range 16 {

@@ -342,7 +342,12 @@ type MemoryStore interface {
 // attached; WorkspaceRepository names the repository it was cloned from.
 // Keeping them here lets repository exploration continue across turns.
 type Thread struct {
-	ID                  string
+	ID string
+	// Owner is the account the thread belongs to. It is filled by the store,
+	// never by a caller: a thread read under a principal is that principal's,
+	// and the one cross-account read (ThreadsWithWorkspace) carries it so
+	// housekeeping can act as the owner.
+	Owner               string
 	Title               string
 	Channel             string
 	Workspace           string
@@ -503,7 +508,11 @@ const (
 )
 
 type Schedule struct {
-	ID          string            `json:"id"`
+	ID string `json:"id"`
+	// Owner is the account whose instruction this is. The store stamps it
+	// from the creating principal, and the scheduler restores that principal
+	// from it when the job fires -- never from the instruction text.
+	Owner       string            `json:"owner,omitempty"`
 	Kind        ScheduleKind      `json:"kind"`
 	Execution   ScheduleExecution `json:"execution,omitempty"`
 	Instruction string            `json:"instruction"`

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -156,15 +155,21 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	for _, configured := range config.Repositories {
 		configuredRepositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
 	}
-	initial, err := stateStore.Load(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	if _, err := stateStore.Update(context.Background(), initial.Version, func(state *ports.State) error {
-		state.Repositories = configuredRepositories
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("sync configured repositories: %w", err)
+	// Each account's runtime state carries the configured repository list,
+	// so every account is synced. The list is the same for all of them; what
+	// is private is the session state that hangs off it.
+	for _, account := range config.Principals() {
+		ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})
+		initial, err := stateStore.Load(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := stateStore.Update(ctx, initial.Version, func(state *ports.State) error {
+			state.Repositories = configuredRepositories
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("sync configured repositories: %w", err)
+		}
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
@@ -244,7 +249,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return registerGated(registry, asker, app.approvals, tools...)
 	}
 	activeTurns := services.NewActiveTurns()
-	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		repo.NewStatusTool(stateStore, app.scheduler),
 		services.NewCurrentTimeTool(options.Now, location, timezone),
@@ -420,14 +424,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// what renders the turn's trusted temporal context.
 		Location: location, Timezone: timezone,
 	})
-	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
+	app.dispatcher = services.NewDispatcher(func(id string) bool {
+		_, ok := config.Account(id)
+		return ok
+	}, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: owner,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,
@@ -459,19 +466,19 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 	return a.commands.Execute(ctx, command)
 }
 func (a *App) Ready() error {
-	state, err := a.store.Load(context.Background())
-	if err != nil {
-		return err
-	}
 	if _, err := a.context.Load(context.Background()); err != nil {
 		return err
 	}
 	a.readyLog.Do(func() {
 		alias := a.config.Agent.DefaultModel
 		provider := a.config.ModelAliases[alias].Provider
-		repositories := slices.Sorted(maps.Keys(state.Repositories))
+		repositories := make([]string, 0, len(a.config.Repositories))
+		for _, repository := range a.config.Repositories {
+			repositories = append(repositories, repository.Name)
+		}
+		slices.Sort(repositories)
 		integrations := []string{"telegram", "model_provider"}
-		if len(state.Repositories) > 0 {
+		if len(repositories) > 0 {
 			integrations = append(integrations, "github")
 		}
 		slices.Sort(integrations)

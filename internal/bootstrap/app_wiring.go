@@ -90,11 +90,41 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 	if report.Any() {
 		logger.Info("migrated home into sqlite", "moved", report.Moved)
 	}
+	// Records written before accounts existed -- including whatever the
+	// import above just moved -- are unowned until the boot names their
+	// account. A legacy owner is that account on every boot; an explicit
+	// accounts list has to say so through migration_owner_id, because the
+	// list's order does not decide whose history this was.
+	if err := assignLegacyRecords(context.Background(), database, config); err != nil {
+		_ = database.Close()
+		return stores{}, err
+	}
 	opened.database = database
 	opened.state = database.State()
 	opened.schedules = database.Schedules()
 	opened.auth = database.Auth()
 	return opened, nil
+}
+
+// assignLegacyRecords maps unowned private records to the account config
+// names for them, or refuses to boot when there are such records and no
+// name. Conversion to accounts also invalidates pending legacy approvals: they
+// were requested before there was an account to bind them to.
+func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, config config.Config) error {
+	owner := config.Owner.ID
+	if config.AccountMode() {
+		owner = config.MigrationOwnerID
+	}
+	if owner == "" {
+		if database.HasUnownedRecords(ctx) {
+			return fmt.Errorf("this home holds history from before accounts were configured; set migration_owner_id to the account that should receive it")
+		}
+		return nil
+	}
+	if err := database.MigrateAccounts(ctx, owner, config.AccountMode()); err != nil {
+		return fmt.Errorf("assign legacy records: %w", err)
+	}
+	return nil
 }
 
 // modelCatalog is the configured provider set resolved into what the agent

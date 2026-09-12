@@ -1,5 +1,14 @@
 package web
 
+import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/nigelteosw/eggy/internal/ports"
+)
+
 // validConfig is the config.yaml the web tests write when they need a
 // file that survives config.LoadConfig and Validate. internal/config keeps its
 // own copy for its own tests: the two packages exercise different things, and
@@ -38,4 +47,17 @@ runner:
   max_output_bytes: 1048576
   allowed_env: [PATH]
 `
+}
+
+// asOwner is a context acting as the test deployment's one account, for
+// tests that reach the private stores directly rather than through the
+// session guard that would otherwise put the principal there.
+func asOwner() context.Context {
+	return ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
+}
+
+// ownerRequest is httptest.NewRequest with the owner's principal already on
+// the context, as requireWebSession would have left it.
+func ownerRequest(method, target string, body io.Reader) *http.Request {
+	return httptest.NewRequest(method, target, body).WithContext(asOwner())
 }

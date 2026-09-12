@@ -130,6 +130,16 @@ func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, compl
 	})
 }
 
+// Disable switches a job off and releases any claim on it, for a job whose
+// owner can no longer receive it. The record stays: it is theirs.
+func (s *Scheduler) Disable(ctx context.Context, id string) error {
+	return s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
+		schedule.Enabled = false
+		schedule.PendingRun = time.Time{}
+		return nil
+	})
+}
+
 func (s *Scheduler) Fail(ctx context.Context, id string, scheduledFor time.Time) error {
 	return s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
 		if !schedule.PendingRun.Equal(scheduledFor) {

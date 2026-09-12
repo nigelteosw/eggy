@@ -67,7 +67,7 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 	mux.Handle("GET /", webUIHandler())
 	// Safe mode reports the default theme rather than the configured one: the
 	// config that would name it is the config that failed to load.
-	mux.HandleFunc("GET /api/mode", writeMode(modeSafe, nil))
+	mux.HandleFunc("GET /api/mode", writeMode(modeSafe, nil, loginKind(mode.Web)))
 	// In account mode there is no password to fall back to: recovery is
 	// reachable only through a verified Google identity against the account
 	// list the broken config still declares, and the session database. When

@@ -34,6 +34,7 @@ test("settings navigation groups configuration by user intent", () => {
     "Capabilities",
     "Automation",
     "Permissions",
+    "Accounts",
     "Appearance",
     "Advanced",
   ]);

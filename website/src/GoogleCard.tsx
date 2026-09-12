@@ -17,6 +17,38 @@ const STATE = 0;
 const CLIENT_ID = 1;
 const SECRET_ENV = 2;
 const PRODUCT_LIST = 3;
+const CONNECTED_AS = 4;
+const EXPECTED_EMAIL = 5;
+
+// GoogleIdentity shows whose account the one shared grant is, beside whose
+// it should be. The grant is every Eggy user's, and the line says so: a
+// mailbox connected here is not a private one.
+export function GoogleIdentity({ connected, expected }: { connected: string; expected: string }) {
+  if (!connected || connected === "not connected") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Not connected.{expected ? ` Connect as ${expected} with /google login in chat.` : ""}
+      </p>
+    );
+  }
+  const mismatch = expected !== "" && connected !== expected && connected !== "unverified";
+  return (
+    <div className={`rounded-md border p-3 text-sm ${mismatch ? "border-destructive/40 bg-destructive/5" : ""}`}>
+      <p>
+        Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
+        <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Shared with all Eggy users</span>
+      </p>
+      {mismatch && (
+        <p className="mt-1 text-destructive" role="alert">
+          This is not Eggy&apos;s account: expected {expected}. Disconnect and reconnect signed in as {expected}.
+        </p>
+      )}
+      {connected === "unverified" && expected && (
+        <p className="mt-1 text-muted-foreground">Its identity has not been verified yet; tools will verify it against {expected} on first use.</p>
+      )}
+    </div>
+  );
+}
 
 function field(result: CommandResult | null, label: string): string {
   return result?.fields?.find((entry) => entry.label === label)?.value ?? "";
@@ -97,7 +129,10 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="Google is not configured yet." />
+        <DataTable headers={result?.table_headers?.slice(0, 4)} rows={result?.table_rows?.map((row) => row.slice(0, 4))} empty="Google is not configured yet." />
+        {result?.table_rows?.[0] && (
+          <GoogleIdentity connected={result.table_rows[0][CONNECTED_AS] ?? ""} expected={result.table_rows[0][EXPECTED_EMAIL] ?? ""} />
+        )}
         <details className="rounded-md border p-3">
           <summary className="cursor-pointer text-sm font-medium">Configure Google Workspace</summary>
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">

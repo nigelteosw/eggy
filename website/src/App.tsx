@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { applyTheme, checkSession, getMode, type Mode, type Theme } from "./api";
+import { applyTheme, checkSession, clearSession, getMode, logout, type Account, type Login, type Mode, type Theme } from "./api";
 import { LoginPage } from "./LoginPage";
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
@@ -12,7 +12,20 @@ import { pathForView, viewForPath, type View } from "./routing";
 
 type Status = "checking" | "authenticated" | "unauthenticated";
 
-export function AppNavigation({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+export function AppNavigation({
+  view,
+  onNavigate,
+  account,
+  onLogout,
+}: {
+  view: View;
+  onNavigate: (view: View) => void;
+  // account is who is signed in, when the deployment has accounts. Shown
+  // beside a sign-out control so two people sharing a browser can tell whose
+  // panel this is before typing into it.
+  account?: Account;
+  onLogout?: () => void;
+}) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-6 border-b bg-card px-4 sm:px-6">
       <span className="text-base font-semibold tracking-tight">
@@ -42,6 +55,20 @@ export function AppNavigation({ view, onNavigate }: { view: View; onNavigate: (v
           </a>
         ))}
       </nav>
+      {account && (
+        <div className="ml-auto flex min-w-0 items-center gap-2 text-sm">
+          <span className="hidden truncate text-muted-foreground sm:inline" title={account.email}>
+            {account.email}
+          </span>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
     </header>
   );
 }
@@ -50,6 +77,16 @@ export function App() {
   const [status, setStatus] = useState<Status>("checking");
   const [mode, setMode] = useState<Mode>("normal");
   const [theme, setTheme] = useState<Theme>("dark");
+  const [loginKind, setLoginKind] = useState<Login>("password");
+  const [account, setAccount] = useState<Account | undefined>(undefined);
+  // The callback's generic failure lands on "/?login=failed"; read once and
+  // then taken out of the address bar so a reload does not repeat it.
+  const [loginFailed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const failed = new URLSearchParams(window.location.search).get("login") === "failed";
+    if (failed) window.history.replaceState({}, "", window.location.pathname);
+    return failed;
+  });
   const [view, setView] = useState<View>(() =>
     viewForPath(typeof window === "undefined" ? "/" : window.location.pathname),
   );
@@ -87,6 +124,7 @@ export function App() {
       .then((probe) => {
         setMode(probe.mode);
         setTheme(probe.theme);
+        setLoginKind(probe.login);
         applyTheme(probe.theme);
       })
       .catch(() => {
@@ -95,10 +133,34 @@ export function App() {
       })
       .finally(() => {
         checkSession()
-          .then(() => setStatus("authenticated"))
+          .then((session) => {
+            setAccount(session.account);
+            setStatus("authenticated");
+          })
           .catch(() => setStatus("unauthenticated"));
       });
   }, []);
+
+  // Leaving a session -- by choice or because the server said it is gone --
+  // forgets everything the previous person had open: the thread, the draft,
+  // the cached session. The next sign-in on this tab starts from nothing.
+  function endSession() {
+    clearSession();
+    setAccount(undefined);
+    setActiveThreadId(null);
+    setActiveThreadTitle("New chat");
+    setDraftChatOpen(false);
+    setSidebarReloadKey((key) => key + 1);
+    setStatus("unauthenticated");
+  }
+
+  async function signOut() {
+    try {
+      await logout();
+    } finally {
+      endSession();
+    }
+  }
 
   if (status === "checking") {
     return (
@@ -109,10 +171,21 @@ export function App() {
     );
   }
   if (status === "unauthenticated") {
-    return <LoginPage onLoggedIn={() => setStatus("authenticated")} />;
+    return (
+      <LoginPage
+        login={loginKind}
+        failed={loginFailed}
+        onLoggedIn={() => {
+          checkSession()
+            .then((session) => setAccount(session.account))
+            .catch(() => {});
+          setStatus("authenticated");
+        }}
+      />
+    );
   }
 
-  const onSessionExpired = () => setStatus("unauthenticated");
+  const onSessionExpired = endSession;
 
   if (mode === "safe") {
     return <SafeModePage onSessionExpired={onSessionExpired} />;
@@ -120,7 +193,7 @@ export function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <AppNavigation view={view} onNavigate={navigate} />
+      <AppNavigation view={view} onNavigate={navigate} account={account} onLogout={signOut} />
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {view === "chat" ? (
           <>

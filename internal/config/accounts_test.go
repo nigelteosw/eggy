@@ -299,3 +299,35 @@ func TestLoadRecoveryIdentityReadsAccountsFromABrokenConfig(t *testing.T) {
 		t.Fatalf("legacy: identity=%+v err=%v", identity, err)
 	}
 }
+
+func TestConvertToAccountsReplacesTheLegacyOwnerInOneWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input := ConvertInput{
+		Accounts:             []AccountInput{{ID: "nigel", GoogleEmail: "Nigel@Example.com", TelegramUserID: 42}, {ID: "partner", GoogleEmail: "partner@example.com"}},
+		LoginClientID:        "web-client",
+		LoginClientSecretEnv: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET",
+	}
+	if err := ConvertToAccounts(path, input); err == nil {
+		t.Fatal("conversion without a migration owner must fail")
+	}
+	input.MigrationOwnerID = "nigel"
+	if err := ConvertToAccounts(path, input); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfig(path, mapEnv(accountSecrets()))
+	if err != nil {
+		t.Fatalf("converted config does not load: %v", err)
+	}
+	if !cfg.AccountMode() || cfg.Owner.ID != "" || cfg.Telegram.OwnerID != 0 || cfg.MigrationOwnerID != "nigel" || len(cfg.Accounts) != 2 {
+		t.Fatalf("cfg=%+v", cfg)
+	}
+	if account, _ := cfg.Account("nigel"); account.GoogleEmail != "nigel@example.com" || account.TelegramUserID != 42 {
+		t.Fatalf("nigel=%+v", account)
+	}
+	if err := ConvertToAccounts(path, input); err == nil {
+		t.Fatal("converting twice must fail")
+	}
+}

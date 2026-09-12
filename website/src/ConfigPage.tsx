@@ -12,6 +12,7 @@ import { SchedulesCard } from "./SchedulesCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
+import { AccountsCard } from "./AccountsCard";
 import { RestartCard } from "./RestartCard";
 import { Sidebar, SidebarItem, SidebarSeparator } from "./components/ui/sidebar";
 import {
@@ -22,10 +23,11 @@ import {
   LogoutIcon,
   PaletteIcon,
   PlugIcon,
+  UsersIcon,
   WrenchIcon,
 } from "./components/ui/icons";
 
-type SectionId = "models" | "connections" | "capabilities" | "automation" | "permissions" | "appearance" | "advanced";
+type SectionId = "models" | "connections" | "capabilities" | "automation" | "permissions" | "accounts" | "appearance" | "advanced";
 
 type Section = {
   id: SectionId;
@@ -41,6 +43,7 @@ const SECTIONS: Section[] = [
   { id: "capabilities", label: "Capabilities", title: "Capabilities", description: "See what Eggy can use during a turn.", icon: <WrenchIcon /> },
   { id: "automation", label: "Automation", title: "Automation", description: "Scheduled runs and the periodic check-in.", icon: <ClockIcon /> },
   { id: "permissions", label: "Permissions", title: "Permissions", description: "Review actions that need your approval.", icon: <CheckShieldIcon /> },
+  { id: "accounts", label: "Accounts", title: "Accounts", description: "Who can use this Eggy, and which Google account Eggy itself is.", icon: <UsersIcon /> },
   { id: "appearance", label: "Appearance", title: "Appearance", description: "How the panel looks.", icon: <PaletteIcon /> },
   { id: "advanced", label: "Advanced", title: "Advanced", description: "Tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
 ];
@@ -141,6 +144,7 @@ export function ConfigPage({
             </>
           )}
           {active === "permissions" && <ApprovalsCard onSessionExpired={onSessionExpired} />}
+          {active === "accounts" && <AccountsCard onSessionExpired={onSessionExpired} />}
           {active === "appearance" && (
             <AppearanceCard theme={theme} onThemeChange={onThemeChange} onSessionExpired={onSessionExpired} />
           )}

@@ -423,3 +423,45 @@ func LoadRecoveryIdentity(path string, getenv func(string) string) (RecoveryIden
 	}
 	return RecoveryIdentity{AccountMode: true, Config: cfg, Secrets: secrets}, nil
 }
+
+// ConvertInput is everything a legacy deployment needs to become an
+// accounts deployment in one write: the people, the login client, and which
+// account the history belongs to. One write rather than several because the
+// intermediate documents would not validate.
+type ConvertInput struct {
+	Accounts             []AccountInput
+	LoginClientID        string
+	LoginClientSecretEnv string
+	MigrationOwnerID     string
+}
+
+// ConvertToAccounts replaces owner.id and telegram.owner_id with an explicit
+// accounts list. The legacy owner's Telegram sender is not carried over by
+// itself: the list says who has which sender, and the migration owner is the
+// one whose history it becomes. Refused on a deployment that already has
+// accounts, where the accounts card edits the list directly.
+func ConvertToAccounts(path string, input ConvertInput) error {
+	return mutate(path, func(cfg *Config) error {
+		if cfg.AccountMode() {
+			return errors.New("this deployment already uses accounts")
+		}
+		cfg.Owner = OwnerConfig{}
+		cfg.Telegram = TelegramConfig{}
+		cfg.Accounts = nil
+		for _, account := range input.Accounts {
+			cfg.Accounts = append(cfg.Accounts, AccountConfig{ID: strings.TrimSpace(account.ID), GoogleEmail: normalizeEmail(account.GoogleEmail), TelegramUserID: account.TelegramUserID})
+		}
+		cfg.Web.GoogleLogin = GoogleLoginConfig{ClientID: strings.TrimSpace(input.LoginClientID), ClientSecretEnv: strings.TrimSpace(input.LoginClientSecretEnv)}
+		cfg.MigrationOwnerID = strings.TrimSpace(input.MigrationOwnerID)
+		cfg.normalizeAccounts()
+		if cfg.MigrationOwnerID == "" {
+			return errors.New("migration_owner_id must name the account that receives the existing history")
+		}
+		// Heartbeat delivery moved with the sender; a heartbeat that now has
+		// nobody on Telegram is refused here, as SetHeartbeat refuses it.
+		if cfg.Heartbeat.Interval > 0 && !cfg.TelegramEnabled() {
+			return errors.New("heartbeat is configured but no account has a telegram_user_id to deliver it to")
+		}
+		return nil
+	})
+}

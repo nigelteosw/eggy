@@ -156,6 +156,16 @@ Scopes are re-consented rather than widened in place, so decide before the first
 
 > **Upgrading from a read-only grant:** Drive, Docs and Contacts used to request `.readonly` by default. If you authorized before they gained write actions, `/google status` will show the old scopes and every write will 403. Run `/google logout`, then `/google login` again to re-consent.
 
+## 5a. Name Eggy's own account
+
+With [accounts](/eggy/configure/accounts/) configured, set
+`google.expected_email` to the Workspace user you provisioned for Eggy. On the
+consent screen in the next step, sign in as that user. A token for any other
+account — yours, for instance — is refused before it is stored, and the
+existing connection is kept. Eggy never holds a grant on a person's own Google
+account; share calendars and files with, or forward mail to, Eggy's address
+instead, and remember that whatever Eggy can see is visible to every Eggy user.
+
 ## 6. Authorize
 
 From Telegram or the web chat:

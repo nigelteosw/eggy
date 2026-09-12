@@ -43,7 +43,10 @@ type HistoryReader interface {
 // The web surface only ever subscribes; publishing belongs to the channel
 // adapter that owns the hub.
 type ChatStream interface {
-	Register(threadID string) (connID string, events <-chan webchat.Event, unregister func())
+	Register(accountID, threadID string) (connID string, events <-chan webchat.Event, unregister func())
+	// CloseAccount ends every stream the account holds; session revocation
+	// calls it so a signed-out tab goes quiet at once.
+	CloseAccount(accountID string)
 }
 
 const chatKeepaliveInterval = 15 * time.Second
@@ -56,15 +59,21 @@ const chatHistoryDisplayLimit = 200
 
 // buildWebEvent stamps a new events.Event with the same ID/Source/Timestamp/
 // CorrelationID shape Telegram's webhook handler already uses (see
-// plugins/channels/telegram/handler.go's normalize), and the
-// Owner every event must carry for Dispatcher.Handle to accept it. This is
-// shared by newThreadSendHandler and newChatApproveHandler.
-func buildWebEvent(owner string, eventType events.Type, dest destination.Destination, payload json.RawMessage) events.Event {
+// plugins/channels/telegram/handler.go's normalize), and the Owner every
+// event must carry for Dispatcher.Handle to accept it. The owner is the
+// authenticated request's principal -- the session guard put it there --
+// never anything the browser sent. This is shared by newThreadSendHandler
+// and newChatApproveHandler.
+func buildWebEvent(ctx context.Context, eventType events.Type, dest destination.Destination, payload json.RawMessage) (events.Event, error) {
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return events.Event{}, err
+	}
 	id := "web:" + strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 	return events.Event{
-		ID: id, Type: eventType, Source: "web", Owner: owner,
+		ID: id, Type: eventType, Source: "web", Owner: principal.AccountID,
 		Timestamp: time.Now().UTC(), CorrelationID: id, Destination: dest, Payload: payload,
-	}
+	}, nil
 }
 
 func newThreadID() string {
@@ -210,7 +219,7 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 	}
 }
 
-func newThreadSendHandler(enqueue func(context.Context, events.Event) error, owner string, threads ThreadDirectory) http.HandlerFunc {
+func newThreadSendHandler(enqueue func(context.Context, events.Event) error, threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
@@ -232,7 +241,11 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, own
 			writeWebError(w, http.StatusInternalServerError, "failed to encode message")
 			return
 		}
-		event := buildWebEvent(owner, events.TypeMessage, destination.Destination{Kind: destination.Web, ThreadID: id}, payload)
+		event, err := buildWebEvent(r.Context(), events.TypeMessage, destination.Destination{Kind: destination.Web, ThreadID: id}, payload)
+		if err != nil {
+			writeWebError(w, http.StatusUnauthorized, "not authenticated")
+			return
+		}
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -244,7 +257,7 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, own
 	}
 }
 
-func newChatApproveHandler(enqueue func(context.Context, events.Event) error, owner string) http.HandlerFunc {
+func newChatApproveHandler(enqueue func(context.Context, events.Event) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			ApprovalID string `json:"approval_id"`
@@ -263,7 +276,11 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 			writeWebError(w, http.StatusInternalServerError, "failed to encode decision")
 			return
 		}
-		event := buildWebEvent(owner, events.TypeApproval, destination.Destination{}, payload)
+		event, err := buildWebEvent(r.Context(), events.TypeApproval, destination.Destination{}, payload)
+		if err != nil {
+			writeWebError(w, http.StatusUnauthorized, "not authenticated")
+			return
+		}
 		if err := enqueue(r.Context(), event); err != nil {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -275,10 +292,21 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error, ow
 	}
 }
 
-func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory) http.HandlerFunc {
+// newThreadStreamHandler subscribes the caller to one of their threads. The
+// stream is registered under the session's account, and every keepalive
+// tick re-checks the session through revalidate: a revoked or expired
+// session ends the stream on the next tick rather than at the tab's own
+// reconnect. There is no separate auth loop; the keepalive the stream
+// already runs is the clock.
+func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory, revalidate func(*http.Request) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := requireExistingThread(w, r, threads)
 		if !ok {
+			return
+		}
+		principal, err := ports.PrincipalFromContext(r.Context())
+		if err != nil {
+			writeWebError(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		flusher, ok := w.(http.Flusher)
@@ -292,7 +320,7 @@ func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory) http.Handle
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
 
-		_, events, unregister := hub.Register(id)
+		_, events, unregister := hub.Register(principal.AccountID, id)
 		defer unregister()
 
 		keepalive := time.NewTicker(chatKeepaliveInterval)
@@ -303,6 +331,9 @@ func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory) http.Handle
 			case <-r.Context().Done():
 				return
 			case <-keepalive.C:
+				if revalidate != nil && !revalidate(r) {
+					return
+				}
 				if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
 					return
 				}

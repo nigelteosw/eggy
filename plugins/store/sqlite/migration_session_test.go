@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -36,12 +35,14 @@ func TestTraceSessionColumnIsAddedToAnOlderDatabase(t *testing.T) {
 		t.Fatalf("opening a pre-session database: %v", err)
 	}
 	defer store.Close()
-
-	listed, err := store.ListTraces(context.Background(), 10)
+	if err := store.MigrateAccounts(as("owner"), "owner", false); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := store.ListTraces(as("owner"), 10)
 	if err != nil || len(listed) != 1 || listed[0].Session != "" {
 		t.Fatalf("listed=%+v err=%v", listed, err)
 	}
-	if err := store.StartTrace(context.Background(), ports.Trace{
+	if err := store.StartTrace(as("owner"), ports.Trace{
 		ID: "new", ConversationID: "telegram", Session: "42", StartedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("writing after the migration: %v", err)

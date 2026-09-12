@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
 )
 
@@ -124,7 +125,16 @@ func requireWebSession(webConfig WebUIConfig, now func() time.Time, next http.Ha
 			writeWebError(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}
-		next(w, r)
+		// The signed cookie is SameSite=Strict, which is what keeps a
+		// cross-site POST from carrying it; the origin check is belt and
+		// braces for a browser that sends Origin anyway.
+		if mutating(r) && !sameOrigin(webConfig, r) {
+			writeWebError(w, http.StatusForbidden, "request did not come from the Eggy panel")
+			return
+		}
+		// The legacy session is the one owner's; every private read and
+		// write below acts as that account.
+		next(w, r.WithContext(ports.WithPrincipal(r.Context(), ports.Principal{AccountID: webConfig.OwnerID})))
 	}
 }
 

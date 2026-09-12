@@ -1,11 +1,17 @@
 import { useState } from "react";
-import { login } from "./api";
+import { login, type Login } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 
-export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
+// The page is one of two: the single owner's password form, or, for an
+// accounts deployment, an ordinary link to the server's Google Sign-In start
+// route. The link is deliberately not a script -- the browser leaves for
+// Google and comes back with a session cookie; nothing here touches a token.
+// failed is the callback's one generic outcome: which check refused the
+// sign-in is logged on the server, never shown.
+export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Login; failed: boolean; onLoggedIn: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +50,22 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
 
         <Card className="shadow-lift">
           <CardContent className="pt-5">
+            {loginKind === "google" ? (
+              <div className="flex flex-col gap-4">
+                {failed && (
+                  <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+                    Sign-in was not completed. Use the Google account you were invited with, and try again.
+                  </p>
+                )}
+                <a
+                  href="/auth/google/start"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  Sign in with Google
+                </a>
+                <p className="text-center text-xs text-muted-foreground">Only invited Google accounts can sign in.</p>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">Email</Label>
@@ -76,6 +98,7 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: () => void }) {
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
+            )}
           </CardContent>
         </Card>
       </div>

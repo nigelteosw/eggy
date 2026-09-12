@@ -24,27 +24,38 @@ import (
 // first model call so a turn the process dies inside still leaves evidence
 // behind; CompleteTrace fills in the rest.
 func (s *Store) StartTrace(ctx context.Context, trace ports.Trace) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO traces (id, conversation_id, session, channel, source, kind, model, effort, input, output, error, usage, started_at, duration_ns, complete)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, 0, 0)
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO traces (id, account_id, conversation_id, session, channel, source, kind, model, effort, input, output, error, usage, started_at, duration_ns, complete)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, 0, 0)
 		ON CONFLICT(id) DO NOTHING
 	`,
-		trace.ID, trace.ConversationID, trace.Session, trace.Channel, trace.Source, trace.Kind, trace.Model, trace.Effort,
+		trace.ID, account, trace.ConversationID, trace.Session, trace.Channel, trace.Source, trace.Kind, trace.Model, trace.Effort,
 		trace.Input, encodeUsage(trace.Usage), trace.StartedAt.UnixNano())
 	return err
 }
 
 // AppendSpan records one step of a turn. A span whose trace row is gone
-// (pruned while the turn ran) is dropped rather than orphaned.
+// (pruned while the turn ran) is dropped rather than orphaned, and so is one
+// whose trace belongs to another account: spans have no account column of
+// their own and inherit ownership through the parent trace, so that parent
+// is checked here.
 func (s *Store) AppendSpan(ctx context.Context, span ports.TraceSpan) error {
-	_, err := s.db.ExecContext(ctx, `
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO trace_spans (trace_id, sequence, kind, name, call_id, request, response, error, usage, started_at, duration_ns)
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-		WHERE EXISTS (SELECT 1 FROM traces WHERE id = ?)
+		WHERE EXISTS (SELECT 1 FROM traces WHERE id = ? AND account_id = ?)
 	`,
 		span.TraceID, span.Sequence, string(span.Kind), span.Name, span.CallID,
 		span.Request, span.Response, span.Error, encodeUsage(span.Usage),
-		span.StartedAt.UnixNano(), int64(span.Duration), span.TraceID)
+		span.StartedAt.UnixNano(), int64(span.Duration), span.TraceID, account)
 	return err
 }
 
@@ -53,10 +64,14 @@ func (s *Store) AppendSpan(ctx context.Context, span ports.TraceSpan) error {
 // it belongs to was still running, and failing the turn over that would be
 // backwards.
 func (s *Store) CompleteTrace(ctx context.Context, trace ports.Trace) error {
-	_, err := s.db.ExecContext(ctx, `
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		UPDATE traces SET output = ?, error = ?, usage = ?, duration_ns = ?, model = ?, complete = 1
-		WHERE id = ?
-	`, trace.Output, trace.Error, encodeUsage(trace.Usage), int64(trace.Duration), trace.Model, trace.ID)
+		WHERE id = ? AND account_id = ?
+	`, trace.Output, trace.Error, encodeUsage(trace.Usage), int64(trace.Duration), trace.Model, trace.ID, account)
 	return err
 }
 
@@ -68,14 +83,19 @@ func (s *Store) ListTraces(ctx context.Context, limit int) ([]ports.Trace, error
 	if limit <= 0 {
 		return nil, errors.New("trace list limit must be positive")
 	}
+	account, err := accountOf(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.id, t.conversation_id, t.session, t.channel, t.source, t.kind, t.model, t.effort,
 		       t.input, t.output, t.error, t.usage, t.started_at, t.duration_ns, t.complete,
 		       (SELECT COUNT(*) FROM trace_spans s WHERE s.trace_id = t.id)
 		FROM traces t
+		WHERE t.account_id = ?
 		ORDER BY t.started_at DESC, t.rowid DESC
 		LIMIT ?
-	`, limit)
+	`, account, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -94,12 +114,16 @@ func (s *Store) ListTraces(ctx context.Context, limit int) ([]ports.Trace, error
 
 // Trace returns one trace with every span it holds, oldest first.
 func (s *Store) Trace(ctx context.Context, id string) (ports.Trace, []ports.TraceSpan, bool, error) {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return ports.Trace{}, nil, false, err
+	}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT t.id, t.conversation_id, t.session, t.channel, t.source, t.kind, t.model, t.effort,
 		       t.input, t.output, t.error, t.usage, t.started_at, t.duration_ns, t.complete,
 		       (SELECT COUNT(*) FROM trace_spans s WHERE s.trace_id = t.id)
-		FROM traces t WHERE t.id = ?
-	`, id)
+		FROM traces t WHERE t.account_id = ? AND t.id = ?
+	`, account, id)
 	trace, err := scanTrace(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.Trace{}, nil, false, nil
@@ -138,19 +162,25 @@ func (s *Store) Trace(ctx context.Context, id string) (ports.Trace, []ports.Trac
 	return trace, spans, true, nil
 }
 
-// PruneTraces enforces the retention budget, oldest first: anything that
-// started before before goes, and of what is left only the newest keep traces
-// are retained. Spans go with their trace -- SQLite is opened without foreign
-// keys here, so the cascade is written out rather than assumed.
+// PruneTraces enforces the retention budget for the acting account, oldest
+// first: anything that started before before goes, and of what is left only
+// the newest keep traces are retained. The budget is per account rather than
+// per deployment, so one person's busy day cannot age another's traces out.
+// Spans go with their trace -- SQLite is opened without foreign keys here, so
+// the cascade is written out rather than assumed.
 func (s *Store) PruneTraces(ctx context.Context, keep int, before time.Time) (int, error) {
 	if keep < 0 {
 		return 0, errors.New("trace retention count must not be negative")
 	}
+	account, err := accountOf(ctx)
+	if err != nil {
+		return 0, err
+	}
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM traces
-		WHERE (? > 0 AND started_at < ?)
-		   OR id NOT IN (SELECT id FROM traces ORDER BY started_at DESC, rowid DESC LIMIT ?)
-	`, before.UnixNano(), before.UnixNano(), keep)
+		WHERE account_id = ? AND ((? > 0 AND started_at < ?)
+		   OR id NOT IN (SELECT id FROM traces WHERE account_id = ? ORDER BY started_at DESC, rowid DESC LIMIT ?))
+	`, account, before.UnixNano(), before.UnixNano(), account, keep)
 	if err != nil {
 		return 0, err
 	}

@@ -24,7 +24,7 @@ func newCountingClient() (*telegram.Client, *int32counter) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
-	return telegram.NewClient("https://api.telegram.test", "token", "99", httpClient), counter
+	return telegram.NewClient("https://api.telegram.test", "token", telegram.FixedChat("99"), httpClient), counter
 }
 
 type int32counter struct {

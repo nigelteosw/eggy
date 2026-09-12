@@ -31,11 +31,25 @@ type WebUIConfig struct {
 	Password   string
 	SigningKey []byte
 	Now        func() time.Time
-	ChatHub    ChatStream
-	Enqueue    func(context.Context, events.Event) error
-	Memory     HistoryReader
-	Threads    ThreadDirectory
-	OwnerID    string
+	// AccountMode switches the panel from the single-owner password login to
+	// Google Sign-In with revocable sessions. Sessions and Accounts must be
+	// set with it; the password and login-link routes are not mounted.
+	AccountMode bool
+	Sessions    SessionStore
+	Accounts    AccountDirectory
+	// GoogleLogin, Identities and LoginSealer are the Sign-In routes'
+	// collaborators. All three are required in account mode.
+	GoogleLogin GoogleLogin
+	Identities  IdentityStore
+	LoginSealer VerifierSealer
+	// PublicBaseURL is the deployment's public origin, which the CSRF
+	// same-origin check accepts alongside the request's own Host.
+	PublicBaseURL string
+	ChatHub       ChatStream
+	Enqueue       func(context.Context, events.Event) error
+	Memory        HistoryReader
+	Threads       ThreadDirectory
+	OwnerID       string
 	// MCP is the running MCP manager, or nil when no server is configured.
 	// The web panel edits MCP config through internal/config like every other
 	// section; this is only the part config cannot do -- starting an OAuth
@@ -60,6 +74,10 @@ type WebUIConfig struct {
 	// exist fails at startup, which for a config edit means the owner lands in
 	// safe mode over a typo the form could have refused.
 	GoogleActions map[string]GoogleProductActions
+	// GoogleConnection reports whose account the shared grant is, so the
+	// card can show the verified address against the expected one. Nil when
+	// Google is disabled.
+	GoogleConnection GoogleConnectionReader
 	// ModelDiscovery browses a provider's catalog so the models card can offer
 	// what is on sale instead of asking the owner to type an ID from memory.
 	// Nil leaves the route answering 404 and the card's browse control absent,
@@ -127,6 +145,19 @@ const (
 	webError   = "error"
 )
 
+// GoogleConnection is the shared grant as the panel shows it: never a token,
+// only whose account it is and whose it should be.
+type GoogleConnection struct {
+	Authorized    bool
+	Email         string
+	ExpectedEmail string
+}
+
+// GoogleConnectionReader is bootstrap's handoff of the live connection state.
+type GoogleConnectionReader interface {
+	Connection() (GoogleConnection, error)
+}
+
 // The two shapes the HTTP surface can take. The web app asks for this before
 // anything else, because in safe mode every other route it would call is
 // either absent or reporting the startup failure -- it needs to know which
@@ -138,13 +169,31 @@ const (
 	modeSafe   = "safe"
 )
 
+// The two ways into the panel, as /api/mode names them.
+const (
+	loginPassword = "password"
+	loginGoogle   = "google"
+)
+
+func loginKind(webConfig WebUIConfig) string {
+	if webConfig.AccountMode {
+		return loginGoogle
+	}
+	return loginPassword
+}
+
 // writeMode answers the unauthenticated probe the UI makes before anything
 // else. It carries the theme as well as the mode because this is the only
 // response that arrives before first paint: serving the theme any later means
 // the panel renders light and then flips to charcoal, and serving it behind
 // the session means the login page cannot honour it at all. A theme name is
 // not a secret, so there is nothing here for an anonymous caller to learn.
-func writeMode(mode string, theme func() string) http.HandlerFunc {
+//
+// Login says which way in exists -- the password form, or Google Sign-In --
+// so the login page renders the right control before anyone has a session.
+// Which of the two is not a secret: the Sign-In route answers the same
+// question to anyone who requests it.
+func writeMode(mode string, theme func() string, login string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -155,7 +204,8 @@ func writeMode(mode string, theme func() string) http.HandlerFunc {
 		body, err := json.Marshal(struct {
 			Mode  string `json:"mode"`
 			Theme string `json:"theme"`
-		}{Mode: mode, Theme: name})
+			Login string `json:"login"`
+		}{Mode: mode, Theme: name, Login: login})
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, "could not encode mode")
 			return
@@ -183,16 +233,35 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// that visibly does not say guard, instead of one that happens to be
 	// missing two arguments among thirty that carry them.
 	guard := func(next http.HandlerFunc) http.Handler {
+		if webConfig.AccountMode {
+			return requireAccountSession(webConfig, now, next)
+		}
 		return requireWebSession(webConfig, now, next)
 	}
 	mux.Handle("GET /", webUIHandler())
-	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath)))
-	mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
-	mux.HandleFunc("POST /api/logout", handleWebLogout())
-	mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
-	mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
-		writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
-	}))
+	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath), loginKind(webConfig)))
+	if webConfig.AccountMode {
+		// No password, no one-tap link: the only way in is a verified
+		// Google identity, and the only way out is revoking the row.
+		mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, _ *http.Request) {
+			writeWebError(w, http.StatusUnauthorized, "sign in with Google")
+		})
+		mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
+		mux.Handle("GET /api/session", guard(handleAccountSession))
+		if webConfig.GoogleLogin != nil {
+			// Neither route is session-gated: start is how a session begins,
+			// and the callback is authenticated by its single-use state.
+			mux.HandleFunc("GET /auth/google/start", handleGoogleStart(webConfig, now))
+			mux.HandleFunc("GET /auth/google/callback", handleGoogleCallback(webConfig, now))
+		}
+	} else {
+		mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
+		mux.HandleFunc("POST /api/logout", handleWebLogout())
+		mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
+		mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
+			writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
+		}))
+	}
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
@@ -201,6 +270,17 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 
 	mux.Handle("GET /api/config/models/available", guard(newModelDiscoveryHandler(webConfig.ModelDiscovery)))
 	mux.Handle("DELETE /api/config/models/{alias}", guard(webModelRemoveRoute(configPath)))
+
+	// The accounts card. Every write is a config mutation; the routes add
+	// only who-may-do-what and the live enrollment/session state.
+	mux.Handle("GET /api/config/accounts", guard(accountsGetRoute(configPath, webConfig, now)))
+	mux.Handle("POST /api/config/accounts", guard(accountAddRoute(configPath)))
+	mux.Handle("POST /api/config/accounts/convert", guard(accountsConvertRoute(configPath)))
+	mux.Handle("PATCH /api/config/accounts/{id}", guard(accountEditRoute(configPath, webConfig)))
+	mux.Handle("DELETE /api/config/accounts/{id}", guard(accountRemoveRoute(configPath, webConfig)))
+	mux.Handle("POST /api/config/accounts/{id}/reset-binding", guard(accountResetBindingRoute(webConfig)))
+	mux.Handle("POST /api/config/login", guard(loginClientSetRoute(configPath)))
+	mux.Handle("POST /api/config/google/expected-email", guard(expectedEmailSetRoute(configPath)))
 
 	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
@@ -221,8 +301,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("PATCH /api/chat/threads/{id}", guard(newThreadRenameHandler(webConfig.Threads)))
 	mux.Handle("DELETE /api/chat/threads/{id}", guard(newThreadDeleteHandler(webConfig.Threads)))
 	mux.Handle("GET /api/chat/threads/{id}/history", guard(newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
-	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads)))
-	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.OwnerID, webConfig.Threads)))
+	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads, sessionRevalidator(webConfig, now))))
+	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.Threads)))
 	mux.Handle("GET /api/tools", guard(newToolListHandler(webConfig.Tools)))
 	mux.Handle("GET /api/approvals", guard(newApprovalListHandler(webConfig.Approvals, now)))
 	mux.Handle("GET /api/approvals/mode", guard(newApprovalModeHandler(webConfig.ApprovalMode, false)))
@@ -241,7 +321,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 
 	mux.Handle("POST /api/restart", guard(newRestartHandler(webConfig.Restarter, configPath, webConfig.Getenv)))
 
-	mux.Handle("POST /api/chat/approve", guard(newChatApproveHandler(webConfig.Enqueue, webConfig.OwnerID)))
+	mux.Handle("POST /api/chat/approve", guard(newChatApproveHandler(webConfig.Enqueue)))
 
 	return mux
 }

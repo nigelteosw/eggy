@@ -203,14 +203,66 @@ func initializeConfig(path string, getenv func(string) string) error {
 	})
 }
 
+// firstBootLoginSecretEnv is the variable a generated accounts config names
+// for the sign-in client secret. Fixed, because first boot has no file to read
+// a name from: the operator sets this one variable and the generated config
+// points at it.
+const firstBootLoginSecretEnv = "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"
+
+// firstBootAccounts parses EGGY_ACCOUNTS: comma-separated entries of
+// id:google_email[:telegram_user_id]. Set, it selects the accounts shape for
+// the generated config; EGGY_GOOGLE_LOGIN_CLIENT_ID is then required too.
+func firstBootAccounts(raw string) ([]AccountConfig, error) {
+	var accounts []AccountConfig
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		parts := strings.Split(entry, ":")
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil, fmt.Errorf("EGGY_ACCOUNTS entry %q must be id:google_email or id:google_email:telegram_user_id", entry)
+		}
+		account := AccountConfig{ID: strings.TrimSpace(parts[0]), GoogleEmail: normalizeEmail(parts[1])}
+		if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
+			userID, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+			if err != nil || userID <= 0 {
+				return nil, fmt.Errorf("EGGY_ACCOUNTS entry %q has a non-numeric telegram_user_id", entry)
+			}
+			account.TelegramUserID = userID
+		}
+		accounts = append(accounts, account)
+	}
+	if len(accounts) == 0 {
+		return nil, errors.New("EGGY_ACCOUNTS must list at least one id:google_email entry")
+	}
+	return accounts, nil
+}
+
 func firstBootConfig(getenv func(string) string) (Config, error) {
-	// EGGY_TELEGRAM_OWNER_ID configures Telegram and derives the canonical
-	// owner identity from it. A web-only deployment sets EGGY_OWNER_ID
-	// instead and gets no Telegram block at all -- and so needs no bot
-	// token or webhook secret either.
+	// EGGY_ACCOUNTS selects the accounts shape: several people, each signing
+	// in with Google. Otherwise EGGY_TELEGRAM_OWNER_ID configures Telegram
+	// and derives the canonical owner identity from it, and a web-only
+	// deployment sets EGGY_OWNER_ID instead and gets no Telegram block at
+	// all -- and so needs no bot token or webhook secret either.
 	var telegram TelegramConfig
+	var accounts []AccountConfig
+	var login GoogleLoginConfig
+	var expected string
 	ownerValue := strings.TrimSpace(getenv("EGGY_TELEGRAM_OWNER_ID"))
-	if ownerValue != "" {
+	if raw := strings.TrimSpace(getenv("EGGY_ACCOUNTS")); raw != "" {
+		parsed, err := firstBootAccounts(raw)
+		if err != nil {
+			return Config{}, err
+		}
+		accounts = parsed
+		login = GoogleLoginConfig{ClientID: strings.TrimSpace(getenv("EGGY_GOOGLE_LOGIN_CLIENT_ID")), ClientSecretEnv: firstBootLoginSecretEnv}
+		if login.ClientID == "" {
+			return Config{}, errors.New("EGGY_GOOGLE_LOGIN_CLIENT_ID is required with EGGY_ACCOUNTS")
+		}
+		expected = normalizeEmail(getenv("EGGY_GOOGLE_EXPECTED_EMAIL"))
+		ownerValue = ""
+	} else if ownerValue != "" {
 		ownerID, err := strconv.ParseInt(ownerValue, 10, 64)
 		if err != nil || ownerID <= 0 {
 			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID must be a positive integer")
@@ -219,7 +271,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 	} else {
 		ownerValue = strings.TrimSpace(getenv("EGGY_OWNER_ID"))
 		if ownerValue == "" {
-			return Config{}, errors.New("EGGY_TELEGRAM_OWNER_ID is required, or EGGY_OWNER_ID for a web-only deployment")
+			return Config{}, errors.New("EGGY_ACCOUNTS is required, or EGGY_TELEGRAM_OWNER_ID / EGGY_OWNER_ID for a single-owner deployment")
 		}
 	}
 	publicBaseURL := strings.TrimSpace(getenv("EGGY_PUBLIC_BASE_URL"))
@@ -239,6 +291,9 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		DataDir:  "/data",
 		Owner:    OwnerConfig{ID: ownerValue},
 		Telegram: telegram,
+		Accounts: accounts,
+		Web:      WebConfig{GoogleLogin: login},
+		Google:   GoogleConfig{ExpectedEmail: expected},
 		Agent:    AgentConfig{DefaultModel: "deepseek-pro", Timezone: "Asia/Singapore"},
 		Providers: map[string]ProviderConfig{
 			"deepseek": {Adapter: "openai_compatible", BaseURL: "https://api.deepseek.com", APIKeyEnv: "DEEPSEEK_API_KEY"},

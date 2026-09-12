@@ -378,3 +378,15 @@ func TestWebCommandWithoutASigningKeyFallsBackToTheBareAddress(t *testing.T) {
 		t.Fatalf("reply=%q", reply)
 	}
 }
+
+// In account mode there is no bearer link to hand out: /web sends the
+// address, and the person signs in with Google there.
+func TestWebCommandInAccountModeSendsOnlyTheAddress(t *testing.T) {
+	reply, handled, err := New(Options{PublicBaseURL: "https://eggy.example", SigningKey: []byte("k"), AccountMode: true, Now: time.Now}).Execute(context.Background(), "/web")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if !strings.Contains(reply, "https://eggy.example") || strings.Contains(reply, "/auth/link") || strings.Contains(reply, "token=") {
+		t.Fatalf("reply=%q", reply)
+	}
+}

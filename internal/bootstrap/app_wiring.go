@@ -15,6 +15,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/auth/grants"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
@@ -70,8 +71,11 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 		return stores{}, err
 	}
 	opened := stores{layout: layout}
+	// SOUL.md is shared; the private documents resolve per account from the
+	// principal on each call, through the one layout function that
+	// validates the ID before it becomes a path.
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
-		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Watch: layout.Watch(),
+		Soul: layout.Soul(), Memories: layout.AccountMemories,
 	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes, contextmarkdown.DefaultWatchMaxBytes)
 	database, err := sqlitestore.Open(layout.Database())
 	if err != nil {
@@ -90,11 +94,109 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 	if report.Any() {
 		logger.Info("migrated home into sqlite", "moved", report.Moved)
 	}
+	// Records written before accounts existed -- including whatever the
+	// import above just moved -- are unowned until the boot names their
+	// account. A legacy owner is that account on every boot; an explicit
+	// accounts list has to say so through migration_owner_id, because the
+	// list's order does not decide whose history this was.
+	if err := assignLegacyRecords(context.Background(), database, layout, config); err != nil {
+		_ = database.Close()
+		return stores{}, err
+	}
+	// The documents move to the same account, with the database recording
+	// each phase. Both halves finish here, before any store is handed out,
+	// so no turn runs over a half-moved home.
+	if owner := legacyOwner(config); owner != "" {
+		if err := layout.MigrateAccountDocuments(owner, database); err != nil {
+			_ = database.Close()
+			return stores{}, fmt.Errorf("move owner documents to account %q: %w", owner, err)
+		}
+	}
 	opened.database = database
 	opened.state = database.State()
 	opened.schedules = database.Schedules()
 	opened.auth = database.Auth()
 	return opened, nil
+}
+
+// assignLegacyRecords maps unowned private records to the account config
+// names for them, or refuses to boot when there are such records and no
+// name. Conversion to accounts also invalidates pending legacy approvals: they
+// were requested before there was an account to bind them to.
+func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, layout home.Layout, config config.Config) error {
+	owner := legacyOwner(config)
+	recorded, err := database.LegacyAccount(ctx)
+	if err != nil {
+		return err
+	}
+	if owner == "" {
+		if database.HasUnownedRecords(ctx) || (recorded != "" && !accountConfigured(config, recorded)) {
+			return fmt.Errorf("this home holds history from before accounts were configured; set migration_owner_id to the account that should receive it")
+		}
+		return nil
+	}
+	// The recorded owner is the single owner's old name -- a Telegram number
+	// or owner.id -- and moves to the migration owner on conversion. A
+	// recorded owner that is a live account in its own right is a different
+	// person, and moving their history would be a silent transfer.
+	if recorded != "" && recorded != owner && accountConfigured(config, recorded) {
+		return fmt.Errorf("legacy records were already assigned to account %q; they cannot be reassigned to %q", recorded, owner)
+	}
+	if err := database.MigrateAccounts(ctx, owner, config.AccountMode()); err != nil {
+		return fmt.Errorf("assign legacy records: %w", err)
+	}
+	if recorded != "" && recorded != owner {
+		if err := layout.RenameAccount(recorded, owner); err != nil {
+			return fmt.Errorf("move %q's documents to %q: %w", recorded, owner, err)
+		}
+	}
+	return nil
+}
+
+func accountConfigured(config config.Config, id string) bool {
+	_, ok := config.Account(id)
+	return ok
+}
+
+// accountDirectory is the configured account list as the web layer sees it.
+// A view over config rather than a copy, so the list the guard consults is
+// the one the process booted with and nothing else.
+type accountDirectory struct{ config config.Config }
+
+func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
+	account, ok := d.config.Account(id)
+	if !ok {
+		return web.AccountRecord{}, false
+	}
+	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
+}
+
+func (d accountDirectory) AccountForEmail(email string) (web.AccountRecord, bool) {
+	account, ok := d.config.AccountForEmail(email)
+	if !ok {
+		return web.AccountRecord{}, false
+	}
+	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
+}
+
+func (d accountDirectory) Accounts() []web.AccountRecord {
+	accounts := d.config.Principals()
+	records := make([]web.AccountRecord, 0, len(accounts))
+	for _, account := range accounts {
+		records = append(records, web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID})
+	}
+	return records
+}
+
+// legacyOwner is the account that receives everything written before
+// accounts existed: the single owner in the legacy shape, or the account
+// migration_owner_id names. Empty means nobody has said, and a home with
+// legacy records refuses to boot until somebody does.
+func legacyOwner(config config.Config) string {
+	if config.AccountMode() {
+		return config.MigrationOwnerID
+	}
+	return config.Owner.ID
 }
 
 // modelCatalog is the configured provider set resolved into what the agent

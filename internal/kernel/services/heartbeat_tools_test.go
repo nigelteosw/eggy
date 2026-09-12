@@ -46,7 +46,7 @@ func TestHeartbeatRespondRequiresANextCheck(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			tool := NewHeartbeatTools(&watchStore{}, NewSecretGuard(nil))[0]
-			ctx, response := WithHeartbeatResponse(context.Background())
+			ctx, response := WithHeartbeatResponse(asAccount("42"))
 			if _, err := tool.Execute(ctx, json.RawMessage(payload)); err == nil {
 				t.Fatal("a beat with no usable next_check succeeded")
 			}
@@ -62,7 +62,7 @@ func TestHeartbeatRespondRequiresANextCheck(t *testing.T) {
 // than policy.
 func TestHeartbeatRespondCarriesTheRequestedNextCheck(t *testing.T) {
 	tool := NewHeartbeatTools(&watchStore{}, NewSecretGuard(nil))[0]
-	ctx, response := WithHeartbeatResponse(context.Background())
+	ctx, response := WithHeartbeatResponse(asAccount("42"))
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"notify":false,"next_check":"90m"}`)); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -75,7 +75,7 @@ func TestHeartbeatRespondCarriesTheRequestedNextCheck(t *testing.T) {
 func TestHeartbeatRespondRecordsANotification(t *testing.T) {
 	store := &watchStore{}
 	tool := NewHeartbeatTools(store, NewSecretGuard(nil))[0]
-	ctx, response := WithHeartbeatResponse(context.Background())
+	ctx, response := WithHeartbeatResponse(asAccount("42"))
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"notify":true,"notification_text":"PR #18 has been open three days","next_check":"2h"}`)); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -93,7 +93,7 @@ func TestHeartbeatRespondRecordsANotification(t *testing.T) {
 func TestHeartbeatRespondStaysSilentAndStillWritesTheWatchList(t *testing.T) {
 	store := &watchStore{}
 	tool := NewHeartbeatTools(store, NewSecretGuard(nil))[0]
-	ctx, response := WithHeartbeatResponse(context.Background())
+	ctx, response := WithHeartbeatResponse(asAccount("42"))
 
 	raw := json.RawMessage(`{"notify":false,"next_check":"45m","watch":"# Eggy Watch\n\nPR #18 open since Aug 20 — mentioned Aug 22\n"}`)
 	if _, err := tool.Execute(ctx, raw); err != nil {
@@ -112,7 +112,7 @@ func TestHeartbeatRespondStaysSilentAndStillWritesTheWatchList(t *testing.T) {
 
 func TestHeartbeatRespondRequiresTextWhenNotifying(t *testing.T) {
 	tool := NewHeartbeatTools(&watchStore{}, NewSecretGuard(nil))[0]
-	ctx, _ := WithHeartbeatResponse(context.Background())
+	ctx, _ := WithHeartbeatResponse(asAccount("42"))
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"notify":true}`)); err == nil {
 		t.Fatal("notify with no text succeeded")
 	}
@@ -120,7 +120,7 @@ func TestHeartbeatRespondRequiresTextWhenNotifying(t *testing.T) {
 
 func TestHeartbeatRespondRejectsASecretInTheWatchList(t *testing.T) {
 	tool := NewHeartbeatTools(&watchStore{}, NewSecretGuard([]string{"hunter2"}))[0]
-	ctx, _ := WithHeartbeatResponse(context.Background())
+	ctx, _ := WithHeartbeatResponse(asAccount("42"))
 	_, err := tool.Execute(ctx, json.RawMessage(`{"notify":false,"next_check":"45m","watch":"token is hunter2"}`))
 	if err == nil {
 		t.Fatal("secret-bearing watch list accepted")
@@ -132,7 +132,7 @@ func TestHeartbeatRespondRejectsASecretInTheWatchList(t *testing.T) {
 func TestHeartbeatRespondKeepsTheNotificationWhenTheWatchWriteFails(t *testing.T) {
 	store := &watchStore{err: errors.New("WATCH.md is full (7000/6144 bytes)")}
 	tool := NewHeartbeatTools(store, NewSecretGuard(nil))[0]
-	ctx, response := WithHeartbeatResponse(context.Background())
+	ctx, response := WithHeartbeatResponse(asAccount("42"))
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"notify":true,"notification_text":"deploy failed","next_check":"10m","watch":"too big"}`)); err == nil {
 		t.Fatal("expected the watch write error to surface to the model")
@@ -146,7 +146,7 @@ func TestHeartbeatRespondKeepsTheNotificationWhenTheWatchWriteFails(t *testing.T
 // silently succeeding would let a turn believe it had reported something.
 func TestHeartbeatRespondRefusesAnOrdinaryTurn(t *testing.T) {
 	tool := NewHeartbeatTools(&watchStore{}, NewSecretGuard(nil))[0]
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"notify":false,"next_check":"1h"}`)); err == nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"notify":false,"next_check":"1h"}`)); err == nil {
 		t.Fatal("heartbeat_respond succeeded off a heartbeat turn")
 	}
 }

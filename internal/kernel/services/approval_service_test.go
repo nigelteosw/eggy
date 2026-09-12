@@ -49,17 +49,17 @@ func TestApprovalServicePendingReportsUndecidedIncludingExpired(t *testing.T) {
 	store := newFakeStateStore()
 	service := NewApprovalService(store, func() time.Time { return clock }, 30*time.Minute, ports.ModeNormal)
 
-	older, err := service.Request(context.Background(), "calendar.create", map[string]string{"title": "standup"}, "Book standup")
+	older, err := service.Request(asAccount("42"), "calendar.create", map[string]string{"title": "standup"}, "Book standup")
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock = now.Add(time.Hour)
-	newer, err := service.Request(context.Background(), "calendar.delete", map[string]string{"id": "42"}, "Delete the 3pm sync")
+	newer, err := service.Request(asAccount("42"), "calendar.delete", map[string]string{"id": "42"}, "Delete the 3pm sync")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	pending, err := service.Pending(context.Background())
+	pending, err := service.Pending(asAccount("42"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,10 +74,10 @@ func TestApprovalServicePendingReportsUndecidedIncludingExpired(t *testing.T) {
 		t.Fatal("expected the older approval's window to have closed")
 	}
 
-	if err := service.Decide(context.Background(), newer.ID, true); err != nil {
+	if err := service.Decide(asAccount("42"), newer.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := service.Pending(context.Background())
+	remaining, err := service.Pending(asAccount("42"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,16 +95,16 @@ func TestApprovalServiceDecideRetiresAnExpiredApproval(t *testing.T) {
 	clock := now
 	service := NewApprovalService(newFakeStateStore(), func() time.Time { return clock }, 30*time.Minute, ports.ModeNormal)
 
-	approval, err := service.Request(context.Background(), "calendar.delete", map[string]string{"id": "42"}, "Delete the 3pm sync")
+	approval, err := service.Request(asAccount("42"), "calendar.delete", map[string]string{"id": "42"}, "Delete the 3pm sync")
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock = now.Add(time.Hour)
 
-	if err := service.Decide(context.Background(), approval.ID, true); !errors.Is(err, approvals.ErrExpired) {
+	if err := service.Decide(asAccount("42"), approval.ID, true); !errors.Is(err, approvals.ErrExpired) {
 		t.Fatalf("err=%v, want ErrExpired", err)
 	}
-	pending, err := service.Pending(context.Background())
+	pending, err := service.Pending(asAccount("42"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestApprovalServiceDecideRetiresAnExpiredApproval(t *testing.T) {
 		t.Fatalf("pending=%#v, want the expired approval retired", pending)
 	}
 	// And it is not silently approvable on a second attempt.
-	if err := service.Decide(context.Background(), approval.ID, true); !errors.Is(err, approvals.ErrNotAuthorized) {
+	if err := service.Decide(asAccount("42"), approval.ID, true); !errors.Is(err, approvals.ErrNotAuthorized) {
 		t.Fatalf("err=%v, want ErrNotAuthorized once retired", err)
 	}
 }

@@ -141,7 +141,7 @@ func (a *App) heartbeatTicks() *heartbeatClock {
 	if interval <= 0 {
 		return nil
 	}
-	if !a.config.Telegram.Configured() {
+	if !a.config.TelegramEnabled() {
 		slog.Warn("heartbeat.interval is set but no Telegram channel is configured; heartbeat disabled")
 		return nil
 	}
@@ -270,7 +270,8 @@ func (a *App) nextHeartbeatWake(requested time.Duration) time.Duration {
 	return wake + wait
 }
 
-// watchListIsEmpty reports whether the watch list holds nothing to check.
+// watchListIsEmpty reports whether the account's watch list holds nothing
+// to check.
 //
 // Blank lines and Markdown headings do not count: a document that is only its
 // own title is what a store returns before anyone has written to it, and
@@ -287,6 +288,27 @@ func (a *App) watchListIsEmpty(ctx context.Context) bool {
 		return false
 	}
 	return ports.WatchListIsEmpty(agentContext.Watch)
+}
+
+// heartbeatAccounts is who a tick beats for: every account that can be
+// reached on Telegram, where unprompted output goes, and whose watch list
+// holds something. Each gets its own turn under its own principal, with its
+// own watch list and preferences; a person with nothing to watch costs no
+// model call, and a web-only person gets no beat because there is nowhere to
+// deliver one.
+func (a *App) heartbeatAccounts(ctx context.Context) []context.Context {
+	var beats []context.Context
+	for _, account := range a.config.Principals() {
+		if account.TelegramUserID == 0 {
+			continue
+		}
+		accountCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: account.ID})
+		if a.watchListIsEmpty(accountCtx) {
+			continue
+		}
+		beats = append(beats, accountCtx)
+	}
+	return beats
 }
 
 // withinActiveHours reports whether now falls inside the configured window,
@@ -335,32 +357,42 @@ func (a *App) onHeartbeatTick(ctx context.Context) bool {
 	if !a.withinActiveHours() {
 		return false
 	}
-	// An empty watch list means the owner has asked for nothing to be
+	// An empty watch list means the person has asked for nothing to be
 	// watched, so there is nothing to check and no model call to justify.
 	// Warned once on the way in, for the same reason the missing-Telegram
 	// case warns: a silent no-op is indistinguishable from a broken
 	// heartbeat.
-	if a.watchListIsEmpty(ctx) {
+	beats := a.heartbeatAccounts(ctx)
+	if len(beats) == 0 {
 		if a.shouldWarnEmptyWatch() {
-			slog.Warn("heartbeat is configured but memories/WATCH.md is empty; add what Eggy should keep an eye on, or unset heartbeat.interval")
+			slog.Warn("heartbeat is configured but no account's WATCH.md names anything; add what Eggy should keep an eye on, or unset heartbeat.interval")
 		}
 		return false
 	}
 	a.warnedEmptyWatch = false
 	a.workers.Go(func() {
 		var requested time.Duration
-		// Re-arming is deferred so it happens however the beat ends, failure
+		// Re-arming is deferred so it happens however the beats end, failure
 		// included. A beat that returned without re-arming would stop the
 		// heartbeat permanently, which is a worse failure than the one that
 		// caused it.
 		defer func() { a.finishHeartbeat(ctx, requested) }()
-		// Not retried: the next tick is the retry, and a heartbeat has no
-		// durable claim to release.
-		response, err := a.turnService.HeartbeatTurn(destination.With(ctx, proactiveDestination()), a.heartbeatInstruction(), a.config.Heartbeat.IncludeRecentHistory)
-		if err != nil {
-			slog.Error("heartbeat failed", "error", err)
+		// One after another rather than in parallel: the Active guard admits
+		// one beat at a time, and a person's beat must not run beside another
+		// person's on the same loop. The soonest requested check wins the
+		// clock, so nobody's shorter interval is stretched by a neighbour's.
+		for _, beatCtx := range beats {
+			// Not retried: the next tick is the retry, and a heartbeat has no
+			// durable claim to release.
+			response, err := a.turnService.HeartbeatTurn(destination.With(beatCtx, proactiveDestination()), a.heartbeatInstruction(), a.config.Heartbeat.IncludeRecentHistory)
+			if err != nil {
+				slog.Error("heartbeat failed", "error", err)
+				continue
+			}
+			if response.NextCheck > 0 && (requested == 0 || response.NextCheck < requested) {
+				requested = response.NextCheck
+			}
 		}
-		requested = response.NextCheck
 	})
 	return true
 }
@@ -442,46 +474,70 @@ func (a *App) Run(ctx context.Context) error {
 				}
 			})
 		case now := <-scheduleTicker.C:
-			cutoff := now.Add(-a.config.Runner.Retention.Value())
-			// A checkout belongs to its thread, so there is exactly one
-			// reaper for it: the change that branched it never owned it and
-			// has nothing to release.
-			if a.workspaces != nil {
-				if _, err := a.workspaces.CleanupIdle(ctx, cutoff); err != nil {
-					return err
-				}
-			}
-			due, err := a.scheduler.Due(ctx, now)
-			if err != nil {
+			if err := a.onScheduleTick(ctx, now); err != nil {
 				return err
-			}
-			for _, schedule := range due {
-				// A ScheduleExecutionMessage schedule is a deterministic,
-				// pre-rendered notification (reminder or watchdog): it is
-				// delivered verbatim on TypeScheduledMessage with no model
-				// call. Everything else starts a self-contained,
-				// no-ambient-history agent turn on TypeSchedule.
-				eventType := events.TypeSchedule
-				if schedule.Execution == ports.ScheduleExecutionMessage {
-					eventType = events.TypeScheduledMessage
-				}
-				payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
-				event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: a.config.Owner.ID, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
-				a.workers.Go(func() {
-					if err := a.HandleEvent(ctx, event); err != nil {
-						if failErr := a.scheduler.Fail(ctx, schedule.ID, schedule.PendingRun); failErr != nil {
-							slog.Error("schedule failure acknowledgement failed", "schedule_id", schedule.ID, "error", failErr)
-						}
-						slog.Error("scheduled event failed", "schedule_id", schedule.ID, "error", err)
-						return
-					}
-					if err := a.scheduler.Complete(ctx, schedule.ID, schedule.PendingRun, a.now()); err != nil {
-						slog.Error("schedule completion acknowledgement failed", "schedule_id", schedule.ID, "error", err)
-					}
-				})
 			}
 		}
 	}
+}
+
+// onScheduleTick is what one minute does: reap idle checkouts, then claim
+// and dispatch every due schedule as the account that owns it.
+func (a *App) onScheduleTick(ctx context.Context, now time.Time) error {
+	cutoff := now.Add(-a.config.Runner.Retention.Value())
+	// A checkout belongs to its thread, so there is exactly one
+	// reaper for it: the change that branched it never owned it and
+	// has nothing to release.
+	if a.workspaces != nil {
+		if _, err := a.workspaces.CleanupIdle(ctx, cutoff); err != nil {
+			return err
+		}
+	}
+	due, err := a.scheduler.Due(ctx, now)
+	if err != nil {
+		return err
+	}
+	for _, schedule := range due {
+		ownerCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: schedule.Owner})
+		// A schedule whose account has been removed does not run, and is
+		// switched off rather than failed: failing it would only claim it
+		// again next minute, for a person who is no longer here to
+		// receive it. The record stays, disabled, with their other data.
+		if _, ok := a.config.Account(schedule.Owner); !ok {
+			slog.Warn("disabling schedule for a removed account", "schedule_id", schedule.ID, "account", schedule.Owner)
+			if err := a.scheduler.Disable(ownerCtx, schedule.ID); err != nil {
+				slog.Error("could not disable schedule", "schedule_id", schedule.ID, "error", err)
+			}
+			continue
+		}
+		// A ScheduleExecutionMessage schedule is a deterministic,
+		// pre-rendered notification (reminder or watchdog): it is
+		// delivered verbatim on TypeScheduledMessage with no model
+		// call. Everything else starts a self-contained,
+		// no-ambient-history agent turn on TypeSchedule.
+		eventType := events.TypeSchedule
+		if schedule.Execution == ports.ScheduleExecutionMessage {
+			eventType = events.TypeScheduledMessage
+		}
+		payload, _ := json.Marshal(events.Message{Text: schedule.Instruction})
+		// The owner is the stored schedule's, never the instruction's
+		// and never a configured default: the dispatcher validates it
+		// and the completion below acts as it.
+		event := events.Event{ID: "schedule:" + schedule.ID + ":" + schedule.PendingRun.Format(time.RFC3339Nano), Type: eventType, Owner: schedule.Owner, Timestamp: now, Destination: proactiveDestination(), Payload: payload}
+		a.workers.Go(func() {
+			if err := a.HandleEvent(ctx, event); err != nil {
+				if failErr := a.scheduler.Fail(ownerCtx, schedule.ID, schedule.PendingRun); failErr != nil {
+					slog.Error("schedule failure acknowledgement failed", "schedule_id", schedule.ID, "error", failErr)
+				}
+				slog.Error("scheduled event failed", "schedule_id", schedule.ID, "error", err)
+				return
+			}
+			if err := a.scheduler.Complete(ownerCtx, schedule.ID, schedule.PendingRun, a.now()); err != nil {
+				slog.Error("schedule completion acknowledgement failed", "schedule_id", schedule.ID, "error", err)
+			}
+		})
+	}
+	return nil
 }
 
 func newRunID() string {

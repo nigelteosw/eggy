@@ -55,6 +55,9 @@ func (a *authServer) start(t *testing.T) *httptest.Server {
 	previous := tokenEndpoint
 	tokenEndpoint = server.URL
 	t.Cleanup(func() { tokenEndpoint = previous; server.Close() })
+	// Every login now verifies the grant's identity; a test that says
+	// nothing about identity gets one that belongs to the owner.
+	(&identityServer{email: "owner@example.com", subject: "sub-owner", verified: true}).start(t)
 	return server
 }
 

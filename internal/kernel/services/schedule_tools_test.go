@@ -70,7 +70,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 	newID := func() string { id++; return fmt.Sprintf("sched-%d", id) }
 	tool := NewScheduleTools(schedules, now, newID, time.UTC)[0]
 
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Take the bins out","kind":"reminder"}`))
+	result, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Take the bins out","kind":"reminder"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 		t.Fatalf("reminder=%s err=%v", result, err)
 	}
 
-	result, err = tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Check my calendar for conflicts"}`))
+	result, err = tool.Execute(asAccount("42"), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"Check my calendar for conflicts"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestScheduleToolsDistinguishReminderFromAgentExecution(t *testing.T) {
 		t.Fatalf("default schedule=%s err=%v", result, err)
 	}
 
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"x","kind":"nonsense"}`)); err == nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"create","at":"2026-07-19T12:00:00Z","instruction":"x","kind":"nonsense"}`)); err == nil {
 		t.Fatal("expected an unknown kind to be rejected")
 	}
 	// A rejected kind must not have reached the scheduler: the two accepted
@@ -105,7 +105,7 @@ func TestCurrentTimeToolReturnsTrustedZonedClock(t *testing.T) {
 	if description := tool.Definition().Description; !strings.Contains(description, "turn-start time is already in the system context") || !strings.Contains(description, "long-running turn") {
 		t.Fatalf("description encourages a redundant clock call: %s", description)
 	}
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
+	result, err := tool.Execute(asAccount("42"), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,14 +123,14 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 	id := 0
 	tool := NewScheduleTools(schedules, now, func() string { id++; return fmt.Sprintf("sched-%d", id) }, time.UTC)[0]
 
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"create","cron":"0 9 * * *","instruction":"check the deploy"}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"create","at":"2026-08-02T18:00:00Z","instruction":"stand up"}`)); err != nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"create","at":"2026-08-02T18:00:00Z","instruction":"stand up"}`)); err != nil {
 		t.Fatal(err)
 	}
 
-	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"list"}`))
+	raw, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"list"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,10 +152,10 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 		t.Fatalf("expression lost: %#v", listed.Schedules[1])
 	}
 
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"cancel","id":"sched-1"}`)); err != nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"cancel","id":"sched-1"}`)); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := schedules.List(context.Background())
+	remaining, err := schedules.List(asAccount("42"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestScheduleListAndCancelMakeCreatedSchedulesReviewable(t *testing.T) {
 // answer, and a null would read to the model as a missing field.
 func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
 	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" }, time.UTC)[0]
-	raw, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"list"}`))
+	raw, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"list"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestScheduleListReportsNothingScheduledAsAnEmptyList(t *testing.T) {
 
 func TestScheduleCancelRequiresAnID(t *testing.T) {
 	tool := NewScheduleTools(&fakeSchedules{}, time.Now, func() string { return "id" }, time.UTC)[0]
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"cancel","id":"  "}`)); err == nil {
+	if _, err := tool.Execute(asAccount("42"), json.RawMessage(`{"action":"cancel","id":"  "}`)); err == nil {
 		t.Fatal("a blank id must be rejected rather than removing nothing quietly")
 	}
 }
@@ -196,7 +196,7 @@ func TestScheduleCreateRequiresExactlyOneOfCronOrAt(t *testing.T) {
 		`{"action":"create","cron":"0 9 * * *"}`,
 		`{"action":"nonsense"}`,
 	} {
-		if _, err := tool.Execute(context.Background(), json.RawMessage(arguments)); err == nil {
+		if _, err := tool.Execute(asAccount("42"), json.RawMessage(arguments)); err == nil {
 			t.Fatalf("expected %s to be rejected", arguments)
 		}
 	}
@@ -235,7 +235,7 @@ func TestCreatedSchedulesReportThemselvesInOneReadableLine(t *testing.T) {
 	schedules := &fakeSchedules{next: time.Date(2026, 8, 10, 1, 0, 0, 0, time.UTC)}
 	now := func() time.Time { return time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC) }
 	tool := NewScheduleTools(schedules, now, func() string { return "180f11b61b3d" }, singapore)[0]
-	ctx := context.Background()
+	ctx := asAccount("42")
 
 	raw, err := tool.Execute(ctx, json.RawMessage(`{"action":"create","at":"2026-08-05T20:00:00+08:00","instruction":"Check whether the FLS website edits are done yet","kind":"reminder"}`))
 	if err != nil {

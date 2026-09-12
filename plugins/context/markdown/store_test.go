@@ -1,7 +1,6 @@
 package markdown
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +18,7 @@ func testStore(t *testing.T) (*Store, string) {
 
 func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	store, dir := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	loaded, err := store.Load(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +56,7 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 
 func TestContextStoreReplacesAndRemovesEntriesBySubstring(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	for _, text := range []string{"alpha fact", "beta fact", "gamma fact"} {
 		if err := store.AddEntry(ctx, ports.ContextMemory, text); err != nil {
 			t.Fatal(err)
@@ -103,7 +102,7 @@ func TestContextStoreReplacesAndRemovesEntriesBySubstring(t *testing.T) {
 // rather than editing nothing or guessing at the first match.
 func TestContextStoreRejectsMissingAndAmbiguousMatches(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.RemoveEntry(ctx, ports.ContextMemory, "absent"); err == nil {
 		t.Fatal("expected error removing an entry that does not exist")
 	}
@@ -131,7 +130,7 @@ func TestContextStoreRejectsMissingAndAmbiguousMatches(t *testing.T) {
 // ordinary matchable entries.
 func TestContextStoreReadsDocumentsWrittenByTheSectionedStore(t *testing.T) {
 	store, dir := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	legacy := "# Eggy Memory\n\n## Repositories\n\nEggy is trusted\n\n## Preferences\n\nShip small changes\n"
 	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
@@ -161,7 +160,7 @@ func TestContextStoreReadsDocumentsWrittenByTheSectionedStore(t *testing.T) {
 func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 	dir := t.TempDir()
 	store := InDir(dir, DefaultUserMaxBytes, 64)
-	ctx := context.Background()
+	ctx := as("owner")
 	oversized := "# Eggy Memory\n\n- " + strings.Repeat("x", 200) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(oversized), 0o600); err != nil {
 		t.Fatal(err)
@@ -185,7 +184,7 @@ func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 
 func TestContextStoreSoulIsOwnerEditableOnly(t *testing.T) {
 	store, dir := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.AddEntry(ctx, ports.ContextSoul, "check something"); err == nil {
 		t.Fatal("expected soul to reject an add")
 	}
@@ -206,7 +205,7 @@ func TestContextStoreSoulIsOwnerEditableOnly(t *testing.T) {
 // document: newlines collapse and a leading "#" cannot forge a heading.
 func TestContextStoreFlattensEntriesToOneLine(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.AddEntry(ctx, ports.ContextMemory, "## Injected\n\nbody line"); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +232,7 @@ func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			errorsChannel <- store.AddEntry(context.Background(), ports.ContextMemory, "fact "+string(rune('a'+i)))
+			errorsChannel <- store.AddEntry(as("owner"), ports.ContextMemory, "fact "+string(rune('a'+i)))
 		}()
 	}
 	workers.Wait()
@@ -243,7 +242,7 @@ func TestContextStoreSerializesConcurrentWrites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	loaded, err := store.Load(context.Background())
+	loaded, err := store.Load(as("owner"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +263,7 @@ func TestContextStoreFlattensLegacySectionedDocument(t *testing.T) {
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddEntry(context.Background(), ports.ContextMemory, "new fact"); err != nil {
+	if err := store.AddEntry(as("owner"), ports.ContextMemory, "new fact"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -301,7 +300,7 @@ func TestContextStoreOverBudgetDocumentAcceptsShrinkingEdits(t *testing.T) {
 	if err := os.WriteFile(path, []byte(oversized), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.RemoveEntry(ctx, ports.ContextMemory, "uniquely removable fact"); err != nil {
 		t.Fatalf("shrinking edit rejected: %v", err)
 	}
@@ -323,7 +322,7 @@ func TestContextStoreOverBudgetDocumentAcceptsShrinkingEdits(t *testing.T) {
 
 func TestWatchDocumentRoundTrips(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 
 	if err := store.ReplaceDocument(ctx, ports.ContextWatch, "# Eggy Watch\n\nPR #18 open since Aug 20\n"); err != nil {
 		t.Fatalf("ReplaceDocument: %v", err)
@@ -342,7 +341,7 @@ func TestWatchDocumentRoundTrips(t *testing.T) {
 
 func TestWatchDocumentAcceptsEntryEdits(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 
 	if err := store.AddEntry(ctx, ports.ContextWatch, "PR #18 open since Aug 20"); err != nil {
 		t.Fatalf("AddEntry: %v", err)
@@ -362,7 +361,7 @@ func TestWatchDocumentAcceptsEntryEdits(t *testing.T) {
 // Soul stays load-only through every write path, ReplaceDocument included.
 func TestReplaceDocumentRefusesSoul(t *testing.T) {
 	store, _ := testStore(t)
-	err := store.ReplaceDocument(context.Background(), ports.ContextSoul, "rewritten")
+	err := store.ReplaceDocument(as("owner"), ports.ContextSoul, "rewritten")
 	if err == nil {
 		t.Fatal("ReplaceDocument on soul succeeded")
 	}
@@ -374,7 +373,7 @@ func TestReplaceDocumentRefusesSoul(t *testing.T) {
 func TestReplaceDocumentRefusesAnOverBudgetWrite(t *testing.T) {
 	store, _ := testStore(t)
 	oversized := "# Eggy Watch\n\n" + strings.Repeat("x", int(DefaultWatchMaxBytes)+1)
-	err := store.ReplaceDocument(context.Background(), ports.ContextWatch, oversized)
+	err := store.ReplaceDocument(as("owner"), ports.ContextWatch, oversized)
 	if err == nil {
 		t.Fatal("oversized ReplaceDocument succeeded")
 	}
@@ -387,7 +386,7 @@ func TestReplaceDocumentRefusesAnOverBudgetWrite(t *testing.T) {
 // wrote it still has to deliver its notification against a sane document.
 func TestReplaceDocumentLeavesContentIntactOnRejection(t *testing.T) {
 	store, _ := testStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.ReplaceDocument(ctx, ports.ContextWatch, "# Eggy Watch\n\nkeep me\n"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

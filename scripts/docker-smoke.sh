@@ -40,10 +40,12 @@ done
 docker exec "$container" test -s /data/config.yaml
 docker exec "$container" sh -c 'test "$(stat -c %a /data/config.yaml)" = 600'
 docker exec "$container" sh -c 'grep -Eq "^data_dir:[[:space:]]*/data$" /data/config.yaml'
-for context_file in SOUL.md memories/USER.md memories/MEMORY.md; do
+# SOUL.md is shared; the private documents live under the owner's account
+# (accounts/<id>/memories), created on first boot.
+for context_file in SOUL.md accounts/42/memories/USER.md accounts/42/memories/MEMORY.md; do
   docker exec "$container" test -s "/data/$context_file"
   docker exec "$container" sh -c "test \"\$(stat -c %a /data/$context_file)\" = 600"
 done
-docker exec "$container" sh -c '! grep -R -F "smoke-provider-secret" /data/config.yaml /data/SOUL.md /data/memories'
+docker exec "$container" sh -c '! grep -R -F "smoke-provider-secret" /data/config.yaml /data/SOUL.md /data/accounts'
 docker exec "$container" curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null
 echo "Eggy Docker smoke test passed"

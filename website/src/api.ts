@@ -13,14 +13,38 @@ export type CommandResult = {
 
 export class SessionExpiredError extends Error {}
 
+// Session is what GET /api/session establishes. In account mode it names the
+// signed-in person and carries the CSRF token every mutating request must
+// send; the legacy password login answers with neither. It is held here, in
+// the one module every request goes through, so the token rides along
+// without each caller remembering it -- and so a 401 or a logout can drop
+// it in one place before the next person signs in on the same tab.
+export type Account = { id: string; email: string };
+export type Session = { account?: Account; csrf?: string };
+
+let session: Session | null = null;
+
+export function currentSession(): Session | null {
+  return session;
+}
+
+export function clearSession(): void {
+  session = null;
+}
+
+const CSRF_HEADER = "X-Eggy-CSRF";
+
 async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const csrf: Record<string, string> = session?.csrf && method !== "GET" && method !== "HEAD" ? { [CSRF_HEADER]: session.csrf } : {};
   const response = await fetch(path, {
     ...init,
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...csrf, ...(init?.headers ?? {}) },
   });
   const body = (await response.json()) as T & Partial<CommandResult>;
   if (response.status === 401) {
+    clearSession();
     throw new SessionExpiredError(body.title ?? "Not authenticated");
   }
   if (!response.ok) {
@@ -29,8 +53,11 @@ async function request<T = CommandResult>(path: string, init?: RequestInit): Pro
   return body;
 }
 
-export function checkSession(): Promise<CommandResult> {
-  return request("/api/session");
+export function checkSession(): Promise<Session> {
+  return request<Session & CommandResult>("/api/session").then((result) => {
+    session = { account: result.account, csrf: result.csrf };
+    return session;
+  });
 }
 
 // "safe" means eggyd could not start -- almost always a config.yaml it cannot
@@ -38,16 +65,22 @@ export function checkSession(): Promise<CommandResult> {
 // because in safe mode every other route is absent or reporting the failure.
 export type Mode = "normal" | "safe";
 export type Theme = "dark" | "light";
+// Login is which way in exists: the single owner's password form, or Google
+// Sign-In for an accounts deployment.
+export type Login = "password" | "google";
 
 // The probe carries the theme as well as the mode because it is the only
 // response that lands before first paint. Reading the preference any later
-// means the panel renders in one theme and then flips to the other.
-export type Probe = { mode: Mode; theme: Theme };
+// means the panel renders in one theme and then flips to the other. It
+// carries the login kind for the same reason: the login page is the first
+// thing an unauthenticated visitor sees.
+export type Probe = { mode: Mode; theme: Theme; login: Login };
 
 export function getMode(): Promise<Probe> {
   return request<Probe>("/api/mode").then((result) => ({
     mode: result.mode ?? "normal",
     theme: result.theme === "light" ? "light" : "dark",
+    login: result.login === "google" ? "google" : "password",
   }));
 }
 
@@ -92,7 +125,71 @@ export function login(email: string, password: string): Promise<CommandResult> {
 }
 
 export function logout(): Promise<CommandResult> {
-  return request("/api/logout", { method: "POST" });
+  return request("/api/logout", { method: "POST" }).finally(clearSession);
+}
+
+// The accounts card: who may use this deployment, whether each has enrolled
+// and is signed in, the sign-in client, and the address Eggy's own Google
+// connection must belong to. Every write is a config mutation on the server.
+export type AccountRow = {
+  id: string;
+  email: string;
+  telegram_user_id?: number;
+  enrolled: boolean;
+  signed_in: boolean;
+  self: boolean;
+};
+
+export type AccountsView = {
+  account_mode: boolean;
+  accounts: AccountRow[];
+  login_client_id: string;
+  login_client_secret_env: string;
+  expected_email: string;
+  migration_owner_id?: string;
+  legacy_owner?: string;
+  legacy_telegram_id?: number;
+};
+
+export type AccountInput = { id: string; email: string; telegram_user_id: number };
+
+export function getAccounts(): Promise<AccountsView> {
+  return request<AccountsView>("/api/config/accounts");
+}
+
+export function addAccount(input: AccountInput): Promise<CommandResult> {
+  return request("/api/config/accounts", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function editAccount(id: string, input: { email: string; telegram_user_id: number }): Promise<CommandResult> {
+  return request(`/api/config/accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function removeAccount(id: string): Promise<CommandResult> {
+  return request(`/api/config/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function resetAccountBinding(id: string): Promise<CommandResult> {
+  return request(`/api/config/accounts/${encodeURIComponent(id)}/reset-binding`, { method: "POST" });
+}
+
+export function setLoginClient(clientId: string, clientSecretEnv: string): Promise<CommandResult> {
+  return request("/api/config/login", { method: "POST", body: JSON.stringify({ client_id: clientId, client_secret_env: clientSecretEnv }) });
+}
+
+export function setExpectedGoogleEmail(email: string): Promise<CommandResult> {
+  return request("/api/config/google/expected-email", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export type ConvertInput = {
+  accounts: AccountInput[];
+  login_client_id: string;
+  login_client_secret_env: string;
+  migration_owner_id: string;
+};
+
+export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
+  return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
 export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance";

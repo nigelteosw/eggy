@@ -99,6 +99,10 @@ type Options struct {
 	// web panel signs session cookies with. Empty leaves /web sending a bare
 	// URL and an instruction to log in by hand.
 	SigningKey []byte
+	// AccountMode says every browser sign-in is a verified Google identity.
+	// /web then sends the panel address and nothing more: a bearer link
+	// would sign in whoever opened it, as whoever asked for it.
+	AccountMode bool
 	// Now is the clock the login link's expiry is measured against. Defaults
 	// to time.Now.
 	Now func() time.Time
@@ -305,6 +309,9 @@ func Restart(restarter Restarter, configPath string, getenv func(string) string)
 func (s *CommandService) webCommand() (string, bool, error) {
 	if s.PublicBaseURL == "" {
 		return "The web panel address is unknown. Set `server.public_base_url` in config.yaml (or `EGGY_PUBLIC_BASE_URL`) and restart.", true, nil
+	}
+	if s.AccountMode {
+		return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nSign in with Google there.", s.PublicBaseURL), true, nil
 	}
 	if len(s.SigningKey) == 0 {
 		return fmt.Sprintf("**Eggy web panel**\n\n%s\n\nSign in with the panel email and password: no signing key is configured, so I cannot send a one-tap link.", s.PublicBaseURL), true, nil

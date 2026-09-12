@@ -157,7 +157,9 @@ func importStateFile(ctx context.Context, tx *sql.Tx, path string) (int, error) 
 		return 0, fmt.Errorf("decode state: %w", err)
 	}
 	state.SchemaVersion = MachineStateVersion
-	if err := saveState(ctx, tx, state); err != nil {
+	// Written unowned: state.json predates accounts, and MigrateAccounts
+	// assigns it in the same boot once the owner is known.
+	if err := saveState(ctx, tx, "", state); err != nil {
 		return 0, err
 	}
 	// One record for the state row itself, plus every collection entry, so
@@ -211,7 +213,7 @@ func importCronDirectory(ctx context.Context, tx *sql.Tx, dir string) (int, erro
 		}
 		// The file name is the id an owner actually addressed the job by, so
 		// a file whose body disagrees with its name keeps the name.
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id, job.Kind, job.Execution, job.Instruction, job.Cron,
 			job.NextRun, job.LastRun, job.PendingRun, boolToInt(job.Enabled)); err != nil {
 			return 0, fmt.Errorf("write schedule %s: %w", id, err)

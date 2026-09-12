@@ -18,49 +18,77 @@ import (
 // Every mutation runs in its own transaction, so the claim the scheduler
 // makes on a due job -- read, check, stamp pending -- cannot interleave with
 // a second tick or with a cancellation from the panel.
+//
+// Every job belongs to the account that created it. The one read that spans
+// accounts is ListAll, which the scheduler's tick uses to find what is due;
+// it acts as each job's Owner from then on, so the claim and the completion
+// go through the same scoped Update everyone else uses.
 type ScheduleStore struct{ db *sql.DB }
 
 func (s *Store) Schedules() *ScheduleStore { return &ScheduleStore{db: s.db} }
 
-const scheduleColumns = `id, kind, execution, instruction, expression, next_run, last_run, pending_run, enabled`
+const scheduleColumns = `id, account_id, kind, execution, instruction, expression, next_run, last_run, pending_run, enabled`
 
-// List returns every schedule ordered by id, so the panel and the scheduler
-// see one stable listing.
-func (s *ScheduleStore) List() ([]ports.Schedule, error) {
-	ctx := context.Background()
+// List returns the account's schedules ordered by id, so the panel and the
+// scheduler see one stable listing.
+func (s *ScheduleStore) List(ctx context.Context) ([]ports.Schedule, error) {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.list(ctx, `SELECT `+scheduleColumns+` FROM schedules WHERE account_id = ? ORDER BY id`, account)
+}
+
+// ListAll returns every account's schedules, for the scheduler's tick. It
+// takes no principal because it is the step that finds out whose turn it is.
+func (s *ScheduleStore) ListAll(ctx context.Context) ([]ports.Schedule, error) {
+	return s.list(ctx, `SELECT `+scheduleColumns+` FROM schedules ORDER BY id`)
+}
+
+func (s *ScheduleStore) list(ctx context.Context, query string, args ...any) ([]ports.Schedule, error) {
 	schedules := make([]ports.Schedule, 0)
-	err := scanRows(ctx, s.db, `SELECT `+scheduleColumns+` FROM schedules ORDER BY id`, func(scan func(...any) error) error {
+	err := scanRows(ctx, s.db, query, func(scan func(...any) error) error {
 		schedule, err := scanSchedule(scan)
 		if err != nil {
 			return err
 		}
 		schedules = append(schedules, schedule)
 		return nil
-	})
+	}, args...)
 	if err != nil {
 		return nil, err
 	}
 	return schedules, nil
 }
 
-func (s *ScheduleStore) Get(id string) (ports.Schedule, error) {
+func (s *ScheduleStore) Get(ctx context.Context, id string) (ports.Schedule, error) {
 	if !namePattern.MatchString(id) {
 		return ports.Schedule{}, errors.New("invalid schedule id")
 	}
-	return getSchedule(context.Background(), s.db, id)
+	account, err := accountOf(ctx)
+	if err != nil {
+		return ports.Schedule{}, err
+	}
+	return getSchedule(ctx, s.db, account, id)
 }
 
 // Create writes a job only when its id is free, so two schedules can never
-// collapse into one record.
-func (s *ScheduleStore) Create(schedule ports.Schedule) error {
+// collapse into one record. The id is global: the scheduler claims by id
+// alone, so two accounts cannot share one even though neither can see the
+// other's.
+func (s *ScheduleStore) Create(ctx context.Context, schedule ports.Schedule) error {
 	if !namePattern.MatchString(schedule.ID) {
 		return errors.New("invalid schedule id")
 	}
 	if strings.TrimSpace(schedule.Instruction) == "" {
 		return errors.New("instruction is required")
 	}
-	_, err := s.db.Exec(`INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		schedule.ID, string(schedule.Kind), string(schedule.Execution), schedule.Instruction, schedule.Expression,
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		schedule.ID, account, string(schedule.Kind), string(schedule.Execution), schedule.Instruction, schedule.Expression,
 		formatTime(schedule.NextRun), formatTime(schedule.LastRun), formatTime(schedule.PendingRun), boolToInt(schedule.Enabled))
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("schedule %q already exists", schedule.ID)
@@ -68,19 +96,24 @@ func (s *ScheduleStore) Create(schedule ports.Schedule) error {
 	return err
 }
 
-// Update applies mutate to one job inside a transaction. A job that is gone
-// returns ports.ErrScheduleNotFound and leaves nothing written.
-func (s *ScheduleStore) Update(id string, mutate func(*ports.Schedule) error) error {
+// Update applies mutate to one of the account's jobs inside a transaction.
+// A job that is gone -- or that belongs to someone else, which is the same
+// thing from here -- returns ports.ErrScheduleNotFound and leaves nothing
+// written.
+func (s *ScheduleStore) Update(ctx context.Context, id string, mutate func(*ports.Schedule) error) error {
 	if !namePattern.MatchString(id) {
 		return errors.New("invalid schedule id")
 	}
-	ctx := context.Background()
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	schedule, err := getSchedule(ctx, tx, id)
+	schedule, err := getSchedule(ctx, tx, account, id)
 	if err != nil {
 		return err
 	}
@@ -93,27 +126,31 @@ func (s *ScheduleStore) Update(id string, mutate func(*ports.Schedule) error) er
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE schedules SET kind = ?, execution = ?, instruction = ?, expression = ?,
-			next_run = ?, last_run = ?, pending_run = ?, enabled = ? WHERE id = ?`,
+			next_run = ?, last_run = ?, pending_run = ?, enabled = ? WHERE account_id = ? AND id = ?`,
 		string(schedule.Kind), string(schedule.Execution), schedule.Instruction, schedule.Expression,
 		formatTime(schedule.NextRun), formatTime(schedule.LastRun), formatTime(schedule.PendingRun),
-		boolToInt(schedule.Enabled), id); err != nil {
+		boolToInt(schedule.Enabled), account, id); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// Delete removes a job. A job that is already gone is not an error: the
-// owner asked for it to be absent, and it is.
-func (s *ScheduleStore) Delete(id string) error {
+// Delete removes one of the account's jobs. A job that is already gone is
+// not an error: the owner asked for it to be absent, and it is.
+func (s *ScheduleStore) Delete(ctx context.Context, id string) error {
 	if !namePattern.MatchString(id) {
 		return errors.New("invalid schedule id")
 	}
-	_, err := s.db.Exec(`DELETE FROM schedules WHERE id = ?`, id)
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM schedules WHERE account_id = ? AND id = ?`, account, id)
 	return err
 }
 
-func getSchedule(ctx context.Context, source rows, id string) (ports.Schedule, error) {
-	row := source.QueryRowContext(ctx, `SELECT `+scheduleColumns+` FROM schedules WHERE id = ?`, id)
+func getSchedule(ctx context.Context, source rows, account, id string) (ports.Schedule, error) {
+	row := source.QueryRowContext(ctx, `SELECT `+scheduleColumns+` FROM schedules WHERE account_id = ? AND id = ?`, account, id)
 	schedule, err := scanSchedule(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.Schedule{}, ports.ErrScheduleNotFound
@@ -128,7 +165,7 @@ func scanSchedule(scan func(...any) error) (ports.Schedule, error) {
 		nextRun, lastRun, pending string
 		enabled                   int
 	)
-	if err := scan(&schedule.ID, &kind, &execution, &schedule.Instruction, &schedule.Expression,
+	if err := scan(&schedule.ID, &schedule.Owner, &kind, &execution, &schedule.Instruction, &schedule.Expression,
 		&nextRun, &lastRun, &pending, &enabled); err != nil {
 		return ports.Schedule{}, err
 	}

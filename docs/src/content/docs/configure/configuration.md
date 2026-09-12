@@ -12,15 +12,17 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | --- | --- |
 | `server` | Listen address, public URL, Telegram webhook path, proxy hop count |
 | `data_dir` | Durable artifact root |
-| `owner` | Canonical single-owner identity |
-| `telegram` | Optional numeric Telegram owner |
+| `owner` | Canonical single-owner identity (legacy shape) |
+| `telegram` | Optional numeric Telegram owner (legacy shape) |
+| `accounts` | The people who may use this Eggy, each with a Google address and optional Telegram sender |
+| `web` | The Google sign-in client for accounts |
 | `agent` | Default model alias and timezone |
 | `providers` | Model adapter connections and catalog discovery |
 | `models` | Owner-facing model aliases and their reasoning efforts |
 | `repositories` | Trusted read-only Git repositories |
 | `runner` | Checkout root, timeout, retention, output, and environment bounds |
 | `mcp` | Optional trusted remote or local servers |
-| `google` | Optional Google Workspace grant, products, and approval overrides |
+| `google` | Optional Google Workspace grant, Eggy's expected identity, products, and approval overrides |
 | `tavily` | Optional web search and page extraction |
 | `heartbeat` | Optional periodic check-in that speaks only when warranted |
 | `approvals` | Where a fresh deployment's approval mode starts |
@@ -28,6 +30,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `tracing` | Turn traces: the prompt behind every model call and every tool call |
 
 Each section links to the guide that explains it:
+[accounts](/eggy/configure/accounts/),
 [model providers](/eggy/configure/model-providers/),
 [MCP servers](/eggy/configure/mcp-servers/),
 [Google Workspace](/eggy/configure/google-workspace/),

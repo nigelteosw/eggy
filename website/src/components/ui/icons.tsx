@@ -151,3 +151,13 @@ export const TraceIcon = (p: IconProps) => (
     <circle cx="3" cy="15.5" r="1.5" />
   </Icon>
 );
+
+// The accounts destination: two people.
+export const UsersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="7.5" cy="6.5" r="3" />
+    <path d="M2 17c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
+    <circle cx="14.5" cy="7.5" r="2.25" />
+    <path d="M14 12.5c2.5.2 4 2 4 4.5" />
+  </Icon>
+);

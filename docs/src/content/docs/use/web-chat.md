@@ -19,7 +19,12 @@ list and the settings sidebar collapsing into their own controls.
 
 ## Enable login
 
-Set all three variables:
+With [accounts](/eggy/configure/accounts/) configured, the login page shows
+**Sign in with Google** and nothing else; the variables below are not used and
+must not be set. The navigation shows who is signed in with a sign-out control,
+and every person sees only their own chats, traces, schedules and approvals.
+
+For a single-owner deployment, set all three variables:
 
 ```dotenv
 EGGY_UI_USER_EMAIL=owner@example.com
@@ -34,7 +39,9 @@ exposed directly.
 
 From Telegram, `/web` sends a one-tap sign-in link so opening the panel on a
 phone does not mean typing the panel password into one. The link works once and
-expires five minutes after it is sent.
+expires five minutes after it is sent. With accounts configured, `/web` sends
+the panel address only: there is no bearer link, and the person signs in with
+Google there.
 
 ## Conversations
 

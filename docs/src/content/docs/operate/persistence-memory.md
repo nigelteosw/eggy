@@ -12,10 +12,11 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | --- | --- |
 | `config.yaml` | Startup configuration |
 | `.env` | Local secrets |
-| `SOUL.md` | Durable agent identity |
-| `memories/USER.md` | Owner context |
-| `memories/MEMORY.md` | Curated durable memory |
-| `memories/WATCH.md` | The heartbeat's watch list |
+| `SOUL.md` | Durable agent identity, shared by every account |
+| `accounts/<id>/memories/USER.md` | That account's context |
+| `accounts/<id>/memories/MEMORY.md` | That account's curated durable memory |
+| `accounts/<id>/memories/WATCH.md` | That account's heartbeat watch list |
+| `memories.migrated/` | The pre-accounts documents, kept as rollback after a migration |
 | `eggy.db` | Every machine-managed record: conversation and thread memory, traces, runtime selections, usage, approvals, schedules, and encrypted OAuth grants |
 | `skills/` | Reviewed procedural Markdown skills |
 | `runs/` | Bounded read-only repository checkouts |
@@ -24,6 +25,8 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 Owned subdirectories are secured to mode `0700`; managed files use restrictive permissions.
 
 Machine-managed records are all in `eggy.db`, which is what "SQLite for everything machine-managed" means in practice: one file to back up, one place a record can be, and one transaction behind a change. A home written before that consolidation also holds `state.json`, `cron/`, and `auth.json`. The first boot of a build that has it imports each one inside a single transaction and then renames the source aside as `state.json.migrated`, `cron.migrated`, and `auth.json.migrated`. The import is recorded, so later boots skip it; an interrupted import is retried whole rather than half-applied, and a source left behind by a crash between the commit and the rename is archived on the next boot instead of imported twice.
+
+Records written before accounts existed carry no account until a boot names one: the single owner on a legacy deployment, or `migration_owner_id` on one converted to accounts. The mapping is recorded and a conflicting retry is refused; the pre-accounts `memories/` directory is copied under that account, verified, and archived as `memories.migrated/`. A build from before accounts refuses the upgraded database.
 
 To roll back to a build from before the consolidation, stop the daemon, rename the `.migrated` artifacts back to their original names, and start the older binary. It reads those files and ignores the tables, so nothing has to be exported. Anything written since the migration lives only in `eggy.db` and will not be there.
 

@@ -487,7 +487,7 @@ func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) er
 		// A heartbeat with nowhere to deliver is refused here rather than
 		// saved and ignored, so the owner learns it at the form instead of
 		// from a warning in a log they will not read.
-		if parsed > 0 && !cfg.Telegram.Configured() {
+		if parsed > 0 && !cfg.TelegramEnabled() {
 			return errors.New("heartbeat needs a configured telegram channel, since that is where unprompted output goes")
 		}
 		return nil

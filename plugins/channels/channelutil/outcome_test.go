@@ -24,7 +24,7 @@ func TestDeliverOutcomeEditsInPlaceWhenMessageIDPresent(t *testing.T) {
 		sent = append(sent, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := telegram.NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", telegram.FixedChat("99"), httpClient)
 	if err := DeliverOutcome(context.Background(), client, "555", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestDeliverOutcomeSendsNewMessageWhenMessageIDAbsent(t *testing.T) {
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := telegram.NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", telegram.FixedChat("99"), httpClient)
 	if err := DeliverOutcome(context.Background(), client, "", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestDeliverOutcomeFallsBackToNewMessageWhenEditFails(t *testing.T) {
 		sent = append(sent, payload)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}
-	client := telegram.NewClient("https://api.telegram.test", "token", "99", httpClient)
+	client := telegram.NewClient("https://api.telegram.test", "token", telegram.FixedChat("99"), httpClient)
 	if err := DeliverOutcome(context.Background(), client, "555", "Action rejected."); err != nil {
 		t.Fatal(err)
 	}

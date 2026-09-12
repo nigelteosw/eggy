@@ -19,8 +19,12 @@ import (
 // of scopes, one on/off switch -- the six products are not six settings,
 // because they are not six grants.
 type Config struct {
-	ClientID       string
-	ClientSecret   string
+	ClientID     string
+	ClientSecret string
+	// ExpectedEmail is the Workspace address the grant must belong to --
+	// Eggy's own user. Empty skips the check, which is the legacy single-
+	// owner shape where the owner's own account is the only one there is.
+	ExpectedEmail  string
 	Scopes         []string
 	Timeout        time.Duration
 	MaxOutputBytes int64

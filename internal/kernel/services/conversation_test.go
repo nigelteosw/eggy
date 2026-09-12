@@ -15,12 +15,12 @@ func TestConversationRecordAndRecentMessagesRoundTripBoundedToRecentLimit(t *tes
 	memory := &conversationMemoryStore{}
 	service := NewConversationService(memory, 3, time.Now, nil)
 	for _, text := range []string{"one", "two", "three", "four"} {
-		if err := service.Record(context.Background(), "thread-a", ports.Message{Role: ports.RoleUser, Content: text}, "telegram"); err != nil {
+		if err := service.Record(asAccount("42"), "thread-a", ports.Message{Role: ports.RoleUser, Content: text}, "telegram"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	messages, err := service.RecentMessages(context.Background(), "thread-a")
+	messages, err := service.RecentMessages(asAccount("42"), "thread-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,14 +32,14 @@ func TestConversationRecordAndRecentMessagesRoundTripBoundedToRecentLimit(t *tes
 func TestConversationRecentMessagesIsScopedPerConversationID(t *testing.T) {
 	memory := &conversationMemoryStore{}
 	service := NewConversationService(memory, 20, time.Now, nil)
-	if err := service.Record(context.Background(), "thread-a", ports.Message{Role: ports.RoleUser, Content: "for a"}, "web"); err != nil {
+	if err := service.Record(asAccount("42"), "thread-a", ports.Message{Role: ports.RoleUser, Content: "for a"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Record(context.Background(), "thread-b", ports.Message{Role: ports.RoleUser, Content: "for b"}, "web"); err != nil {
+	if err := service.Record(asAccount("42"), "thread-b", ports.Message{Role: ports.RoleUser, Content: "for b"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 
-	messages, err := service.RecentMessages(context.Background(), "thread-a")
+	messages, err := service.RecentMessages(asAccount("42"), "thread-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,20 +51,20 @@ func TestConversationRecentMessagesIsScopedPerConversationID(t *testing.T) {
 func TestConversationResetHidesEarlierMessagesForThatConversationOnly(t *testing.T) {
 	memory := &conversationMemoryStore{}
 	service := NewConversationService(memory, 20, time.Now, nil)
-	if err := service.Record(context.Background(), "thread-a", ports.Message{Role: ports.RoleUser, Content: "before reset"}, "web"); err != nil {
+	if err := service.Record(asAccount("42"), "thread-a", ports.Message{Role: ports.RoleUser, Content: "before reset"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Record(context.Background(), "thread-b", ports.Message{Role: ports.RoleUser, Content: "untouched"}, "web"); err != nil {
+	if err := service.Record(asAccount("42"), "thread-b", ports.Message{Role: ports.RoleUser, Content: "untouched"}, "web"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Reset(context.Background(), "thread-a"); err != nil {
+	if err := service.Reset(asAccount("42"), "thread-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Record(context.Background(), "thread-a", ports.Message{Role: ports.RoleUser, Content: "after reset"}, "web"); err != nil {
+	if err := service.Record(asAccount("42"), "thread-a", ports.Message{Role: ports.RoleUser, Content: "after reset"}, "web"); err != nil {
 		t.Fatal(err)
 	}
 
-	threadA, err := service.RecentMessages(context.Background(), "thread-a")
+	threadA, err := service.RecentMessages(asAccount("42"), "thread-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestConversationResetHidesEarlierMessagesForThatConversationOnly(t *testing
 		t.Fatalf("thread-a messages=%#v, want only the post-reset message", threadA)
 	}
 
-	threadB, err := service.RecentMessages(context.Background(), "thread-b")
+	threadB, err := service.RecentMessages(asAccount("42"), "thread-b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestConversationRecordsDurableMessageWithSourceAndInjectedClock(t *testing.
 	service := NewConversationService(memory, 3, func() time.Time { return now }, nil)
 
 	message := ports.Message{Role: ports.RoleUser, Content: "remember this"}
-	if err := service.Record(context.Background(), "telegram", message, "telegram"); err != nil {
+	if err := service.Record(asAccount("42"), "telegram", message, "telegram"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -106,7 +106,7 @@ func TestConversationDurableWriteFailureIsLoggedAndSwallowed(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	service := NewConversationService(memory, 1, time.Now, logger)
 
-	if err := service.Record(context.Background(), "telegram", ports.Message{Role: ports.RoleUser, Content: "first"}, "telegram"); err != nil {
+	if err := service.Record(asAccount("42"), "telegram", ports.Message{Role: ports.RoleUser, Content: "first"}, "telegram"); err != nil {
 		t.Fatalf("Record returned durable failure: %v", err)
 	}
 	if len(memory.messages) != 0 {
@@ -185,7 +185,7 @@ func TestConversationSessionIDFollowsTheLastReset(t *testing.T) {
 	memory := &conversationMemoryStore{}
 	cleared := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 	service := NewConversationService(memory, 10, func() time.Time { return cleared }, nil)
-	ctx := context.Background()
+	ctx := asAccount("42")
 
 	first, err := service.SessionID(ctx, "telegram")
 	if err != nil || first != "" {

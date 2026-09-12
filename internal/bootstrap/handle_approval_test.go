@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -42,12 +41,12 @@ func TestHandleApprovalEditsRejectionMessageInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval, err := app.approvals.Request(context.Background(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
+	approval, err := app.approvals.Request(ownerCtx(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, MessageID: "777"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if len(answerRequests) != 0 {
@@ -79,12 +78,12 @@ func TestHandleApprovalFallsBackToNewMessageWhenEditFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval, err := app.approvals.Request(context.Background(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
+	approval, err := app.approvals.Request(ownerCtx(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: false, MessageID: "777"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(delivered), "Action rejected.") {
@@ -119,12 +118,12 @@ func TestHandleApprovalDeliversFailureMessageWhenExecutionFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approval, err := app.approvals.Request(context.Background(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
+	approval, err := app.approvals.Request(ownerCtx(), approvals.Action("test_action"), map[string]string{"id": "evt-1"}, "Run action")
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.ApprovalDecision{ApprovalID: approval.ID, Approved: true, MessageID: "777"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err == nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "decision-1", Type: events.TypeApproval, Owner: "42", Payload: payload}); err == nil {
 		t.Fatal("expected HandleEvent to still surface the underlying error")
 	}
 	if !strings.Contains(string(delivered), "Action failed") {

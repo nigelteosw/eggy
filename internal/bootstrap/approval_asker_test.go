@@ -26,7 +26,7 @@ func TestGatedCallActuallyAsksTheOwner(t *testing.T) {
 	inner := &askerTool{}
 	gated := services.NewApprovalGatedToolIf(inner, asker, service, services.RuleFor(inner.Definition()))
 
-	raw, err := gated.Execute(context.Background(), json.RawMessage(`{"to":"someone@example.com"}`))
+	raw, err := gated.Execute(ownerCtx(), json.RawMessage(`{"to":"someone@example.com"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestGatedCallActuallyAsksTheOwner(t *testing.T) {
 	}
 	// The delivered approval has to be the one that was recorded, or the tap
 	// authorizes an approval nobody is holding.
-	pending, err := service.Pending(context.Background())
+	pending, err := service.Pending(ownerCtx())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,13 +63,13 @@ func TestUndeliverableApprovalIsReportedAndStillRecorded(t *testing.T) {
 	inner := &askerTool{}
 	gated := services.NewApprovalGatedToolIf(inner, asker, service, services.RuleFor(inner.Definition()))
 
-	if _, err := gated.Execute(context.Background(), json.RawMessage(`{}`)); err == nil {
+	if _, err := gated.Execute(ownerCtx(), json.RawMessage(`{}`)); err == nil {
 		t.Fatal("an undeliverable approval was reported as waiting")
 	}
 	if len(inner.calls) != 0 {
 		t.Fatalf("the call ran anyway: %v", inner.calls)
 	}
-	pending, err := service.Pending(context.Background())
+	pending, err := service.Pending(ownerCtx())
 	if err != nil {
 		t.Fatal(err)
 	}

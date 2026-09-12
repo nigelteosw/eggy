@@ -393,3 +393,39 @@ func TestActiveHoursUseTheOwnerTimezone(t *testing.T) {
 		t.Fatal("the window was read in the host timezone rather than the owner's")
 	}
 }
+
+// perAccountContextStore answers each account's own watch list.
+type perAccountContextStore struct {
+	stubContextStore
+	watch map[string]string
+}
+
+func (s *perAccountContextStore) Load(ctx context.Context) (ports.AgentContext, error) {
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return ports.AgentContext{}, err
+	}
+	return ports.AgentContext{Watch: s.watch[principal.AccountID]}, nil
+}
+
+// A tick beats once per account that both has somewhere to be reached and
+// has something on its watch list, each under its own principal. A web-only
+// account gets no beat: unprompted output goes to Telegram, and nothing is
+// ever delivered to a neighbour's chat in its place.
+func TestHeartbeatBeatsPerAccountUnderEachPrincipal(t *testing.T) {
+	cfg := accountTestConfig(t.TempDir())
+	cfg.Accounts = append(cfg.Accounts, config.AccountConfig{ID: "quiet", GoogleEmail: "quiet@example.com", TelegramUserID: 99})
+	app := &App{config: cfg, context: &perAccountContextStore{watch: map[string]string{
+		"nigel":   "# Eggy Watch\n\n- the oven\n",
+		"partner": "# Eggy Watch\n\n- the deploy\n", // web-only: no Telegram
+		"quiet":   "# Eggy Watch\n",                 // nothing to watch
+	}}}
+	beats := app.heartbeatAccounts(context.Background())
+	if len(beats) != 1 {
+		t.Fatalf("beats=%d, want exactly nigel's", len(beats))
+	}
+	principal, err := ports.PrincipalFromContext(beats[0])
+	if err != nil || principal.AccountID != "nigel" {
+		t.Fatalf("beat principal=%+v err=%v", principal, err)
+	}
+}

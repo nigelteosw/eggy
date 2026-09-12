@@ -28,50 +28,55 @@ func New(hub *Hub) *Channel {
 	return &Channel{hub: hub}
 }
 
-// thread returns this turn's destination thread, and false when ctx does
-// not carry one.
-func (c *Channel) thread(ctx context.Context) (string, bool) {
+// thread returns this turn's account and destination thread, and false when
+// ctx does not carry both. A turn with no principal has no thread it may
+// broadcast to: the account is half of the key, and there is no default.
+func (c *Channel) thread(ctx context.Context) (string, string, bool) {
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return "", "", false
+	}
 	dest := destination.FromContext(ctx)
 	if dest.Kind != destination.Web || dest.ThreadID == "" {
-		return "", false
+		return "", "", false
 	}
-	return dest.ThreadID, true
+	return principal.AccountID, dest.ThreadID, true
 }
 
 func (c *Channel) Deliver(ctx context.Context, text string) error {
-	if threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(threadID, Event{Kind: EventMessage, ID: c.hub.NextMessageID(), Text: text})
+	if accountID, threadID, ok := c.thread(ctx); ok {
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventMessage, ID: c.hub.NextMessageID(), Text: text})
 	}
 	return nil
 }
 
 func (c *Channel) DeliverTrackable(ctx context.Context, text string) (string, error) {
-	threadID, ok := c.thread(ctx)
+	accountID, threadID, ok := c.thread(ctx)
 	if !ok {
 		return "", nil
 	}
 	id := c.hub.NextMessageID()
-	c.hub.Broadcast(threadID, Event{Kind: EventMessage, ID: id, Text: text})
+	c.hub.Broadcast(accountID, threadID, Event{Kind: EventMessage, ID: id, Text: text})
 	return id, nil
 }
 
 func (c *Channel) EditText(ctx context.Context, messageID string, text string) error {
-	if threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(threadID, Event{Kind: EventEdit, ID: messageID, Text: text})
+	if accountID, threadID, ok := c.thread(ctx); ok {
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventEdit, ID: messageID, Text: text})
 	}
 	return nil
 }
 
 func (c *Channel) SendTyping(ctx context.Context) error {
-	if threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(threadID, Event{Kind: EventTyping})
+	if accountID, threadID, ok := c.thread(ctx); ok {
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventTyping})
 	}
 	return nil
 }
 
 func (c *Channel) DeliverApproval(ctx context.Context, approval approvals.Approval) error {
-	if threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(threadID, Event{Kind: EventApproval, Approval: &ApprovalPayload{ID: approval.ID, Summary: approval.Summary}})
+	if accountID, threadID, ok := c.thread(ctx); ok {
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventApproval, Approval: &ApprovalPayload{ID: approval.ID, Summary: approval.Summary}})
 	}
 	return nil
 }

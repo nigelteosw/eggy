@@ -21,10 +21,25 @@ import (
 // one. Only turns marked steerable accept it -- a scheduled turn
 // is deliberately self-contained, and an owner message must never be folded
 // into one.
+//
+// Turns are keyed by account and conversation together. Telegram's fixed
+// conversation ID is the same string for every account, so without the
+// account in the key one person's /stop would cancel another's turn and a
+// steered message could land in a stranger's loop.
 type ActiveTurns struct {
 	mu     sync.Mutex
 	next   uint64
-	active map[string]*activeTurn
+	active map[turnKey]*activeTurn
+}
+
+type turnKey struct{ account, conversation string }
+
+// keyOf is the one place a turn's identity is derived from its context. A
+// missing principal yields an empty account, which matches nothing that
+// Begin registered: an unauthenticated caller can neither stop nor steer.
+func keyOf(ctx context.Context) turnKey {
+	principal, _ := ports.PrincipalFromContext(ctx)
+	return turnKey{account: principal.AccountID, conversation: destination.FromContext(ctx).ConversationID()}
 }
 
 type activeTurn struct {
@@ -35,7 +50,7 @@ type activeTurn struct {
 }
 
 func NewActiveTurns() *ActiveTurns {
-	return &ActiveTurns{active: map[string]*activeTurn{}}
+	return &ActiveTurns{active: map[turnKey]*activeTurn{}}
 }
 
 // Begin derives a cancellable context for the turn ctx belongs to and
@@ -49,7 +64,7 @@ func NewActiveTurns() *ActiveTurns {
 // a turn of its own; dropping it here is the one outcome steering must never
 // have, because the owner was told nothing and the turn did nothing.
 func (t *ActiveTurns) Begin(ctx context.Context, steerable bool) (context.Context, func() []ports.Message) {
-	conversation := destination.FromContext(ctx).ConversationID()
+	conversation := keyOf(ctx)
 	turnContext, cancel := context.WithCancel(ctx)
 	t.mu.Lock()
 	t.next++
@@ -84,7 +99,7 @@ func (t *ActiveTurns) Steer(ctx context.Context, message ports.Message) bool {
 	if strings.TrimSpace(message.Content) == "" && len(message.Parts) == 0 {
 		return false
 	}
-	conversation := destination.FromContext(ctx).ConversationID()
+	conversation := keyOf(ctx)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	turn, ok := t.active[conversation]
@@ -100,7 +115,7 @@ func (t *ActiveTurns) Steer(ctx context.Context, message ports.Message) bool {
 // last call. It is what a running loop calls at each step boundary, so it
 // must stay non-blocking and must never return the same message twice.
 func (t *ActiveTurns) Pending(ctx context.Context) []ports.Message {
-	conversation := destination.FromContext(ctx).ConversationID()
+	conversation := keyOf(ctx)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	turn, ok := t.active[conversation]
@@ -115,7 +130,7 @@ func (t *ActiveTurns) Pending(ctx context.Context) []ports.Message {
 // Stop cancels the turn running in ctx's conversation, reporting whether
 // there was one.
 func (t *ActiveTurns) Stop(ctx context.Context) bool {
-	conversation := destination.FromContext(ctx).ConversationID()
+	conversation := keyOf(ctx)
 	t.mu.Lock()
 	turn, ok := t.active[conversation]
 	delete(t.active, conversation)

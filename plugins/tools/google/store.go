@@ -29,6 +29,15 @@ type TokenRecord struct {
 	State        string    `json:"state,omitempty"`
 	CodeVerifier string    `json:"code_verifier,omitempty"`
 	StateExpires time.Time `json:"state_expires,omitzero"`
+	// Email and Subject are the verified identity behind the grant, read
+	// from Google's identity endpoint before the grant was stored. A record
+	// without them predates verification and is verified before it serves.
+	Email   string `json:"email,omitempty"`
+	Subject string `json:"subject,omitempty"`
+	// Generation counts connections: every replacement and every disconnect
+	// increments it, and it survives a disconnect so a reconnect never lands
+	// on a number an outstanding approval was granted under.
+	Generation uint64 `json:"generation,omitempty"`
 }
 
 // Authorized reports a grant that can still be renewed. An access token alone

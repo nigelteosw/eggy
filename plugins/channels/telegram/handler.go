@@ -29,8 +29,25 @@ type ImageDownloader interface {
 	DownloadImage(ctx context.Context, fileID string, declaredSize int64, declaredMediaType string) (ports.ContentPart, error)
 }
 
+// SenderResolver maps a verified numeric Telegram sender to the account it
+// speaks for. A closure over validated config, wired by bootstrap; an
+// unmapped sender resolves to nothing and is refused.
+type SenderResolver func(senderID int64) (accountID string, ok bool)
+
+// SingleOwner is the legacy mapping: one sender, whose account ID is the
+// sender's own numeric ID spelled out. Tests use it; bootstrap resolves
+// from config in both shapes.
+func SingleOwner(ownerID int64) SenderResolver {
+	return func(senderID int64) (string, bool) {
+		if senderID != ownerID {
+			return "", false
+		}
+		return strconv.FormatInt(ownerID, 10), true
+	}
+}
+
 type WebhookHandler struct {
-	ownerID int64
+	resolve SenderResolver
 	secret  string
 	sink    EventSink
 	// acknowledger acks a tapped button as the update arrives. Acking is
@@ -43,8 +60,8 @@ type WebhookHandler struct {
 	resolveSelection func(string) (string, bool)
 }
 
-func NewWebhookHandler(ownerID int64, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
-	return &WebhookHandler{ownerID: ownerID, secret: secret, sink: sink, acknowledger: acknowledger}
+func NewWebhookHandler(resolve SenderResolver, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
+	return &WebhookHandler{resolve: resolve, secret: secret, sink: sink, acknowledger: acknowledger}
 }
 
 func (h *WebhookHandler) WithSelectionResolver(resolve func(string) (string, bool)) *WebhookHandler {
@@ -114,12 +131,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Telegram update", http.StatusBadRequest)
 		return
 	}
-	owner, ok := incomingOwner(incoming)
+	sender, chatID, ok := incomingSender(incoming)
 	if !ok {
 		http.Error(w, "unsupported Telegram update", http.StatusBadRequest)
 		return
 	}
-	if owner != h.ownerID {
+	// Private chats only: in a group the sender and the chat differ, and a
+	// reply would land where other people read it.
+	accountID, ok := h.resolve(sender)
+	if !ok || chatID != sender {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -129,6 +149,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID)
 	}
 	event, err := h.normalize(r.Context(), incoming)
+	if err == nil {
+		// The owner is the resolved account, never the sender's number as
+		// text: the dispatcher validates it against configured accounts.
+		event.Owner = accountID
+	}
 	if err != nil {
 		if incoming.Callback != nil && strings.HasPrefix(incoming.Callback.Data, "select:") {
 			w.WriteHeader(http.StatusNoContent)
@@ -144,14 +169,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func incomingOwner(incoming update) (int64, bool) {
+func incomingSender(incoming update) (sender, chat int64, ok bool) {
 	if incoming.Message != nil {
-		return incoming.Message.From.ID, true
+		return incoming.Message.From.ID, incoming.Message.Chat.ID, true
 	}
 	if incoming.Callback != nil {
-		return incoming.Callback.From.ID, true
+		return incoming.Callback.From.ID, incoming.Callback.Message.Chat.ID, true
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events.Event, error) {

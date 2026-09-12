@@ -5,8 +5,10 @@
 //	<home>/
 //	  config.yaml   startup settings
 //	  .env          API keys and secrets, never read through the web API
-//	  SOUL.md       durable agent identity, first slot in the system prompt
-//	  memories/     MEMORY.md, USER.md, WATCH.md
+//	  SOUL.md       durable agent identity, first slot in the system prompt,
+//	                shared by every account
+//	  accounts/<id>/memories/   that account's MEMORY.md, USER.md, WATCH.md
+//	  memories.migrated/        the pre-accounts documents, kept as rollback
 //	  skills/       reviewed procedural skills
 //	  logs/         gateway.log, errors.log (secrets redacted)
 //	  eggy.db       every machine-managed record: conversation history and
@@ -80,8 +82,11 @@ func (l Layout) LegacyAuth() string  { return filepath.Join(l.Root, "auth.json")
 func (l Layout) LegacyCron() string  { return filepath.Join(l.Root, "cron") }
 
 // Directories lists every directory the layout owns, in creation order.
+// The pre-accounts memories/ directory is not among them: private documents
+// live under accounts/<id>/memories now, created on first use, and an empty
+// memories/ would only look like somewhere to put them.
 func (l Layout) Directories() []string {
-	return []string{l.Root, l.Memories(), l.Skills(), l.Logs()}
+	return []string{l.Root, l.Accounts(), l.Skills(), l.Logs()}
 }
 
 // Ensure creates the home directory and its subdirectories.

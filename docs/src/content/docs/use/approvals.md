@@ -30,6 +30,15 @@ A tool that has not been classified counts as a write. That is deliberate: forge
 
 **MCP is the exception.** A remote catalog cannot be classified from here — nothing in Eggy knows whether `deploy` writes — so an MCP server keeps its own `require_approval` list and `normal` mode does not second-guess it. `strict` still stops everything, MCP included.
 
+## Ownership comes first
+
+With [accounts](/eggy/configure/accounts/), an approval belongs to the account
+whose turn asked for it. Only that account sees it, can answer it, or can have
+it executed, in every mode — `auto` skips the asking, never the ownership
+check. An approval also records the shared Google connection's generation at
+the time; reconnecting Google invalidates approvals granted before it, so
+nothing approved against the old identity runs against the new one.
+
 ## Payload-bound authorization
 
 A protected mutation gets its own approval action and its own executor. The pending record binds to the exact normalized payload.

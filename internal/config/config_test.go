@@ -41,12 +41,16 @@ func TestLoadConfigResolvesWebUICredentialsAndRequiresEncryptionKeyWhenSet(t *te
 
 func TestLoadConfigAcceptsExample(t *testing.T) {
 	env := testSecrets()
+	env["EGGY_GOOGLE_LOGIN_CLIENT_SECRET"] = "login-secret"
 	cfg, secrets, err := LoadConfig(filepath.Join("..", "..", "config.example.yaml"), mapEnv(env))
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if cfg.Telegram.OwnerID != 123456789 || cfg.Agent.DefaultModel != "deepseek-pro" {
+	if !cfg.AccountMode() || cfg.Agent.DefaultModel != "deepseek-pro" {
 		t.Fatalf("unexpected config: %#v", cfg)
+	}
+	if account, ok := cfg.AccountForTelegram(123456789); !ok || account.ID != "nigel" {
+		t.Fatalf("example accounts: %#v", cfg.Accounts)
 	}
 	if cfg.Runner.Timeout.Value() != 45*time.Minute || cfg.Server.Listen != ":8080" {
 		t.Fatalf("defaults/durations not loaded: %#v", cfg)

@@ -122,8 +122,22 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			if cfg.Google.Enabled {
 				state = "enabled"
 			}
-			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products"}
-			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", ")})
+			// The connection's verified identity rides along with the
+			// configuration: which account the grant is for, and which it
+			// is supposed to be for, are the two things a user needs to see
+			// side by side to notice a personal account connected by
+			// mistake. The grant is shared, and the row says so.
+			connected := "not connected"
+			if webConfig.GoogleConnection != nil {
+				if connection, err := webConfig.GoogleConnection.Connection(); err == nil && connection.Authorized {
+					connected = connection.Email
+					if connected == "" {
+						connected = "unverified"
+					}
+				}
+			}
+			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products", "Connected as", "Expected email"}
+			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", "), connected, cfg.Google.ExpectedEmail})
 			result.Fields = googleApprovalFields(cfg, webConfig.GoogleActions)
 		case "heartbeat":
 			// One row, like Google: there is one heartbeat. A zero interval

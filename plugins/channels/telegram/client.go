@@ -23,21 +23,47 @@ var (
 
 const maxMessageLength = 3500
 
+// ChatResolver maps the acting account to the private chat the bot talks to
+// it in. It is a closure over validated config, wired by bootstrap: an
+// account with no Telegram sender resolves to nothing, and nothing is where
+// its Telegram output goes -- never the first configured person's chat.
+type ChatResolver func(accountID string) (chatID string, ok bool)
+
+// FixedChat resolves every account to one chat. It is the single-owner
+// shape and what tests use; a multi-account deployment never constructs it.
+func FixedChat(chatID string) ChatResolver {
+	return func(string) (string, bool) { return chatID, true }
+}
+
+// ErrNoRecipient reports a delivery for an account that has no Telegram
+// chat: a web-only person, or a turn with no principal at all.
+var ErrNoRecipient = errors.New("no Telegram chat for this account")
+
 type Client struct {
 	baseURL string
 	token   string
-	// chatID is the single owner chat this bot ever talks to. Telegram is
-	// one fixed conversation, so the target is bound here at construction
-	// rather than passed on every ports.Channel call.
-	chatID string
-	http   *http.Client
+	// chats resolves the destination chat from the principal on each call.
+	// Telegram is one fixed conversation per person, so the chat is a
+	// property of who Eggy is talking to rather than of the message.
+	chats ChatResolver
+	http  *http.Client
 }
 
-func NewClient(baseURL, token, chatID string, client *http.Client) *Client {
+func NewClient(baseURL, token string, chats ChatResolver, client *http.Client) *Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, chatID: chatID, http: client}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, chats: chats, http: client}
+}
+
+// chatID is the one place a call learns which chat it is for.
+func (c *Client) chatID(ctx context.Context) (string, error) {
+	principal, _ := ports.PrincipalFromContext(ctx)
+	chatID, ok := c.chats(principal.AccountID)
+	if !ok || chatID == "" {
+		return "", ErrNoRecipient
+	}
+	return chatID, nil
 }
 
 func (c *Client) Deliver(ctx context.Context, text string) error {
@@ -96,8 +122,12 @@ func (c *Client) DeliverSelection(ctx context.Context, prompt, selectionID strin
 }
 
 func (c *Client) EditText(ctx context.Context, messageID, text string) error {
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return err
+	}
 	build := func(html bool) map[string]any {
-		payload := map[string]any{"chat_id": c.chatID, "message_id": messageID}
+		payload := map[string]any{"chat_id": chatID, "message_id": messageID}
 		if html {
 			payload["text"] = toTelegramHTML(text)
 			payload["parse_mode"] = "HTML"
@@ -106,7 +136,7 @@ func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 		}
 		return payload
 	}
-	_, err := c.call(ctx, "editMessageText", build(true))
+	_, err = c.call(ctx, "editMessageText", build(true))
 	if isParseError(err) {
 		_, err = c.call(ctx, "editMessageText", build(false))
 	}
@@ -122,7 +152,11 @@ func (c *Client) AnswerCallback(ctx context.Context, callbackQueryID string) err
 }
 
 func (c *Client) SendTyping(ctx context.Context) error {
-	_, err := c.call(ctx, "sendChatAction", map[string]any{"chat_id": c.chatID, "action": "typing"})
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.call(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": "typing"})
 	return err
 }
 
@@ -141,8 +175,12 @@ func (c *Client) SetCommands(ctx context.Context, commands []BotCommand) error {
 }
 
 func (c *Client) sendMessage(ctx context.Context, text string, extra map[string]any) (string, error) {
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return "", err
+	}
 	build := func(html bool) map[string]any {
-		payload := map[string]any{"chat_id": c.chatID}
+		payload := map[string]any{"chat_id": chatID}
 		if html {
 			payload["text"] = toTelegramHTML(text)
 			payload["parse_mode"] = "HTML"

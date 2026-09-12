@@ -7,12 +7,13 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // webTurn returns a context stamped with the destination a turn running in
 // threadID carries, which is how Channel resolves its broadcast target.
 func webTurn(threadID string) context.Context {
-	return destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: threadID})
+	return destination.With(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "owner"}), destination.Destination{Kind: destination.Web, ThreadID: threadID})
 }
 
 func recv(t *testing.T, events <-chan Event) Event {
@@ -29,7 +30,7 @@ func recv(t *testing.T, events <-chan Event) Event {
 func TestChannelDeliverBroadcastsAMessageEventToTheGivenThread(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-1")
+	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
 	if err := channel.Deliver(webTurn("thread-1"), "hello"); err != nil {
@@ -44,7 +45,7 @@ func TestChannelDeliverBroadcastsAMessageEventToTheGivenThread(t *testing.T) {
 func TestChannelDeliverNeverReachesADifferentThread(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-2")
+	_, events, unregister := hub.Register("owner", "thread-2")
 	defer unregister()
 
 	if err := channel.Deliver(webTurn("thread-1"), "hello"); err != nil {
@@ -60,7 +61,7 @@ func TestChannelDeliverNeverReachesADifferentThread(t *testing.T) {
 func TestChannelDeliverTrackableReturnsAUsableEditableID(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-1")
+	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
 	id, err := channel.DeliverTrackable(webTurn("thread-1"), "starting...")
@@ -81,7 +82,7 @@ func TestChannelDeliverTrackableReturnsAUsableEditableID(t *testing.T) {
 func TestChannelSendTypingBroadcastsATypingEvent(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-1")
+	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
 	if err := channel.SendTyping(webTurn("thread-1")); err != nil {
@@ -95,7 +96,7 @@ func TestChannelSendTypingBroadcastsATypingEvent(t *testing.T) {
 func TestChannelDeliverApprovalBroadcastsAnApprovalEvent(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-1")
+	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
 	approval := approvals.Approval{ID: "approval-1", Summary: "Add repository eggy"}
@@ -114,7 +115,7 @@ func TestChannelDeliverApprovalBroadcastsAnApprovalEvent(t *testing.T) {
 func TestChannelDropsDeliveryForANonWebTurn(t *testing.T) {
 	hub := NewHub()
 	channel := New(hub)
-	_, events, unregister := hub.Register("thread-1")
+	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
 	if err := channel.Deliver(context.Background(), "hello"); err != nil {

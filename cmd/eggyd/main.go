@@ -92,7 +92,7 @@ func run() error {
 			return serveErr
 		}
 		logger.Error("startup failed, entering safe mode", "error", err, "config", *configPath)
-		repaired, safeModeErr := serveSafeMode(ctx, safeModeListen(getenv), *configPath, err, getenv, envSecrets, logger)
+		repaired, safeModeErr := serveSafeMode(ctx, safeModeListen(getenv), layout, *configPath, err, getenv, envSecrets, logger)
 		if safeModeErr != nil {
 			return safeModeErr
 		}
@@ -165,18 +165,20 @@ func serveApp(ctx context.Context, cfg config.Config, app *bootstrap.App, logger
 // serveSafeMode runs the repair surface until the owner saves a config that
 // loads, reporting whether that happened. The one alternative is ctx ending,
 // which means the platform is stopping the container.
-func serveSafeMode(ctx context.Context, address, configPath string, failure error, getenv func(string) string, secrets config.Secrets, logger *slog.Logger) (bool, error) {
+func serveSafeMode(ctx context.Context, address string, layout home.Layout, configPath string, failure error, getenv func(string) string, secrets config.Secrets, logger *slog.Logger) (bool, error) {
 	repaired := make(chan struct{})
 	var once sync.Once
+	recovery, closeRecovery, err := bootstrap.RecoveryWeb(layout, configPath, getenv, secrets, logger)
+	if err != nil {
+		return false, err
+	}
+	defer closeRecovery()
 	handler := web.NewSafeModeHandler(web.SafeMode{
 		ConfigPath: configPath, Failure: failure, Getenv: getenv,
 		Repaired: func() { once.Do(func() { close(repaired) }) },
-		Web: web.WebUIConfig{
-			UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
-			SigningKey: []byte(secrets.EncryptionKey),
-		},
+		Web:      recovery,
 	})
-	if secrets.UIUserEmail == "" || secrets.UIPassword == "" || secrets.EncryptionKey == "" {
+	if !recovery.AccountMode && (secrets.UIUserEmail == "" || secrets.UIPassword == "" || secrets.EncryptionKey == "") {
 		// Worth saying plainly: without a web credential the repair page
 		// renders but cannot be signed into, and the config has to be fixed
 		// some other way.

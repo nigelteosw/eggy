@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -23,7 +22,7 @@ func TestTraceRoundTripsTurnAndSpansInOrder(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	started := time.Now().UTC().Truncate(time.Millisecond)
 
 	if err := store.StartTrace(ctx, ports.Trace{
@@ -86,7 +85,7 @@ func TestTraceRoundTripsTurnAndSpansInOrder(t *testing.T) {
 func TestTraceReportsMissingWithoutError(t *testing.T) {
 	t.Parallel()
 
-	_, _, found, err := openTraceStore(t).Trace(context.Background(), "absent")
+	_, _, found, err := openTraceStore(t).Trace(as("owner"), "absent")
 	if err != nil {
 		t.Fatalf("missing trace must not be an error: %v", err)
 	}
@@ -99,7 +98,7 @@ func TestListTracesReturnsNewestFirst(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	base := time.Now().UTC()
 	for index, id := range []string{"old", "middle", "new"} {
 		if err := store.StartTrace(ctx, ports.Trace{
@@ -126,7 +125,7 @@ func TestPruneTracesEnforcesCountAndAgeAndRemovesSpans(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	base := time.Now().UTC()
 	for index, id := range []string{"ancient", "old", "recent"} {
 		if err := store.StartTrace(ctx, ports.Trace{
@@ -169,7 +168,7 @@ func TestAppendSpanDropsSpansForAPrunedTrace(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if err := store.AppendSpan(ctx, ports.TraceSpan{TraceID: "never-started", Sequence: 1, Kind: ports.TraceSpanToolCall, Name: "status"}); err != nil {
 		t.Fatalf("a span for an unknown trace must be dropped, not an error: %v", err)
 	}
@@ -188,7 +187,7 @@ func TestTraceCarriesTheConversationSession(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	started := time.Now().UTC().Truncate(time.Millisecond)
 
 	for id, session := range map[string]string{"before-clear": "", "after-clear": "1757000000000000000"} {
@@ -222,7 +221,7 @@ func TestConversationResetAtReportsTheLastClear(t *testing.T) {
 	t.Parallel()
 
 	store := openTraceStore(t)
-	ctx := context.Background()
+	ctx := as("owner")
 	if _, found, err := store.ConversationResetAt(ctx, "telegram"); found || err != nil {
 		t.Fatalf("found=%v err=%v before any clear", found, err)
 	}

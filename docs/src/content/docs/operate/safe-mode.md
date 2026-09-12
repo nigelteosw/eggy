@@ -58,6 +58,13 @@ EGGY_ENCRYPTION_KEY=base64-encoded-32-byte-key
 
 Without those three there is nobody it can let in. Set them before you need them.
 
+With [accounts](/eggy/configure/accounts/) configured there is no password and
+none is read: safe mode offers **Sign in with Google** against the account list,
+the sign-in client and the public base URL it can still read from the broken
+file, using the existing session database. If even that cannot be established,
+safe mode answers only the health probes and `config.yaml` has to be repaired on
+the host.
+
 ## Common ways to land here
 
 - an unknown YAML key — rejected on purpose, so a misspelling cannot silently

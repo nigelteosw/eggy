@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -156,15 +155,21 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	for _, configured := range config.Repositories {
 		configuredRepositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
 	}
-	initial, err := stateStore.Load(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	if _, err := stateStore.Update(context.Background(), initial.Version, func(state *ports.State) error {
-		state.Repositories = configuredRepositories
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("sync configured repositories: %w", err)
+	// Each account's runtime state carries the configured repository list,
+	// so every account is synced. The list is the same for all of them; what
+	// is private is the session state that hangs off it.
+	for _, account := range config.Principals() {
+		ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})
+		initial, err := stateStore.Load(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := stateStore.Update(ctx, initial.Version, func(state *ports.State) error {
+			state.Repositories = configuredRepositories
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("sync configured repositories: %w", err)
+		}
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
@@ -244,7 +249,6 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return registerGated(registry, asker, app.approvals, tools...)
 	}
 	activeTurns := services.NewActiveTurns()
-	owner := config.Owner.ID
 	baseTools := []ports.Tool{
 		repo.NewStatusTool(stateStore, app.scheduler),
 		services.NewCurrentTimeTool(options.Now, location, timezone),
@@ -290,6 +294,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	googleAdministration := newGoogleAdmin(googleAuth)
+	// Approvals bind the shared connection's generation, so reconnecting
+	// Google as anyone invalidates what was approved against the previous
+	// identity.
+	app.approvals.BindGeneration(googleAdministration.generation())
 	googleCatalog, err := googleClassifiedTools(googleWorkspace, config.Google, options.Now)
 	if err != nil {
 		return nil, err
@@ -403,6 +411,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		ModelDiscovery: discovery,
 		PublicBaseURL:  config.Server.PublicBaseURL,
 		SigningKey:     []byte(secrets.EncryptionKey),
+		AccountMode:    config.AccountMode(),
 		Now:            options.Now,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
@@ -420,14 +429,24 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// what renders the turn's trusted temporal context.
 		Location: location, Timezone: timezone,
 	})
-	app.dispatcher = services.NewDispatcher(owner, stateStore, map[events.Type]services.EventHandler{
+	app.dispatcher = services.NewDispatcher(func(id string) bool {
+		_, ok := config.Account(id)
+		return ok
+	}, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
+	googleLogin, loginSealer, err := newGoogleLogin(config, secrets, options)
+	if err != nil {
+		return nil, err
+	}
 	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: owner,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
+		AccountMode: config.AccountMode(), Sessions: database, Accounts: accountDirectory{config: config},
+		GoogleLogin: googleLogin, Identities: database, LoginSealer: loginSealer,
+		PublicBaseURL:    config.Server.PublicBaseURL,
 		MCP:              mcpAdministration.webView(),
 		Tools:            registry,
 		Schedules:        app.scheduler,
@@ -438,6 +457,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Agent:            agentRuntime,
 		ModelDiscovery:   discovery,
 		GoogleActions:    googleActionCatalog(),
+		GoogleConnection: googleAdministration.webView(),
 		Restarter:        app,
 		Getenv:           options.Getenv,
 		TrustedProxyHops: config.Server.TrustedProxyHops,
@@ -459,19 +479,23 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 	return a.commands.Execute(ctx, command)
 }
 func (a *App) Ready() error {
-	state, err := a.store.Load(context.Background())
-	if err != nil {
-		return err
-	}
-	if _, err := a.context.Load(context.Background()); err != nil {
-		return err
+	// Every account's documents are readable, creating blank ones for an
+	// account that has none yet.
+	for _, account := range a.config.Principals() {
+		if _, err := a.context.Load(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})); err != nil {
+			return err
+		}
 	}
 	a.readyLog.Do(func() {
 		alias := a.config.Agent.DefaultModel
 		provider := a.config.ModelAliases[alias].Provider
-		repositories := slices.Sorted(maps.Keys(state.Repositories))
+		repositories := make([]string, 0, len(a.config.Repositories))
+		for _, repository := range a.config.Repositories {
+			repositories = append(repositories, repository.Name)
+		}
+		slices.Sort(repositories)
 		integrations := []string{"telegram", "model_provider"}
-		if len(state.Repositories) > 0 {
+		if len(repositories) > 0 {
 			integrations = append(integrations, "github")
 		}
 		slices.Sort(integrations)

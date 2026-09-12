@@ -6,6 +6,12 @@ eyebrow: Use Eggy
 
 Telegram is optional. When configured, the adapter accepts updates only from `telegram.owner_id` and maps that account to Eggy's canonical owner.
 
+With [accounts](/eggy/configure/accounts/) configured, each account's
+`telegram_user_id` maps that numeric sender to their account; unmapped senders
+and group chats are refused, and replies, approvals and scheduled output go to
+each person's own private chat. An account without a Telegram ID uses the web
+panel only.
+
 ## Direct commands
 
 Eggy's Telegram command surface is intentionally small.

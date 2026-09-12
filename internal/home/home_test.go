@@ -3,6 +3,7 @@ package home
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,6 +83,9 @@ func TestMigrateKeepsTheCurrentFileWhenBothExist(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(layout.Root, "MEMORY.md"), []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(layout.Memories(), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(layout.Memory(), []byte("current"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +150,142 @@ func TestWatchLivesUnderMemories(t *testing.T) {
 	layout := At("/data")
 	if got, want := layout.Watch(), "/data/memories/WATCH.md"; got != want {
 		t.Fatalf("Watch()=%q want %q", got, want)
+	}
+}
+
+func TestAccountMemoriesValidatesTheID(t *testing.T) {
+	layout := At(t.TempDir())
+	dir, err := layout.AccountMemories("nigel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != filepath.Join(layout.Root, "accounts", "nigel", "memories") {
+		t.Fatalf("dir=%s", dir)
+	}
+	for _, bad := range []string{"", ".", "..", "../x", "a/b", "a\\b", " nigel", strings.Repeat("a", 65)} {
+		if _, err := layout.AccountMemories(bad); err == nil {
+			t.Errorf("AccountMemories(%q) accepted an unsafe id", bad)
+		}
+	}
+}
+
+// recordingPhases is the migration's progress record, kept in memory here
+// where bootstrap keeps it in SQLite.
+type recordingPhases struct{ phase string }
+
+func (r *recordingPhases) DocumentMigrationPhase() (string, error) { return r.phase, nil }
+func (r *recordingPhases) RecordDocumentMigrationPhase(phase string) error {
+	r.phase = phase
+	return nil
+}
+
+func writeLegacyMemories(t *testing.T, layout Layout) {
+	t.Helper()
+	if err := layout.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(layout.Memories(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"USER.md": "# Eggy User\n\n- likes tea\n", "MEMORY.md": "# Eggy Memory\n\n- fact\n", "WATCH.md": "# Eggy Watch\n"} {
+		if err := os.WriteFile(filepath.Join(layout.Memories(), name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestMigrateAccountDocumentsCopiesVerifiesPublishesAndArchives(t *testing.T) {
+	layout := At(t.TempDir())
+	writeLegacyMemories(t, layout)
+	phases := &recordingPhases{}
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatal(err)
+	}
+	if phases.phase != DocumentMigrationComplete {
+		t.Fatalf("phase=%q", phases.phase)
+	}
+	dir, _ := layout.AccountMemories("nigel")
+	body, err := os.ReadFile(filepath.Join(dir, "USER.md"))
+	if err != nil || string(body) != "# Eggy User\n\n- likes tea\n" {
+		t.Fatalf("copied USER.md=%q err=%v", body, err)
+	}
+	// The original is archived beside the home, never deleted: it is the
+	// rollback.
+	if _, err := os.Stat(layout.Memories()); !os.IsNotExist(err) {
+		t.Fatalf("legacy memories still in place: %v", err)
+	}
+	if _, err := os.Stat(layout.Memories() + ".migrated/MEMORY.md"); err != nil {
+		t.Fatalf("archive missing: %v", err)
+	}
+	// Idempotent: a second run on a complete migration changes nothing.
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrateAccountDocumentsResumesAfterACopyThatWasNotArchived(t *testing.T) {
+	layout := At(t.TempDir())
+	writeLegacyMemories(t, layout)
+	phases := &recordingPhases{}
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash between publish and archive: restore the original and
+	// roll the record back one phase.
+	if err := os.Rename(layout.Memories()+".migrated", layout.Memories()); err != nil {
+		t.Fatal(err)
+	}
+	phases.phase = DocumentMigrationCopied
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatalf("resume after copy: %v", err)
+	}
+	if phases.phase != DocumentMigrationComplete {
+		t.Fatalf("phase=%q", phases.phase)
+	}
+	if _, err := os.Stat(layout.Memories()); !os.IsNotExist(err) {
+		t.Fatal("original not archived on resume")
+	}
+}
+
+func TestMigrateAccountDocumentsRefusesANonidenticalDestination(t *testing.T) {
+	layout := At(t.TempDir())
+	writeLegacyMemories(t, layout)
+	dir, _ := layout.AccountMemories("nigel")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "USER.md"), []byte("# Eggy User\n\n- something else\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	phases := &recordingPhases{}
+	if err := layout.MigrateAccountDocuments("nigel", phases); err == nil {
+		t.Fatal("a destination holding different content must be refused")
+	}
+	if _, err := os.Stat(filepath.Join(layout.Memories(), "USER.md")); err != nil {
+		t.Fatalf("original touched by a refused migration: %v", err)
+	}
+	if body, _ := os.ReadFile(filepath.Join(dir, "USER.md")); string(body) != "# Eggy User\n\n- something else\n" {
+		t.Fatalf("destination overwritten: %q", body)
+	}
+	// A byte-identical destination is a retry, and proceeds.
+	if err := os.WriteFile(filepath.Join(dir, "USER.md"), []byte("# Eggy User\n\n- likes tea\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatalf("identical destination retry: %v", err)
+	}
+}
+
+func TestMigrateAccountDocumentsDoesNothingWithoutLegacyDocuments(t *testing.T) {
+	layout := At(t.TempDir())
+	if err := layout.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	phases := &recordingPhases{}
+	if err := layout.MigrateAccountDocuments("nigel", phases); err != nil {
+		t.Fatal(err)
+	}
+	if phases.phase != "" {
+		t.Fatalf("a fresh home recorded a migration: %q", phases.phase)
 	}
 }

@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,7 +18,7 @@ import (
 func deliverOwnerMessage(t *testing.T, app *App, id, text string) {
 	t.Helper()
 	payload, _ := json.Marshal(events.Message{Text: text})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: id, Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: id, Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Errorf("delivering %q mid-turn: %v", text, err)
 	}
 }
@@ -59,7 +58,7 @@ func TestAMessageDeliveredMidTurnChangesTheTurnsSubsequentToolCalls(t *testing.T
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "check on things"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "turn-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "turn-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,7 +121,7 @@ func TestStopMidTurnLeavesTheWorkspaceInspectable(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(events.Message{Text: "have a look at eggy"})
-	if err := app.HandleEvent(context.Background(), events.Event{ID: "turn-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "turn-1", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -131,7 +130,7 @@ func TestStopMidTurnLeavesTheWorkspaceInspectable(t *testing.T) {
 		t.Fatalf("expected a stop milestone on the owner's surface: %v", delivered)
 	}
 	// And the checkout survived: stopping is not a rollback.
-	binding, err := app.workspaces.Resolve(context.Background())
+	binding, err := app.workspaces.Resolve(ownerCtx())
 	if err != nil || binding.Path == "" || binding.Repository != "eggy" {
 		t.Fatalf("binding=%#v err=%v, want the workspace still attached after /stop", binding, err)
 	}

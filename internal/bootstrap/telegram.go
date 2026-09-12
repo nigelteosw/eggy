@@ -34,15 +34,41 @@ type telegramWiring struct {
 }
 
 func newTelegramWiring(cfg config.Config, secrets config.Secrets, options AppOptions) telegramWiring {
-	if options.FakeAdapters || !cfg.Telegram.Configured() {
+	if options.FakeAdapters || !cfg.TelegramEnabled() {
 		return telegramWiring{}
 	}
-	client := telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, strconv.FormatInt(cfg.Telegram.OwnerID, 10), options.HTTPClient)
+	client := telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, telegramChats(cfg), options.HTTPClient)
 	return telegramWiring{
 		client:       client,
 		selector:     telegram.NewSelector(client, options.Now, 10*time.Minute),
 		channel:      client,
 		acknowledger: client,
+	}
+}
+
+// telegramSenders maps a verified numeric sender to its account, from the
+// configured list in either shape. Unmapped senders resolve to nothing.
+func telegramSenders(cfg config.Config) telegram.SenderResolver {
+	return func(sender int64) (string, bool) {
+		account, ok := cfg.AccountForTelegram(sender)
+		if !ok {
+			return "", false
+		}
+		return account.ID, true
+	}
+}
+
+// telegramChats maps an account to its private chat: the sender ID, since a
+// private chat with a bot is numbered by the person. An account without a
+// Telegram sender has no chat, and the client reports that rather than
+// borrowing someone else's.
+func telegramChats(cfg config.Config) telegram.ChatResolver {
+	return func(accountID string) (string, bool) {
+		account, ok := cfg.Account(accountID)
+		if !ok || account.TelegramUserID == 0 {
+			return "", false
+		}
+		return strconv.FormatInt(account.TelegramUserID, 10), true
 	}
 }
 
@@ -63,10 +89,10 @@ func (w telegramWiring) tools() []ports.Tool {
 // outbound call is faked, so the route must exist even when the client does
 // not.
 func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink telegram.EventSink) http.Handler {
-	if !cfg.Telegram.Configured() {
+	if !cfg.TelegramEnabled() {
 		return nil
 	}
-	handler := telegram.NewWebhookHandler(cfg.Telegram.OwnerID, secrets.TelegramWebhookSecret, sink, w.acknowledger)
+	handler := telegram.NewWebhookHandler(telegramSenders(cfg), secrets.TelegramWebhookSecret, sink, w.acknowledger)
 	if w.client != nil {
 		handler.WithImageDownloader(w.client)
 	}

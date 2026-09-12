@@ -197,3 +197,62 @@ func TestSafeModeReportsOtherRoutesUnavailable(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
+
+// Safe mode in account mode: no password login exists, and recovery is only
+// reachable through Google Sign-In against the accounts the broken config
+// still names -- or, when that cannot be established, not at all.
+func TestSafeModeInAccountModeHasNoPasswordFallback(t *testing.T) {
+	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	cfg, database, _, _ := googleWebConfig(t, now)
+	// A password in the environment must change nothing.
+	cfg.UserEmail, cfg.Password, cfg.SigningKey = "owner@example.com", "hunter2", []byte("legacy-key")
+	handler := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: cfg})
+
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	if login.Code != http.StatusUnauthorized || len(login.Result().Cookies()) != 0 {
+		t.Fatalf("password login in account-mode safe mode: status=%d", login.Code)
+	}
+	unauthed := httptest.NewRecorder()
+	handler.ServeHTTP(unauthed, httptest.NewRequest(http.MethodGet, "/api/safemode", nil))
+	if unauthed.Code != http.StatusUnauthorized {
+		t.Fatalf("safemode without session: status=%d", unauthed.Code)
+	}
+	// A Google-verified account gets in.
+	state, browser := start(t, handler)
+	cookie := sessionCookie(callback(handler, "state="+state+"&code=good-code", browser))
+	if cookie == nil {
+		t.Fatal("google sign-in did not issue a session in safe mode")
+	}
+	authed := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/safemode", nil)
+	request.AddCookie(cookie)
+	handler.ServeHTTP(authed, request)
+	if authed.Code == http.StatusUnauthorized || !strings.Contains(authed.Body.String(), "boom") {
+		t.Fatalf("safemode with session: status=%d body=%s", authed.Code, authed.Body.String())
+	}
+	raw := httptest.NewRecorder()
+	rawRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
+	rawRequest.AddCookie(cookie)
+	handler.ServeHTTP(raw, rawRequest)
+	if raw.Code != http.StatusOK {
+		t.Fatalf("raw config with session: status=%d", raw.Code)
+	}
+	_ = database
+
+	// When identity cannot be established, every route says so and nothing
+	// signs in.
+	generic := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: WebUIConfig{AccountMode: true, UserEmail: "owner@example.com", Password: "hunter2", SigningKey: []byte("k")}})
+	for _, probe := range []struct{ method, target string }{{http.MethodPost, "/api/login"}, {http.MethodGet, "/api/safemode"}, {http.MethodGet, "/api/config/raw"}, {http.MethodGet, "/auth/google/start"}} {
+		response := httptest.NewRecorder()
+		generic.ServeHTTP(response, httptest.NewRequest(probe.method, probe.target, strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+		if response.Code == http.StatusOK || len(response.Result().Cookies()) != 0 {
+			t.Fatalf("%s %s: status=%d cookies=%d", probe.method, probe.target, response.Code, len(response.Result().Cookies()))
+		}
+	}
+	mode := httptest.NewRecorder()
+	generic.ServeHTTP(mode, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
+	if mode.Code != http.StatusOK || !strings.Contains(mode.Body.String(), "safe") {
+		t.Fatalf("mode probe: status=%d body=%s", mode.Code, mode.Body.String())
+	}
+}

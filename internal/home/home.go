@@ -5,8 +5,10 @@
 //	<home>/
 //	  config.yaml   startup settings
 //	  .env          API keys and secrets, never read through the web API
-//	  SOUL.md       durable agent identity, first slot in the system prompt
-//	  memories/     MEMORY.md, USER.md, WATCH.md
+//	  SOUL.md       durable agent identity, first slot in the system prompt,
+//	                shared by every account
+//	  accounts/<id>/memories/   that account's MEMORY.md, USER.md, WATCH.md
+//	  memories.migrated/        the pre-accounts documents, kept as rollback
 //	  skills/       reviewed procedural skills
 //	  logs/         gateway.log, errors.log (secrets redacted)
 //	  eggy.db       every machine-managed record: conversation history and

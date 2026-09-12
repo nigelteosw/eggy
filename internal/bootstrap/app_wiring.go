@@ -70,8 +70,11 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 		return stores{}, err
 	}
 	opened := stores{layout: layout}
+	// SOUL.md is shared; the private documents resolve per account from the
+	// principal on each call, through the one layout function that
+	// validates the ID before it becomes a path.
 	opened.context = contextmarkdown.Open(contextmarkdown.Paths{
-		Soul: layout.Soul(), User: layout.User(), Memory: layout.Memory(), Watch: layout.Watch(),
+		Soul: layout.Soul(), Memories: layout.AccountMemories,
 	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes, contextmarkdown.DefaultWatchMaxBytes)
 	database, err := sqlitestore.Open(layout.Database())
 	if err != nil {
@@ -99,6 +102,15 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 		_ = database.Close()
 		return stores{}, err
 	}
+	// The documents move to the same account, with the database recording
+	// each phase. Both halves finish here, before any store is handed out,
+	// so no turn runs over a half-moved home.
+	if owner := legacyOwner(config); owner != "" {
+		if err := layout.MigrateAccountDocuments(owner, database); err != nil {
+			_ = database.Close()
+			return stores{}, fmt.Errorf("move owner documents to account %q: %w", owner, err)
+		}
+	}
 	opened.database = database
 	opened.state = database.State()
 	opened.schedules = database.Schedules()
@@ -111,10 +123,7 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 // name. Conversion to accounts also invalidates pending legacy approvals: they
 // were requested before there was an account to bind them to.
 func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, config config.Config) error {
-	owner := config.Owner.ID
-	if config.AccountMode() {
-		owner = config.MigrationOwnerID
-	}
+	owner := legacyOwner(config)
 	if owner == "" {
 		if database.HasUnownedRecords(ctx) {
 			return fmt.Errorf("this home holds history from before accounts were configured; set migration_owner_id to the account that should receive it")
@@ -125,6 +134,17 @@ func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, confi
 		return fmt.Errorf("assign legacy records: %w", err)
 	}
 	return nil
+}
+
+// legacyOwner is the account that receives everything written before
+// accounts existed: the single owner in the legacy shape, or the account
+// migration_owner_id names. Empty means nobody has said, and a home with
+// legacy records refuses to boot until somebody does.
+func legacyOwner(config config.Config) string {
+	if config.AccountMode() {
+		return config.MigrationOwnerID
+	}
+	return config.Owner.ID
 }
 
 // modelCatalog is the configured provider set resolved into what the agent

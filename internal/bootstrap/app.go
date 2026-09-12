@@ -466,8 +466,12 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 	return a.commands.Execute(ctx, command)
 }
 func (a *App) Ready() error {
-	if _, err := a.context.Load(context.Background()); err != nil {
-		return err
+	// Every account's documents are readable, creating blank ones for an
+	// account that has none yet.
+	for _, account := range a.config.Principals() {
+		if _, err := a.context.Load(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})); err != nil {
+			return err
+		}
 	}
 	a.readyLog.Do(func() {
 		alias := a.config.Agent.DefaultModel

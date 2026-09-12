@@ -238,3 +238,25 @@ func ensureColumnTx(db execer, table, column, columnType string) error {
 	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + columnType)
 	return err
 }
+
+// documentPhaseKey records how far the Markdown document migration got. The
+// filesystem steps cannot join a transaction, so home.MigrateAccountDocuments
+// records each phase here as it completes and resumes from it on the next
+// boot.
+const documentPhaseKey = "legacy_documents_phase"
+
+// DocumentMigrationPhase and RecordDocumentMigrationPhase implement
+// home.DocumentMigrationProgress over schema_meta.
+func (s *Store) DocumentMigrationPhase() (string, error) {
+	var phase string
+	err := s.db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, documentPhaseKey).Scan(&phase)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return phase, err
+}
+
+func (s *Store) RecordDocumentMigrationPhase(phase string) error {
+	_, err := s.db.Exec(`INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, documentPhaseKey, phase)
+	return err
+}

@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -88,6 +89,41 @@ func TestOldHomeStartsWithApprovalsModeSchedulesAndGrantsIntact(t *testing.T) {
 		}
 		if _, err := os.Lstat(filepath.Join(home, name+".migrated")); err != nil {
 			t.Fatalf("%s has no archive: %v", name, err)
+		}
+	}
+}
+
+// A home whose USER.md and MEMORY.md predate accounts boots with those
+// documents under the owner's account directory, the originals archived, and
+// nothing about that changing on a restart.
+func TestOldHomeMovesOwnerDocumentsToTheOwnersAccount(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "memories"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "memories", "MEMORY.md"), []byte("# Eggy Memory\n\n- the owner likes tea\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, boot := range []string{"first", "restart"} {
+		app, err := NewApp(appTestConfig(home), appTestSecrets("provider-secret"), AppOptions{})
+		if err != nil {
+			t.Fatalf("%s boot: %v", boot, err)
+		}
+		loaded, err := app.context.Load(ownerCtx())
+		if err != nil {
+			t.Fatalf("%s boot: %v", boot, err)
+		}
+		if !strings.Contains(loaded.Memory, "the owner likes tea") {
+			t.Fatalf("%s boot memory=%q", boot, loaded.Memory)
+		}
+		if _, err := os.Stat(filepath.Join(home, "accounts", "42", "memories", "MEMORY.md")); err != nil {
+			t.Fatalf("%s boot: memory not under the account: %v", boot, err)
+		}
+		if _, err := os.Stat(filepath.Join(home, "memories.migrated", "MEMORY.md")); err != nil {
+			t.Fatalf("%s boot: original not archived: %v", boot, err)
+		}
+		if err := app.database.Close(); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

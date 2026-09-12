@@ -34,15 +34,15 @@ const (
 	DefaultWatchMaxBytes = 6 << 10
 )
 
-// Paths locates each context document explicitly, because they no longer
-// share one directory: SOUL.md sits at the top of the home while MEMORY.md
-// and USER.md live under
-// memories/ (see internal/home).
+// Paths locates the context documents. SOUL.md is one shared file at the top
+// of the home; USER.md, MEMORY.md and WATCH.md are private, one set per
+// account, and Memories resolves the directory holding them from the acting
+// account's ID (see internal/home.Layout.AccountMemories). It is a function
+// rather than a map so a removed account resolves to nothing and an ID the
+// layout refuses cannot become a path.
 type Paths struct {
-	Soul   string
-	User   string
-	Memory string
-	Watch  string
+	Soul     string
+	Memories func(accountID string) (string, error)
 }
 
 type Store struct {
@@ -71,15 +71,41 @@ func Open(paths Paths, userMaxBytes, memoryMaxBytes, watchMaxBytes int64) *Store
 // needs a scratch home keep using it.
 func InDir(dir string, userMaxBytes, memoryMaxBytes int64) *Store {
 	return Open(Paths{
-		Soul:   filepath.Join(dir, "SOUL.md"),
-		User:   filepath.Join(dir, "USER.md"),
-		Memory: filepath.Join(dir, "MEMORY.md"),
-		Watch:  filepath.Join(dir, "WATCH.md"),
+		Soul:     filepath.Join(dir, "SOUL.md"),
+		Memories: func(string) (string, error) { return dir, nil },
 	}, userMaxBytes, memoryMaxBytes, 0)
+}
+
+// privateDir resolves the acting account's memories directory. It fails
+// closed on a missing principal and refuses a directory that is a symlink,
+// so neither a forged account nor a planted link can move a write outside
+// the account's own directory.
+func (s *Store) privateDir(ctx context.Context) (string, error) {
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	dir, err := s.paths.Memories(principal.AccountID)
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s is a symlink; refusing to use it for private documents", dir)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err := ctx.Err(); err != nil {
+		return ports.AgentContext{}, err
+	}
+	dir, err := s.privateDir(ctx)
+	if err != nil {
 		return ports.AgentContext{}, err
 	}
 	s.mu.Lock()
@@ -88,15 +114,15 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	user, err := s.loadDocument(s.paths.User, initialUser)
+	user, err := s.loadDocument(filepath.Join(dir, "USER.md"), initialUser)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	memory, err := s.loadDocument(s.paths.Memory, initialMemory)
+	memory, err := s.loadDocument(filepath.Join(dir, "MEMORY.md"), initialMemory)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
-	watch, err := s.loadDocument(s.paths.Watch, initialWatch)
+	watch, err := s.loadDocument(filepath.Join(dir, "WATCH.md"), initialWatch)
 	if err != nil {
 		return ports.AgentContext{}, err
 	}
@@ -156,7 +182,7 @@ func (s *Store) ReplaceDocument(ctx context.Context, document ports.ContextDocum
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	path, initial, maxBytes, err := s.writableDocument(document)
+	path, initial, maxBytes, err := s.writableDocument(ctx, document)
 	if err != nil {
 		return err
 	}
@@ -184,7 +210,7 @@ func (s *Store) rewrite(ctx context.Context, document ports.ContextDocument, edi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	path, initial, maxBytes, err := s.writableDocument(document)
+	path, initial, maxBytes, err := s.writableDocument(ctx, document)
 	if err != nil {
 		return err
 	}
@@ -212,17 +238,23 @@ func (s *Store) rewrite(ctx context.Context, document ports.ContextDocument, edi
 	})
 }
 
-func (s *Store) writableDocument(document ports.ContextDocument) (path, initial string, maxBytes int64, err error) {
+func (s *Store) writableDocument(ctx context.Context, document ports.ContextDocument) (path, initial string, maxBytes int64, err error) {
+	var name string
 	switch document {
 	case ports.ContextUser:
-		return s.paths.User, initialUser, s.userMaxBytes, nil
+		name, initial, maxBytes = "USER.md", initialUser, s.userMaxBytes
 	case ports.ContextMemory:
-		return s.paths.Memory, initialMemory, s.memoryMaxBytes, nil
+		name, initial, maxBytes = "MEMORY.md", initialMemory, s.memoryMaxBytes
 	case ports.ContextWatch:
-		return s.paths.Watch, initialWatch, s.watchMaxBytes, nil
+		name, initial, maxBytes = "WATCH.md", initialWatch, s.watchMaxBytes
 	default:
 		return "", "", 0, fmt.Errorf("context document %q is read-only", document)
 	}
+	dir, err := s.privateDir(ctx)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return filepath.Join(dir, name), initial, maxBytes, nil
 }
 
 // splitEntries divides a document into its leading markdown header (the "#

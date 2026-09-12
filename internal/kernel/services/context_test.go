@@ -38,7 +38,7 @@ func memoryToolFor(t *testing.T, secrets []string) (ports.Tool, ports.ContextSto
 
 func TestMemoryToolCuratesUserAndMemory(t *testing.T) {
 	tool, store := memoryToolFor(t, []string{"secret-value"})
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 
 	result, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"user","text":"Prefers concise answers"}`))
 	if err != nil || string(result) != `{"updated":true}` {
@@ -71,7 +71,7 @@ func TestMemoryToolCuratesUserAndMemory(t *testing.T) {
 // it is owner-editable only.
 func TestMemoryToolRejectsSecretsAndUnwritableFiles(t *testing.T) {
 	tool, store := memoryToolFor(t, []string{"secret-value"})
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"token: secret-value"}`)); err == nil {
 		t.Fatal("expected secret rejection")
@@ -90,7 +90,7 @@ func TestMemoryToolRejectsSecretsAndUnwritableFiles(t *testing.T) {
 
 func TestMemoryToolValidatesArguments(t *testing.T) {
 	tool, _ := memoryToolFor(t, nil)
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 	for name, raw := range map[string]string{
 		"missing text on add":         `{"action":"add","file":"memory"}`,
 		"missing old_text on remove":  `{"action":"remove","file":"memory"}`,
@@ -119,7 +119,7 @@ func TestMemoryWritesAreSilentInNormalModeAndStillGatedByStrict(t *testing.T) {
 	tool, store := memoryToolFor(t, nil)
 	service := NewApprovalService(newFakeStateStore(), time.Now, 30*time.Minute, ports.ModeNormal)
 	gated := NewApprovalGatedToolIf(tool, service, service, RuleFor(tool.Definition()))
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 
 	if _, err := gated.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"Runs Future Lawyers"}`)); err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestMemoryWritesAreSilentInNormalModeAndStillGatedByStrict(t *testing.T) {
 
 func TestMemoryToolWritesTheWatchList(t *testing.T) {
 	tool, store := memoryToolFor(t, nil)
-	ctx := context.Background()
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
 
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"watch","text":"deploy on Railway — check it settles"}`)); err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -181,7 +181,7 @@ func TestMemoryToolWritesTheWatchList(t *testing.T) {
 
 func TestMemoryToolRejectsAnUnknownFile(t *testing.T) {
 	tool, _ := memoryToolFor(t, nil)
-	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"action":"add","file":"soul","text":"nope"}`)); err == nil {
+	if _, err := tool.Execute(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), json.RawMessage(`{"action":"add","file":"soul","text":"nope"}`)); err == nil {
 		t.Fatal("writing soul succeeded")
 	}
 }

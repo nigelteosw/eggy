@@ -174,6 +174,23 @@ func (c *Client) SetCommands(ctx context.Context, commands []BotCommand) error {
 	return err
 }
 
+func (c *Client) GetMe(ctx context.Context) (string, error) {
+	result, err := c.call(ctx, "getMe", map[string]any{})
+	if err != nil {
+		return "", err
+	}
+	var bot struct {
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(result, &bot); err != nil {
+		return "", fmt.Errorf("decode Telegram bot identity: %w", err)
+	}
+	if strings.TrimSpace(bot.Username) == "" {
+		return "", errors.New("Telegram bot has no username")
+	}
+	return bot.Username, nil
+}
+
 func (c *Client) sendMessage(ctx context.Context, text string, extra map[string]any) (string, error) {
 	chatID, err := c.chatID(ctx)
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 )
 
 type EventSink func(context.Context, events.Event) error
+type PairingConsumer func(context.Context, string, int64) error
 
 // CallbackAcknowledger clears the loading spinner Telegram shows on a
 // tapped inline button. *Client implements it.
@@ -58,6 +59,12 @@ type WebhookHandler struct {
 	acknowledger     CallbackAcknowledger
 	downloader       ImageDownloader
 	resolveSelection func(string) (string, bool)
+	pairing          PairingConsumer
+}
+
+func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer) *WebhookHandler {
+	h.pairing = consume
+	return h
 }
 
 func NewWebhookHandler(resolve SenderResolver, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
@@ -138,9 +145,26 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Private chats only: in a group the sender and the chat differ, and a
 	// reply would land where other people read it.
-	accountID, ok := h.resolve(sender)
-	if !ok || chatID != sender {
+	if chatID != sender {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	accountID, ok := h.resolve(sender)
+	if !ok {
+		if incoming.Message == nil || h.pairing == nil {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		parts := strings.Fields(incoming.Message.Text)
+		if len(parts) != 2 || parts[0] != "/start" || strings.TrimSpace(parts[1]) == "" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if err := h.pairing(r.Context(), parts[1], sender); err != nil {
+			http.Error(w, "pairing link is invalid or expired", http.StatusForbidden)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if incoming.Callback != nil && h.acknowledger != nil {

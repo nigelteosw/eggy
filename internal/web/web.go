@@ -34,9 +34,12 @@ type WebUIConfig struct {
 	// AccountMode switches the panel from the single-owner password login to
 	// Google Sign-In with revocable sessions. Sessions and Accounts must be
 	// set with it; the password and login-link routes are not mounted.
-	AccountMode bool
-	Sessions    SessionStore
-	Accounts    AccountDirectory
+	AccountMode         bool
+	Sessions            SessionStore
+	Accounts            AccountDirectory
+	InitializeAccount   func(string) error
+	TelegramPairings    TelegramPairingStore
+	TelegramBotUsername string
 	// GoogleLogin, Identities and LoginSealer are the Sign-In routes'
 	// collaborators. All three are required in account mode.
 	GoogleLogin GoogleLogin
@@ -274,13 +277,18 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// The accounts card. Every write is a config mutation; the routes add
 	// only who-may-do-what and the live enrollment/session state.
 	mux.Handle("GET /api/config/accounts", guard(accountsGetRoute(configPath, webConfig, now)))
-	mux.Handle("POST /api/config/accounts", guard(accountAddRoute(configPath)))
+	mux.Handle("POST /api/config/accounts", guard(accountAddRoute(configPath, webConfig)))
 	mux.Handle("POST /api/config/accounts/convert", guard(accountsConvertRoute(configPath)))
 	mux.Handle("PATCH /api/config/accounts/{id}", guard(accountEditRoute(configPath, webConfig)))
 	mux.Handle("DELETE /api/config/accounts/{id}", guard(accountRemoveRoute(configPath, webConfig)))
 	mux.Handle("POST /api/config/accounts/{id}/reset-binding", guard(accountResetBindingRoute(webConfig)))
 	mux.Handle("POST /api/config/login", guard(loginClientSetRoute(configPath)))
 	mux.Handle("POST /api/config/google/expected-email", guard(expectedEmailSetRoute(configPath)))
+	mux.Handle("POST /api/config/telegram/enabled", guard(telegramEnabledRoute(configPath, webConfig)))
+	if webConfig.TelegramPairings != nil {
+		mux.Handle("POST /api/accounts/{id}/telegram/pairing", guard(telegramPairingCreateRoute(webConfig.TelegramPairings, webConfig.TelegramBotUsername, cryptoRead, now)))
+		mux.Handle("DELETE /api/accounts/{id}/telegram", guard(telegramUnlinkRoute(configPath, webConfig.TelegramPairings)))
+	}
 
 	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))

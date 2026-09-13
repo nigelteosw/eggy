@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -91,6 +94,17 @@ func run() error {
 			}
 			return serveErr
 		}
+		if errors.Is(err, config.ErrSetupRequired) {
+			completed, setupErr := serveSetupMode(ctx, safeModeListen(getenv), layout, *configPath, getenv)
+			if setupErr != nil {
+				return setupErr
+			}
+			if !completed {
+				return nil
+			}
+			logger.Info("setup completed, retrying startup")
+			continue
+		}
 		logger.Error("startup failed, entering safe mode", "error", err, "config", *configPath)
 		repaired, safeModeErr := serveSafeMode(ctx, safeModeListen(getenv), layout, *configPath, err, getenv, envSecrets, logger)
 		if safeModeErr != nil {
@@ -103,6 +117,85 @@ func run() error {
 			return nil
 		}
 		logger.Info("config repaired, retrying startup")
+	}
+}
+
+func setupPublicBaseURL(getenv func(string) string) string {
+	if configured := strings.TrimSpace(getenv("EGGY_PUBLIC_BASE_URL")); configured != "" {
+		return strings.TrimRight(configured, "/")
+	}
+	if domain := strings.TrimSpace(getenv("RAILWAY_PUBLIC_DOMAIN")); domain != "" {
+		return "https://" + strings.TrimRight(domain, "/")
+	}
+	address := safeModeListen(getenv)
+	port := strings.TrimPrefix(address, ":")
+	return "http://localhost:" + port
+}
+
+func setupURL(publicBaseURL, token string) string {
+	return strings.TrimRight(publicBaseURL, "/") + "/#setup=" + token
+}
+
+func newSetupMode(homePath, configPath, publicBaseURL string, getenv func(string) string, now func() time.Time) (web.SetupMode, string, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return web.SetupMode{}, "", fmt.Errorf("generate setup token: %w", err)
+	}
+	sessionKey := make([]byte, 32)
+	if _, err := rand.Read(sessionKey); err != nil {
+		return web.SetupMode{}, "", fmt.Errorf("generate setup session key: %w", err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	mode := web.SetupMode{
+		ConfigPath: configPath, PublicBaseURL: publicBaseURL,
+		TokenHash: sha256.Sum256([]byte(token)), SessionKey: sessionKey,
+		Expires: now().Add(30 * time.Minute), Now: now,
+	}
+	mode.Validate = func(input config.SetupInput) (map[string]bool, error) {
+		variables := map[string]bool{"EGGY_ENCRYPTION_KEY": strings.TrimSpace(getenv("EGGY_ENCRYPTION_KEY")) != ""}
+		for _, name := range []string{strings.TrimSpace(input.LoginClientSecretEnv), strings.TrimSpace(input.ProviderAPIKeyEnv)} {
+			if name != "" {
+				variables[name] = strings.TrimSpace(getenv(name)) != ""
+			}
+		}
+		_, err := config.ValidateSetup(homePath, input, getenv)
+		return variables, err
+	}
+	mode.Complete = func(input config.SetupInput) error {
+		return config.CompleteSetup(homePath, configPath, input, getenv)
+	}
+	return mode, token, nil
+}
+
+func serveSetupMode(ctx context.Context, address string, layout home.Layout, configPath string, getenv func(string) string) (bool, error) {
+	publicBaseURL := setupPublicBaseURL(getenv)
+	mode, token, err := newSetupMode(layout.Root, configPath, publicBaseURL, getenv, time.Now)
+	if err != nil {
+		return false, err
+	}
+	completed := make(chan struct{})
+	var once sync.Once
+	mode.Completed = func() { once.Do(func() { close(completed) }) }
+	// This credential intentionally bypasses the persistent application logger.
+	// It is configuration authority until exchanged or expired.
+	_, _ = fmt.Fprintf(os.Stderr, "Eggy setup URL (valid for 30 minutes): %s\n", setupURL(publicBaseURL, token))
+	server := newServer(address, web.NewHTTPHandler(web.Routes{
+		Ready: func() error { return config.ErrSetupRequired },
+		Web:   web.NewSetupModeHandler(mode),
+	}))
+	listenErrors := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			listenErrors <- err
+		}
+	}()
+	select {
+	case err := <-listenErrors:
+		return false, err
+	case <-completed:
+		return true, shutdown(server)
+	case <-ctx.Done():
+		return false, shutdown(server)
 	}
 }
 

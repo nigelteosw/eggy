@@ -41,23 +41,19 @@ redirect URI above.
 
 ## 3. Variables
 
-On first boot, when `/data/config.yaml` does not exist, Eggy generates it from
-these. Later changes come from **Settings**, not from re-setting variables.
+Set only the credentials Eggy cannot generate on its own; you configure
+everything else — the first account, the sign-in client ID, the model — from
+the setup page after deploying. Railway's injected `PORT` overrides
+`server.listen`, and `RAILWAY_PUBLIC_DOMAIN` is picked up automatically for
+`server.public_base_url`.
 
 | Variable | Purpose |
 | --- | --- |
-| `EGGY_ACCOUNTS` | The people, as `id:google_email[:telegram_user_id]`, comma-separated. Example: `nigel:nigel@example.com:123456789,partner:partner@example.com` |
-| `EGGY_GOOGLE_LOGIN_CLIENT_ID` | The **Web application** client ID people sign in with |
-| `EGGY_GOOGLE_LOGIN_CLIENT_SECRET` | Its secret |
-| `EGGY_GOOGLE_EXPECTED_EMAIL` | Eggy's own Workspace address, e.g. `eggy@yourdomain` |
-| `EGGY_ENCRYPTION_KEY` | Base64-encoded 32-byte key; seals sessions and grants. Keep it stable |
-| `DEEPSEEK_API_KEY` | The generated config's default provider credential |
-| `EGGY_PUBLIC_BASE_URL` | Only if Railway does not inject `RAILWAY_PUBLIC_DOMAIN` |
+| `EGGY_ENCRYPTION_KEY` | Base64-encoded 32-byte key; seals sessions and grants. Generate with `openssl rand -base64 32` and keep it stable. |
+| `EGGY_GOOGLE_LOGIN_CLIENT_SECRET` | The **Web application** sign-in client's secret. Name it whatever you like — you tell setup the variable name, not the value. |
+| `DEEPSEEK_API_KEY` | Your model provider's API key. Same naming freedom as above. |
 
-Generate the key with `openssl rand -base64 32`. Railway's injected `PORT`
-overrides `server.listen`.
-
-Optional, for Telegram (any account with a `telegram_user_id`):
+Optional, only once you enable Telegram from Settings after setup:
 
 ```text
 TELEGRAM_BOT_TOKEN
@@ -68,14 +64,22 @@ Optional, for the Workspace grant: `GOOGLE_CLIENT_SECRET` (the Desktop
 client's secret). The Desktop client ID and products are set from Settings
 after the first sign-in, so nothing else is needed now.
 
-Do **not** set `EGGY_UI_USER_EMAIL` or `EGGY_UI_PASSWORD`: with accounts there
-is no password login, and a config that has both is refused.
+### Headless setup (alternative)
+
+Setting `EGGY_ACCOUNTS` (as `id:google_email[:telegram_user_id]`,
+comma-separated), `EGGY_GOOGLE_LOGIN_CLIENT_ID`, and
+`EGGY_GOOGLE_EXPECTED_EMAIL` skips the setup page and generates
+`config.yaml` on first boot instead, for scripted provisioning. Do **not**
+set `EGGY_UI_USER_EMAIL` or `EGGY_UI_PASSWORD` alongside it: with accounts
+there is no password login, and a config with both is refused.
 
 ## 4. Sign in
 
-Open the service's domain. The page shows **Sign in with Google**; sign in
-with the address you listed in `EGGY_ACCOUNTS`. The first sign-in enrolls the
-account and binds it to your Google identity.
+Open the service's domain. With no `EGGY_ACCOUNTS` set, Railway's deploy logs
+show a one-time setup URL — open it, fill in your account, the sign-in client
+ID, and the model, and **Validate and start**. The page then shows
+**Sign in with Google**; sign in with the address you gave setup. The first
+sign-in enrolls the account and binds it to your Google identity.
 
 Then, under **Settings → Connections → Google Workspace**, set the Desktop
 client ID, `client_secret_env: GOOGLE_CLIENT_SECRET`, and the products; save
@@ -92,16 +96,18 @@ user.
 
 Everyone with an account can do this.
 
-1. **Settings → Accounts → Add an account.** Give them a short ID, the Google
-   address they will sign in with, and — if they use Telegram — their numeric
-   Telegram user ID (send `/start` to `@userinfobot` to find it). Save.
+1. **Settings → Accounts → Add an account.** Give them a short ID and the
+   Google address they will sign in with. Save — access changes immediately,
+   no restart needed.
 2. If the consent screen is *External / Testing*, add their address as a test
    user in Google Cloud.
-3. **Restart Eggy** (Settings → Advanced, or `/restart` in chat). The account
-   list is read at startup.
-4. Send them the panel address. They sign in with Google with that address;
+3. Send them the panel address. They sign in with Google with that address;
    the first sign-in enrolls them. They start with empty conversations and
    memory, their own `/mode` and `/model`, and the shared Google connection.
+4. If they use Telegram, they link it themselves from **Settings →
+   Accounts → Link Telegram** — see
+   [Linking your Telegram](/eggy/use/telegram/#linking-your-telegram). There
+   is no numeric ID to look up by hand.
 
 To remove someone, **Remove** on their row: they are signed out immediately
 and can no longer sign in; their private history stays in the database. If

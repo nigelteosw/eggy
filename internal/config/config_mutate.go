@@ -494,6 +494,56 @@ func SetHeartbeat(path, interval, instruction, activeStart, activeEnd string) er
 	})
 }
 
+func SetTelegramEnabled(path string, enabled bool) error {
+	return mutate(path, func(cfg *Config) error {
+		cfg.Telegram.Enabled = &enabled
+		return nil
+	})
+}
+
+func LinkTelegramAccount(path, accountID string, telegramUserID int64) error {
+	if telegramUserID <= 0 {
+		return errors.New("telegram user id must be positive")
+	}
+	return mutate(path, func(cfg *Config) error {
+		if !cfg.TelegramEnabled() {
+			return errors.New("Telegram is not enabled")
+		}
+		index := -1
+		for i := range cfg.Accounts {
+			if cfg.Accounts[i].ID == accountID {
+				index = i
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("account %q is not configured", accountID)
+		}
+		if existing, ok := cfg.AccountForTelegram(telegramUserID); ok && existing.ID != accountID {
+			return fmt.Errorf("telegram user id %d is already linked to another account", telegramUserID)
+		}
+		if cfg.Accounts[index].TelegramUserID != 0 && cfg.Accounts[index].TelegramUserID != telegramUserID {
+			return fmt.Errorf("account %q is already linked; unlink it first", accountID)
+		}
+		cfg.Accounts[index].TelegramUserID = telegramUserID
+		return nil
+	})
+}
+
+func UnlinkTelegramAccount(path, accountID string) error {
+	return mutate(path, func(cfg *Config) error {
+		for i := range cfg.Accounts {
+			if cfg.Accounts[i].ID == accountID {
+				if cfg.Accounts[i].TelegramUserID == 0 {
+					return errNoConfigChange
+				}
+				cfg.Accounts[i].TelegramUserID = 0
+				return nil
+			}
+		}
+		return fmt.Errorf("account %q is not configured", accountID)
+	})
+}
+
 // SetTracing saves the tracing section from the panel's form. Every field
 // arrives as the text the owner typed, and a blank one means "leave the
 // default in place" rather than zero -- a blank retention box must not be a

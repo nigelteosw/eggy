@@ -25,7 +25,7 @@ import (
 // by account as well as by their old key. A version-6 binary refuses a 7
 // database, which is deliberate -- it would read every account's records as
 // one owner's.
-const MachineStateVersion = 7
+const MachineStateVersion = 8
 
 const machineStateVersionKey = "machine_state_version"
 

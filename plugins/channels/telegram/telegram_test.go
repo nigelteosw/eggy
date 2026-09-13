@@ -362,6 +362,39 @@ func TestWebhookMapsSendersToAccountsAndRefusesGroupsAndStrangers(t *testing.T) 
 	}
 }
 
+func TestWebhookAllowsOnlyExactPrivatePairingForUnmappedSender(t *testing.T) {
+	var payload string
+	var sender int64
+	enqueued := false
+	handler := NewWebhookHandler(func(int64) (string, bool) { return "", false }, "secret", func(context.Context, events.Event) error {
+		enqueued = true
+		return nil
+	}, nil).WithPairingConsumer(func(_ context.Context, code string, userID int64) error {
+		payload, sender = code, userID
+		return nil
+	})
+	post := func(chat int64, text string) int {
+		body := fmt.Sprintf(`{"update_id":1,"message":{"message_id":1,"from":{"id":77},"chat":{"id":%d},"text":%q}}`, chat, text)
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		return response.Code
+	}
+	if code := post(77, "/start opaque-code"); code != http.StatusNoContent || payload != "opaque-code" || sender != 77 || enqueued {
+		t.Fatalf("pairing status=%d payload=%q sender=%d enqueued=%v", code, payload, sender, enqueued)
+	}
+	for _, attempt := range []struct {
+		chat int64
+		text string
+	}{{77, "hello"}, {77, "/start"}, {77, "/start a b"}, {-100, "/start other"}} {
+		payload = ""
+		if code := post(attempt.chat, attempt.text); code != http.StatusForbidden || payload != "" {
+			t.Fatalf("attempt=%+v status=%d payload=%q", attempt, code, payload)
+		}
+	}
+}
+
 // Delivery goes to the acting account's chat and nowhere else: an account
 // without a Telegram chat gets an error, not the first configured chat.
 func TestClientDeliversToTheActingAccountsChatOnly(t *testing.T) {

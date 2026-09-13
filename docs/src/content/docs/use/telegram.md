@@ -10,7 +10,57 @@ With [accounts](/eggy/configure/accounts/) configured, each account's
 `telegram_user_id` maps that numeric sender to their account; unmapped senders
 and group chats are refused, and replies, approvals and scheduled output go to
 each person's own private chat. An account without a Telegram ID uses the web
-panel only.
+panel only. In account mode, that mapping is set by each person linking their
+own Telegram from the panel — see [Linking your Telegram](#linking-your-telegram)
+— not by editing `config.yaml` by hand.
+
+## Enabling Telegram
+
+Telegram needs two credentials in the deployment environment before it can be
+turned on: `TELEGRAM_BOT_TOKEN` (from [@BotFather](https://t.me/BotFather)) and
+`TELEGRAM_WEBHOOK_SECRET` (a random string you choose, used only to verify that
+webhook deliveries came from Telegram). Neither is ever written to
+`config.yaml` or shown back by the panel.
+
+With both provisioned, turn Telegram on from **Settings → Accounts →
+Enable Telegram**, or during guided first-run setup by checking its box. Either
+way, this writes `telegram.enabled: true` and nothing else — no bot is
+constructed and no pairing is possible until you restart, because the adapter
+and its webhook route are built once at startup like every other adapter.
+
+### Registering the webhook
+
+After restarting, tell Telegram where to deliver updates. Eggy does not call
+`setWebhook` for you — the plan deliberately keeps this one step explicit and
+in the operator's hands, so a webhook URL is never registered silently. Run
+this once per deployment, from a shell that has both values:
+
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=${EGGY_PUBLIC_BASE_URL}/webhooks/telegram" \
+  --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+```
+
+Replace `/webhooks/telegram` with `server.telegram_webhook_path` if you changed
+it from the default. Telegram's response confirms the URL it now delivers to;
+`curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"` shows
+the current registration at any time. Re-run `setWebhook` after moving hosts or
+rotating the bot token.
+
+## Linking your Telegram
+
+Once Telegram is enabled and its webhook is registered, each person links
+their own account from **Settings → Accounts**: the **Link Telegram** button
+requests a single-use pairing link good for ten minutes, valid for that one
+account only. Opening it and sending `/start` to the bot completes the link
+immediately — no restart needed, since pairing writes only the account's
+`telegram_user_id` through the same live config path the rest of the panel
+uses. **Unlink Telegram** removes the mapping the same way.
+
+There is no `@userinfobot` step and no numeric ID to find and paste: the
+button is the whole flow. A pending pairing link is itself a credential —
+anyone who opens it before you can claim your account's Telegram identity — so
+treat it like a password link and do not forward it.
 
 ## Direct commands
 

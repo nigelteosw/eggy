@@ -183,7 +183,6 @@ func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 		mutate func(map[string]string)
 		want   string
 	}{
-		{"missing owner", func(values map[string]string) { delete(values, "EGGY_TELEGRAM_OWNER_ID") }, "EGGY_ACCOUNTS is required, or EGGY_TELEGRAM_OWNER_ID / EGGY_OWNER_ID for a single-owner deployment"},
 		{"invalid owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "not-a-number" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"zero owner", func(values map[string]string) { values["EGGY_TELEGRAM_OWNER_ID"] = "0" }, "EGGY_TELEGRAM_OWNER_ID must be a positive integer"},
 		{"missing public URL", func(values map[string]string) { delete(values, "EGGY_PUBLIC_BASE_URL") }, "EGGY_PUBLIC_BASE_URL is required when RAILWAY_PUBLIC_DOMAIN is unavailable"},
@@ -202,6 +201,29 @@ func TestLoadOrCreateConfigValidatesFirstBootEnvironment(t *testing.T) {
 				t.Fatalf("config exists after failed initialization: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestLoadOrCreateConfigRequiresSetupOnlyWhenHeadlessProvisioningIsAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if _, _, err := LoadOrCreateConfig(path, mapEnv(nil)); !errors.Is(err, ErrSetupRequired) {
+		t.Fatalf("error = %v, want ErrSetupRequired", err)
+	}
+
+	env := map[string]string{"EGGY_ACCOUNTS": "you:you@example.com"}
+	if _, _, err := LoadOrCreateConfig(filepath.Join(t.TempDir(), "config.yaml"), mapEnv(env)); err == nil || errors.Is(err, ErrSetupRequired) || !strings.Contains(err.Error(), "EGGY_GOOGLE_LOGIN_CLIENT_ID") {
+		t.Fatalf("partial headless provisioning error = %v", err)
+	}
+}
+
+func TestLoadOrCreateConfigRefusesSetupForExistingHome(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "eggy.db"), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := LoadOrCreateConfig(filepath.Join(root, "config.yaml"), mapEnv(nil))
+	if err == nil || errors.Is(err, ErrSetupRequired) || !strings.Contains(err.Error(), "existing home") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

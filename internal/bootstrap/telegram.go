@@ -10,6 +10,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/channels/telegram"
 )
 
@@ -31,30 +32,41 @@ type telegramWiring struct {
 	// NewWebhookHandler's nil checks.
 	channel      ports.Channel
 	acknowledger telegram.CallbackAcknowledger
+	accounts     web.AccountDirectory
+	botUsername  string
+	pairing      telegram.PairingConsumer
 }
 
-func newTelegramWiring(cfg config.Config, secrets config.Secrets, options AppOptions) telegramWiring {
+func newTelegramWiring(cfg config.Config, secrets config.Secrets, options AppOptions, accounts web.AccountDirectory, pairing telegram.PairingConsumer) telegramWiring {
 	if options.FakeAdapters || !cfg.TelegramEnabled() {
-		return telegramWiring{}
+		return telegramWiring{accounts: accounts, pairing: pairing}
 	}
-	client := telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, telegramChats(cfg), options.HTTPClient)
+	client := telegram.NewClient(options.TelegramBaseURL, secrets.TelegramBotToken, telegramChats(accounts), options.HTTPClient)
+	username, err := client.GetMe(context.Background())
+	if err != nil {
+		options.Logger.Warn("failed to discover Telegram bot username; pairing disabled", "error", err)
+	}
 	return telegramWiring{
 		client:       client,
 		selector:     telegram.NewSelector(client, options.Now, 10*time.Minute),
 		channel:      client,
 		acknowledger: client,
+		accounts:     accounts,
+		botUsername:  username,
+		pairing:      pairing,
 	}
 }
 
 // telegramSenders maps a verified numeric sender to its account, from the
 // configured list in either shape. Unmapped senders resolve to nothing.
-func telegramSenders(cfg config.Config) telegram.SenderResolver {
+func telegramSenders(accounts web.AccountDirectory) telegram.SenderResolver {
 	return func(sender int64) (string, bool) {
-		account, ok := cfg.AccountForTelegram(sender)
-		if !ok {
-			return "", false
+		for _, account := range accounts.Accounts() {
+			if account.TelegramUserID == sender {
+				return account.ID, true
+			}
 		}
-		return account.ID, true
+		return "", false
 	}
 }
 
@@ -62,9 +74,9 @@ func telegramSenders(cfg config.Config) telegram.SenderResolver {
 // private chat with a bot is numbered by the person. An account without a
 // Telegram sender has no chat, and the client reports that rather than
 // borrowing someone else's.
-func telegramChats(cfg config.Config) telegram.ChatResolver {
+func telegramChats(accounts web.AccountDirectory) telegram.ChatResolver {
 	return func(accountID string) (string, bool) {
-		account, ok := cfg.Account(accountID)
+		account, ok := accounts.Account(accountID)
 		if !ok || account.TelegramUserID == 0 {
 			return "", false
 		}
@@ -92,7 +104,10 @@ func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink 
 	if !cfg.TelegramEnabled() {
 		return nil
 	}
-	handler := telegram.NewWebhookHandler(telegramSenders(cfg), secrets.TelegramWebhookSecret, sink, w.acknowledger)
+	handler := telegram.NewWebhookHandler(telegramSenders(w.accounts), secrets.TelegramWebhookSecret, sink, w.acknowledger)
+	if w.pairing != nil {
+		handler.WithPairingConsumer(w.pairing)
+	}
 	if w.client != nil {
 		handler.WithImageDownloader(w.client)
 	}

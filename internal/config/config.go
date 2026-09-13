@@ -346,7 +346,8 @@ type OwnerConfig struct {
 }
 
 type TelegramConfig struct {
-	OwnerID int64 `yaml:"owner_id"`
+	Enabled *bool `yaml:"enabled,omitempty"`
+	OwnerID int64 `yaml:"owner_id,omitempty"`
 }
 
 // Configured reports whether Telegram is a channel for this deployment.

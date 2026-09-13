@@ -36,13 +36,6 @@ func (f *fakeTelegramPairings) DeleteTelegramPairings(_ context.Context, account
 	return nil
 }
 
-func pairingRequest(accountID, method, target string) *http.Request {
-	r := httptest.NewRequest(method, target, nil)
-	r.SetPathValue("id", strings.TrimPrefix(target, "/api/accounts/"))
-	ctx := context.WithValue(r.Context(), sessionKey{}, accountSession{account: AccountRecord{ID: accountID}})
-	return r.WithContext(ctx)
-}
-
 func TestTelegramPairingRouteReturnsCredentialURLAndStoresOnlyHash(t *testing.T) {
 	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
 	store := &fakeTelegramPairings{}

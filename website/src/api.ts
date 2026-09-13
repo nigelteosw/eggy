@@ -63,7 +63,7 @@ export function checkSession(): Promise<Session> {
 // "safe" means eggyd could not start -- almost always a config.yaml it cannot
 // load -- and is serving only the repair surface. Asked before anything else,
 // because in safe mode every other route is absent or reporting the failure.
-export type Mode = "normal" | "safe";
+export type Mode = "normal" | "safe" | "setup";
 export type Theme = "dark" | "light";
 // Login is which way in exists: the single owner's password form, or Google
 // Sign-In for an accounts deployment.
@@ -82,6 +82,64 @@ export function getMode(): Promise<Probe> {
     theme: result.theme === "light" ? "light" : "dark",
     login: result.login === "google" ? "google" : "password",
   }));
+}
+
+export type SetupInput = {
+  account_id: string;
+  google_email: string;
+  public_base_url: string;
+  login_client_id: string;
+  login_client_secret_env: string;
+  provider_name: string;
+  provider_base_url: string;
+  provider_api_key_env: string;
+  model_alias: string;
+  model_id: string;
+  telegram_enabled: boolean;
+};
+
+export type SetupValidation = { variables: Record<string, boolean>; detail?: string };
+
+async function setupRequest(path: string, body: unknown): Promise<Response> {
+  return fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function exchangeSetupToken(token: string): Promise<void> {
+  const response = await setupRequest("/api/setup/session", { token });
+  if (!response.ok) throw new Error("This setup link is invalid or has expired.");
+}
+
+export async function validateSetup(input: SetupInput): Promise<SetupValidation> {
+  const response = await setupRequest("/api/setup/validate", input);
+  const result = (await response.json()) as SetupValidation;
+  if (!response.ok) throw Object.assign(new Error(result.detail ?? "Setup is not ready."), { validation: result });
+  return result;
+}
+
+export async function completeSetup(input: SetupInput): Promise<void> {
+  const response = await setupRequest("/api/setup/complete", input);
+  if (response.status === 401) throw new SessionExpiredError("Setup session expired");
+  if (!response.ok) {
+    const result = (await response.json()) as SetupValidation;
+    throw new Error(result.detail ?? "Could not complete setup.");
+  }
+}
+
+export async function consumeSetupFragment(
+  location: Pick<Location, "hash" | "pathname" | "search">,
+  history: Pick<History, "replaceState">,
+  exchange: (token: string) => Promise<void>,
+): Promise<void> {
+  const params = new URLSearchParams(location.hash.startsWith("#") ? location.hash.slice(1) : location.hash);
+  const token = params.get("setup");
+  if (!token) return;
+  history.replaceState({}, "", location.pathname + location.search);
+  await exchange(token);
 }
 
 export function getStartupFailure(): Promise<CommandResult> {
@@ -149,6 +207,8 @@ export type AccountsView = {
   migration_owner_id?: string;
   legacy_owner?: string;
   legacy_telegram_id?: number;
+  telegram_enabled: boolean;
+  telegram_pairing_available: boolean;
 };
 
 export type AccountInput = { id: string; email: string; telegram_user_id: number };
@@ -171,6 +231,20 @@ export function removeAccount(id: string): Promise<CommandResult> {
 
 export function resetAccountBinding(id: string): Promise<CommandResult> {
   return request(`/api/config/accounts/${encodeURIComponent(id)}/reset-binding`, { method: "POST" });
+}
+
+export type TelegramPairing = { url: string; expires_at: string };
+
+export function createTelegramPairing(id: string): Promise<TelegramPairing> {
+  return request(`/api/accounts/${encodeURIComponent(id)}/telegram/pairing`, { method: "POST" });
+}
+
+export function unlinkTelegram(id: string): Promise<CommandResult> {
+  return request(`/api/accounts/${encodeURIComponent(id)}/telegram`, { method: "DELETE" });
+}
+
+export function setTelegramEnabled(enabled: boolean): Promise<CommandResult> {
+  return request("/api/config/telegram/enabled", { method: "POST", body: JSON.stringify({ enabled }) });
 }
 
 export function setLoginClient(clientId: string, clientSecretEnv: string): Promise<CommandResult> {

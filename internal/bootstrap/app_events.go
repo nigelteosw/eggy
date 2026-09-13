@@ -298,7 +298,7 @@ func (a *App) watchListIsEmpty(ctx context.Context) bool {
 // deliver one.
 func (a *App) heartbeatAccounts(ctx context.Context) []context.Context {
 	var beats []context.Context
-	for _, account := range a.config.Principals() {
+	for _, account := range a.accountRecords() {
 		if account.TelegramUserID == 0 {
 			continue
 		}

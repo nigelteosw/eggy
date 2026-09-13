@@ -49,6 +49,20 @@ func TestClientDownloadImage(t *testing.T) {
 	}
 }
 
+func TestClientGetMeReturnsBotUsername(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottoken/getMe" {
+			t.Fatalf("path=%s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"id":1,"is_bot":true,"username":"eggy_bot"}}`)
+	}))
+	defer server.Close()
+	username, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).GetMe(context.Background())
+	if err != nil || username != "eggy_bot" {
+		t.Fatalf("username=%q err=%v", username, err)
+	}
+}
+
 func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -6,6 +6,8 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -39,6 +41,8 @@ type accountsView struct {
 	LegacyOwner         string `json:"legacy_owner,omitempty"`
 	LegacyTelegramID    int64  `json:"legacy_telegram_id,omitempty"`
 	LegacyTelegramEmail string `json:"-"`
+	TelegramEnabled     bool   `json:"telegram_enabled"`
+	TelegramPairing     bool   `json:"telegram_pairing_available"`
 }
 
 func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.Time) http.HandlerFunc {
@@ -57,7 +61,8 @@ func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.
 			LoginClientID: cfg.Web.GoogleLogin.ClientID, LoginClientSecretEnv: cfg.Web.GoogleLogin.ClientSecretEnv,
 			ExpectedEmail: cfg.Google.ExpectedEmail, MigrationOwnerID: cfg.MigrationOwnerID,
 			LegacyOwner: cfg.Owner.ID, LegacyTelegramID: cfg.Telegram.OwnerID,
-			Accounts: []accountView{},
+			Accounts:        []accountView{},
+			TelegramEnabled: cfg.TelegramEnabled(), TelegramPairing: webConfig.TelegramBotUsername != "" && webConfig.TelegramPairings != nil,
 		}
 		for _, account := range cfg.Accounts {
 			row := accountView{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID, Self: account.ID == self}
@@ -89,7 +94,7 @@ type accountInput struct {
 	TelegramUserID int64  `json:"telegram_user_id"`
 }
 
-func accountAddRoute(configPath string) http.HandlerFunc {
+func accountAddRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input accountInput
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -100,7 +105,13 @@ func accountAddRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Account added.", Detail: "They can sign in with Google once Eggy restarts."})
+		if webConfig.InitializeAccount != nil {
+			if err := webConfig.InitializeAccount(input.ID); err != nil {
+				writeWebError(w, http.StatusInternalServerError, "account was added but runtime initialization failed; retry after resolving the error: "+err.Error())
+				return
+			}
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Account added.", Detail: "They can sign in with Google now."})
 	}
 }
 
@@ -125,7 +136,7 @@ func accountEditRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Account updated.", Detail: "Restart Eggy to apply."})
+		writeWebResult(w, webResult{State: webSuccess, Title: "Account updated.", Detail: "Access changed now."})
 	}
 }
 
@@ -156,7 +167,13 @@ func accountRemoveRoute(configPath string, webConfig WebUIConfig) http.HandlerFu
 				return
 			}
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Account removed.", Detail: "They are signed out now. Their private history stays in the database until you delete it; restart Eggy to finish."})
+		if webConfig.TelegramPairings != nil {
+			if err := webConfig.TelegramPairings.DeleteTelegramPairings(r.Context(), id); err != nil {
+				writeWebError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Account removed.", Detail: "They are signed out now. Their private history stays in the database until you delete it."})
 	}
 }
 
@@ -181,7 +198,58 @@ func accountResetBindingRoute(webConfig WebUIConfig) http.HandlerFunc {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if webConfig.TelegramPairings != nil {
+			if err := webConfig.TelegramPairings.DeleteTelegramPairings(r.Context(), id); err != nil {
+				writeWebError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Binding reset.", Detail: "They are signed out and will enroll again with their configured address on next sign-in."})
+	}
+}
+
+// telegramEnabledRoute switches Telegram on or off. Enabling requires the
+// bot's deployment credentials to already be present in the environment --
+// writing enabled:true without them would only be discovered at the next
+// restart, in safe mode, so this checks the same two variables
+// validateSecrets requires before the write ever happens. Disabling needs no
+// such check: there is nothing an absent credential could break by turning
+// the channel off.
+func telegramEnabledRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc {
+	getenv := webConfig.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if input.Enabled {
+			var missing []string
+			if strings.TrimSpace(getenv("TELEGRAM_BOT_TOKEN")) == "" {
+				missing = append(missing, "TELEGRAM_BOT_TOKEN")
+			}
+			if strings.TrimSpace(getenv("TELEGRAM_WEBHOOK_SECRET")) == "" {
+				missing = append(missing, "TELEGRAM_WEBHOOK_SECRET")
+			}
+			if len(missing) > 0 {
+				writeWebError(w, http.StatusBadRequest, "set "+strings.Join(missing, " and ")+" in the deployment environment and restart before enabling Telegram")
+				return
+			}
+		}
+		if err := config.SetTelegramEnabled(configPath, input.Enabled); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		title := "Telegram enabled."
+		if !input.Enabled {
+			title = "Telegram disabled."
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: restartToApply})
 	}
 }
 

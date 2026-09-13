@@ -75,7 +75,7 @@ func RecoveryWeb(layout home.Layout, configPath string, getenv func(string) stri
 		return web.WebUIConfig{AccountMode: true}, func() {}, nil
 	}
 	return web.WebUIConfig{
-		AccountMode: true, Sessions: database, Accounts: accountDirectory{config: identity.Config},
+		AccountMode: true, Sessions: database, Accounts: newAccountDirectory("", getenv, identity.Config),
 		GoogleLogin: login, Identities: database, LoginSealer: sealer,
 		PublicBaseURL: identity.Config.Server.PublicBaseURL,
 	}, func() { _ = database.Close() }, nil

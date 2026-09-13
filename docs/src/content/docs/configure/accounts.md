@@ -39,7 +39,6 @@ accounts is who owns which private record.
 accounts:
   - id: nigel
     google_email: nigel@example.com
-    telegram_user_id: 123456789   # optional: the numeric Telegram sender
   - id: partner
     google_email: partner@example.com
 web:
@@ -60,9 +59,11 @@ google:
   exactly (case-insensitively; dots and plus-suffixes are not collapsed). After
   the first sign-in the account is bound to Google's stable identity for that
   person, and the address only decides who may enroll an *unbound* account.
-- `telegram_user_id` is the numeric Telegram user that speaks for this
-  account, never a username. Leave it out for someone who only uses the web
-  panel; their scheduled output stays in their own history.
+- `telegram_user_id` maps a numeric Telegram user to this account, never a
+  username. It is set by that person linking their own Telegram from
+  **Settings → Accounts** — see [Linking your Telegram](/eggy/use/telegram/#linking-your-telegram)
+  — not by editing this field by hand. Someone who only uses the web panel
+  leaves it unset; their scheduled output stays in their own history.
 - `web.google_login` names the Web application client. The secret is read from
   the environment variable named, never written to the file.
 - `google.expected_email` names Eggy's own Workspace user. Required when

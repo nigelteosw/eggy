@@ -62,6 +62,64 @@ func TestAccountConfigLoads(t *testing.T) {
 	}
 }
 
+func TestTelegramEnabledSupportsExplicitAndLegacyStates(t *testing.T) {
+	enabled, disabled := true, false
+	cases := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{"explicit enabled without pairing", Config{Accounts: []AccountConfig{{ID: "you"}}, Telegram: TelegramConfig{Enabled: &enabled}}, true},
+		{"explicit disabled overrides pairing", Config{Accounts: []AccountConfig{{ID: "you", TelegramUserID: 42}}, Telegram: TelegramConfig{Enabled: &disabled}}, false},
+		{"absent infers paired account", Config{Accounts: []AccountConfig{{ID: "you", TelegramUserID: 42}}}, true},
+		{"absent legacy owner", Config{Owner: OwnerConfig{ID: "42"}, Telegram: TelegramConfig{OwnerID: 42}}, true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.TelegramEnabled(); got != tt.want {
+				t.Fatalf("TelegramEnabled()=%v want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLinkAndUnlinkTelegramAccount(t *testing.T) {
+	path := writeAccountConfig(t)
+	if err := SetTelegramEnabled(path, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := UnlinkTelegramAccount(path, "nigel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := LinkTelegramAccount(path, "partner", 77); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account, _ := cfg.Account("partner"); account.TelegramUserID != 77 {
+		t.Fatalf("partner=%#v", account)
+	}
+	before, _ := os.ReadFile(path)
+	for _, attempt := range []struct {
+		id   string
+		user int64
+	}{
+		{"missing", 88},
+		{"nigel", 77},
+		{"nigel", 0},
+	} {
+		if err := LinkTelegramAccount(path, attempt.id, attempt.user); err == nil {
+			t.Fatalf("LinkTelegramAccount(%q,%d) succeeded", attempt.id, attempt.user)
+		}
+		after, _ := os.ReadFile(path)
+		if string(after) != string(before) {
+			t.Fatal("refused link changed config")
+		}
+	}
+}
+
 func TestLegacyOwnerNormalizesToOnePrincipal(t *testing.T) {
 	cfg, _, err := loadText(t, validConfig(), testSecrets())
 	if err != nil {

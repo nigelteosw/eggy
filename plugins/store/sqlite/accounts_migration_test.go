@@ -165,7 +165,7 @@ func TestMigrateAccountsAssignsEveryLegacyRecordToTheNamedAccount(t *testing.T) 
 		}
 	}
 	var version string
-	if err := store.db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, machineStateVersionKey).Scan(&version); err != nil || version != "7" {
+	if err := store.db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, machineStateVersionKey).Scan(&version); err != nil || version != "8" {
 		t.Fatalf("version=%q err=%v", version, err)
 	}
 }
@@ -251,7 +251,7 @@ func TestOlderBinaryRefusesTheUpgradedDatabase(t *testing.T) {
 	if err := store.db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, machineStateVersionKey).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != "7" {
-		t.Fatalf("fresh database stamped %q, want 7 so a version-6 binary refuses it", version)
+	if version != "8" {
+		t.Fatalf("fresh database stamped %q, want 8 so an older binary refuses it", version)
 	}
 }

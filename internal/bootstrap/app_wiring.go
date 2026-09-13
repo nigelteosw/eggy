@@ -15,7 +15,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/internal/web"
 	"github.com/nigelteosw/eggy/plugins/auth/grants"
 	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
 	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
@@ -43,6 +42,21 @@ func (o *AppOptions) applyDefaults() {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
+}
+
+func initializeAccountState(stateStore ports.StateStore, repositories map[string]ports.Repository, accountID string) error {
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: accountID})
+	initial, err := stateStore.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := stateStore.Update(ctx, initial.Version, func(state *ports.State) error {
+		state.Repositories = repositories
+		return nil
+	}); err != nil {
+		return fmt.Errorf("sync configured repositories: %w", err)
+	}
+	return nil
 }
 
 // stores is every durable artifact NewApp opens, already migrated. Only two
@@ -156,36 +170,6 @@ func assignLegacyRecords(ctx context.Context, database *sqlitestore.Store, layou
 func accountConfigured(config config.Config, id string) bool {
 	_, ok := config.Account(id)
 	return ok
-}
-
-// accountDirectory is the configured account list as the web layer sees it.
-// A view over config rather than a copy, so the list the guard consults is
-// the one the process booted with and nothing else.
-type accountDirectory struct{ config config.Config }
-
-func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
-	account, ok := d.config.Account(id)
-	if !ok {
-		return web.AccountRecord{}, false
-	}
-	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
-}
-
-func (d accountDirectory) AccountForEmail(email string) (web.AccountRecord, bool) {
-	account, ok := d.config.AccountForEmail(email)
-	if !ok {
-		return web.AccountRecord{}, false
-	}
-	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID}, true
-}
-
-func (d accountDirectory) Accounts() []web.AccountRecord {
-	accounts := d.config.Principals()
-	records := make([]web.AccountRecord, 0, len(accounts))
-	for _, account := range accounts {
-		records = append(records, web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID})
-	}
-	return records
 }
 
 // legacyOwner is the account that receives everything written before

@@ -128,6 +128,36 @@ func TestAccountsCardRoutesManageTheListThroughConfig(t *testing.T) {
 	}
 }
 
+func TestTelegramEnableRouteRequiresBotEnvironmentAndWritesExplicitState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(accountConfigYAML()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	missing := telegramEnabledRoute(path, WebUIConfig{Getenv: func(string) string { return "" }})
+	response := httptest.NewRecorder()
+	missing(response, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"enabled":true}`)))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", response.Code)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(before) {
+		t.Fatal("missing secrets changed config")
+	}
+	ready := telegramEnabledRoute(path, WebUIConfig{Getenv: func(name string) string {
+		return map[string]string{"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_WEBHOOK_SECRET": "s"}[name]
+	}})
+	response = httptest.NewRecorder()
+	ready(response, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"enabled":true}`)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	cfg, err := config.LoadDocument(path)
+	if err != nil || cfg.Telegram.Enabled == nil || !*cfg.Telegram.Enabled {
+		t.Fatalf("telegram=%#v err=%v", cfg.Telegram, err)
+	}
+}
+
 func TestAccountsCardConvertsALegacyDeployment(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	path := filepath.Join(t.TempDir(), "config.yaml")

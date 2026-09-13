@@ -13,9 +13,11 @@ import {
   sendChatMessage,
   setExpectedGoogleEmail,
   setLoginClient,
+  createTelegramPairing,
+  unlinkTelegram,
 } from "../src/api";
 import { LoginPage } from "../src/LoginPage";
-import { AccountsCard, AccountsList, ConvertForm, ResetBindingConfirm } from "../src/AccountsCard";
+import { AccountsCard, AccountsList, ConvertForm, ResetBindingConfirm, TelegramLinkControl } from "../src/AccountsCard";
 import { GoogleIdentity } from "../src/GoogleCard";
 import { ConfigPage } from "../src/ConfigPage";
 import { AppNavigation } from "../src/App";
@@ -172,6 +174,23 @@ test("account management calls the config routes", async () => {
     "POST /api/config/accounts/partner/reset-binding",
     "POST /api/config/login",
     "POST /api/config/google/expected-email",
+  ]);
+});
+
+test("Telegram linking uses authenticated deep links instead of numeric ID input", async () => {
+  const html = renderToStaticMarkup(createElement(TelegramLinkControl, {
+    account: { id: "nigel", email: "nigel@example.com", enrolled: true, signed_in: true, self: true },
+    available: true,
+    onError: () => {},
+  }));
+  expect(html).toContain("Link Telegram");
+  expect(html).not.toContain("Telegram sender ID");
+  const calls = fakeFetch((call) => call.method === "POST" ? { url: "https://t.me/eggy_bot?start=credential", expires_at: "2026-09-13T00:10:00Z" } : { state: "success" });
+  await createTelegramPairing("nigel");
+  await unlinkTelegram("nigel");
+  expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+    "POST /api/accounts/nigel/telegram/pairing",
+    "DELETE /api/accounts/nigel/telegram",
   ]);
 });
 

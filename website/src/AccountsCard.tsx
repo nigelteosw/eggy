@@ -12,6 +12,10 @@ import {
   resetAccountBinding,
   setExpectedGoogleEmail,
   setLoginClient,
+  createTelegramPairing,
+  unlinkTelegram,
+  setTelegramEnabled,
+  type TelegramPairing,
 } from "./api";
 import { Button } from "./components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
@@ -26,6 +30,68 @@ import { Label } from "./components/ui/label";
 
 function describe(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
+}
+
+export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    setBusy(true);
+    try {
+      await setTelegramEnabled(!enabled);
+      onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then link an account below.");
+    } catch (err) {
+      onError(describe(err, "Could not change Telegram enablement"));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex items-center justify-between rounded-md border p-3 text-sm">
+      <span>Telegram is {enabled ? "enabled" : "disabled"}.</span>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={toggle}>
+        {busy ? "Saving…" : enabled ? "Disable Telegram" : "Enable Telegram"}
+      </Button>
+    </div>
+  );
+}
+
+export function TelegramLinkControl({ account, available, onError }: { account: AccountRow; available: boolean; onError: (message: string) => void }) {
+  const [pairing, setPairing] = useState<TelegramPairing | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!account.self) return null;
+  async function link() {
+    setBusy(true);
+    try { setPairing(await createTelegramPairing(account.id)); }
+    catch (err) { onError(describe(err, "Could not start Telegram pairing")); }
+    finally { setBusy(false); }
+  }
+  async function unlink() {
+    setBusy(true);
+    try { await unlinkTelegram(account.id); setPairing(null); window.location.reload(); }
+    catch (err) { onError(describe(err, "Could not unlink Telegram")); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-md border p-3">
+      <p className="text-sm font-medium">Your Telegram</p>
+      {account.telegram_user_id ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <span>Linked as {account.telegram_user_id}</span>
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={unlink}>Unlink Telegram</Button>
+        </div>
+      ) : pairing ? (
+        <div className="space-y-2 text-sm">
+          <Button asChild><a href={pairing.url} target="_blank" rel="noreferrer">Open Telegram</a></Button>
+          <p className="text-muted-foreground">This single-use link expires at {new Date(pairing.expires_at).toLocaleTimeString()}.</p>
+        </div>
+      ) : (
+        <Button type="button" variant="outline" size="sm" className="self-start" disabled={!available || busy} onClick={link}>
+          {busy ? "Creating link…" : "Link Telegram"}
+        </Button>
+      )}
+      {!available && !account.telegram_user_id && <p className="text-xs text-muted-foreground">Pairing is unavailable until Eggy can discover the configured bot username. Check Telegram credentials and restart.</p>}
+    </div>
+  );
 }
 
 export function AccountsList({
@@ -139,12 +205,11 @@ function AccountForm({
 }) {
   const [id, setId] = useState(initial?.id ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
-  const [telegram, setTelegram] = useState(initial?.telegram_user_id ? String(initial.telegram_user_id) : "");
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit({ id, email, telegram_user_id: telegram.trim() === "" ? 0 : Number(telegram) });
+		onSubmit({ id, email, telegram_user_id: initial?.telegram_user_id ?? 0 });
       }}
       className="flex flex-col gap-3"
     >
@@ -160,10 +225,6 @@ function AccountForm({
         {initial?.enrolled && (
           <p className="text-xs text-muted-foreground">This account has enrolled. Reset its binding before changing the address.</p>
         )}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="account-telegram">Telegram user ID (optional)</Label>
-        <Input id="account-telegram" inputMode="numeric" value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="numeric sender ID" />
       </div>
       <div className="flex gap-2">
         <Button type="submit" disabled={saving}>
@@ -391,6 +452,23 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
                 setRemoving(null);
               }}
             />
+            {view && (
+              <TelegramEnableControl
+                enabled={view.telegram_enabled}
+                onChanged={(message) => {
+                  setNotice(message);
+                  load();
+                }}
+                onError={setError}
+              />
+            )}
+            {view?.telegram_enabled && view.accounts.find((account) => account.self) && (
+              <TelegramLinkControl
+                account={view.accounts.find((account) => account.self)!}
+                available={view.telegram_pairing_available}
+                onError={setError}
+              />
+            )}
             {removing && (
               <RemoveConfirm
                 account={removing.id}

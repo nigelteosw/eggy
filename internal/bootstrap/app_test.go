@@ -919,7 +919,11 @@ func runGit(t *testing.T, directory string, arguments ...string) {
 }
 
 func appTestSecrets(providerKey string) config.Secrets {
-	return config.Secrets{TelegramBotToken: "bot", TelegramWebhookSecret: "webhook", ProviderAPIKeys: map[string]string{"deepseek": providerKey}}
+	// The token value deliberately avoids common English words: bot-username
+	// discovery logs legitimately say "Telegram bot username", and a fixture
+	// value of "bot" would make that ordinary log line collide with the
+	// leaked-secret check below.
+	return config.Secrets{TelegramBotToken: "telegram-bot-token-fixture", TelegramWebhookSecret: "webhook", ProviderAPIKeys: map[string]string{"deepseek": providerKey}}
 }
 
 type appRoundTrip func(*http.Request) (*http.Response, error)

@@ -141,6 +141,10 @@ func Open(path string, _ ...int) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(telegramPairingSchema); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	// Refuse a newer database before touching it; the stamp itself is
 	// written again below, after every upgrade has run.
 	if err := refuseNewerMachineState(db); err != nil {

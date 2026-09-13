@@ -24,8 +24,16 @@ func LoadOrCreateConfig(path string, getenv func(string) string) (Config, Secret
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Config{}, Secrets{}, fmt.Errorf("stat config: %w", err)
-	} else if err := initializeConfig(path, getenv); err != nil {
-		return Config{}, Secrets{}, err
+	} else {
+		if !hasHeadlessIdentity(getenv) {
+			if artifact, ok := existingHomeArtifact(path); ok {
+				return Config{}, Secrets{}, fmt.Errorf("config is missing from an existing home containing %s; restore or repair config.yaml", artifact)
+			}
+			return Config{}, Secrets{}, ErrSetupRequired
+		}
+		if err := initializeConfig(path, getenv); err != nil {
+			return Config{}, Secrets{}, err
+		}
 	}
 	// After both paths, and after the prune: a config that is upgraded and one
 	// that is generated should end up describing the same settings, and a

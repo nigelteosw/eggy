@@ -83,6 +83,7 @@ type App struct {
 	workspaces  *repo.WorkspaceSessions
 	mcp         *mcpadapter.Manager
 	database    *sqlitestore.Store
+	accounts    web.AccountDirectory
 	now         func() time.Time
 	// location is the owner's timezone, resolved once at construction. The
 	// heartbeat's active-hours window is read on the owner's clock, not the
@@ -108,6 +109,17 @@ type App struct {
 	// rather than sent so every reader sees it once.
 	restart     chan struct{}
 	restartOnce sync.Once
+}
+
+func (a *App) accountRecords() []web.AccountRecord {
+	if a.accounts != nil {
+		return a.accounts.Accounts()
+	}
+	records := make([]web.AccountRecord, 0, len(a.config.Principals()))
+	for _, account := range a.config.Principals() {
+		records = append(records, accountRecord(account))
+	}
+	return records
 }
 
 // ErrRestart is what Run returns when the owner asked for a restart. It is a
@@ -151,6 +163,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		now: options.Now, eventQueue: make(chan events.Event, 64), heartbeatWake: make(chan time.Duration, 1), logger: options.Logger,
 		restart: make(chan struct{}),
 	}
+	app.accounts = newAccountDirectory(options.ConfigPath, options.Getenv, config)
 	configuredRepositories := map[string]ports.Repository{}
 	for _, configured := range config.Repositories {
 		configuredRepositories[configured.Name] = ports.Repository{Name: configured.Name, CloneURL: configured.CloneURL, BaseBranch: configured.BaseBranch, ProtectedBranches: configured.ProtectedBranches}
@@ -159,21 +172,21 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// so every account is synced. The list is the same for all of them; what
 	// is private is the session state that hangs off it.
 	for _, account := range config.Principals() {
-		ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})
-		initial, err := stateStore.Load(ctx)
-		if err != nil {
+		if err := initializeAccountState(stateStore, configuredRepositories, account.ID); err != nil {
 			return nil, err
-		}
-		if _, err := stateStore.Update(ctx, initial.Version, func(state *ports.State) error {
-			state.Repositories = configuredRepositories
-			return nil
-		}); err != nil {
-			return nil, fmt.Errorf("sync configured repositories: %w", err)
 		}
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
-	telegramSurface := newTelegramWiring(config, secrets, options)
+	var telegramPairings *telegramPairingCoordinator
+	if config.TelegramEnabled() {
+		telegramPairings = &telegramPairingCoordinator{store: database, configPath: options.ConfigPath, now: options.Now, logger: options.Logger}
+	}
+	var consumePairing func(context.Context, string, int64) error
+	if telegramPairings != nil {
+		consumePairing = telegramPairings.consume
+	}
+	telegramSurface := newTelegramWiring(config, secrets, options, app.accounts, consumePairing)
 	app.channel = newRoutedChannel(telegramSurface.channel, webChannel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
 	// The channel is already routed by context, so an approval asked during a
@@ -430,7 +443,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Location: location, Timezone: timezone,
 	})
 	app.dispatcher = services.NewDispatcher(func(id string) bool {
-		_, ok := config.Account(id)
+		_, ok := app.accounts.Account(id)
 		return ok
 	}, stateStore, map[events.Type]services.EventHandler{
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
@@ -444,23 +457,26 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
-		AccountMode: config.AccountMode(), Sessions: database, Accounts: accountDirectory{config: config},
-		GoogleLogin: googleLogin, Identities: database, LoginSealer: loginSealer,
-		PublicBaseURL:    config.Server.PublicBaseURL,
-		MCP:              mcpAdministration.webView(),
-		Tools:            registry,
-		Schedules:        app.scheduler,
-		Watch:            contextStore,
-		Traces:           traceReader,
-		Approvals:        app.approvals,
-		ApprovalMode:     app.approvals,
-		Agent:            agentRuntime,
-		ModelDiscovery:   discovery,
-		GoogleActions:    googleActionCatalog(),
-		GoogleConnection: googleAdministration.webView(),
-		Restarter:        app,
-		Getenv:           options.Getenv,
-		TrustedProxyHops: config.Server.TrustedProxyHops,
+		AccountMode: config.AccountMode(), Sessions: database, Accounts: app.accounts,
+		InitializeAccount: func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
+		GoogleLogin:       googleLogin, Identities: database, LoginSealer: loginSealer,
+		PublicBaseURL:       config.Server.PublicBaseURL,
+		MCP:                 mcpAdministration.webView(),
+		Tools:               registry,
+		Schedules:           app.scheduler,
+		Watch:               contextStore,
+		Traces:              traceReader,
+		Approvals:           app.approvals,
+		ApprovalMode:        app.approvals,
+		Agent:               agentRuntime,
+		ModelDiscovery:      discovery,
+		GoogleActions:       googleActionCatalog(),
+		GoogleConnection:    googleAdministration.webView(),
+		Restarter:           app,
+		Getenv:              options.Getenv,
+		TrustedProxyHops:    config.Server.TrustedProxyHops,
+		TelegramPairings:    telegramPairings,
+		TelegramBotUsername: telegramSurface.botUsername,
 	})
 	app.httpHandler = web.NewHTTPHandler(web.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath,
@@ -481,7 +497,7 @@ func (a *App) ExecuteCommand(ctx context.Context, command string) (string, bool,
 func (a *App) Ready() error {
 	// Every account's documents are readable, creating blank ones for an
 	// account that has none yet.
-	for _, account := range a.config.Principals() {
+	for _, account := range a.accountRecords() {
 		if _, err := a.context.Load(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account.ID})); err != nil {
 			return err
 		}

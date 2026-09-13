@@ -124,6 +124,9 @@ func (c Config) AccountForTelegram(userID int64) (AccountConfig, bool) {
 // whether any account can be reached there. It replaces reading
 // telegram.owner_id directly, which in account mode is always zero.
 func (c Config) TelegramEnabled() bool {
+	if c.Telegram.Enabled != nil {
+		return *c.Telegram.Enabled
+	}
 	for _, account := range c.Principals() {
 		if account.TelegramUserID != 0 {
 			return true
@@ -173,6 +176,9 @@ func (c Config) validateAccounts() error {
 		}
 		if c.Telegram.Configured() && strconv.FormatInt(c.Telegram.OwnerID, 10) != c.Owner.ID {
 			return errors.New("owner.id must match telegram.owner_id when Telegram is configured")
+		}
+		if c.Telegram.Enabled != nil && *c.Telegram.Enabled && c.Telegram.OwnerID == 0 {
+			return errors.New("telegram.enabled requires telegram.owner_id outside account mode")
 		}
 		return nil
 	}

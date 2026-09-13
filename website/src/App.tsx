@@ -5,12 +5,13 @@ import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
 import { SafeModePage } from "./SafeModePage";
+import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 import { pathForView, viewForPath, type View } from "./routing";
 
-type Status = "checking" | "authenticated" | "unauthenticated";
+type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
 export function AppNavigation({
   view,
@@ -126,12 +127,19 @@ export function App() {
         setTheme(probe.theme);
         setLoginKind(probe.login);
         applyTheme(probe.theme);
+        if (probe.mode === "setup") {
+          setStatus("setup");
+          return false;
+        }
+        return true;
       })
       .catch(() => {
         setMode("normal");
         applyTheme("dark");
+        return true;
       })
-      .finally(() => {
+      .then((needsSession) => {
+        if (!needsSession) return;
         checkSession()
           .then((session) => {
             setAccount(session.account);
@@ -170,6 +178,7 @@ export function App() {
       </div>
     );
   }
+  if (status === "setup") return <SetupPage />;
   if (status === "unauthenticated") {
     return (
       <LoginPage

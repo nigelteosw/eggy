@@ -12,7 +12,7 @@ import (
 func TestSessionsResolveExpireAndRevoke(t *testing.T) {
 	db := newTestStore(t, 0)
 	ctx := context.Background()
-	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	if err := db.CreateSession(ctx, "hash-a", "a", now.Add(12*time.Hour)); err != nil {
 		t.Fatal(err)
 	}

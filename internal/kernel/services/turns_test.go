@@ -2,157 +2,226 @@ package services
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-func TestSteerCarriesAnImageMessage(t *testing.T) {
-	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, release := turns.Begin(ctx, true)
-	defer release()
-	message := ports.Message{Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
-
-	if !turns.Steer(ctx, message) {
-		t.Fatal("a steerable turn must accept an image without text")
+func admitTurn(t *testing.T, turns *ActiveTurns, ctx context.Context, message ports.Message, steerable bool) TurnAdmission {
+	t.Helper()
+	admission, err := turns.Admit(ctx, message, steerable, func(bool) error { return nil })
+	if err != nil {
+		t.Fatal(err)
 	}
-	pending := turns.Pending(ctx)
+	return admission
+}
+
+func activeThread(id string) context.Context {
+	return ports.WithPrincipal(webThread(id), ports.Principal{AccountID: "42"})
+}
+
+func waitForQueuedAdmissions(t *testing.T, turns *ActiveTurns, ctx context.Context, want int) {
+	t.Helper()
+	key, err := keyOf(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		turns.mu.Lock()
+		entry := turns.entries[key]
+		turns.mu.Unlock()
+		if entry != nil {
+			entry.mu.Lock()
+			queued := len(entry.waiters)
+			entry.mu.Unlock()
+			if queued == want {
+				return
+			}
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("queued admissions never reached %d", want)
+}
+
+func TestAdmissionJoinsTheRunningTurnAndDrainsExactlyOnce(t *testing.T) {
+	turns := NewActiveTurns()
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "original"}, true)
+	defer turns.Release(owner.Context)
+	joined := admitTurn(t, turns, ctx, ports.Message{Content: "actually, skip the tests"}, true)
+	if joined.Owner {
+		t.Fatal("follow-up became a competing execution owner")
+	}
+	pending := turns.Pending(owner.Context)
+	if len(pending) != 1 || pending[0].Content != "actually, skip the tests" || pending[0].Role != ports.RoleUser {
+		t.Fatalf("pending=%#v", pending)
+	}
+	if again := turns.Pending(owner.Context); len(again) != 0 {
+		t.Fatalf("pending drained twice: %#v", again)
+	}
+}
+
+func TestAdmissionCarriesAnImageMessage(t *testing.T) {
+	turns := NewActiveTurns()
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "original"}, true)
+	defer turns.Release(owner.Context)
+	message := ports.Message{Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+	if joined := admitTurn(t, turns, ctx, message, true); joined.Owner {
+		t.Fatal("image follow-up became a competing execution owner")
+	}
+	pending := turns.Pending(owner.Context)
 	if len(pending) != 1 || len(pending[0].Parts) != 1 || !bytes.Equal(pending[0].Parts[0].Data, []byte("png")) {
 		t.Fatalf("pending=%#v", pending)
 	}
 }
 
-func TestSteerJoinsTheRunningTurnAndDrainsExactlyOnce(t *testing.T) {
+func TestAdmissionReleaseReportsUndrainedInputOnce(t *testing.T) {
 	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, release := turns.Begin(ctx, true)
-	defer release()
-
-	if !turns.Steer(ctx, ports.Message{Content: "actually, skip the tests"}) {
-		t.Fatal("a steerable turn must accept an owner message")
-	}
-	pending := turns.Pending(ctx)
-	if len(pending) != 1 || pending[0].Content != "actually, skip the tests" {
-		t.Fatalf("pending=%#v", pending)
-	}
-	if again := turns.Pending(ctx); len(again) != 0 {
-		t.Fatalf("pending drained twice: %#v", again)
-	}
-}
-
-// The last-step-boundary case: a steer the turn accepted but never drained
-// must come back out of release, so the caller can run it rather than lose it.
-func TestReleaseReportsUndrainedSteers(t *testing.T) {
-	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, release := turns.Begin(ctx, true)
-
-	if !turns.Steer(ctx, ports.Message{Content: "and push it"}) {
-		t.Fatal("a steerable turn must accept an owner message")
-	}
-	undrained := release()
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "original"}, true)
+	admitTurn(t, turns, ctx, ports.Message{Content: "and push it"}, true)
+	undrained := turns.Release(owner.Context)
 	if len(undrained) != 1 || undrained[0].Content != "and push it" {
 		t.Fatalf("undrained=%#v", undrained)
 	}
-	// Release is called twice on every turn -- deferred and explicitly -- so
-	// the second call must not hand the same message out again.
-	if again := release(); len(again) != 0 {
+	if again := turns.Release(owner.Context); len(again) != 0 {
 		t.Fatalf("undrained reported twice: %#v", again)
 	}
 }
 
-// A steer that the turn did drain is gone: release must not resurrect it as a
-// turn of its own after the turn already acted on it.
-func TestReleaseReportsNothingAfterTheTurnDrained(t *testing.T) {
+func TestAdmissionStaleGenerationCannotDrainOrReleaseANewerOwner(t *testing.T) {
 	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, release := turns.Begin(ctx, true)
-
-	turns.Steer(ctx, ports.Message{Content: "actually, skip the tests"})
-	if pending := turns.Pending(ctx); len(pending) != 1 {
-		t.Fatalf("pending=%#v", pending)
+	ctx := activeThread("thread-a")
+	first := admitTurn(t, turns, ctx, ports.Message{Content: "first"}, true)
+	turns.Release(first.Context)
+	second := admitTurn(t, turns, ctx, ports.Message{Content: "second"}, true)
+	defer turns.Release(second.Context)
+	admitTurn(t, turns, ctx, ports.Message{Content: "for second"}, true)
+	if pending := turns.Pending(first.Context); len(pending) != 0 {
+		t.Fatalf("stale generation drained newer input: %#v", pending)
 	}
-	if undrained := release(); len(undrained) != 0 {
-		t.Fatalf("undrained=%#v, want nothing", undrained)
+	if undrained := turns.Release(first.Context); len(undrained) != 0 {
+		t.Fatalf("stale generation released newer input: %#v", undrained)
+	}
+	if pending := turns.Pending(second.Context); len(pending) != 1 || pending[0].Content != "for second" {
+		t.Fatalf("new owner pending=%#v", pending)
 	}
 }
 
-// A scheduled or heartbeat turn is deliberately self-contained: folding an
-// owner message into one would hand it exactly the ambient instruction that
-// isolation exists to prevent.
-func TestSteerIsRefusedByANonSteerableTurn(t *testing.T) {
+func TestAdmissionAllowsIndependentAccountsAndConversationsDuringPreparation(t *testing.T) {
 	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, release := turns.Begin(ctx, false)
-	defer release()
-
-	if turns.Steer(ctx, ports.Message{Content: "do this instead"}) {
-		t.Fatal("a non-steerable turn must not accept an owner message")
-	}
-	if pending := turns.Pending(ctx); len(pending) != 0 {
-		t.Fatalf("pending=%#v", pending)
-	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan TurnAdmission, 1)
+	go func() {
+		admission, _ := turns.Admit(activeThread("thread-a"), ports.Message{Content: "first"}, true, func(bool) error {
+			close(started)
+			<-release
+			return nil
+		})
+		firstDone <- admission
+	}()
+	<-started
+	otherConversation := admitTurn(t, turns, activeThread("thread-b"), ports.Message{Content: "second"}, true)
+	otherAccount := admitTurn(t, turns, ports.WithPrincipal(webThread("thread-a"), ports.Principal{AccountID: "other"}), ports.Message{Content: "third"}, true)
+	turns.Release(otherConversation.Context)
+	turns.Release(otherAccount.Context)
+	close(release)
+	first := <-firstDone
+	turns.Release(first.Context)
 }
 
-func TestSteerIsRefusedWhenNothingIsRunning(t *testing.T) {
+func TestAdmissionWaitsBehindANonSteerableOwnerInOrder(t *testing.T) {
 	turns := NewActiveTurns()
-	if turns.Steer(webThread("thread-a"), ports.Message{Content: "hello"}) {
-		t.Fatal("steering with no active turn must report false so an ordinary turn starts")
-	}
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "scheduled"}, false)
+	firstStarted := make(chan struct{})
+	firstDone := make(chan TurnAdmission, 1)
+	go func() {
+		admission, _ := turns.Admit(ctx, ports.Message{Content: "first"}, true, func(bool) error {
+			close(firstStarted)
+			return nil
+		})
+		firstDone <- admission
+	}()
+	waitForQueuedAdmissions(t, turns, ctx, 1)
+	secondDone := make(chan TurnAdmission, 1)
+	go func() {
+		admission, _ := turns.Admit(ctx, ports.Message{Content: "second"}, true, func(bool) error { return nil })
+		secondDone <- admission
+	}()
+	waitForQueuedAdmissions(t, turns, ctx, 2)
+	turns.Release(owner.Context)
+	first := <-firstDone
+	<-firstStarted
+	turns.Release(first.Context)
+	second := <-secondDone
+	turns.Release(second.Context)
 }
 
-// Steering is scoped to its own conversation, exactly like cancellation:
-// a message in one thread must never join a turn running in another.
-func TestSteerIsScopedToItsOwnConversation(t *testing.T) {
+func TestAdmissionCancelledWaiterDoesNotBlockTheNextRequest(t *testing.T) {
 	turns := NewActiveTurns()
-	_, release := turns.Begin(webThread("thread-a"), true)
-	defer release()
-
-	if turns.Steer(webThread("thread-b"), ports.Message{Content: "not for you"}) {
-		t.Fatal("a message must not join another conversation's turn")
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "scheduled"}, false)
+	waitCtx, cancel := context.WithCancel(ctx)
+	waiterDone := make(chan error, 1)
+	go func() {
+		_, err := turns.Admit(waitCtx, ports.Message{Content: "cancelled"}, true, func(bool) error { return nil })
+		waiterDone <- err
+	}()
+	cancel()
+	if err := <-waiterDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled waiter err=%v", err)
 	}
-	if pending := turns.Pending(webThread("thread-a")); len(pending) != 0 {
-		t.Fatalf("thread-a received another thread's message: %#v", pending)
-	}
+	turns.Release(owner.Context)
+	next := admitTurn(t, turns, ctx, ports.Message{Content: "next"}, true)
+	turns.Release(next.Context)
 }
 
-func TestStopCancelsOnlyTheCallingConversationsTurn(t *testing.T) {
+func TestAdmissionPreparationFailureLeavesNoGhostOwner(t *testing.T) {
 	turns := NewActiveTurns()
-	first, releaseFirst := turns.Begin(webThread("thread-a"), true)
-	defer releaseFirst()
-	second, releaseSecond := turns.Begin(webThread("thread-b"), true)
-	defer releaseSecond()
-
-	if !turns.Stop(webThread("thread-a")) {
-		t.Fatal("expected the running turn to be stopped")
+	ctx := activeThread("thread-a")
+	want := errors.New("prepare failed")
+	if _, err := turns.Admit(ctx, ports.Message{Content: "first"}, true, func(bool) error { return want }); !errors.Is(err, want) {
+		t.Fatalf("admit err=%v", err)
 	}
-	if first.Err() == nil {
-		t.Fatal("the stopped conversation's turn must be cancelled")
+	if turns.Active() {
+		t.Fatal("failed preparation left an active owner")
 	}
-	if second.Err() != nil {
-		t.Fatal("an unrelated conversation's turn must keep running")
-	}
-	if turns.Stop(webThread("thread-a")) {
-		t.Fatal("stopping twice must report that nothing was running")
-	}
+	next := admitTurn(t, turns, ctx, ports.Message{Content: "next"}, true)
+	turns.Release(next.Context)
 }
 
-// Releasing a finished turn must not clear a newer turn's registration, or a
-// slow goroutine finishing late would make the live turn unstoppable.
-func TestReleasingAFinishedTurnDoesNotDeregisterANewerOne(t *testing.T) {
+func TestAdmissionStopKeepsTheOwnerRegisteredUntilRelease(t *testing.T) {
 	turns := NewActiveTurns()
-	ctx := webThread("thread-a")
-	_, releaseFirst := turns.Begin(ctx, true)
-	_, releaseSecond := turns.Begin(ctx, true)
-	defer releaseSecond()
-
-	releaseFirst()
+	ctx := activeThread("thread-a")
+	owner := admitTurn(t, turns, ctx, ports.Message{Content: "first"}, true)
+	if !turns.Stop(ctx) || owner.Context.Err() == nil {
+		t.Fatal("stop did not cancel the execution owner")
+	}
 	if !turns.Active() {
-		t.Fatal("the newer turn must still be registered")
+		t.Fatal("stopping owner disappeared before its worker released")
 	}
-	if !turns.Steer(ctx, ports.Message{Content: "still steerable"}) {
-		t.Fatal("the newer turn must still accept steering")
+	turns.Release(owner.Context)
+	if turns.Active() {
+		t.Fatal("released owner remained active")
+	}
+}
+
+func TestAdmissionCleansUpIdleEntries(t *testing.T) {
+	turns := NewActiveTurns()
+	owner := admitTurn(t, turns, activeThread("thread-a"), ports.Message{Content: "first"}, true)
+	turns.Release(owner.Context)
+	turns.mu.Lock()
+	defer turns.mu.Unlock()
+	if len(turns.entries) != 0 {
+		t.Fatalf("idle entries=%d", len(turns.entries))
 	}
 }
 
@@ -161,12 +230,12 @@ func TestActiveReportsWhetherAnyTurnIsRunning(t *testing.T) {
 	if turns.Active() {
 		t.Fatal("no turn has begun")
 	}
-	_, release := turns.Begin(asAccount("42"), true)
+	owner := admitTurn(t, turns, asAccount("42"), ports.Message{Content: "first"}, true)
 	if !turns.Active() {
-		t.Fatal("a begun turn must be reported active")
+		t.Fatal("an admitted owner must be reported active")
 	}
-	release()
+	turns.Release(owner.Context)
 	if turns.Active() {
-		t.Fatal("a released turn must not be reported active")
+		t.Fatal("a released owner must not be reported active")
 	}
 }

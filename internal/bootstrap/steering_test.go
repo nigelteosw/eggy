@@ -1,15 +1,124 @@
 package bootstrap
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 )
+
+func TestAppRunQueueAdmissionUsesOneExecutionOwner(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	firstModelCall := make(chan struct{})
+	replyDelivered := make(chan struct{})
+	var deliveredOnce sync.Once
+	var bodiesMu sync.Mutex
+	var modelBodies [][]byte
+	var app *App
+	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.URL.Host == "deepseek.test":
+			body, _ := io.ReadAll(request.Body)
+			bodiesMu.Lock()
+			modelBodies = append(modelBodies, body)
+			call := len(modelBodies)
+			bodiesMu.Unlock()
+			if call == 1 {
+				close(firstModelCall)
+				deadline := time.NewTimer(5 * time.Second)
+				ticker := time.NewTicker(time.Millisecond)
+				defer deadline.Stop()
+				defer ticker.Stop()
+				for {
+					messages, err := app.database.RecentMessages(ownerCtx(), "telegram", 20)
+					if err != nil {
+						return nil, err
+					}
+					for _, message := range messages {
+						if message.Content == "follow-up" {
+							return appJSON(200, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"status","arguments":"{}"}}]}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+						}
+					}
+					select {
+					case <-ticker.C:
+					case <-deadline.C:
+						return nil, context.DeadlineExceeded
+					}
+				}
+			}
+			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"done"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`), nil
+		case strings.Contains(request.URL.Path, "sendMessage"):
+			body, _ := io.ReadAll(request.Body)
+			if strings.Contains(string(body), `"text":"done"`) {
+				deliveredOnce.Do(func() { close(replyDelivered) })
+			}
+			return appJSON(200, `{"ok":true,"result":{}}`), nil
+		case strings.Contains(request.URL.Path, "setMyCommands"):
+			return appJSON(200, `{"ok":true,"result":true}`), nil
+		default:
+			return appJSON(404, `{}`), nil
+		}
+	})}
+	var err error
+	app, err = NewApp(cfg, appTestSecrets("deepseek"), AppOptions{HTTPClient: client, TelegramBaseURL: "https://telegram.test", ProviderBaseURLs: map[string]string{"deepseek": "https://deepseek.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan error, 1)
+	go func() { runDone <- app.Run(runCtx) }()
+	enqueue := func(id, text string) {
+		payload, _ := json.Marshal(events.Message{Text: text})
+		if err := app.Enqueue(runCtx, events.Event{ID: id, Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	enqueue("owner-a", "original")
+	<-firstModelCall
+	enqueue("owner-b", "follow-up")
+	select {
+	case <-replyDelivered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued owner turn did not finish")
+	}
+	deadline := time.NewTimer(5 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for app.turnService.Active() {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("execution owner was not released")
+		}
+	}
+	cancel()
+	if err := <-runDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("App.Run err=%v", err)
+	}
+
+	bodiesMu.Lock()
+	defer bodiesMu.Unlock()
+	if len(modelBodies) != 2 {
+		t.Fatalf("model calls=%d, want one execution owner's two steps", len(modelBodies))
+	}
+	for index, body := range modelBodies {
+		if !strings.Contains(string(body), "original") {
+			t.Fatalf("model call %d lost original input", index+1)
+		}
+	}
+	if !strings.Contains(string(modelBodies[1]), "follow-up") {
+		t.Fatal("follow-up did not reach the execution owner's next model step")
+	}
+}
 
 // deliverOwnerMessage injects an owner message while a turn is already
 // running. It is called from inside the model round-tripper, i.e. on the

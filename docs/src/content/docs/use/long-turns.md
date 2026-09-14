@@ -14,6 +14,12 @@ Send an ordinary message while Eggy is working and it joins the turn already in
 progress instead of queuing behind it. There is no command and no special
 syntax: "actually use the staging project", sent mid-task, is a steer.
 
+Follow-ups add to the active task by default. For example, "compare these two
+documents" followed by "also include the dates" keeps the comparison and adds
+the dates. Corrections replace only the conflicting instruction; a status
+question does not cancel the work. Eggy is instructed to abandon the original
+task only when you clearly cancel it or ask for an incompatible new objective.
+
 It lands at the next **step boundary** — after the tool results from the current
 step are in the live context, before the model is asked what to do next — which
 is the only point at which a correction can change the next decision rather than

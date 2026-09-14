@@ -38,7 +38,7 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
     setBusy(true);
     try {
       await setTelegramEnabled(!enabled);
-      onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then link an account below.");
+      onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then each person links their own Telegram from their row above.");
     } catch (err) {
       onError(describe(err, "Could not change Telegram enablement"));
     } finally {
@@ -46,7 +46,7 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
     }
   }
   return (
-    <div className="flex items-center justify-between rounded-md border p-3 text-sm">
+    <div className="flex items-center justify-between gap-3 text-sm">
       <span>Telegram is {enabled ? "enabled" : "disabled"}.</span>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={toggle}>
         {busy ? "Saving…" : enabled ? "Disable Telegram" : "Enable Telegram"}
@@ -55,6 +55,101 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
   );
 }
 
+// inviteText is what the person who added an account sends to the person it
+// belongs to. It names every step between "added" and "chatting on
+// Telegram", so nobody has to reconstruct the flow from the docs.
+export function inviteText(account: AccountRow, telegramEnabled: boolean, origin: string): string {
+  const lines = [
+    `You've been added to Eggy as "${account.id}".`,
+    `1. Open ${origin} and sign in with Google as ${account.email}.`,
+  ];
+  if (telegramEnabled) {
+    lines.push('2. In Settings → Accounts, click "Link Telegram", open the link, and tap Start in Telegram.');
+    lines.push("After that you can message Eggy on Telegram or in the web panel.");
+  } else {
+    lines.push("After that you can message Eggy in the web panel.");
+  }
+  return lines.join("\n");
+}
+
+function CopyButton({ text, label = "Copy invite" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("Copy this invite", text);
+    }
+  }
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={copy}>
+      {copied ? "Copied" : label}
+    </Button>
+  );
+}
+
+// OnboardingSteps is the per-person checklist: where they are between being
+// added and being reachable on Telegram, and what (and who) moves them to
+// the next step. The person themself is the only one who can sign in or
+// link Telegram, so for everyone else the panel can only say what to send
+// them.
+export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { account: AccountRow; telegramEnabled: boolean; onDismiss?: () => void }) {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const steps: { label: string; done: boolean; hint: string }[] = [
+    { label: "Added to Eggy", done: true, hint: "" },
+    {
+      label: `Signs in with Google as ${account.email}`,
+      done: account.enrolled,
+      hint: account.enrolled ? "" : `Send them ${origin}. Their first Google sign-in enrolls them.`,
+    },
+  ];
+  if (telegramEnabled) {
+    steps.push({
+      label: "Links their Telegram",
+      done: !!account.telegram_user_id,
+      hint: account.telegram_user_id ? "" : account.self ? "Click Link Telegram in your row above." : "Once signed in, they click Link Telegram in their row and tap Start in Telegram.",
+    });
+  }
+  const complete = steps.every((step) => step.done);
+  return (
+    <div className="flex flex-col gap-3 rounded-md border bg-muted/40 p-4" role="status" aria-label={`Getting ${account.id} started`}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{complete ? `${account.id} is all set` : `Getting ${account.id} started`}</p>
+        {onDismiss && (
+          <Button type="button" variant="ghost" size="sm" onClick={onDismiss}>
+            Dismiss
+          </Button>
+        )}
+      </div>
+      <ol className="flex flex-col gap-2 text-sm">
+        {steps.map((step, index) => (
+          <li key={index} className="flex gap-3">
+            <span
+              aria-hidden
+              className={
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs " +
+                (step.done ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground")
+              }
+            >
+              {step.done ? "✓" : index + 1}
+            </span>
+            <div className="min-w-0">
+              <p className={step.done ? "text-muted-foreground line-through" : ""}>{step.label}</p>
+              {step.hint && <p className="text-xs text-muted-foreground">{step.hint}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+      {!complete && !account.self && <CopyButton text={inviteText(account, telegramEnabled, origin)} />}
+    </div>
+  );
+}
+
+// TelegramLinkControl is the person's own Telegram, inline in their row.
+// Only the signed-in person can pair or unpair, so the control renders for
+// the self row and nowhere else.
 export function TelegramLinkControl({ account, available, onError }: { account: AccountRow; available: boolean; onError: (message: string) => void }) {
   const [pairing, setPairing] = useState<TelegramPairing | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,80 +166,127 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
     catch (err) { onError(describe(err, "Could not unlink Telegram")); }
     finally { setBusy(false); }
   }
+  if (account.telegram_user_id) {
+    return (
+      <Button type="button" variant="link" size="sm" disabled={busy} onClick={unlink}>
+        Unlink Telegram
+      </Button>
+    );
+  }
+  if (pairing) {
+    return (
+      <div className="flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm w-full">
+        <p className="font-medium">Finish in Telegram</p>
+        <ol className="list-decimal pl-5 text-muted-foreground">
+          <li>Open the link below on the device where you use Telegram.</li>
+          <li>Tap <strong>Start</strong> in the chat that opens.</li>
+          <li>Come back here — your row updates when it&apos;s done.</li>
+        </ol>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild size="sm"><a href={pairing.url} target="_blank" rel="noreferrer">Open Telegram</a></Button>
+          <CopyButton text={pairing.url} label="Copy link" />
+          <Button type="button" variant="ghost" size="sm" onClick={() => window.location.reload()}>I&apos;ve done this</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Single-use, expires at {new Date(pairing.expires_at).toLocaleTimeString()}. Don&apos;t forward it: whoever opens it first claims your account&apos;s Telegram.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-3">
-      <p className="text-sm font-medium">Your Telegram</p>
-      {account.telegram_user_id ? (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>Linked as {account.telegram_user_id}</span>
-          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={unlink}>Unlink Telegram</Button>
-        </div>
-      ) : pairing ? (
-        <div className="space-y-2 text-sm">
-          <Button asChild><a href={pairing.url} target="_blank" rel="noreferrer">Open Telegram</a></Button>
-          <p className="text-muted-foreground">This single-use link expires at {new Date(pairing.expires_at).toLocaleTimeString()}.</p>
-        </div>
-      ) : (
-        <Button type="button" variant="outline" size="sm" className="self-start" disabled={!available || busy} onClick={link}>
-          {busy ? "Creating link…" : "Link Telegram"}
-        </Button>
-      )}
-      {!available && !account.telegram_user_id && <p className="text-xs text-muted-foreground">Pairing is unavailable until Eggy can discover the configured bot username. Check Telegram credentials and restart.</p>}
-    </div>
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      disabled={!available || busy}
+      onClick={link}
+      title={available ? undefined : "Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart."}
+    >
+      {busy ? "Creating link…" : "Link Telegram"}
+    </Button>
+  );
+}
+
+function Avatar({ id, self }: { id: string; self: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold " +
+        (self ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
+      }
+    >
+      {(id[0] ?? "?").toUpperCase()}
+    </span>
   );
 }
 
 export function AccountsList({
   accounts,
+  telegramEnabled,
+  pairingAvailable,
   onEdit,
   onRemove,
   onReset,
+  onShowSteps,
+  onError,
 }: {
   accounts: AccountRow[];
+  telegramEnabled: boolean;
+  pairingAvailable: boolean;
   onEdit: (account: AccountRow) => void;
   onRemove: (account: AccountRow) => void;
   onReset: (account: AccountRow) => void;
+  onShowSteps: (account: AccountRow) => void;
+  onError: (message: string) => void;
 }) {
   if (accounts.length === 0) {
-    return <p className="text-sm text-muted-foreground">No accounts yet.</p>;
+    return <p className="text-sm text-muted-foreground">No accounts yet. Add the first one below.</p>;
   }
   return (
-    <ul className="flex flex-col divide-y rounded-md border">
-      {accounts.map((account) => (
-        <li key={account.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">
-              {account.id}
-              {account.self && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
-            </p>
-            <p className="truncate text-xs text-muted-foreground">{account.email}</p>
-            <p className="mt-1 flex flex-wrap gap-2 text-xs">
-              <span className={account.enrolled ? "text-foreground" : "text-muted-foreground"}>
-                {account.enrolled ? "Enrolled" : "Not enrolled"}
-              </span>
-              <span className={account.signed_in ? "text-foreground" : "text-muted-foreground"}>
-                {account.signed_in ? "Signed in" : "Not signed in"}
-              </span>
-              {account.telegram_user_id ? <span className="text-muted-foreground">Telegram {account.telegram_user_id}</span> : null}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`}>
-              Edit
-            </Button>
-            {account.enrolled && (
-              <Button type="button" variant="outline" size="sm" onClick={() => onReset(account)} aria-label={`Reset binding for ${account.id}`}>
-                Reset binding
+    <ul className="flex flex-col divide-y border-y">
+      {accounts.map((account) => {
+        const status = [
+          account.enrolled ? "Enrolled" : "Not enrolled",
+          account.signed_in ? "Signed in" : "Not signed in",
+        ];
+        if (telegramEnabled) status.push(account.telegram_user_id ? `Telegram ${account.telegram_user_id}` : "Telegram not linked");
+        const pending = !account.enrolled || (telegramEnabled && !account.telegram_user_id);
+        return (
+          <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 py-4">
+            <Avatar id={account.id} self={account.self} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {account.id}
+                {account.self && <span className="ml-1 text-muted-foreground">(you)</span>}
+              </p>
+              <p className="truncate text-sm text-muted-foreground">{account.email}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{status.join(" · ")}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1">
+              {pending && !account.self && (
+                <Button type="button" variant="link" size="sm" onClick={() => onShowSteps(account)} aria-label={`Getting started for ${account.id}`}>
+                  Getting started
+                </Button>
+              )}
+              {telegramEnabled && <TelegramLinkControl account={account} available={pairingAvailable} onError={onError} />}
+              <Button type="button" variant="ghost" size="sm" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`}>
+                Edit
               </Button>
-            )}
-            {!account.self && (
-              <Button type="button" variant="outline" size="sm" onClick={() => onRemove(account)} aria-label={`Remove ${account.id}`}>
-                Remove
-              </Button>
-            )}
-          </div>
-        </li>
-      ))}
+              {account.enrolled && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => onReset(account)} aria-label={`Reset binding for ${account.id}`}>
+                  Reset binding
+                </Button>
+              )}
+              {!account.self && (
+                <Button type="button" variant="link" size="sm" onClick={() => onRemove(account)} aria-label={`Remove ${account.id}`}>
+                  Remove
+                </Button>
+              )}
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -213,18 +355,20 @@ function AccountForm({
       }}
       className="flex flex-col gap-3"
     >
-      {!initial && (
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="account-id">Account ID</Label>
-          <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required />
-        </div>
-      )}
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="account-email">Google email</Label>
-        <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        {initial?.enrolled && (
-          <p className="text-xs text-muted-foreground">This account has enrolled. Reset its binding before changing the address.</p>
+      <div className={"grid gap-3 " + (initial ? "" : "sm:grid-cols-2")}>
+        {!initial && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="account-id">Account ID</Label>
+            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required />
+          </div>
         )}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="account-email">Google email</Label>
+          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="someone@kestrel.co" required />
+          {initial?.enrolled && (
+            <p className="text-xs text-muted-foreground">This account has enrolled. Reset its binding before changing the address.</p>
+          )}
+        </div>
       </div>
       <div className="flex gap-2">
         <Button type="submit" disabled={saving}>
@@ -355,6 +499,10 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
   const [editing, setEditing] = useState<AccountRow | null>(null);
   const [removing, setRemoving] = useState<AccountRow | null>(null);
   const [resetting, setResetting] = useState<AccountRow | null>(null);
+  // steps is whose onboarding checklist is open: set when an account is
+  // added, or when someone clicks "Getting started" on a row. It is keyed by
+  // id so a reload keeps showing the same person's current progress.
+  const [steps, setSteps] = useState<string | null>(null);
   const [clientId, setClientId] = useState("");
   const [secretEnv, setSecretEnv] = useState("");
   const [expected, setExpected] = useState("");
@@ -405,13 +553,26 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
     }
   }
 
+  function show(which: "edit" | "remove" | "reset" | "steps", account: AccountRow) {
+    setEditing(which === "edit" ? account : null);
+    setRemoving(which === "remove" ? account : null);
+    setResetting(which === "reset" ? account : null);
+    setSteps(which === "steps" ? account.id : null);
+  }
+
+  const self = view?.accounts.find((account) => account.self);
+  const stepsAccount = steps ? view?.accounts.find((account) => account.id === steps) : undefined;
+  // A signed-in person whose Telegram is not linked yet is mid-onboarding,
+  // and the checklist for their own account is the thing to show first.
+  const selfNeedsTelegram = !!view?.telegram_enabled && !!self && !self.telegram_user_id;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Accounts</CardTitle>
+        <CardTitle>People</CardTitle>
         <CardDescription>
-          Who can use this Eggy. Each person signs in with their own Google account and has private conversations and
-          memory; everyone can change these settings.
+          Each person signs in with their own Google account and has private conversations and memory; everyone can
+          change these settings.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -434,40 +595,21 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           />
         ) : (
           <>
+            {selfNeedsTelegram && !stepsAccount && self && (
+              <OnboardingSteps account={self} telegramEnabled={view!.telegram_enabled} />
+            )}
             <AccountsList
               accounts={view?.accounts ?? []}
-              onEdit={(account) => {
-                setEditing(account);
-                setRemoving(null);
-                setResetting(null);
-              }}
-              onRemove={(account) => {
-                setRemoving(account);
-                setEditing(null);
-                setResetting(null);
-              }}
-              onReset={(account) => {
-                setResetting(account);
-                setEditing(null);
-                setRemoving(null);
-              }}
+              telegramEnabled={view?.telegram_enabled ?? false}
+              pairingAvailable={view?.telegram_pairing_available ?? false}
+              onEdit={(account) => show("edit", account)}
+              onRemove={(account) => show("remove", account)}
+              onReset={(account) => show("reset", account)}
+              onShowSteps={(account) => show("steps", account)}
+              onError={setError}
             />
-            {view && (
-              <TelegramEnableControl
-                enabled={view.telegram_enabled}
-                onChanged={(message) => {
-                  setNotice(message);
-                  load();
-                }}
-                onError={setError}
-              />
-            )}
-            {view?.telegram_enabled && view.accounts.find((account) => account.self) && (
-              <TelegramLinkControl
-                account={view.accounts.find((account) => account.self)!}
-                available={view.telegram_pairing_available}
-                onError={setError}
-              />
+            {stepsAccount && view && (
+              <OnboardingSteps account={stepsAccount} telegramEnabled={view.telegram_enabled} onDismiss={() => setSteps(null)} />
             )}
             {removing && (
               <RemoveConfirm
@@ -487,31 +629,61 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
                 onCancel={() => setResetting(null)}
               />
             )}
-            {editing ? (
-              <details open className="rounded-md border p-3">
-                <summary className="cursor-pointer text-sm font-medium">Edit {editing.id}</summary>
-                <div className="mt-3">
-                  <AccountForm
-                    key={editing.id}
-                    initial={editing}
-                    saving={saving}
-                    onCancel={() => setEditing(null)}
-                    onSubmit={async (input) => {
-                      if (await run(() => editAccount(editing.id, { email: input.email, telegram_user_id: input.telegram_user_id }))) setEditing(null);
-                    }}
-                  />
-                </div>
-              </details>
-            ) : (
-              <details className="rounded-md border p-3">
-                <summary className="cursor-pointer text-sm font-medium">Add an account</summary>
-                <div className="mt-3">
-                  <AccountForm saving={saving} onSubmit={(input) => run(() => addAccount(input))} />
-                </div>
-              </details>
-            )}
+            <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-4">
+              <p className="text-sm font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
+              {!editing && (
+                <p className="text-xs text-muted-foreground">
+                  Adding someone reserves their place; they enroll the first time they sign in with this Google
+                  address. You&apos;ll get an invite to send them.
+                </p>
+              )}
+              {editing ? (
+                <AccountForm
+                  key={editing.id}
+                  initial={editing}
+                  saving={saving}
+                  onCancel={() => setEditing(null)}
+                  onSubmit={async (input) => {
+                    if (await run(() => editAccount(editing.id, { email: input.email, telegram_user_id: input.telegram_user_id }))) setEditing(null);
+                  }}
+                />
+              ) : (
+                <AccountForm
+                  key={view?.accounts.length ?? 0}
+                  saving={saving}
+                  onSubmit={async (input) => {
+                    if (await run(() => addAccount(input))) setSteps(input.id);
+                  }}
+                />
+              )}
+            </div>
           </>
         )}
+
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">Telegram</summary>
+          <div className="mt-3 flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              With Telegram enabled, each person links their own Telegram from their row above: a single-use link,
+              opened in Telegram, binds that sender to their account. Nobody can link on someone else&apos;s behalf.
+            </p>
+            {view && (
+              <TelegramEnableControl
+                enabled={view.telegram_enabled}
+                onChanged={(message) => {
+                  setNotice(message);
+                  load();
+                }}
+                onError={setError}
+              />
+            )}
+            {view?.telegram_enabled && !view.telegram_pairing_available && (
+              <p className="text-xs text-muted-foreground">
+                Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart.
+              </p>
+            )}
+          </div>
+        </details>
 
         <details className="rounded-md border p-3">
           <summary className="cursor-pointer text-sm font-medium">Google sign-in client</summary>

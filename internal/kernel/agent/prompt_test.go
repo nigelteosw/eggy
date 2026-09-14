@@ -62,6 +62,10 @@ func TestRuntimePolicyAlwaysCarriesTheCore(t *testing.T) {
 		for _, required := range []string{
 			"Hard runtime policy",
 			"Be truthful about configured capabilities",
+			"Follow-up owner messages add to the active task by default",
+			"Preserve the original objective and unfinished requirements",
+			"Replace or abandon the task only when the owner clearly cancels it or requests an incompatible new objective",
+			"answer it and then continue the active task",
 			"Direct owner turns include bounded recent conversation",
 			"Do not describe Eggy as stateless",
 			"Never ask the owner to send credentials in chat",

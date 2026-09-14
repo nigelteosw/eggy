@@ -138,26 +138,32 @@ func TestActiveTurnsAreKeyedByAccountAndConversation(t *testing.T) {
 	conversation := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
 	a := ports.WithPrincipal(conversation, ports.Principal{AccountID: "a"})
 	b := ports.WithPrincipal(conversation, ports.Principal{AccountID: "b"})
-	turnCtx, release := turns.Begin(a, true)
-	defer release()
+	owner, err := turns.Admit(a, ports.Message{Content: "original"}, true, func(bool) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer turns.Release(owner.Context)
 	// Same conversation ID, different account: b can neither steer nor
 	// stop a's turn, and an unauthenticated context can do neither either.
-	if turns.Steer(b, ports.Message{Content: "hijack"}) {
-		t.Fatal("b steered a's turn")
+	bOwner, err := turns.Admit(b, ports.Message{Content: "not for a"}, true, func(bool) error { return nil })
+	if err != nil || !bOwner.Owner {
+		t.Fatalf("b admission=%+v err=%v, want an independent owner", bOwner, err)
 	}
+	turns.Release(bOwner.Context)
 	if turns.Stop(b) {
 		t.Fatal("b stopped a's turn")
 	}
 	if turns.Stop(conversation) {
 		t.Fatal("an unauthenticated context stopped a's turn")
 	}
-	if turnCtx.Err() != nil {
+	if owner.Context.Err() != nil {
 		t.Fatal("a's turn was cancelled")
 	}
-	if !turns.Steer(a, ports.Message{Content: "mine"}) {
-		t.Fatal("a could not steer its own turn")
+	joined, err := turns.Admit(a, ports.Message{Content: "mine"}, true, func(bool) error { return nil })
+	if err != nil || joined.Owner {
+		t.Fatalf("a follow-up admission=%+v err=%v, want joined", joined, err)
 	}
-	if pending := turns.Pending(turnCtx); len(pending) != 1 || pending[0].Content != "mine" {
+	if pending := turns.Pending(owner.Context); len(pending) != 1 || pending[0].Content != "mine" {
 		t.Fatalf("pending=%+v", pending)
 	}
 	if !turns.Stop(a) {

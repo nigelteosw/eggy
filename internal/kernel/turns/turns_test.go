@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/agent"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -30,6 +32,95 @@ type fakeLoop struct {
 	// point at which a real tool could reach the turn's context.
 	onRun func(context.Context)
 	err   error
+}
+
+type blockingPreparationContext struct {
+	mu      sync.Mutex
+	blocked bool
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingPreparationContext) Load(context.Context) (ports.AgentContext, error) {
+	s.mu.Lock()
+	first := !s.blocked
+	s.blocked = true
+	s.mu.Unlock()
+	if first {
+		close(s.started)
+		<-s.release
+	}
+	return ports.AgentContext{}, nil
+}
+func (*blockingPreparationContext) AddEntry(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
+func (*blockingPreparationContext) ReplaceEntry(context.Context, ports.ContextDocument, string, string) error {
+	return nil
+}
+func (*blockingPreparationContext) RemoveEntry(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
+func (*blockingPreparationContext) ReplaceDocument(context.Context, ports.ContextDocument, string) error {
+	return nil
+}
+
+type admissionLoop struct {
+	mu      sync.Mutex
+	inputs  []ports.Message
+	pending []ports.Message
+}
+
+func (l *admissionLoop) Run(_ context.Context, _, _ string, input ports.Message, _ []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
+	l.mu.Lock()
+	l.inputs = append(l.inputs, input)
+	l.mu.Unlock()
+	if options.PendingInput != nil {
+		pending := options.PendingInput()
+		l.mu.Lock()
+		l.pending = append(l.pending, pending...)
+		l.mu.Unlock()
+		if repeated := options.PendingInput(); len(repeated) != 0 {
+			l.mu.Lock()
+			l.pending = append(l.pending, repeated...)
+			l.mu.Unlock()
+		}
+	}
+	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: "done"}}, nil
+}
+
+func (*admissionLoop) ToolNames(agent.RunOptions) []string { return nil }
+
+func TestAdmissionMakesPreparationAndOwnershipAtomic(t *testing.T) {
+	preparation := &blockingPreparationContext{started: make(chan struct{}), release: make(chan struct{})}
+	loop := &admissionLoop{}
+	service := New(Options{
+		Registry: services.NewActiveTurns(), Conversation: &fakeConversation{}, Context: preparation,
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+	})
+	ctx := ports.WithPrincipal(destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-a"}), ports.Principal{AccountID: "42"})
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+	go func() { firstDone <- service.OwnerMessage(ctx, ports.Message{Content: "original"}, "web") }()
+	<-preparation.started
+	go func() { secondDone <- service.OwnerMessage(ctx, ports.Message{Content: "follow-up"}, "web") }()
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	close(preparation.release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+
+	loop.mu.Lock()
+	defer loop.mu.Unlock()
+	if len(loop.inputs) != 1 || loop.inputs[0].Content != "original" {
+		t.Fatalf("loop inputs=%#v, want only the original owner request", loop.inputs)
+	}
+	if len(loop.pending) != 1 || loop.pending[0].Content != "follow-up" {
+		t.Fatalf("pending=%#v, want the follow-up exactly once", loop.pending)
+	}
 }
 
 func (l *fakeLoop) Run(ctx context.Context, _, _ string, input ports.Message, history []ports.Message, options agent.RunOptions) (agent.RunResult, error) {
@@ -57,16 +148,19 @@ type fakeRegistry struct {
 	undrained []ports.Message
 }
 
-func (r *fakeRegistry) Begin(ctx context.Context, _ bool) (context.Context, func() []ports.Message) {
-	return ctx, func() []ports.Message {
-		undrained := r.undrained
-		r.undrained = nil
-		return undrained
+func (r *fakeRegistry) Admit(ctx context.Context, _ ports.Message, _ bool, prepare func(bool) error) (services.TurnAdmission, error) {
+	if r.steered {
+		return services.TurnAdmission{Context: ctx}, prepare(false)
 	}
+	return services.TurnAdmission{Context: ctx, Owner: true}, prepare(true)
 }
-func (r *fakeRegistry) Steer(context.Context, ports.Message) bool { return r.steered }
-func (r *fakeRegistry) Pending(context.Context) []ports.Message   { return nil }
-func (r *fakeRegistry) Active() bool                              { return false }
+func (r *fakeRegistry) Pending(context.Context) []ports.Message { return nil }
+func (r *fakeRegistry) Release(context.Context) []ports.Message {
+	undrained := r.undrained
+	r.undrained = nil
+	return undrained
+}
+func (r *fakeRegistry) Active() bool { return false }
 
 type fakeConversation struct{ recorded []ports.Message }
 

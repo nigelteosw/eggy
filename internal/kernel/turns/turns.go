@@ -41,11 +41,9 @@ type CommandExecutor interface {
 // Registry is the live-turn bookkeeping a turn participates in: it registers
 // itself, accepts owner steering while it runs, and drains what arrived.
 type Registry interface {
-	// Begin registers the turn and returns the release function, which
-	// reports whatever was steered into the turn but never drained.
-	Begin(ctx context.Context, steerable bool) (context.Context, func() []ports.Message)
-	Steer(ctx context.Context, message ports.Message) bool
+	Admit(ctx context.Context, message ports.Message, steerable bool, prepare func(owner bool) error) (services.TurnAdmission, error)
 	Pending(ctx context.Context) []ports.Message
+	Release(ctx context.Context) []ports.Message
 	Active() bool
 }
 
@@ -343,22 +341,21 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 			return s.Channel.Deliver(ctx, output)
 		}
 	}
-	// A message that arrives while a steerable turn is already running joins
-	// that turn rather than starting a competing one. The owner gets to
-	// redirect work in progress -- "actually, skip the tests" -- instead of
-	// waiting for it to finish or racing it.
-	//
-	// Silently: the running turn's own reply is the acknowledgement, and it
-	// is the only one that can say anything true about what the steer did.
-	// A canned "folding that in" arrives before the turn has read the
-	// message, claims on its behalf, and turns every mid-turn aside into two
-	// notifications instead of one.
-	if policy.RecordConversation && s.Registry.Steer(ctx, input) {
+	// Admission owns the decision to join or execute. Registering the owner
+	// before the remaining preparation closes the old Steer/Begin race while
+	// leaving the durable preparation callback for Task 2.
+	admission, err := s.Registry.Admit(ctx, input, policy.RecordConversation, func(bool) error { return nil })
+	if err != nil {
+		return err
+	}
+	if !admission.Owner {
 		if policy.InputAlreadyRecorded {
 			return nil
 		}
 		return s.Conversation.Record(ctx, destination.FromContext(ctx).ConversationID(), ports.Message{Role: ports.RoleUser, Content: durableText}, policy.Source)
 	}
+	ownerContext := admission.Context
+	defer func() { s.Registry.Release(ownerContext) }()
 	agentContext, err := s.Context.Load(ctx)
 	if err != nil {
 		return err
@@ -425,10 +422,14 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	// Only a direct owner turn is steerable: a scheduled turn is deliberately
 	// self-contained, and folding an owner message into one would hand it the
 	// ambient instruction that isolation exists to prevent.
-	turnContext, endTurn := s.Registry.Begin(ctx, policy.RecordConversation)
-	defer endTurn()
+	turnContext, cancelTurn := context.WithCancel(ctx)
+	stopOwnerCancellation := context.AfterFunc(ownerContext, cancelTurn)
+	defer func() {
+		stopOwnerCancellation()
+		cancelTurn()
+	}()
 	turnContext = services.WithSelectedModel(turnContext, alias)
-	options.PendingInput = func() []ports.Message { return s.Registry.Pending(ctx) }
+	options.PendingInput = func() []ports.Message { return s.Registry.Pending(ownerContext) }
 	stopTyping := func() {}
 	if s.Presenter != nil {
 		stopTyping = s.Presenter.StartTyping(ctx)
@@ -436,7 +437,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	result, runErr := s.Loop.Run(turnContext, alias, effort, input, history, options)
 	stopTyping()
 	finishToolProgress()
-	steered = endTurn()
+	steered = s.Registry.Release(ownerContext)
 	// Completed here rather than in a defer, and before any of the branches
 	// below can return: a turn that hit the step limit or that the owner
 	// stopped is the one whose trace is most worth having.

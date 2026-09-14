@@ -364,7 +364,7 @@ function AccountForm({
         )}
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="account-email">Google email</Label>
-          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="someone@kestrel.co" required />
+          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required />
           {initial?.enrolled && (
             <p className="text-xs text-muted-foreground">This account has enrolled. Reset its binding before changing the address.</p>
           )}

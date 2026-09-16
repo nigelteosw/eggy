@@ -237,38 +237,37 @@ export function ThreadSidebar({
 
   return (
     <div
-      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col border-r bg-background md:w-[var(--sidebar-width)]"
+      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 md:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+      <div className="flex h-14 shrink-0 items-center gap-1 pl-4 pr-2">
+        <span className="flex-1 truncate text-[14.5px] font-semibold tracking-tight">Conversations</span>
         <button
           type="button"
           onClick={onCollapse}
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-800 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           <PanelIcon />
         </button>
-        <span className="text-base font-semibold tracking-tight">Conversations</span>
       </div>
 
-      <div className="flex items-center justify-between px-4 pb-2 pt-5">
-        <span className="text-sm font-medium">Chats</span>
+      <div className="px-3 pb-2.5">
         <button
           type="button"
           onClick={handleNew}
           disabled={!newChatAvailable}
           title={newChatAvailable ? "New chat" : "Write a message to start a new chat"}
-          className="flex h-11 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
+          className="flex h-11 w-full items-center gap-2 rounded-2xl bg-background px-3.5 text-left text-sm font-medium transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
         >
-          <PlusIcon className="h-4 w-4" />
+          <PlusIcon className="h-4 w-4 text-accent-700" />
           New chat
         </button>
       </div>
 
       {error && (
-        <p className="mx-3 mb-2 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive" role="alert">
+        <p className="mx-3 mb-2 rounded-xl bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive" role="alert">
           {error}
         </p>
       )}
@@ -294,7 +293,7 @@ export function ThreadSidebar({
                       if (event.key === "Enter") commitRename(thread.id);
                       if (event.key === "Escape") setRenamingId(null);
                     }}
-                    className="h-11 w-full rounded-md border border-ring bg-background px-3 text-sm outline-none ring-2 ring-ring/25"
+                    className="h-11 w-full rounded-2xl bg-background px-3 text-sm outline-none ring-2 ring-ring/40"
                   />
                 );
               }
@@ -304,23 +303,14 @@ export function ThreadSidebar({
                     type="button"
                     onClick={() => onSelect(thread.id)}
                     className={cn(
-                      "w-full rounded-lg py-3 pl-3 pr-9 text-left transition-colors",
-                      active ? "bg-accent text-accent-foreground shadow-subtle" : "text-foreground/80 hover:bg-muted/70",
+                      "w-full rounded-2xl py-2.5 pl-3.5 pr-9 text-left transition-colors",
+                      active ? "bg-background shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
                     )}
                   >
-                    {/* Active marker: a short rule in the primary, rather than
-                        restating the selection with yet another fill. */}
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary transition-opacity",
-                        active ? "opacity-100" : "opacity-0",
-                      )}
-                    />
                     <div className={cn("truncate text-sm", active ? "font-medium" : "font-normal")}>
                       {thread.title || "New chat"}
                     </div>
-                    <div className={cn("mt-0.5 truncate text-xs", active ? "text-accent-foreground/70" : "text-muted-foreground")}>
+                    <div className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">
                       {relativeTime(thread.updatedAt)}
                     </div>
                   </button>
@@ -335,7 +325,7 @@ export function ThreadSidebar({
                       setMenuFor((current) => (current === thread.id ? null : thread.id));
                     }}
                     className={cn(
-                      "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
+                      "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
                       menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                     )}
                   >
@@ -349,12 +339,12 @@ export function ThreadSidebar({
                   {menuFor === thread.id && (
                     <div
                       onClick={(event) => event.stopPropagation()}
-                      className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-md border border-border bg-card py-1 shadow-lift"
+                      className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-2xl bg-card py-1 shadow-lift"
                     >
                       <button
                         type="button"
                         onClick={() => startRename(thread)}
-                        className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-muted"
+                        className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-neutral-100"
                       >
                         Rename
                       </button>

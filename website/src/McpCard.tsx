@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, MCPServerInput, SessionExpiredError, listMCPServers, removeMCPServer, setMCPServer } from "./api";
+import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Switch } from "./components/ui/switch";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 // Column positions in the rows /api/config/mcp returns. Named here so the row
 // actions below read as intent rather than as indexes into an anonymous array.
@@ -91,12 +93,12 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>MCP servers</CardTitle>
-        <CardDescription>External tool servers Eggy can call during a turn.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">MCP servers</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">External tool servers Eggy can call during a turn.</p>
+      </div>
+      <div className="flex flex-col gap-3">
         <DataTable
           headers={result?.table_headers}
           rows={result?.table_rows}
@@ -118,37 +120,37 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                 variant="ghost"
                 size="sm"
                 onClick={() => handleRemove(row[NAME])}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                className="text-eg-red-ink hover:bg-eg-red-tint hover:text-eg-red-ink"
               >
                 Remove
               </Button>
             </div>
           )}
         />
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Add MCP server</summary>
-          <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
-            <Input placeholder="url (https://...)" value={url} onChange={(e) => setUrl(e.target.value)} required />
+        <details className="rounded-2xl bg-neutral-100 p-4">
+          <summary className="cursor-pointer text-[12.5px] font-medium">Add MCP server</summary>
+          <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
+            <Input placeholder="url (https://...)" value={url} onChange={(e) => setUrl(e.target.value)} required className={FIELD} />
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Select value={transport} onChange={(e) => setTransport(e.target.value)} aria-label="Transport">
+              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <Select value={transport} onChange={(e) => setTransport(e.target.value)} aria-label="Transport" className="bg-background">
                   <option value="streamable-http">streamable-http</option>
                 </Select>
-                <Select value={auth} onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])} aria-label="Authentication">
+                <Select value={auth} onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])} aria-label="Authentication" className="bg-background">
                   <option value="oauth">oauth</option>
                   <option value="bearer-env">bearer-env</option>
                   <option value="none">none</option>
                 </Select>
-                {auth === "bearer-env" && <Input placeholder="bearer_token_env" value={bearerTokenEnv} onChange={(e) => setBearerTokenEnv(e.target.value)} required className="sm:col-span-2" />}
+                {auth === "bearer-env" && <Input placeholder="bearer_token_env" value={bearerTokenEnv} onChange={(e) => setBearerTokenEnv(e.target.value)} required className={cn(FIELD, "sm:col-span-2")} />}
                 {auth === "oauth" && (
                   <>
-                    <Input placeholder="oauth_client_id (optional)" value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} />
-                    <Input placeholder="oauth_client_secret_env (optional)" value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} />
-                    <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
+                    <Input placeholder="oauth_client_id (optional)" value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className={FIELD} />
+                    <Input placeholder="oauth_client_secret_env (optional)" value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} className={FIELD} />
+                    <p className="text-xs leading-relaxed text-neutral-700 sm:col-span-2">
                       Leave both empty for dynamic registration. Otherwise use callback{" "}
-                      <code className="rounded bg-muted px-1 py-0.5 text-[0.9em]">
+                      <code className="rounded bg-background px-1 py-0.5 text-[0.9em]">
                         {typeof window === "undefined" ? "" : window.location.origin}/auth/mcp/{name || "<name>"}/callback
                       </code>
                       , then name the environment variable holding the secret.
@@ -163,16 +165,16 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
             </Button>
           </form>
         </details>
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
           Saved servers connect after a restart. OAuth servers then need <strong>Authorize</strong> above. Scopes,
           timeouts, and tool filters stay config.yaml-only.
         </p>
         {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
             {error}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

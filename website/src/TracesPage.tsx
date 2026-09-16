@@ -93,8 +93,8 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
   const prompted = trace.kind === "owner";
   return (
     <span
-      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide ${
-        prompted ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground"
+      className={`whitespace-nowrap rounded-md px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${
+        prompted ? "bg-accent-100 text-accent-700" : "bg-neutral-200 text-neutral-700"
       }`}
     >
       {sourceOf(trace)}
@@ -112,11 +112,11 @@ function Prompt({ request }: { request: string }) {
     return (
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground">Request</span>
+          <span className="text-xs font-medium text-neutral-700">Request</span>
           {prompt && (
             <button
               type="button"
-              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              className="text-xs text-accent-700 underline-offset-2 hover:underline"
               onClick={() => setRaw(false)}
             >
               Show as conversation
@@ -130,12 +130,12 @@ function Prompt({ request }: { request: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-neutral-700">
           Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
         </span>
         <button
           type="button"
-          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          className="text-xs text-accent-700 underline-offset-2 hover:underline"
           onClick={() => setRaw(true)}
         >
           Show raw JSON
@@ -143,8 +143,8 @@ function Prompt({ request }: { request: string }) {
       </div>
       <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
-          <div key={index} className="rounded-md border bg-card p-3.5">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          <div key={index} className="rounded-xl bg-neutral-100 p-3.5">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-neutral-700">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
               {Array.isArray(message.tool_calls) && message.tool_calls.length > 0 && (
@@ -233,7 +233,7 @@ function TickLines({ ticks, window }: { ticks: number[]; window: number }) {
       {ticks.map((at) => (
         <div
           key={at}
-          className="absolute top-0 bottom-0 w-px bg-border/70"
+          className="absolute top-0 bottom-0 w-px bg-neutral-300"
           style={{ left: `${(at / window) * 100}%` }}
         />
       ))}
@@ -259,13 +259,13 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
   return (
     <div className="relative h-5 flex-1">
       <div
-        className={`absolute top-0.5 h-4 rounded-sm ${barColor(item.span)}`}
+        className={`absolute top-0.5 h-4 rounded-md ${barColor(item.span)}`}
         style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
         title={`${item.span.name}: ${label} at +${formatDuration(item.offset)}`}
       />
       <span
         className={`absolute top-0 flex h-full items-center whitespace-nowrap text-xs tabular-nums ${
-          placement === "inside" ? "px-2 font-medium text-primary-foreground" : "px-1.5 text-muted-foreground"
+          placement === "inside" ? "px-2 font-medium text-primary-foreground" : "px-1.5 text-neutral-700"
         }`}
         style={labelStyle}
       >
@@ -295,14 +295,14 @@ function SpanRow({
       onClick={onSelect}
       aria-pressed={selected}
       aria-label={`Inspect step ${span.sequence}: ${span.name}`}
-      className={`trace-step ${selected ? "bg-accent border-l-primary" : "border-l-transparent hover:bg-muted/60"}`}
+      className={`trace-step ${selected ? "bg-accent-100" : "hover:bg-neutral-200/60"}`}
     >
       <span className="flex min-w-0 items-center gap-3">
-        <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{span.sequence}</span>
+        <span className="w-5 shrink-0 text-xs tabular-nums text-neutral-700">{span.sequence}</span>
         <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium">{span.name}</span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-xs text-neutral-700">
             {span.kind === "model_call" ? "Model generation" : "Tool call"}
             {span.error ? " · Failed" : ""}
           </span>
@@ -312,7 +312,7 @@ function SpanRow({
         <TickLines ticks={ticks} window={window} />
         <WaterfallBar item={item} window={window} />
       </span>
-      <ChevronDownIcon className={`h-4 w-4 text-muted-foreground ${selected ? "" : "-rotate-90"}`} />
+      <ChevronDownIcon className={`h-4 w-4 text-neutral-700 ${selected ? "" : "-rotate-90"}`} />
     </button>
   );
 }
@@ -321,22 +321,22 @@ function StepInspector({ item }: { item: Placed }) {
   const span = item.span;
   const model = span.kind === "model_call";
   return (
-    <section aria-label="Step inspector" className="mt-5 border-t pt-5">
+    <section aria-label="Step inspector" className="trace-hairline-t mt-5 pt-5">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold">
           Step {span.sequence} · {span.name}
         </h3>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs tabular-nums text-neutral-700">
           Started +{formatDuration(item.offset)} · {formatDuration(item.duration)}
         </span>
       </div>
       {span.error && (
-        <p role="alert" className="mb-4 text-sm text-destructive">
+        <p role="alert" className="mb-4 rounded-2xl bg-eg-red-tint p-3.5 text-sm leading-relaxed text-eg-red-ink">
           {span.error}
         </p>
       )}
       {model && (
-        <p className="mb-4 text-xs text-muted-foreground">
+        <p className="mb-4 text-xs tabular-nums text-neutral-700">
           {formatTokens(span.prompt_tokens || 0)} prompt · {formatTokens(span.cached_prompt_tokens || 0)} cached ·{" "}
           {formatTokens(span.completion_tokens || 0)} completion tokens
         </p>
@@ -363,11 +363,11 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
   const { placed, window, ticks } = useMemo(() => layoutSpans(trace, spans), [trace, spans]);
   const [sequence, setSequence] = useState<number | null>(null);
   const selected = placed.find((item) => item.span.sequence === sequence);
-  if (!spans.length) return <p className="py-6 text-sm text-muted-foreground">This turn recorded no steps.</p>;
+  if (!spans.length) return <p className="py-6 text-sm text-neutral-700">This turn recorded no steps.</p>;
   return (
     <div>
-      <div className="overflow-hidden rounded-md border bg-card">
-        <div className="trace-step trace-axis bg-muted/50 text-xs text-muted-foreground">
+      <div className="overflow-hidden rounded-2xl bg-neutral-100">
+        <div className="trace-step trace-axis text-xs text-neutral-700">
           <span>Step</span>
           <span className="relative h-4">
             {ticks.map((at) => (
@@ -397,20 +397,26 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
       {selected ? (
         <StepInspector key={selected.span.sequence} item={selected} />
       ) : (
-        <p className="mt-3 text-xs text-muted-foreground">Select a step to inspect its request and response.</p>
+        <p className="mt-3 text-xs text-neutral-700">Select a step to inspect its request and response.</p>
       )}
     </div>
   );
 }
+
+const WATERFALL_LEGEND = [
+  { label: "Model call", dot: "bg-primary" },
+  { label: "Tool call", dot: "bg-sky-500 dark:bg-sky-400" },
+  { label: "Failed", dot: "bg-destructive" },
+];
 
 export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
     <article className="min-w-0 space-y-7">
       <header>
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-neutral-700">
           <SourceBadge trace={trace} />
-          <span>{formatTime(trace.started_at)}</span>
+          <span className="tabular-nums">{formatTime(trace.started_at)}</span>
           <TraceStatus trace={trace} />
         </div>
         <h2 className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed">
@@ -418,20 +424,17 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
         </h2>
         {trace.output && (
           <details className="mt-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground">View reply</summary>
+            <summary className="cursor-pointer text-sm text-neutral-700">View reply</summary>
             <p className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{trace.output}</p>
           </details>
         )}
       </header>
       {trace.error && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-        >
+        <p role="alert" className="rounded-2xl bg-eg-red-tint p-3.5 text-sm leading-relaxed text-eg-red-ink">
           {trace.error}
         </p>
       )}
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y py-4 2xl:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-2xl bg-neutral-100 p-4 2xl:grid-cols-4">
         {[
           ["Duration", formatDuration(trace.duration_ms)],
           ["Tokens", formatTokens(trace.total_tokens)],
@@ -439,15 +442,23 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
           ["Model", trace.model || "Unknown"],
         ].map(([label, value]) => (
           <div key={label}>
-            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dt className="text-xs text-neutral-700">{label}</dt>
             <dd className="mt-1 break-words text-sm font-medium tabular-nums">{value}</dd>
           </div>
         ))}
       </dl>
       <section aria-label="Execution timeline">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
           <h3 className="text-sm font-semibold">Execution timeline</h3>
-          <span className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-3">
+            {WATERFALL_LEGEND.map((entry) => (
+              <span key={entry.label} className="flex items-center gap-1.5 text-xs text-neutral-700">
+                <span className={`h-2 w-2 rounded-full ${entry.dot}`} />
+                {entry.label}
+              </span>
+            ))}
+          </div>
+          <span className="ml-auto text-xs tabular-nums text-neutral-700">
             {formatTokens(trace.prompt_tokens)} prompt · {formatTokens(trace.completion_tokens)} completion ·{" "}
             {formatTokens(trace.cached_prompt_tokens || 0)} cached tokens
             {trace.effort ? ` · ${trace.effort} effort` : ""}
@@ -461,7 +472,7 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
 
 function TraceStatus({ trace }: { trace: TraceSummary }) {
   return (
-    <span className={`text-xs ${trace.error ? "text-destructive" : "text-muted-foreground"}`}>
+    <span className={`text-xs ${trace.error ? "font-medium text-eg-red-ink" : "text-neutral-700"}`}>
       {trace.error ? "Failed" : trace.complete ? "Completed" : "Incomplete"}
     </span>
   );
@@ -490,7 +501,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
   if (error)
     return (
       <div role="alert">
-        <p className="mb-3 text-sm text-destructive">{error}</p>
+        <p className="mb-3 text-sm text-eg-red-ink">{error}</p>
         <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
           Try again
         </Button>
@@ -498,7 +509,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
     );
   if (!detail)
     return (
-      <p role="status" className="text-sm text-muted-foreground">
+      <p role="status" className="text-sm text-neutral-700">
         Loading turn…
       </p>
     );
@@ -600,9 +611,9 @@ export function TraceBrowser({
   return (
     <div ref={browserRef} className="trace-browser">
       <aside aria-label="Conversations" className={`trace-conversations ${selected ? "hidden lg:block" : ""}`}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Conversations</h2>
-          <span className="text-xs text-muted-foreground">{groups.length}</span>
+        <div className="mb-3 flex items-center justify-between px-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-700">Conversations</h2>
+          <span className="text-xs tabular-nums text-neutral-700">{groups.length}</span>
         </div>
         <div className="trace-conversation-list">
           {groups.map((item) => (
@@ -615,54 +626,61 @@ export function TraceBrowser({
                 setGroupKey(item.key);
                 setTraceId(null);
               }}
-              className={`w-full rounded-md border px-3 py-3 text-left transition-colors ${group?.key === item.key ? "border-border bg-card shadow-sm" : "border-transparent hover:bg-muted"}`}
+              className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
               <span className="block truncate text-sm font-medium">{conversationLabel(item, titles)}</span>
-              <span className="mt-1.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+              <span className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-700">
                 <span>
                   {item.traces.length} {item.traces.length === 1 ? "turn" : "turns"}
                 </span>
-                {item.errors > 0 && <span className="text-destructive">{item.errors} failed</span>}
+                {item.errors > 0 && (
+                  <span className="flex items-center gap-1 text-eg-red-ink">
+                    <span className="h-1.5 w-1.5 rounded-full bg-eg-red" />
+                    {item.errors} failed
+                  </span>
+                )}
               </span>
-              <span className="mt-1 block text-xs text-muted-foreground">{formatTime(item.lastAt)}</span>
+              <span className="mt-1 block text-xs tabular-nums text-neutral-700">{formatTime(item.lastAt)}</span>
             </button>
           ))}
         </div>
       </aside>
       <section aria-label="Turns" className={`trace-turns ${selected ? "hidden lg:block" : ""}`}>
-        <div className="border-b px-5 py-4">
+        <div className="px-4 pb-3 pt-4">
           <h2 className="truncate text-sm font-semibold">{group ? conversationLabel(group, titles) : "Turns"}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Select a turn to inspect</p>
+          <p className="mt-1 text-xs text-neutral-700">Select a turn to inspect</p>
         </div>
-        {group?.traces.map((trace) => (
-          <button
-            key={trace.id}
-            type="button"
-            aria-label={`Inspect turn ${trace.input || "Unprompted turn"}`}
-            aria-pressed={selected?.id === trace.id}
-            onClick={(event) => {
-              turnControl.current = event.currentTarget;
-              setGroupKey(group.key);
-              setTraceId(trace.id);
-            }}
-            className={`w-full border-b border-l-2 px-5 py-4 text-left transition-colors ${selected?.id === trace.id ? "border-l-primary bg-accent/60" : "border-l-transparent hover:bg-muted/50"}`}
-          >
-            <span className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">{formatTime(trace.started_at)}</span>
-              <TraceStatus trace={trace} />
-            </span>
-            <span className="line-clamp-2 break-words text-sm font-medium leading-6">
-              {trace.input || "Unprompted turn"}
-            </span>
-            <span className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{formatDuration(trace.duration_ms)}</span>
-              <span>
-                {trace.spans} {trace.spans === 1 ? "step" : "steps"}
+        <div className="px-3 pb-4">
+          {group?.traces.map((trace) => (
+            <button
+              key={trace.id}
+              type="button"
+              aria-label={`Inspect turn ${trace.input || "Unprompted turn"}`}
+              aria-pressed={selected?.id === trace.id}
+              onClick={(event) => {
+                turnControl.current = event.currentTarget;
+                setGroupKey(group.key);
+                setTraceId(trace.id);
+              }}
+              className={`mb-1 w-full rounded-xl px-3.5 py-3 text-left transition-colors ${selected?.id === trace.id ? "bg-accent-100" : "hover:bg-neutral-200/50"}`}
+            >
+              <span className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs tabular-nums text-neutral-700">{formatTime(trace.started_at)}</span>
+                <TraceStatus trace={trace} />
               </span>
-              <span className="ml-auto">Inspect →</span>
-            </span>
-          </button>
-        ))}
+              <span className="line-clamp-2 break-words text-sm font-medium leading-6">
+                {trace.input || "Unprompted turn"}
+              </span>
+              <span className="mt-3 flex items-center gap-3 text-xs tabular-nums text-neutral-700">
+                <span>{formatDuration(trace.duration_ms)}</span>
+                <span>
+                  {trace.spans} {trace.spans === 1 ? "step" : "steps"}
+                </span>
+                <span className="ml-auto">Inspect →</span>
+              </span>
+            </button>
+          ))}
+        </div>
       </section>
       <section
         ref={inspectorRef}
@@ -675,7 +693,7 @@ export function TraceBrowser({
             <button
               type="button"
               onClick={() => setTraceId(null)}
-              className="mb-5 flex min-h-11 items-center gap-2 text-sm text-muted-foreground lg:hidden"
+              className="mb-5 flex min-h-11 items-center gap-2 text-sm text-neutral-700 lg:hidden"
             >
               <ChevronLeftIcon />
               Back to turns
@@ -685,7 +703,7 @@ export function TraceBrowser({
         ) : (
           <div className="flex min-h-64 flex-col justify-center gap-2 text-center">
             <h2 className="text-base font-medium">Select a turn to inspect</h2>
-            <p className="text-sm text-muted-foreground">Review its outcome, timing, and individual steps.</p>
+            <p className="text-sm text-neutral-700">Review its outcome, timing, and individual steps.</p>
           </div>
         )}
       </section>
@@ -749,20 +767,17 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card px-5 py-5 sm:px-7">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Traces</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Follow a conversation from request to execution.</p>
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
+        <div className="flex items-baseline gap-2.5">
+          <h1 className="text-lg font-semibold tracking-tight">Traces</h1>
+          <span className="text-xs tabular-nums text-neutral-700">{traces.length} recent turns</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-muted-foreground">{traces.length} recent turns</span>
-          <Button variant="outline" onClick={reload} disabled={loading}>
-            {loading ? "Loading…" : "Refresh"}
-          </Button>
-        </div>
+        <Button variant="ghost" onClick={reload} disabled={loading} className="rounded-xl hover:bg-neutral-200">
+          {loading ? "Loading…" : "Refresh"}
+        </Button>
       </header>
       {error && (
-        <p role="alert" className="m-5 rounded-md border border-destructive/30 p-4 text-sm text-destructive">
+        <p role="alert" className="mx-5 mb-5 rounded-2xl bg-eg-red-tint p-4 text-sm leading-relaxed text-eg-red-ink">
           {error}
         </p>
       )}
@@ -770,7 +785,7 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
         <TraceBrowser traces={traces} titles={titles} onSessionExpired={rowFailed} />
       ) : (
         !error && (
-          <div role="status" className="p-12 text-center text-sm text-muted-foreground">
+          <div role="status" className="p-12 text-center text-sm text-neutral-700">
             {loading ? "Loading turns…" : "No turns recorded yet. Send a message and it will appear here."}
           </div>
         )

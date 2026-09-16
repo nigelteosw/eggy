@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import { CommandResult, SessionExpiredError, discoverModels, removeModelAlias } from "./api";
+import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 // aliasFor suggests a short name from a model ID: "anthropic/claude-sonnet-5"
 // becomes "claude-sonnet-5". It is only a starting point -- the field stays
@@ -34,7 +36,7 @@ export function ModelRowActions({
   return (
     <div className="flex justify-end gap-1">
       <Button type="button" variant="ghost" size="sm" aria-label={`Edit ${alias}`} onClick={onEdit}>Edit</Button>
-      <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${alias}`} onClick={onRemove} disabled={removing} className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+      <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${alias}`} onClick={onRemove} disabled={removing} className="text-eg-red-ink hover:bg-eg-red-tint hover:text-eg-red-ink">
         {removing ? "Removing..." : "Remove"}
       </Button>
     </div>
@@ -147,15 +149,15 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Models</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Models</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Aliases that map a short name onto a provider's model. Only aliases listed here can be selected — browsing a
           provider shows what it offers, it does not enable anything.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+        </p>
+      </div>
+      <div className="flex flex-col gap-3">
         <DataTable
           headers={result?.table_headers}
           rows={result?.table_rows}
@@ -171,9 +173,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         />
 
         {browsable.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-md border border-border p-3">
-            <p className="text-sm font-medium">Browse a provider</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
+          <div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
+            <p className="text-[12.5px] font-medium">Browse a provider</p>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_auto]">
               <Select
                 value={browseProvider}
                 onChange={(e) => {
@@ -181,6 +183,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                   setCatalog(null);
                 }}
                 aria-label="Provider to browse"
+                className="bg-background"
               >
                 {browsable.map((name) => (
                   <option key={name} value={name}>
@@ -200,21 +203,22 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
                   aria-label="Filter models"
+                  className={FIELD}
                 />
                 {/* Capped height rather than paging: OpenRouter returns several
                     hundred entries, and a scrolling list keeps the filter box
                     and the form it fills both on screen. */}
-                <ul className="max-h-64 overflow-y-auto rounded-md border border-border">
+                <ul className="scrollbar-slim max-h-64 overflow-y-auto rounded-xl bg-background">
                   {matches.map((row) => (
-                    <li key={row[0]}>
+                    <li key={row[0]} className="shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
                       <button
                         type="button"
                         onClick={() => choose(row[0])}
-                        className="flex w-full flex-col items-start gap-0.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-muted"
+                        className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-neutral-100"
                       >
                         <span className="font-mono text-xs">{row[0]}</span>
                         {(row[1] || row[2]) && (
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-neutral-700">
                             {row[1]}
                             {row[1] && row[2] ? " · " : ""}
                             {row[2] ? `${Number(row[2]).toLocaleString()} ctx` : ""}
@@ -224,35 +228,35 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                     </li>
                   ))}
                   {matches.length === 0 && (
-                    <li className="px-3 py-2 text-sm text-muted-foreground">No model matches that filter.</li>
+                    <li className="px-3 py-2 text-sm text-neutral-700">No model matches that filter.</li>
                   )}
                 </ul>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-neutral-700">
                   {matches.length} shown. Pick one to fill the form below, then add it as an alias.
                 </p>
               </>
             )}
             {browseError && (
-              <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+              <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
                 {browseError}
               </p>
             )}
           </div>
         )}
 
-        <details ref={form} className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
-          <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required />
-            <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required />
-            <Input placeholder="model" value={model} onChange={(e) => setModel(e.target.value)} required className="sm:col-span-2 font-mono" />
+        <details ref={form} className="rounded-2xl bg-neutral-100 p-4">
+          <summary className="cursor-pointer text-[12.5px] font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
+          <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
+            <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required className={FIELD} />
+            <Input placeholder="model" value={model} onChange={(e) => setModel(e.target.value)} required className={cn(FIELD, "sm:col-span-2 font-mono")} />
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
+              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
               <Input
                 placeholder="reasoning_efforts (comma-separated, optional)"
                 value={reasoningEfforts}
                 onChange={(e) => setReasoningEfforts(e.target.value)}
-                className="mt-3"
+                className={cn(FIELD, "mt-3")}
               />
             </details>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
@@ -262,17 +266,17 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </form>
         </details>
         {restartRequired && (
-          <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm" role="status">
+          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-sm text-accent-900" role="status">
             Restart Eggy before using these model changes in chat.
           </p>
         )}
-        {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
         {(actionError || error) && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
             {actionError || error}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

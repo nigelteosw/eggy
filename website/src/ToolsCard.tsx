@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { CommandResult, SessionExpiredError, listTools } from "./api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 
@@ -52,31 +51,36 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
   }, [rows]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Tools</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Tools</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Every tool Eggy can call this turn, read live from the one registry the agent loop runs on
           {sources && ` — ${sources}`}.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <Input placeholder="Filter by name, source, or description" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        </p>
+      </div>
+      <div className="flex flex-col gap-3">
+        <Input
+          placeholder="Filter by name, source, or description"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="rounded-xl border-0 bg-neutral-100"
+        />
         <DataTable
           headers={result?.table_headers}
           rows={visible}
           empty={filter ? `No tool matches "${filter}".` : "No tools are registered."}
         />
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          The list is read-only. Kernel tools are compiled in; <code className="rounded bg-muted px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
+        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
+          The list is read-only. Kernel tools are compiled in; <code className="rounded bg-neutral-100 px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
           tools come from the servers above and appear or disappear as those connect, reload, or are logged out of.
         </p>
         {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
             {error}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

@@ -17,10 +17,9 @@ import {
   setTelegramEnabled,
   type TelegramPairing,
 } from "./api";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
+import { cn } from "./lib/utils";
 
 // The accounts card is the whole of who-may-use-Eggy, operated from here and
 // nowhere else: the list, the sign-in client, and the address Eggy's own
@@ -31,6 +30,21 @@ import { Label } from "./components/ui/label";
 function describe(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
+
+const fieldClass =
+  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+const labelClass = "text-[11.5px] font-normal text-neutral-700";
+const primaryButtonClass =
+  "min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+const ghostButtonClass =
+  "min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
+const destructiveButtonClass =
+  "min-h-10 whitespace-nowrap rounded-xl bg-eg-red-tint px-4 text-[13.5px] font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+const textActionClass =
+  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
+const destructiveTextActionClass =
+  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
+const panelClass = "rounded-2xl bg-neutral-100 p-4";
 
 export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
@@ -48,9 +62,9 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
       <span>Telegram is {enabled ? "enabled" : "disabled"}.</span>
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={toggle}>
+      <button type="button" disabled={busy} onClick={toggle} className={ghostButtonClass}>
         {busy ? "Saving…" : enabled ? "Disable Telegram" : "Enable Telegram"}
-      </Button>
+      </button>
     </div>
   );
 }
@@ -84,9 +98,9 @@ function CopyButton({ text, label = "Copy invite" }: { text: string; label?: str
     }
   }
   return (
-    <Button type="button" variant="outline" size="sm" onClick={copy}>
+    <button type="button" onClick={copy} className={textActionClass}>
       {copied ? "Copied" : label}
-    </Button>
+    </button>
   );
 }
 
@@ -114,13 +128,13 @@ export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { accou
   }
   const complete = steps.every((step) => step.done);
   return (
-    <div className="flex flex-col gap-3 rounded-md border bg-muted/40 p-4" role="status" aria-label={`Getting ${account.id} started`}>
+    <div className={cn(panelClass, "flex flex-col gap-3")} role="status" aria-label={`Getting ${account.id} started`}>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium">{complete ? `${account.id} is all set` : `Getting ${account.id} started`}</p>
         {onDismiss && (
-          <Button type="button" variant="ghost" size="sm" onClick={onDismiss}>
+          <button type="button" onClick={onDismiss} className={textActionClass}>
             Dismiss
-          </Button>
+          </button>
         )}
       </div>
       <ol className="flex flex-col gap-2 text-sm">
@@ -128,16 +142,16 @@ export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { accou
           <li key={index} className="flex gap-3">
             <span
               aria-hidden
-              className={
-                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs " +
-                (step.done ? "bg-primary text-primary-foreground" : "border border-input text-muted-foreground")
-              }
+              className={cn(
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs",
+                step.done ? "bg-primary text-primary-foreground" : "text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]",
+              )}
             >
               {step.done ? "✓" : index + 1}
             </span>
             <div className="min-w-0">
-              <p className={step.done ? "text-muted-foreground line-through" : ""}>{step.label}</p>
-              {step.hint && <p className="text-xs text-muted-foreground">{step.hint}</p>}
+              <p className={step.done ? "text-neutral-700 line-through" : ""}>{step.label}</p>
+              {step.hint && <p className="text-xs text-neutral-700">{step.hint}</p>}
             </div>
           </li>
         ))}
@@ -168,42 +182,45 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
   }
   if (account.telegram_user_id) {
     return (
-      <Button type="button" variant="link" size="sm" disabled={busy} onClick={unlink}>
+      <button type="button" disabled={busy} onClick={unlink} className={textActionClass}>
         Unlink Telegram
-      </Button>
+      </button>
     );
   }
   if (pairing) {
     return (
-      <div className="flex flex-col gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm w-full">
+      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-sm text-accent-900">
         <p className="font-medium">Finish in Telegram</p>
-        <ol className="list-decimal pl-5 text-muted-foreground">
+        <ol className="list-decimal pl-5">
           <li>Open the link below on the device where you use Telegram.</li>
           <li>Tap <strong>Start</strong> in the chat that opens.</li>
           <li>Come back here — your row updates when it&apos;s done.</li>
         </ol>
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild size="sm"><a href={pairing.url} target="_blank" rel="noreferrer">Open Telegram</a></Button>
+          <a href={pairing.url} target="_blank" rel="noreferrer" className={cn(primaryButtonClass, "inline-flex items-center")}>
+            Open Telegram
+          </a>
           <CopyButton text={pairing.url} label="Copy link" />
-          <Button type="button" variant="ghost" size="sm" onClick={() => window.location.reload()}>I&apos;ve done this</Button>
+          <button type="button" onClick={() => window.location.reload()} className={textActionClass}>
+            I&apos;ve done this
+          </button>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs">
           Single-use, expires at {new Date(pairing.expires_at).toLocaleTimeString()}. Don&apos;t forward it: whoever opens it first claims your account&apos;s Telegram.
         </p>
       </div>
     );
   }
   return (
-    <Button
+    <button
       type="button"
-      variant="link"
-      size="sm"
       disabled={!available || busy}
       onClick={link}
       title={available ? undefined : "Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart."}
+      className={textActionClass}
     >
       {busy ? "Creating link…" : "Link Telegram"}
-    </Button>
+    </button>
   );
 }
 
@@ -211,10 +228,10 @@ function Avatar({ id, self }: { id: string; self: boolean }) {
   return (
     <span
       aria-hidden
-      className={
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold " +
-        (self ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")
-      }
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold",
+        self ? "bg-accent-100 text-accent-900" : "bg-neutral-100 text-neutral-700",
+      )}
     >
       {(id[0] ?? "?").toUpperCase()}
     </span>
@@ -241,10 +258,10 @@ export function AccountsList({
   onError: (message: string) => void;
 }) {
   if (accounts.length === 0) {
-    return <p className="text-sm text-muted-foreground">No accounts yet. Add the first one below.</p>;
+    return <p className="text-sm text-neutral-700">No accounts yet. Add the first one below.</p>;
   }
   return (
-    <ul className="flex flex-col divide-y border-y">
+    <ul className="flex flex-col">
       {accounts.map((account) => {
         const status = [
           account.enrolled ? "Enrolled" : "Not enrolled",
@@ -253,35 +270,35 @@ export function AccountsList({
         if (telegramEnabled) status.push(account.telegram_user_id ? `Telegram ${account.telegram_user_id}` : "Telegram not linked");
         const pending = !account.enrolled || (telegramEnabled && !account.telegram_user_id);
         return (
-          <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 py-4">
+          <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
             <Avatar id={account.id} self={account.self} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
                 {account.id}
-                {account.self && <span className="ml-1 text-muted-foreground">(you)</span>}
+                {account.self && <span className="ml-1 text-neutral-700">(you)</span>}
               </p>
-              <p className="truncate text-sm text-muted-foreground">{account.email}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{status.join(" · ")}</p>
+              <p className="truncate text-sm text-neutral-700">{account.email}</p>
+              <p className="mt-0.5 text-xs tabular-nums text-neutral-700">{status.join(" · ")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               {pending && !account.self && (
-                <Button type="button" variant="link" size="sm" onClick={() => onShowSteps(account)} aria-label={`Getting started for ${account.id}`}>
+                <button type="button" onClick={() => onShowSteps(account)} aria-label={`Getting started for ${account.id}`} className={textActionClass}>
                   Getting started
-                </Button>
+                </button>
               )}
               {telegramEnabled && <TelegramLinkControl account={account} available={pairingAvailable} onError={onError} />}
-              <Button type="button" variant="ghost" size="sm" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`}>
+              <button type="button" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`} className={textActionClass}>
                 Edit
-              </Button>
+              </button>
               {account.enrolled && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => onReset(account)} aria-label={`Reset binding for ${account.id}`}>
+                <button type="button" onClick={() => onReset(account)} aria-label={`Reset binding for ${account.id}`} className={textActionClass}>
                   Reset binding
-                </Button>
+                </button>
               )}
               {!account.self && (
-                <Button type="button" variant="link" size="sm" onClick={() => onRemove(account)} aria-label={`Remove ${account.id}`}>
+                <button type="button" onClick={() => onRemove(account)} aria-label={`Remove ${account.id}`} className={destructiveTextActionClass}>
                   Remove
-                </Button>
+                </button>
               )}
             </div>
           </li>
@@ -297,19 +314,19 @@ export function AccountsList({
 // changed address needs this step rather than silently re-enrolling someone.
 export function ResetBindingConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3" role="alertdialog" aria-label={`Reset binding for ${account}`}>
-      <p className="text-sm">
+    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Reset binding for ${account}`}>
+      <p className="text-sm text-eg-red-ink">
         Reset <strong>{account}</strong>&apos;s Google binding? They will be signed out everywhere and must enroll again with
         the Google account configured for them. Do this after changing their address, or if they lost access to the old
         Google account.
       </p>
       <div className="flex gap-2">
-        <Button type="button" size="sm" onClick={onConfirm}>
+        <button type="button" onClick={onConfirm} className={destructiveButtonClass}>
           Reset binding
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+        </button>
+        <button type="button" onClick={onCancel} className={ghostButtonClass}>
           Cancel
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -317,18 +334,18 @@ export function ResetBindingConfirm({ account, onConfirm, onCancel }: { account:
 
 function RemoveConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3" role="alertdialog" aria-label={`Remove ${account}`}>
-      <p className="text-sm">
+    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
+      <p className="text-sm text-eg-red-ink">
         Remove <strong>{account}</strong>? They are signed out immediately and can no longer sign in. Their private
         conversations and memory stay in the database.
       </p>
       <div className="flex gap-2">
-        <Button type="button" size="sm" onClick={onConfirm}>
+        <button type="button" onClick={onConfirm} className={destructiveButtonClass}>
           Remove
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+        </button>
+        <button type="button" onClick={onCancel} className={ghostButtonClass}>
           Cancel
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -351,33 +368,33 @@ function AccountForm({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-		onSubmit({ id, email, telegram_user_id: initial?.telegram_user_id ?? 0 });
+        onSubmit({ id, email, telegram_user_id: initial?.telegram_user_id ?? 0 });
       }}
       className="flex flex-col gap-3"
     >
       <div className={"grid gap-3 " + (initial ? "" : "sm:grid-cols-2")}>
         {!initial && (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="account-id">Account ID</Label>
-            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required />
+            <Label htmlFor="account-id" className={labelClass}>Account ID</Label>
+            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required className={fieldClass} />
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="account-email">Google email</Label>
-          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required />
+          <Label htmlFor="account-email" className={labelClass}>Google email</Label>
+          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required className={fieldClass} />
           {initial?.enrolled && (
-            <p className="text-xs text-muted-foreground">This account has enrolled. Reset its binding before changing the address.</p>
+            <p className="text-xs text-neutral-700">This account has enrolled. Reset its binding before changing the address.</p>
           )}
         </div>
       </div>
       <div className="flex gap-2">
-        <Button type="submit" disabled={saving}>
+        <button type="submit" disabled={saving} className={primaryButtonClass}>
           {saving ? "Saving..." : initial ? "Save account" : "Add account"}
-        </Button>
+        </button>
         {onCancel && (
-          <Button type="button" variant="outline" onClick={onCancel}>
+          <button type="button" onClick={onCancel} className={ghostButtonClass}>
             Cancel
-          </Button>
+          </button>
         )}
       </div>
     </form>
@@ -433,36 +450,37 @@ export function ConvertForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-neutral-700">
         This Eggy has one owner signing in with a password. Converting gives each person their own account, signed in
         with Google. The existing conversations and memory go to the migration owner; everyone else starts empty.
       </p>
-      <fieldset className="flex flex-col gap-3">
-        <legend className="text-sm font-medium">People</legend>
+      <fieldset className={cn(panelClass, "flex flex-col gap-3")}>
+        <legend className="text-[12.5px] font-medium">People</legend>
         {accounts.map((account, index) => (
-          <div key={index} className="grid gap-2 rounded-md border p-3 sm:grid-cols-3">
-            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required />
-            <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required />
+          <div key={index} className="grid gap-2 rounded-xl bg-background p-3 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] sm:grid-cols-3">
+            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required className={fieldClass} />
+            <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required className={fieldClass} />
             <Input
               aria-label={`Account ${index + 1} Telegram`}
               inputMode="numeric"
               value={account.telegram_user_id ? String(account.telegram_user_id) : ""}
               onChange={(e) => update(index, { telegram_user_id: e.target.value.trim() === "" ? 0 : Number(e.target.value) })}
               placeholder="telegram user id (optional)"
+              className={fieldClass}
             />
           </div>
         ))}
-        <Button type="button" variant="outline" size="sm" onClick={() => setAccounts((current) => [...current, { id: "", email: "", telegram_user_id: 0 }])}>
+        <button type="button" onClick={() => setAccounts((current) => [...current, { id: "", email: "", telegram_user_id: 0 }])} className={cn(ghostButtonClass, "self-start")}>
           Add another person
-        </Button>
+        </button>
       </fieldset>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-migration-owner">Migration owner (receives the existing history)</Label>
+        <Label htmlFor="convert-migration-owner" className={labelClass}>Migration owner (receives the existing history)</Label>
         <select
           id="convert-migration-owner"
           value={migrationOwner}
           onChange={(e) => setMigrationOwner(e.target.value)}
-          className="h-11 rounded-md border border-input bg-card px-3 text-sm"
+          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
@@ -472,21 +490,21 @@ export function ConvertForm({
         </select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-client-id">Google sign-in client ID (Web application client)</Label>
-        <Input id="convert-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required />
+        <Label htmlFor="convert-client-id" className={labelClass}>Google sign-in client ID (Web application client)</Label>
+        <Input id="convert-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={fieldClass} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-secret-env">client_secret_env (name of the variable holding the client secret)</Label>
-        <Input id="convert-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required />
+        <Label htmlFor="convert-secret-env" className={labelClass}>client_secret_env (name of the variable holding the client secret)</Label>
+        <Input id="convert-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={fieldClass} />
       </div>
       {error && (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+        <p className="rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
           {error}
         </p>
       )}
-      <Button type="submit" disabled={saving}>
+      <button type="submit" disabled={saving} className={primaryButtonClass}>
         {saving ? "Converting..." : "Convert to accounts"}
-      </Button>
+      </button>
     </form>
   );
 }
@@ -567,175 +585,173 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
   const selfNeedsTelegram = !!view?.telegram_enabled && !!self && !self.telegram_user_id;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>People</CardTitle>
-        <CardDescription>
+    <div className="flex flex-col gap-5">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">People</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Each person signs in with their own Google account and has private conversations and memory; everyone can
           change these settings.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        {notice && <p className="rounded-md bg-muted px-3 py-2 text-sm">{notice}</p>}
+        </p>
+      </div>
+      {error && (
+        <p className="rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && <p className="rounded-xl bg-neutral-100 px-3 py-2 text-sm">{notice}</p>}
 
-        {view && !view.account_mode ? (
-          <ConvertForm
-            legacyOwner={view.legacy_owner ?? ""}
-            legacyTelegramId={view.legacy_telegram_id}
-            onConverted={() => {
-              setNotice("Converted. Restart Eggy; from then on everyone signs in with Google.");
-              load();
-            }}
-            onSessionExpired={onSessionExpired}
+      {view && !view.account_mode ? (
+        <ConvertForm
+          legacyOwner={view.legacy_owner ?? ""}
+          legacyTelegramId={view.legacy_telegram_id}
+          onConverted={() => {
+            setNotice("Converted. Restart Eggy; from then on everyone signs in with Google.");
+            load();
+          }}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : (
+        <>
+          {selfNeedsTelegram && !stepsAccount && self && (
+            <OnboardingSteps account={self} telegramEnabled={view!.telegram_enabled} />
+          )}
+          <AccountsList
+            accounts={view?.accounts ?? []}
+            telegramEnabled={view?.telegram_enabled ?? false}
+            pairingAvailable={view?.telegram_pairing_available ?? false}
+            onEdit={(account) => show("edit", account)}
+            onRemove={(account) => show("remove", account)}
+            onReset={(account) => show("reset", account)}
+            onShowSteps={(account) => show("steps", account)}
+            onError={setError}
           />
-        ) : (
-          <>
-            {selfNeedsTelegram && !stepsAccount && self && (
-              <OnboardingSteps account={self} telegramEnabled={view!.telegram_enabled} />
-            )}
-            <AccountsList
-              accounts={view?.accounts ?? []}
-              telegramEnabled={view?.telegram_enabled ?? false}
-              pairingAvailable={view?.telegram_pairing_available ?? false}
-              onEdit={(account) => show("edit", account)}
-              onRemove={(account) => show("remove", account)}
-              onReset={(account) => show("reset", account)}
-              onShowSteps={(account) => show("steps", account)}
-              onError={setError}
+          {stepsAccount && view && (
+            <OnboardingSteps account={stepsAccount} telegramEnabled={view.telegram_enabled} onDismiss={() => setSteps(null)} />
+          )}
+          {removing && (
+            <RemoveConfirm
+              account={removing.id}
+              onConfirm={async () => {
+                if (await run(() => removeAccount(removing.id))) setRemoving(null);
+              }}
+              onCancel={() => setRemoving(null)}
             />
-            {stepsAccount && view && (
-              <OnboardingSteps account={stepsAccount} telegramEnabled={view.telegram_enabled} onDismiss={() => setSteps(null)} />
-            )}
-            {removing && (
-              <RemoveConfirm
-                account={removing.id}
-                onConfirm={async () => {
-                  if (await run(() => removeAccount(removing.id))) setRemoving(null);
-                }}
-                onCancel={() => setRemoving(null)}
-              />
-            )}
-            {resetting && (
-              <ResetBindingConfirm
-                account={resetting.id}
-                onConfirm={async () => {
-                  if (await run(() => resetAccountBinding(resetting.id))) setResetting(null);
-                }}
-                onCancel={() => setResetting(null)}
-              />
-            )}
-            <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-4">
-              <p className="text-sm font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
-              {!editing && (
-                <p className="text-xs text-muted-foreground">
-                  Adding someone reserves their place; they enroll the first time they sign in with this Google
-                  address. You&apos;ll get an invite to send them.
-                </p>
-              )}
-              {editing ? (
-                <AccountForm
-                  key={editing.id}
-                  initial={editing}
-                  saving={saving}
-                  onCancel={() => setEditing(null)}
-                  onSubmit={async (input) => {
-                    if (await run(() => editAccount(editing.id, { email: input.email, telegram_user_id: input.telegram_user_id }))) setEditing(null);
-                  }}
-                />
-              ) : (
-                <AccountForm
-                  key={view?.accounts.length ?? 0}
-                  saving={saving}
-                  onSubmit={async (input) => {
-                    if (await run(() => addAccount(input))) setSteps(input.id);
-                  }}
-                />
-              )}
-            </div>
-          </>
-        )}
-
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Telegram</summary>
-          <div className="mt-3 flex flex-col gap-3">
-            <p className="text-xs text-muted-foreground">
-              With Telegram enabled, each person links their own Telegram from their row above: a single-use link,
-              opened in Telegram, binds that sender to their account. Nobody can link on someone else&apos;s behalf.
-            </p>
-            {view && (
-              <TelegramEnableControl
-                enabled={view.telegram_enabled}
-                onChanged={(message) => {
-                  setNotice(message);
-                  load();
-                }}
-                onError={setError}
-              />
-            )}
-            {view?.telegram_enabled && !view.telegram_pairing_available && (
-              <p className="text-xs text-muted-foreground">
-                Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart.
+          )}
+          {resetting && (
+            <ResetBindingConfirm
+              account={resetting.id}
+              onConfirm={async () => {
+                if (await run(() => resetAccountBinding(resetting.id))) setResetting(null);
+              }}
+              onCancel={() => setResetting(null)}
+            />
+          )}
+          <div className={cn(panelClass, "flex flex-col gap-3")}>
+            <p className="text-[12.5px] font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
+            {!editing && (
+              <p className="text-xs text-neutral-700">
+                Adding someone reserves their place; they enroll the first time they sign in with this Google
+                address. You&apos;ll get an invite to send them.
               </p>
             )}
+            {editing ? (
+              <AccountForm
+                key={editing.id}
+                initial={editing}
+                saving={saving}
+                onCancel={() => setEditing(null)}
+                onSubmit={async (input) => {
+                  if (await run(() => editAccount(editing.id, { email: input.email, telegram_user_id: input.telegram_user_id }))) setEditing(null);
+                }}
+              />
+            ) : (
+              <AccountForm
+                key={view?.accounts.length ?? 0}
+                saving={saving}
+                onSubmit={async (input) => {
+                  if (await run(() => addAccount(input))) setSteps(input.id);
+                }}
+              />
+            )}
           </div>
-        </details>
+        </>
+      )}
 
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Google sign-in client</summary>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              run(() => setLoginClient(clientId, secretEnv));
-            }}
-            className="mt-3 flex flex-col gap-3"
-          >
-            <p className="text-xs text-muted-foreground">
-              The <strong>Web application</strong> OAuth client people sign in with. Its redirect URI is this panel&apos;s
-              address plus <code>/auth/google/callback</code>. The secret is read from the named environment variable and
-              is never shown here.
+      <details className="rounded-2xl bg-neutral-100 p-4">
+        <summary className="cursor-pointer text-[12.5px] font-medium">Telegram</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-xs text-neutral-700">
+            With Telegram enabled, each person links their own Telegram from their row above: a single-use link,
+            opened in Telegram, binds that sender to their account. Nobody can link on someone else&apos;s behalf.
+          </p>
+          {view && (
+            <TelegramEnableControl
+              enabled={view.telegram_enabled}
+              onChanged={(message) => {
+                setNotice(message);
+                load();
+              }}
+              onError={setError}
+            />
+          )}
+          {view?.telegram_enabled && !view.telegram_pairing_available && (
+            <p className="text-xs text-neutral-700">
+              Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart.
             </p>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="login-client-id">Client ID</Label>
-              <Input id="login-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="login-secret-env">client_secret_env</Label>
-              <Input id="login-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required />
-            </div>
-            <Button type="submit" disabled={saving} className="self-start">
-              {saving ? "Saving..." : "Save sign-in client"}
-            </Button>
-          </form>
-        </details>
+          )}
+        </div>
+      </details>
 
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Expected Google account</summary>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              run(() => setExpectedGoogleEmail(expected));
-            }}
-            className="mt-3 flex flex-col gap-3"
-          >
-            <p className="text-xs text-muted-foreground">
-              Eggy&apos;s own Google Workspace user. Only this account can be connected under Connections; anyone
-              accidentally authorizing their personal account is refused.
-            </p>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="expected-email">Email</Label>
-              <Input id="expected-email" type="email" value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="eggy@yourdomain" />
-            </div>
-            <Button type="submit" disabled={saving} className="self-start">
-              {saving ? "Saving..." : "Save expected account"}
-            </Button>
-          </form>
-        </details>
-      </CardContent>
-    </Card>
+      <details className="rounded-2xl bg-neutral-100 p-4">
+        <summary className="cursor-pointer text-[12.5px] font-medium">Google sign-in client</summary>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => setLoginClient(clientId, secretEnv));
+          }}
+          className="mt-3 flex flex-col gap-3"
+        >
+          <p className="text-xs text-neutral-700">
+            The <strong>Web application</strong> OAuth client people sign in with. Its redirect URI is this panel&apos;s
+            address plus <code>/auth/google/callback</code>. The secret is read from the named environment variable and
+            is never shown here.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-client-id" className={labelClass}>Client ID</Label>
+            <Input id="login-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={fieldClass} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-secret-env" className={labelClass}>client_secret_env</Label>
+            <Input id="login-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={fieldClass} />
+          </div>
+          <button type="submit" disabled={saving} className={cn(primaryButtonClass, "self-start")}>
+            {saving ? "Saving..." : "Save sign-in client"}
+          </button>
+        </form>
+      </details>
+
+      <details className="rounded-2xl bg-neutral-100 p-4">
+        <summary className="cursor-pointer text-[12.5px] font-medium">Expected Google account</summary>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => setExpectedGoogleEmail(expected));
+          }}
+          className="mt-3 flex flex-col gap-3"
+        >
+          <p className="text-xs text-neutral-700">
+            Eggy&apos;s own Google Workspace user. Only this account can be connected under Connections; anyone
+            accidentally authorizing their personal account is refused.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="expected-email" className={labelClass}>Email</Label>
+            <Input id="expected-email" type="email" value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="eggy@yourdomain" className={fieldClass} />
+          </div>
+          <button type="submit" disabled={saving} className={cn(primaryButtonClass, "self-start")}>
+            {saving ? "Saving..." : "Save expected account"}
+          </button>
+        </form>
+      </details>
+    </div>
   );
 }

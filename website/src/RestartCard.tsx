@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { SessionExpiredError, restartEggy } from "./api";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
 // Every save in this panel ends with "restart Eggy for this to take effect",
 // because adapters are built once at startup. This is that restart, and it is
@@ -39,23 +38,23 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Restart</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Restart</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Rebuild Eggy around config.yaml as it now stands. Nothing is redeployed, and durable state is kept. A config
           Eggy cannot load is refused here rather than applied.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div>
-          <Button type="button" variant="outline" onClick={handleRestart} disabled={restarting}>
+        </p>
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3.5">
+          <Button type="button" variant="secondary" onClick={handleRestart} disabled={restarting}>
             {restarting ? "Restarting..." : "Restart Eggy"}
           </Button>
         </div>
         {rejection && (
           <pre
-            className="overflow-x-auto whitespace-pre-wrap rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink"
             role="alert"
           >
             {rejection}
@@ -63,14 +62,14 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
           </pre>
         )}
         {restarted && (
-          <p className="flex flex-wrap items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
+          <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">
             Restarting. In-flight turns finish first, so give it a few seconds.
             <Button type="button" variant="ghost" size="sm" onClick={() => window.location.reload()}>
               Reload panel
             </Button>
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

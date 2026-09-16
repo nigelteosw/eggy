@@ -38,7 +38,7 @@ test("timeline grid lines stay inside each step row", () => {
   const html = renderToStaticMarkup(createElement(Waterfall, { trace, spans }));
   const stepButtons = html.match(/<button[\s\S]*?<\/button>/g) ?? [];
   expect(stepButtons).toHaveLength(2);
-  for (const button of stepButtons) expect(button).toContain("bg-border/70");
+  for (const button of stepButtons) expect(button).toContain("bg-neutral-300");
 });
 
 test("trace selection is exposed through keyboard controls", () => {

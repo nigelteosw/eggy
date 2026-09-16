@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getRawConfig, saveRawConfig } from "./api";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
 export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [config, setConfig] = useState("");
@@ -42,45 +40,52 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>config.yaml</CardTitle>
-        <CardDescription>
+    <div className="mb-2">
+      <div className="mx-0.5 mb-3">
+        <h3 className="text-[15px] font-semibold tracking-tight">config.yaml</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Everything the forms above cover, plus the settings they do not. Saved only if Eggy can load it.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Edit config.yaml</summary>
-          <div className="mt-4 flex flex-col gap-3">
-            <textarea
-              spellCheck={false}
-              value={config}
-              onChange={(event) => {
-                setConfig(event.target.value);
-                setSaved(false);
-              }}
-              disabled={loading}
-              className="min-h-[26rem] w-full whitespace-pre rounded-md border bg-background px-3 py-2 font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            />
-            <div><Button type="button" onClick={handleSave} disabled={loading || saving}>{saving ? "Checking..." : "Validate and save"}</Button></div>
+        </p>
+      </div>
+      <details className="rounded-2xl bg-neutral-100 p-4">
+        <summary className="cursor-pointer text-[12.5px] font-medium">Edit config.yaml</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <textarea
+            spellCheck={false}
+            value={config}
+            onChange={(event) => {
+              setConfig(event.target.value);
+              setSaved(false);
+            }}
+            disabled={loading}
+            className="min-h-[26rem] w-full whitespace-pre rounded-2xl bg-background px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+          />
+          <div>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={loading || saving}
+              className="min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {saving ? "Checking..." : "Validate and save"}
+            </button>
           </div>
-        </details>
-        {rejection && (
-          <pre
-            className="overflow-x-auto whitespace-pre-wrap rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            role="alert"
-          >
-            {rejection}
-            {"\n\nThe stored config is unchanged."}
-          </pre>
-        )}
-        {saved && (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
-            Saved. Restart Eggy for it to take effect — the button below, or /restart in chat.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      </details>
+      {rejection && (
+        <pre
+          className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink"
+          role="alert"
+        >
+          {rejection}
+          {"\n\nThe stored config is unchanged."}
+        </pre>
+      )}
+      {saved && (
+        <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-700" role="status">
+          Saved. Restart Eggy for it to take effect — the button below, or /restart in chat.
+        </p>
+      )}
+    </div>
   );
 }

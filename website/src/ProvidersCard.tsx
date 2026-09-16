@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Switch } from "./components/ui/switch";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const { result, error, saving, save } = useConfigSection("providers", onSessionExpired);
@@ -32,23 +33,23 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Providers</CardTitle>
-        <CardDescription>Model endpoints Eggy can talk to.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Providers</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">Model endpoints Eggy can talk to.</p>
+      </div>
+      <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No providers configured yet." />
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Add provider</summary>
-          <form onSubmit={handleSubmit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required />
-            <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required />
+        <details className="rounded-2xl bg-neutral-100 p-4">
+          <summary className="cursor-pointer text-[12.5px] font-medium">Add provider</summary>
+          <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
+            <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required className={FIELD} />
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required />
-                <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required />
+              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required className={FIELD} />
+                <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required className={FIELD} />
                 <Switch
                   className="sm:col-span-2"
                   checked={discoverModels}
@@ -62,13 +63,13 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
             </Button>
           </form>
         </details>
-        {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
         {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
             {error}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

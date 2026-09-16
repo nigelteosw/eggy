@@ -46,8 +46,8 @@ function SettingSelect({
     <div
       title={title}
       className={cn(
-        "relative flex min-h-11 min-w-0 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors",
-        pickable && "cursor-pointer hover:bg-muted hover:text-foreground",
+        "relative flex min-h-9 min-w-0 items-center gap-1.5 rounded-xl px-2.5 text-xs text-muted-foreground transition-colors",
+        pickable && "cursor-pointer hover:bg-background hover:text-foreground",
         busy && "opacity-60",
       )}
     >
@@ -144,16 +144,11 @@ export function Composer({
     <form onSubmit={submit} className="composer-dock shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8 sm:pb-7">
       <div className="mx-auto w-full max-w-4xl">
         {note && (
-          <p className="mb-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
+          <p className="mb-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
             {note}
           </p>
         )}
-        <div
-          className={cn(
-            "rounded-xl border bg-card transition-colors",
-            "focus-within:border-primary",
-          )}
-        >
+        <div className="rounded-3xl bg-neutral-100 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/30">
           <textarea
             ref={field}
             value={draft}
@@ -171,9 +166,9 @@ export function Composer({
               }
             }}
             placeholder="Ask Eggy anything..."
-            className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-4 pb-3 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
+            className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-[18px] pb-2 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
-          <div className="flex min-w-0 flex-wrap items-center gap-1 border-t px-2.5 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2 pt-1 shadow-[inset_0_1px_0_hsl(var(--border))]">
             <span className="px-1.5 text-xs font-medium text-muted-foreground">Run settings</span>
             {agent && agent.models.length > 0 && (
               <SettingSelect
@@ -212,7 +207,7 @@ export function Composer({
               disabled={!draft.trim()}
               aria-label="Send message"
               className={cn(
-                "ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity",
+                "ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
                 "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-30",
               )}
             >

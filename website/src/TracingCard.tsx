@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
@@ -16,6 +13,7 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
   const [retention, setRetention] = useState("");
   const [maxBodyBytes, setMaxBodyBytes] = useState("");
 
+  const headers = result?.table_headers ?? [];
   const row = result?.table_rows?.[0];
   useEffect(() => {
     if (!row) return;
@@ -43,64 +41,93 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
     await save({ enabled: "true", keep_turns: "", retention: "", max_body_bytes: "" });
   }
 
+  const fieldClass =
+    "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Tracing</CardTitle>
-        <CardDescription>Choose what the Traces dashboard records and how long it is retained.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="Tracing is off." />
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Configure tracing</summary>
-          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-4">
-            <Switch
-              checked={enabled}
-              onCheckedChange={setEnabled}
-              label={enabled ? "Recording turns" : "Not recording turns"}
-            />
-            <details>
-              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
-              <div
-                className={`mt-3 grid grid-cols-1 gap-3 transition-opacity sm:grid-cols-3 ${enabled ? "" : "pointer-events-none opacity-50"}`}
-              >
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="tracing-keep">Turns kept</Label>
-                  <Input id="tracing-keep" inputMode="numeric" placeholder="500" value={keepTurns} onChange={(e) => setKeepTurns(e.target.value)} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="tracing-retention">Kept for</Label>
-                  <Input id="tracing-retention" list="tracing-retention-presets" placeholder="168h" value={retention} onChange={(e) => setRetention(e.target.value)} />
-                  <datalist id="tracing-retention-presets">
-                    {RETENTION_PRESETS.map((preset) => <option key={preset} value={preset} />)}
-                  </datalist>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="tracing-max-body">Max body (bytes)</Label>
-                  <Input id="tracing-max-body" inputMode="numeric" placeholder="1048576" value={maxBodyBytes} onChange={(e) => setMaxBodyBytes(e.target.value)} />
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Blank fields use defaults. The first limit reached drops the oldest traces.
-              </p>
-            </details>
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Save tracing"}
-              </Button>
-              <Button type="button" variant="ghost" disabled={saving} onClick={handleRestoreDefaults}>
-                Restore defaults
-              </Button>
+    <div className="mb-2">
+      <div className="mx-0.5 mb-3">
+        <h3 className="text-[15px] font-semibold tracking-tight">Tracing</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
+          Choose what the Traces dashboard records and how long it is retained.
+        </p>
+      </div>
+
+      {!row ? (
+        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">Tracing is off.</p>
+      ) : (
+        <div className="mb-3 flex flex-col">
+          {headers.map((label, i) => (
+            <div
+              key={label}
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]"
+            >
+              <span className="min-w-0 text-sm">{label}</span>
+              <span className="text-right text-[13.5px] tabular-nums text-neutral-700">{row[i]}</span>
             </div>
-          </form>
-        </details>
-        {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
-        {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+          ))}
+        </div>
+      )}
+
+      <details className="rounded-2xl bg-neutral-100 p-4">
+        <summary className="cursor-pointer text-[12.5px] font-medium">Configure tracing</summary>
+        <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-4">
+          <Switch checked={enabled} onCheckedChange={setEnabled} label={enabled ? "Recording turns" : "Not recording turns"} />
+          <details>
+            <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+            <div
+              className={`mt-2.5 grid grid-cols-1 gap-2.5 transition-opacity sm:grid-cols-3 ${enabled ? "" : "pointer-events-none opacity-50"}`}
+            >
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="tracing-keep" className="text-[11.5px] font-normal text-neutral-700">
+                  Turns kept
+                </Label>
+                <Input id="tracing-keep" inputMode="numeric" placeholder="500" value={keepTurns} onChange={(e) => setKeepTurns(e.target.value)} className={fieldClass} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="tracing-retention" className="text-[11.5px] font-normal text-neutral-700">
+                  Kept for
+                </Label>
+                <Input id="tracing-retention" list="tracing-retention-presets" placeholder="168h" value={retention} onChange={(e) => setRetention(e.target.value)} className={fieldClass} />
+                <datalist id="tracing-retention-presets">
+                  {RETENTION_PRESETS.map((preset) => <option key={preset} value={preset} />)}
+                </datalist>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="tracing-max-body" className="text-[11.5px] font-normal text-neutral-700">
+                  Max body (bytes)
+                </Label>
+                <Input id="tracing-max-body" inputMode="numeric" placeholder="1048576" value={maxBodyBytes} onChange={(e) => setMaxBodyBytes(e.target.value)} className={fieldClass} />
+              </div>
+            </div>
+            <p className="mt-2.5 text-xs text-neutral-700">Blank fields use defaults. The first limit reached drops the oldest traces.</p>
+          </details>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className="min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save tracing"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={handleRestoreDefaults}
+              className="min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Restore defaults
+            </button>
+          </div>
+        </form>
+      </details>
+
+      {result?.detail && <p className="mt-2 text-xs text-neutral-700">{result.detail}</p>}
+      {error && (
+        <p className="mt-3 rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

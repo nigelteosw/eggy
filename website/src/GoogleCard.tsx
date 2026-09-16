@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import type { CommandResult } from "./api";
+import { cn } from "./lib/utils";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Switch } from "./components/ui/switch";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 // The products the adapter knows. A product left unchecked has no tool at all,
 // so this list is the whole of what Google can do here.
@@ -26,25 +28,25 @@ const EXPECTED_EMAIL = 5;
 export function GoogleIdentity({ connected, expected }: { connected: string; expected: string }) {
   if (!connected || connected === "not connected") {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="mx-0.5 text-sm text-neutral-700">
         Not connected.{expected ? ` Connect as ${expected} with /google login in chat.` : ""}
       </p>
     );
   }
   const mismatch = expected !== "" && connected !== expected && connected !== "unverified";
   return (
-    <div className={`rounded-md border p-3 text-sm ${mismatch ? "border-destructive/40 bg-destructive/5" : ""}`}>
-      <p>
+    <div className={`rounded-2xl px-[18px] py-3.5 text-sm ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
+      <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-eg-red-ink" : "text-accent-900"}`}>
         Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
-        <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">Shared with all Eggy users</span>
+        <span className="rounded-md bg-background px-2 py-0.5 text-xs text-neutral-700">Shared with all Eggy users</span>
       </p>
       {mismatch && (
-        <p className="mt-1 text-destructive" role="alert">
+        <p className="mt-1.5 text-eg-red-ink" role="alert">
           This is not Eggy&apos;s account: expected {expected}. Disconnect and reconnect signed in as {expected}.
         </p>
       )}
       {connected === "unverified" && expected && (
-        <p className="mt-1 text-muted-foreground">Its identity has not been verified yet; tools will verify it against {expected} on first use.</p>
+        <p className="mt-1.5 text-accent-900">Its identity has not been verified yet; tools will verify it against {expected} on first use.</p>
       )}
     </div>
   );
@@ -120,53 +122,64 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Google Workspace</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Google Workspace</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           One grant across every product checked. The OAuth client must be a <strong>Desktop app</strong> client — a Web
           application client cannot authorize this way.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+        </p>
+      </div>
+      <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers?.slice(0, 4)} rows={result?.table_rows?.map((row) => row.slice(0, 4))} empty="Google is not configured yet." />
         {result?.table_rows?.[0] && (
           <GoogleIdentity connected={result.table_rows[0][CONNECTED_AS] ?? ""} expected={result.table_rows[0][EXPECTED_EMAIL] ?? ""} />
         )}
-        <details className="rounded-md border p-3">
-          <summary className="cursor-pointer text-sm font-medium">Configure Google Workspace</summary>
-          <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
+        <details className="rounded-2xl bg-neutral-100 p-4">
+          <summary className="cursor-pointer text-[12.5px] font-medium">Configure Google Workspace</summary>
+          <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
             <Input
               placeholder="client_id (xxxx.apps.googleusercontent.com)"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               required
+              className={FIELD}
             />
-            <fieldset className="flex flex-wrap gap-3">
-              <legend className="pb-2 text-sm text-muted-foreground">Products</legend>
-              {PRODUCTS.map((product) => (
-                <label key={product} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={products.includes(product)}
-                    onChange={() => toggleProduct(product)}
-                    className="h-4 w-4"
-                  />
-                  {product}
-                </label>
-              ))}
+            <fieldset className="rounded-2xl bg-background p-3.5">
+              <legend className="px-0.5 pb-2.5 text-[12.5px] font-medium">Products</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {PRODUCTS.map((product) => {
+                  const active = products.includes(product);
+                  return (
+                    <button
+                      key={product}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={active}
+                      onClick={() => toggleProduct(product)}
+                      className={cn(
+                        "min-h-[34px] rounded-full px-3.5 text-[12.5px] font-medium transition-colors",
+                        active ? "bg-primary text-primary-foreground" : "bg-neutral-100 text-foreground hover:bg-neutral-200",
+                      )}
+                    >
+                      {product}
+                    </button>
+                  );
+                })}
+              </div>
             </fieldset>
             <details>
-              <summary className="cursor-pointer text-sm text-muted-foreground">Advanced options</summary>
+              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
               <div className="mt-3 flex flex-col gap-3">
                 <Input
                   placeholder="client_secret_env"
                   value={clientSecretEnv}
                   onChange={(e) => setClientSecretEnv(e.target.value)}
+                  className={FIELD}
                 />
-                <div className="flex flex-col gap-3 rounded-md border border-border px-3 py-3">
+                <div className="flex flex-col gap-3 rounded-2xl bg-background p-3.5">
                   <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-neutral-700">
                     New write actions are gated automatically. Turn this off to choose action by action.
                   </p>
                   {!useDefaults &&
@@ -186,9 +199,9 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                                   checked={gated.includes(entry) || gated.includes(`${product}.*`)}
                                   disabled={gated.includes(`${product}.*`)}
                                   onChange={() => toggleGated(entry)}
-                                  className="h-4 w-4"
+                                  className="h-4 w-4 accent-primary"
                                 />
-                                <span className={writes ? "" : "text-muted-foreground"}>{action}</span>
+                                <span className={writes ? "" : "text-neutral-700"}>{action}</span>
                               </label>
                             );
                           })}
@@ -196,28 +209,30 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       );
                     })}
                   {!useDefaults && gated.length === 0 && (
-                    <p className="text-xs text-destructive">Nothing is checked, so Google writes will run without asking.</p>
+                    <p className="text-xs text-eg-red-ink">Nothing is checked, so Google writes will run without asking.</p>
                   )}
                 </div>
               </div>
             </details>
             <Switch checked={enabled} onCheckedChange={setEnabled} label="Enabled" />
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save Google Workspace"}
-            </Button>
+            <div>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Save Google Workspace"}
+              </Button>
+            </div>
           </form>
         </details>
-        <p className="text-xs text-muted-foreground">
+        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
           The client secret itself is never stored here — name the environment variable that holds it. After saving,
           restart Eggy and run <code>/google login</code> in chat to authorize.
         </p>
-        {result?.detail && <p className="text-xs text-muted-foreground">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-xs text-neutral-700">{result.detail}</p>}
         {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
             {error}
           </p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

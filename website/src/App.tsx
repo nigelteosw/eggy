@@ -9,6 +9,7 @@ import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
+import { cn } from "./lib/utils";
 import { pathForView, viewForPath, type View } from "./routing";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
@@ -28,11 +29,11 @@ export function AppNavigation({
   onLogout?: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-6 border-b bg-card px-4 sm:px-6">
+    <header className="flex h-14 shrink-0 items-center gap-6 bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-6">
       <span className="text-base font-semibold tracking-tight">
         Eggy<span className="ml-1 text-primary">.</span>
       </span>
-      <nav aria-label="Main navigation" className="flex h-full gap-1 sm:gap-3">
+      <nav aria-label="Main navigation" className="flex h-full items-center gap-1">
         {(
           [
             ["chat", "Chat"],
@@ -50,21 +51,32 @@ export function AppNavigation({
                 onNavigate(destination);
               }
             }}
-            className={`flex items-center border-b-2 px-3 text-sm transition-colors ${view === destination ? "border-primary font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            className={cn(
+              "flex h-9 items-center rounded-xl px-3.5 text-sm font-medium transition-colors",
+              view === destination
+                ? "bg-accent-100 text-accent-700"
+                : "text-muted-foreground hover:bg-neutral-100 hover:text-foreground",
+            )}
           >
             {label}
           </a>
         ))}
       </nav>
       {account && (
-        <div className="ml-auto flex min-w-0 items-center gap-2 text-sm">
+        <div className="ml-auto flex min-w-0 items-center gap-2.5 text-sm">
           <span className="hidden truncate text-muted-foreground sm:inline" title={account.email}>
             {account.email}
           </span>
+          <div
+            aria-hidden="true"
+            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700 sm:flex"
+          >
+            {account.email.charAt(0).toUpperCase()}
+          </div>
           <button
             type="button"
             onClick={onLogout}
-            className="rounded-md px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="rounded-xl px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             Sign out
           </button>
@@ -213,7 +225,7 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="absolute left-2 top-1.5 z-40 flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="absolute left-2 top-1.5 z-40 flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 aria-label="Open sidebar"
                 title="Open sidebar"
               >

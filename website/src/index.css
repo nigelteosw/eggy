@@ -4,66 +4,129 @@
 
 @layer base {
   :root {
-    /* Neutral surfaces with a restrained green accent for actions and selection. */
-    --background: 210 14% 97%;
-    --foreground: 210 12% 15%;
+    /* Soft filled surfaces with a pastel blue accent — grouped rounded
+       blocks instead of hairline-bordered cards. See design reference:
+       "Eggy app design improvement/Eggy Web.dc.html". */
+    --background: 0 4% 95%;
+    --foreground: 40 5% 12%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 210 12% 15%;
+    --card: 0 2% 92%;
+    --card-foreground: 40 5% 12%;
 
-    --primary: 107 55% 33%;
-    --primary-foreground: 105 30% 98%;
+    --primary: 219 60% 60%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 105 16% 94%;
-    --secondary-foreground: 150 12% 20%;
+    --secondary: 218 73% 96%;
+    --secondary-foreground: 219 50% 22%;
 
-    --muted: 210 12% 94%;
-    --muted-foreground: 150 6% 40%;
+    --muted: 0 7% 91%;
+    --muted-foreground: 0 2% 37%;
 
-    --accent: 150 12% 93%;
-    --accent-foreground: 107 55% 24%;
+    --accent: 0 7% 91%;
+    --accent-foreground: 40 5% 12%;
 
-    --destructive: 0 65% 45%;
+    --destructive: 3 52% 39%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 210 10% 87%;
-    --input: 120 8% 83%;
-    --ring: 107 55% 33%;
+    --border: 0 5% 84%;
+    --input: 0 5% 84%;
+    --ring: 220 53% 51%;
 
-    --radius: 0.5rem;
+    --radius: 1rem;
+
+    /* Neutral ramp — filled surfaces, secondary text, dividers. */
+    --neutral-100: 0 22% 96%;
+    --neutral-200: 0 7% 91%;
+    --neutral-300: 0 5% 84%;
+    --neutral-400: 0 3% 72%;
+    --neutral-500: 0 2% 60%;
+    --neutral-600: 0 2% 48%;
+    --neutral-700: 0 2% 37%;
+    --neutral-800: 0 2% 26%;
+    --neutral-900: 0 2% 17%;
+
+    /* Accent ramp — the gold ramp repointed at pastel blue. */
+    --accent-100: 218 73% 96%;
+    --accent-200: 217 71% 91%;
+    --accent-300: 216 70% 83%;
+    --accent-400: 217 66% 74%;
+    --accent-500: 218 62% 65%;
+    --accent-600: 220 53% 51%;
+    --accent-700: 221 53% 39%;
+    --accent-800: 218 49% 29%;
+    --accent-900: 219 50% 22%;
+
+    --surface: 0 2% 92%;
+
+    /* Status colours the traces waterfall and approval banners read. */
+    --eg-blue: 218 62% 65%;
+    --eg-green: 139 37% 57%;
+    --eg-yellow: 44 69% 61%;
+    --eg-red: 4 60% 66%;
+    --eg-red-tint: 7 69% 95%;
+    --eg-red-ink: 3 52% 39%;
+    --eg-ask: 44 89% 93%;
+    --eg-ask-ink: 43 89% 22%;
   }
 
   .dark {
-    /* Neutral charcoal, not a tinted near-black: hue and saturation are zero
-       everywhere except the primary, so the botanical green stays the only
-       colour in the panel and reads as Eggy's rather than as a theme accent.
-       --background is the deepest surface (the nav rail sits on it) and --card
-       is raised above it; the two must stay distinct or the rail dissolves
-       into the content beside it. */
+    /* Neutral charcoal, hue and saturation at zero everywhere except the
+       accent, so the pastel blue stays the only colour in the panel. */
     --background: 0 0% 6%;
     --foreground: 0 0% 95%;
 
     --card: 0 0% 10%;
     --card-foreground: 0 0% 95%;
 
-    --primary: 134 61% 58%;
-    --primary-foreground: 150 30% 8%;
+    --primary: 219 55% 58%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0% 16%;
-    --secondary-foreground: 0 0% 94%;
+    --secondary: 219 30% 16%;
+    --secondary-foreground: 219 60% 82%;
 
     --muted: 0 0% 14%;
     --muted-foreground: 0 0% 68%;
 
     --accent: 0 0% 17%;
-    --accent-foreground: 134 61% 72%;
+    --accent-foreground: 219 60% 78%;
 
-    --destructive: 0 62% 52%;
+    --destructive: 4 55% 55%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 0 0% 21%;
     --input: 0 0% 25%;
-    --ring: 134 61% 58%;
+    --ring: 219 55% 58%;
+
+    --neutral-100: 0 0% 13%;
+    --neutral-200: 0 0% 17%;
+    --neutral-300: 0 0% 23%;
+    --neutral-400: 0 0% 31%;
+    --neutral-500: 0 0% 41%;
+    --neutral-600: 0 0% 54%;
+    --neutral-700: 0 0% 68%;
+    --neutral-800: 0 0% 82%;
+    --neutral-900: 0 0% 94%;
+
+    --accent-100: 219 30% 16%;
+    --accent-200: 219 32% 22%;
+    --accent-300: 219 34% 28%;
+    --accent-400: 219 38% 36%;
+    --accent-500: 219 45% 46%;
+    --accent-600: 219 55% 58%;
+    --accent-700: 219 65% 70%;
+    --accent-800: 219 70% 80%;
+    --accent-900: 219 75% 90%;
+
+    --surface: 0 0% 13%;
+
+    --eg-blue: 218 55% 66%;
+    --eg-green: 139 35% 55%;
+    --eg-yellow: 44 60% 58%;
+    --eg-red: 4 55% 62%;
+    --eg-red-tint: 4 30% 18%;
+    --eg-red-ink: 4 60% 75%;
+    --eg-ask: 44 40% 16%;
+    --eg-ask-ink: 44 70% 75%;
   }
 
   * {
@@ -119,7 +182,7 @@
   }
 
   .code-panel {
-    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background/70 p-4 font-mono text-xs leading-relaxed text-foreground/90;
+    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-neutral-100 p-3.5 font-mono text-xs leading-relaxed text-neutral-800;
   }
 
   details > summary {
@@ -173,13 +236,20 @@
     background: linear-gradient(to top, hsl(var(--background)) 58%, hsl(var(--background) / 0));
   }
 
+  /* Soft filled surfaces: grouped rounded blocks with a small gap between
+     them instead of hairline-bordered columns. A section divider within a
+     block uses an inset box-shadow hairline rather than a visible border. */
+  .trace-hairline-t {
+    box-shadow: inset 0 1px 0 hsl(var(--neutral-200));
+  }
+
   .trace-browser {
-    @apply grid min-h-0 flex-1 overflow-y-auto;
+    @apply grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 sm:p-4;
     grid-template-columns: minmax(0, 1fr);
   }
 
   .trace-conversations {
-    @apply min-w-0 border-b bg-background p-4;
+    @apply min-w-0 rounded-2xl bg-neutral-100 p-4;
   }
   .trace-conversation-list {
     @apply flex gap-2 overflow-x-auto pb-1;
@@ -188,14 +258,18 @@
     @apply w-48 shrink-0;
   }
   .trace-turns {
-    @apply min-w-0 bg-card;
+    @apply min-w-0 rounded-2xl bg-neutral-100;
   }
   .trace-inspector {
-    @apply min-w-0 bg-card p-5 sm:p-7;
+    @apply min-w-0 rounded-2xl bg-card p-5 sm:p-7;
   }
   .trace-step {
-    @apply grid w-full items-center gap-x-3 gap-y-3 border-t border-l-2 px-3 py-3 text-left first:border-t-0;
+    @apply grid w-full items-center gap-x-3 gap-y-3 px-4 py-3 text-left;
     grid-template-columns: minmax(0, 1fr) 1rem;
+    box-shadow: inset 0 1px 0 hsl(var(--neutral-200));
+  }
+  .trace-step:first-child {
+    box-shadow: none;
   }
   .trace-step > :nth-child(2) {
     grid-column: 1 / -1;
@@ -213,18 +287,12 @@
     .trace-browser {
       grid-template-columns: 13rem 18rem minmax(0, 1fr);
       overflow: hidden;
+      @apply gap-4 p-4;
     }
     .trace-conversations,
     .trace-turns,
     .trace-inspector {
       overflow-y: auto;
-    }
-    .trace-conversations,
-    .trace-turns {
-      @apply border-r;
-    }
-    .trace-conversations {
-      @apply border-b-0;
     }
     .trace-conversation-list {
       @apply block space-y-1 overflow-visible;

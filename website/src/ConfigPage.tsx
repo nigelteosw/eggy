@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { logout, type Theme } from "./api";
+import { cn } from "./lib/utils";
 import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
 import { McpCard } from "./McpCard";
@@ -14,7 +15,6 @@ import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
 import { AccountsCard } from "./AccountsCard";
 import { RestartCard } from "./RestartCard";
-import { Sidebar, SidebarItem, SidebarSeparator } from "./components/ui/sidebar";
 import {
   CheckShieldIcon,
   ClockIcon,
@@ -72,13 +72,13 @@ export function ConfigPage({
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
-      <div className="sticky top-0 z-20 shrink-0 border-b bg-background md:hidden">
+      <div className="sticky top-0 z-20 shrink-0 border-b border-neutral-200 bg-background md:hidden">
         <div className="flex items-center gap-2 px-3 py-2">
           <select
             aria-label="Mobile settings navigation"
             value={active}
             onChange={(event) => setActive(event.target.value as SectionId)}
-            className="h-11 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="h-11 min-w-0 flex-1 rounded-xl border-0 bg-neutral-100 px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             {SECTIONS.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
@@ -91,35 +91,48 @@ export function ConfigPage({
             onClick={handleLogout}
             aria-label="Log out"
             title="Log out"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <LogoutIcon />
           </button>
         </div>
       </div>
 
-      <Sidebar collapsed={false} className="hidden md:flex">
-        <p className="px-2.5 pb-3 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Settings</p>
-        {SECTIONS.map((candidate) => (
-          <SidebarItem
-            key={candidate.id}
-            icon={candidate.icon}
-            label={candidate.label}
-            active={candidate.id === active}
-            collapsed={false}
-            onClick={() => setActive(candidate.id)}
-          />
-        ))}
-        <div className="mt-auto" />
-        <SidebarSeparator />
-        <SidebarItem icon={<LogoutIcon />} label="Log out" collapsed={false} onClick={handleLogout} />
-      </Sidebar>
+      <div className="hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex">
+        <div className="shrink-0 px-4 pb-2 pt-4 text-[14.5px] font-semibold tracking-tight">Settings</div>
+        <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          {SECTIONS.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              aria-current={candidate.id === active ? "page" : undefined}
+              onClick={() => setActive(candidate.id)}
+              className={cn(
+                "mb-0.5 block min-h-[42px] w-full rounded-[13px] px-3.5 py-2.5 text-left text-sm text-foreground transition-colors",
+                candidate.id === active ? "bg-background font-semibold" : "font-normal hover:bg-background/60",
+              )}
+            >
+              {candidate.label}
+            </button>
+          ))}
+        </div>
+        <div className="shrink-0 px-3 pb-4 pt-2 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex min-h-[42px] w-full items-center gap-2.5 rounded-[13px] px-3.5 text-left text-sm text-foreground hover:bg-background/60"
+          >
+            <LogoutIcon className="h-[17px] w-[17px] text-neutral-700" />
+            Log out
+          </button>
+        </div>
+      </div>
 
-      <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="page-shell max-w-3xl">
+      <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))]">
+        <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7">
           <header className="flex flex-col gap-1.5 pb-1">
             <h1 className="text-xl font-semibold tracking-tight">{section.title}</h1>
-            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{section.description}</p>
+            <p className="max-w-2xl text-sm leading-6 text-neutral-700">{section.description}</p>
           </header>
           {active === "models" && (
             <>

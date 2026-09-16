@@ -50,7 +50,7 @@ test("settings expose a compact mobile section navigation", () => {
 
   expect(html).toContain('aria-label="Mobile settings navigation"');
   expect(html).toContain("md:hidden");
-  expect(html).toContain("hidden md:flex");
+  expect(html).toContain("hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex");
 });
 
 test("trace list presents labelled turn controls and duration without a wide table", () => {

@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getWatchList, saveWatchList } from "./api";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 
 // The heartbeat's watch list, sitting directly above the heartbeat itself
 // because an interval with an empty list is a heartbeat that never beats.
@@ -56,49 +54,57 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Watch list</CardTitle>
-        <CardDescription>
+    <div className="mb-2">
+      <div className="mx-0.5 mb-3">
+        <h3 className="text-[15px] font-semibold tracking-tight">Watch list</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           What the heartbeat checks each time it wakes. One thing to look at per line — an item that wants a time of
           its own is a schedule, not a watch entry. Eggy edits this too, noting what it has already told you so a
           later check-in does not repeat itself. An empty list means every beat is skipped.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <textarea
-          spellCheck={false}
-          value={watch}
-          placeholder={"# Watch\n\n- Unread mail from real people older than a day\n- Calendar events in the next 12 hours I have not accepted"}
-          onChange={(event) => {
-            setWatch(event.target.value);
-            setSaved(false);
-            setDetail(null);
-          }}
-          disabled={loading}
-          className="min-h-[14rem] w-full whitespace-pre rounded-md border border-border bg-background px-3 py-2 font-mono text-[13px] leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        />
-        <div>
-          <Button type="button" onClick={handleSave} disabled={loading || saving}>
-            {saving ? "Saving..." : "Save watch list"}
-          </Button>
-        </div>
-        {saved && !detail && (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
-            Saved. The next heartbeat reads it — no restart needed.
-          </p>
-        )}
-        {detail && (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">
-            {detail}
-          </p>
-        )}
-        {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        </p>
+      </div>
+
+      <div className="flex items-baseline justify-between gap-3 px-0.5 pb-2">
+        <span className="text-[12.5px] font-medium">watch.md</span>
+        <span className="text-[11.5px] text-neutral-700">An empty list means every beat is skipped</span>
+      </div>
+      <textarea
+        spellCheck={false}
+        value={watch}
+        placeholder={"# Watch\n\n- Unread mail from real people older than a day\n- Calendar events in the next 12 hours I have not accepted"}
+        onChange={(event) => {
+          setWatch(event.target.value);
+          setSaved(false);
+          setDetail(null);
+        }}
+        disabled={loading}
+        className="min-h-[14rem] w-full whitespace-pre rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={loading || saving}
+          className="min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save watch list"}
+        </button>
+      </div>
+      {saved && !detail && (
+        <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
+          Saved. The next heartbeat reads it — no restart needed.
+        </p>
+      )}
+      {detail && (
+        <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
+          {detail}
+        </p>
+      )}
+      {error && (
+        <p className="mt-3 rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

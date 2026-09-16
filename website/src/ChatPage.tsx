@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, sendChatMessage } from "./api";
 import { Composer } from "./Composer";
 import { Button } from "./components/ui/button";
+import { LockIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
@@ -177,7 +178,7 @@ export function ChatPage({
 
   return (
     <div className="app-canvas flex h-full flex-col">
-      <header className={cn("flex h-14 shrink-0 items-center border-b bg-background px-4 sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
+      <header className={cn("flex h-14 shrink-0 items-center bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
         <div className="min-w-0">
           <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
         </div>
@@ -191,29 +192,35 @@ export function ChatPage({
           )}
           {messages.map((message) => {
             const isUser = message.role === "user";
-            return (
-              <div key={message.id} className={cn("flex animate-fade-in-up", isUser ? "justify-end" : "justify-start")}>
-                <div
-                  className={cn(
-                    "text-sm",
-                    isUser
-                      ? "max-w-[88%] rounded-lg border bg-muted/60 px-4 py-3 text-foreground sm:max-w-[72%] sm:px-5"
-                      : "w-full",
-                  )}
-                >
-                  <div className={cn(!isUser && "min-w-0")}>
-                    <MessageBody text={message.text} isUserBubble={isUser} />
+            if (isUser) {
+              return (
+                <div key={message.id} className="flex animate-fade-in-up justify-end">
+                  <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-sm text-foreground sm:max-w-[72%] sm:px-5">
+                    <MessageBody text={message.text} isUserBubble />
                   </div>
+                </div>
+              );
+            }
+            return (
+              <div key={message.id} className="flex animate-fade-in-up gap-3.5">
+                <div
+                  aria-hidden="true"
+                  className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700"
+                >
+                  E
+                </div>
+                <div className="min-w-0 flex-1 text-sm">
+                  <MessageBody text={message.text} isUserBubble={false} />
                 </div>
               </div>
             );
           })}
           {typing && (
-            <div className="flex items-center gap-2 pl-1 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 pl-[2.6rem] text-xs text-muted-foreground">
               <span className="flex gap-1">
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground" />
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground [animation-delay:0.15s]" />
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-muted-foreground [animation-delay:0.3s]" />
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500" />
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.15s]" />
+                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.3s]" />
               </span>
               Eggy is typing
             </div>
@@ -221,21 +228,35 @@ export function ChatPage({
           {approvals.map((approval) => (
             <div
               key={approval.id}
-              className="animate-fade-in-up self-start rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
+              className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-2xl bg-eg-ask p-[18px] text-sm text-eg-ask-ink"
             >
-              <p className="mb-3 text-foreground">{approval.summary}</p>
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+                <LockIcon className="h-3.5 w-3.5" />
+                Needs your approval
+              </div>
+              <p className="mb-3.5 leading-relaxed">{approval.summary}</p>
               <div className="flex gap-2">
-                <Button type="button" size="sm" onClick={() => handleApproval(approval.id, true)}>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => handleApproval(approval.id, true)}
+                >
                   Approve
                 </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => handleApproval(approval.id, false)}>
-                  Reject
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl bg-neutral-100 text-foreground hover:bg-neutral-200"
+                  onClick={() => handleApproval(approval.id, false)}
+                >
+                  Not now
                 </Button>
               </div>
             </div>
           ))}
           {error && (
-            <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
               {error}
             </p>
           )}

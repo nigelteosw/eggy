@@ -431,6 +431,9 @@ func (c Config) validateProviders() error {
 				return fmt.Errorf("model alias %q has invalid reasoning effort %q", alias, effort)
 			}
 		}
+		if err := validateOpenRouterRouting(alias, model, c.Providers[model.Provider]); err != nil {
+			return err
+		}
 	}
 	if _, ok := c.ModelAliases[c.Agent.DefaultModel]; !ok {
 		return fmt.Errorf("agent.default_model %q is not configured", c.Agent.DefaultModel)
@@ -509,6 +512,33 @@ func (c Config) validateSecrets(s Secrets) error {
 	}
 	if missing != "" {
 		return fmt.Errorf("required environment variable %s is missing", missing)
+	}
+	return nil
+}
+
+var validOpenRouterSorts = map[string]bool{"": true, "price": true, "throughput": true, "latency": true}
+
+// validateOpenRouterRouting refuses a routing block that OpenRouter would
+// reject or that no provider would ever read.
+func validateOpenRouterRouting(alias string, model ModelAliasConfig, provider ProviderConfig) error {
+	routing := model.OpenRouter
+	if routing == nil {
+		return nil
+	}
+	if !provider.IsOpenRouter() {
+		return fmt.Errorf("model alias %q sets openrouter routing but provider %q is not OpenRouter", alias, model.Provider)
+	}
+	if !validOpenRouterSorts[routing.Sort] {
+		return fmt.Errorf("model alias %q openrouter sort must be price, throughput, or latency, not %q", alias, routing.Sort)
+	}
+	only := map[string]bool{}
+	for _, slug := range routing.Only {
+		only[slug] = true
+	}
+	for _, slug := range routing.Ignore {
+		if only[slug] {
+			return fmt.Errorf("model alias %q openrouter routing both allows and ignores %q", alias, slug)
+		}
 	}
 	return nil
 }

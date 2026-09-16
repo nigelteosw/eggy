@@ -32,6 +32,13 @@ function formatTime(iso: string): string {
   });
 }
 
+// Cost is shown only when a provider reported one: zero means unreported,
+// not free, so it must not read as "$0.00".
+function formatCost(cost: number | undefined): string {
+  if (!cost) return "";
+  return ` · $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`;
+}
+
 function formatTokens(count: number): string {
   if (count < 1000) return `${count}`;
   return `${(count / 1000).toFixed(1)}k`;
@@ -338,7 +345,9 @@ function StepInspector({ item }: { item: Placed }) {
       {model && (
         <p className="mb-4 text-xs tabular-nums text-neutral-700">
           {formatTokens(span.prompt_tokens || 0)} prompt · {formatTokens(span.cached_prompt_tokens || 0)} cached ·{" "}
+          {span.cache_write_tokens ? `${formatTokens(span.cache_write_tokens)} cache written · ` : ""}
           {formatTokens(span.completion_tokens || 0)} completion tokens
+          {formatCost(span.cost_usd)}
         </p>
       )}
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
@@ -461,6 +470,7 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
           <span className="ml-auto text-xs tabular-nums text-neutral-700">
             {formatTokens(trace.prompt_tokens)} prompt · {formatTokens(trace.completion_tokens)} completion ·{" "}
             {formatTokens(trace.cached_prompt_tokens || 0)} cached tokens
+            {formatCost(trace.cost_usd)}
             {trace.effort ? ` · ${trace.effort} effort` : ""}
           </span>
         </div>

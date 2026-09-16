@@ -490,6 +490,8 @@ export type TraceSummary = {
   prompt_tokens: number;
   completion_tokens: number;
   cached_prompt_tokens?: number;
+  cache_write_tokens?: number;
+  cost_usd?: number;
 };
 
 export type TraceSpan = {
@@ -509,6 +511,8 @@ export type TraceSpan = {
   prompt_tokens?: number;
   completion_tokens?: number;
   cached_prompt_tokens?: number;
+  cache_write_tokens?: number;
+  cost_usd?: number;
 };
 
 export type TraceDetail = { trace: TraceSummary; spans: TraceSpan[] };

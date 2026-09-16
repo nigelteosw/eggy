@@ -231,19 +231,29 @@ func SetProvider(path string, input ProviderInput) error {
 	})
 }
 
-// SetModelAlias configures alias. reasoningEfforts is a comma-separated list
-// of supported levels (e.g. "low,medium,high,max"); pass "" to leave the
-// alias without a reasoning-effort option.
-func SetModelAlias(path, alias, provider, modelID, reasoningEfforts string) error {
+// ModelAliasInput is the set of alias fields a surface can set. Routing is
+// nil when no field of it was given, so the alias is written without an
+// `openrouter:` key rather than with an empty one.
+type ModelAliasInput struct {
+	Alias            string
+	Provider         string
+	Model            string
+	ReasoningEfforts []string
+	OpenRouter       *OpenRouterRoutingConfig
+}
+
+// SetModelAlias adds or replaces one alias. Passing no reasoning efforts
+// writes an alias without a reasoning-effort option.
+func SetModelAlias(path string, input ModelAliasInput) error {
 	return mutate(path, func(cfg *Config) error {
 		if cfg.ModelAliases == nil {
 			cfg.ModelAliases = map[string]ModelAliasConfig{}
 		}
-		var efforts []string
-		if reasoningEfforts != "" {
-			efforts = strings.Split(reasoningEfforts, ",")
+		routing := input.OpenRouter
+		if routing != nil && routing.IsZero() {
+			routing = nil
 		}
-		cfg.ModelAliases[alias] = ModelAliasConfig{Provider: provider, Model: modelID, ReasoningEfforts: efforts}
+		cfg.ModelAliases[input.Alias] = ModelAliasConfig{Provider: input.Provider, Model: input.Model, ReasoningEfforts: input.ReasoningEfforts, OpenRouter: routing}
 		return nil
 	})
 }
@@ -641,6 +651,9 @@ func GetModelAliasesConfigText(path string) (string, error) {
 		if len(model.ReasoningEfforts) > 0 {
 			line += "  reasoning_efforts=" + strings.Join(model.ReasoningEfforts, ",")
 		}
+		if model.OpenRouter != nil {
+			line += "  openrouter=" + DescribeOpenRouterRouting(model.OpenRouter)
+		}
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n"), nil
@@ -670,4 +683,29 @@ func ShowConfigText(path string) (string, error) {
 		return "", fmt.Errorf("marshal config: %w", err)
 	}
 	return string(body), nil
+}
+
+// DescribeOpenRouterRouting renders a routing block as one line, or "" for
+// none, in the same spelling on the chat and web surfaces.
+func DescribeOpenRouterRouting(routing *OpenRouterRoutingConfig) string {
+	if routing == nil {
+		return ""
+	}
+	var parts []string
+	if len(routing.Order) > 0 {
+		parts = append(parts, "order:"+strings.Join(routing.Order, ","))
+	}
+	if len(routing.Only) > 0 {
+		parts = append(parts, "only:"+strings.Join(routing.Only, ","))
+	}
+	if len(routing.Ignore) > 0 {
+		parts = append(parts, "ignore:"+strings.Join(routing.Ignore, ","))
+	}
+	if routing.AllowFallbacks != nil {
+		parts = append(parts, fmt.Sprintf("allow_fallbacks:%t", *routing.AllowFallbacks))
+	}
+	if routing.Sort != "" {
+		parts = append(parts, "sort:"+routing.Sort)
+	}
+	return strings.Join(parts, " ")
 }

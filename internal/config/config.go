@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -320,6 +321,47 @@ type ModelAliasConfig struct {
 	Provider         string   `yaml:"provider"`
 	Model            string   `yaml:"model"`
 	ReasoningEfforts []string `yaml:"reasoning_efforts,omitempty"`
+	// OpenRouter is the alias's provider-routing preference, meaningful only
+	// when Provider points at OpenRouter: which upstream vendors may serve the
+	// model, in what order, and how to pick among them. Validation refuses it
+	// on any other provider, since a routing block that silently does
+	// nothing is worse than one that is not allowed.
+	OpenRouter *OpenRouterRoutingConfig `yaml:"openrouter,omitempty"`
+}
+
+// OpenRouterRoutingConfig mirrors the fields of OpenRouter's `provider`
+// request object that an owner would plausibly set per alias. Slugs are
+// OpenRouter's own (anthropic, amazon-bedrock, deepinfra, ...).
+type OpenRouterRoutingConfig struct {
+	// Order is tried first to last; Only restricts to these; Ignore skips
+	// these. AllowFallbacks is a pointer so that absent takes OpenRouter's
+	// default (true) rather than silently turning fallbacks off.
+	Order          []string `yaml:"order,omitempty"`
+	Only           []string `yaml:"only,omitempty"`
+	Ignore         []string `yaml:"ignore,omitempty"`
+	AllowFallbacks *bool    `yaml:"allow_fallbacks,omitempty"`
+	// Sort is price, throughput, or latency; empty is OpenRouter's default
+	// load balancing.
+	Sort string `yaml:"sort,omitempty"`
+}
+
+// IsZero reports whether nothing in the block is set, so a form that sent
+// every field blank writes no `openrouter:` key at all.
+func (r OpenRouterRoutingConfig) IsZero() bool {
+	return len(r.Order) == 0 && len(r.Only) == 0 && len(r.Ignore) == 0 && r.AllowFallbacks == nil && r.Sort == ""
+}
+
+// IsOpenRouter reports whether the provider's base URL is OpenRouter's, which
+// is what gates the OpenRouter-only alias settings. The same host check lives
+// in the openaicompat adapter; it is repeated here rather than imported so
+// config keeps depending on nothing outside itself.
+func (p ProviderConfig) IsOpenRouter() bool {
+	parsed, err := url.Parse(p.BaseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
 }
 
 type ServerConfig struct {

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { removeModelAlias } from "../src/api";
 import { ConfigPage } from "../src/ConfigPage";
-import { ModelRowActions, modelDraftForRow } from "../src/ModelsCard";
+import { ModelRowActions, modelDraftForRow, routingFromCell } from "../src/ModelsCard";
 import { DataTable } from "../src/components/ui/data-table";
 
 const realFetch = globalThis.fetch;
@@ -17,7 +17,19 @@ test("model rows map back into the editable fields", () => {
     provider: "deepseek",
     model: "deepseek-v4-flash",
     reasoningEfforts: "low, high",
+    routing: { order: "", only: "", ignore: "", allowFallbacks: "", sort: "" },
   });
+});
+
+test("the routing column maps back into the OpenRouter fields", () => {
+  expect(routingFromCell("order:anthropic,amazon-bedrock ignore:deepinfra allow_fallbacks:false sort:price")).toEqual({
+    order: "anthropic,amazon-bedrock",
+    only: "",
+    ignore: "deepinfra",
+    allowFallbacks: "false",
+    sort: "price",
+  });
+  expect(routingFromCell("")).toEqual({ order: "", only: "", ignore: "", allowFallbacks: "", sort: "" });
 });
 
 test("model rows expose edit and remove actions", () => {

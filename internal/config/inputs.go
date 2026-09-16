@@ -140,6 +140,49 @@ func (v Values) GoogleInput() (GoogleInput, error) {
 	return input, nil
 }
 
+// ModelAliasInput decodes the alias fields a surface may set. alias is
+// positional on the chat surface and in the body on the panel, so it arrives
+// separately. The openrouter_* keys become a routing block only when at least
+// one of them carries a value.
+func (v Values) ModelAliasInput(alias string) (ModelAliasInput, error) {
+	input := ModelAliasInput{Alias: alias}
+	routing := OpenRouterRoutingConfig{}
+	for key, value := range v {
+		switch key {
+		case "alias":
+			input.Alias = value
+		case "provider":
+			input.Provider = value
+		case "model":
+			input.Model = value
+		case "reasoning_efforts":
+			input.ReasoningEfforts = SplitCommaList(value)
+		case "openrouter_order":
+			routing.Order = SplitCommaList(value)
+		case "openrouter_only":
+			routing.Only = SplitCommaList(value)
+		case "openrouter_ignore":
+			routing.Ignore = SplitCommaList(value)
+		case "openrouter_sort":
+			routing.Sort = strings.TrimSpace(value)
+		case "openrouter_allow_fallbacks":
+			if value != "" {
+				allow, err := boolean(key, value, true)
+				if err != nil {
+					return ModelAliasInput{}, err
+				}
+				routing.AllowFallbacks = &allow
+			}
+		default:
+			return ModelAliasInput{}, FieldError{Field: key, Kind: UnknownField}
+		}
+	}
+	if !routing.IsZero() {
+		input.OpenRouter = &routing
+	}
+	return input, nil
+}
+
 // SplitCommaList is how list-valued fields arrive from both surfaces alike.
 // Blank entries are dropped, so a trailing comma is not a product named "".
 func SplitCommaList(value string) []string {

@@ -18,8 +18,38 @@ function aliasFor(modelId: string): string {
   return tail.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+// Routing is the OpenRouter provider-routing preference on an alias. It is
+// spelled here the way the form holds it -- comma-separated slugs and
+// strings -- and only becomes a structured block once the server decodes the
+// openrouter_* fields.
+export type Routing = { order: string; only: string; ignore: string; allowFallbacks: string; sort: string };
+
+export const EMPTY_ROUTING: Routing = { order: "", only: "", ignore: "", allowFallbacks: "", sort: "" };
+
+// routingFromCell parses the Routing column, which the server renders as
+// space-separated key:value pairs ("order:anthropic,bedrock sort:price").
+// Provider slugs contain no spaces, so the split is unambiguous.
+export function routingFromCell(cell: string): Routing {
+  const routing = { ...EMPTY_ROUTING };
+  for (const pair of cell.split(/\s+/)) {
+    const colon = pair.indexOf(":");
+    if (colon < 0) continue;
+    const key = pair.slice(0, colon);
+    const value = pair.slice(colon + 1);
+    if (key === "order" || key === "only" || key === "ignore" || key === "sort") routing[key] = value;
+    else if (key === "allow_fallbacks") routing.allowFallbacks = value;
+  }
+  return routing;
+}
+
 export function modelDraftForRow(row: string[]) {
-  return { alias: row[0] ?? "", provider: row[1] ?? "", model: row[2] ?? "", reasoningEfforts: row[3] ?? "" };
+  return {
+    alias: row[0] ?? "",
+    provider: row[1] ?? "",
+    model: row[2] ?? "",
+    reasoningEfforts: row[3] ?? "",
+    routing: routingFromCell(row[4] ?? ""),
+  };
 }
 
 export function ModelRowActions({
@@ -49,6 +79,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [reasoningEfforts, setReasoningEfforts] = useState("");
+  const [routing, setRouting] = useState<Routing>(EMPTY_ROUTING);
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [removingAlias, setRemovingAlias] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -106,6 +137,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     setProvider("");
     setModel("");
     setReasoningEfforts("");
+    setRouting(EMPTY_ROUTING);
     setEditingAlias(null);
   }
 
@@ -115,6 +147,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     setProvider(draft.provider);
     setModel(draft.model);
     setReasoningEfforts(draft.reasoningEfforts);
+    setRouting(draft.routing);
     setEditingAlias(draft.alias);
     setActionError(null);
     if (form.current) form.current.open = true;
@@ -122,7 +155,17 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    const saved = await save({ alias, provider, model, reasoning_efforts: reasoningEfforts });
+    const saved = await save({
+      alias,
+      provider,
+      model,
+      reasoning_efforts: reasoningEfforts,
+      openrouter_order: routing.order,
+      openrouter_only: routing.only,
+      openrouter_ignore: routing.ignore,
+      openrouter_allow_fallbacks: routing.allowFallbacks,
+      openrouter_sort: routing.sort,
+    });
     if (!saved) return;
     resetForm();
     setRestartRequired(true);
@@ -258,6 +301,29 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                 onChange={(e) => setReasoningEfforts(e.target.value)}
                 className={cn(FIELD, "mt-3")}
               />
+              {/* Routing is OpenRouter's alone: the server refuses it on any
+                  other provider, so the fields say so rather than the card
+                  guessing which provider entries are OpenRouter. */}
+              <p className="mt-3 text-[12.5px] font-medium">OpenRouter routing</p>
+              <p className="mt-1 text-xs text-neutral-700">
+                Only for aliases on an OpenRouter provider. Slugs are OpenRouter's (anthropic, amazon-bedrock, deepinfra…).
+              </p>
+              <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <Input placeholder="order (try these first, comma-separated)" aria-label="OpenRouter order" value={routing.order} onChange={(e) => setRouting({ ...routing, order: e.target.value })} className={FIELD} />
+                <Input placeholder="only (allow just these)" aria-label="OpenRouter only" value={routing.only} onChange={(e) => setRouting({ ...routing, only: e.target.value })} className={FIELD} />
+                <Input placeholder="ignore (never these)" aria-label="OpenRouter ignore" value={routing.ignore} onChange={(e) => setRouting({ ...routing, ignore: e.target.value })} className={FIELD} />
+                <Select aria-label="OpenRouter sort" value={routing.sort} onChange={(e) => setRouting({ ...routing, sort: e.target.value })} className="bg-background">
+                  <option value="">sort: default</option>
+                  <option value="price">sort: price</option>
+                  <option value="throughput">sort: throughput</option>
+                  <option value="latency">sort: latency</option>
+                </Select>
+                <Select aria-label="OpenRouter fallbacks" value={routing.allowFallbacks} onChange={(e) => setRouting({ ...routing, allowFallbacks: e.target.value })} className="bg-background">
+                  <option value="">fallbacks: default (allowed)</option>
+                  <option value="true">fallbacks: allowed</option>
+                  <option value="false">fallbacks: never</option>
+                </Select>
+              </div>
             </details>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Button type="submit" disabled={saving}>{saving ? "Saving..." : editingAlias ? "Update model" : "Save model"}</Button>

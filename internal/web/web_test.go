@@ -300,7 +300,7 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 
 func TestWebModelRouteRemovesANonDefaultAlias(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
-	if err := config.SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
+	if err := config.SetModelAlias(path, config.ModelAliasInput{Alias: "deepseek-fast", Provider: "deepseek", Model: "deepseek-v4-flash"}); err != nil {
 		t.Fatal(err)
 	}
 	handler := NewWebHandler(path, testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))

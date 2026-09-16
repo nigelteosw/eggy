@@ -104,10 +104,10 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			}
 		case "models":
 			aliases := slices.Sorted(maps.Keys(cfg.ModelAliases))
-			result.TableHeaders = []string{"Alias", "Provider", "Model", "Reasoning efforts"}
+			result.TableHeaders = []string{"Alias", "Provider", "Model", "Reasoning efforts", "Routing"}
 			for _, alias := range aliases {
 				model := cfg.ModelAliases[alias]
-				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", ")})
+				result.TableRows = append(result.TableRows, []string{alias, model.Provider, model.Model, strings.Join(model.ReasoningEfforts, ", "), config.DescribeOpenRouterRouting(model.OpenRouter)})
 			}
 			// Which providers can be browsed rides along with the section the
 			// card already fetches, rather than costing a second round trip to
@@ -266,7 +266,12 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			err = config.SetProvider(configPath, input)
 			title = "Set provider " + named["name"] + "."
 		case "models":
-			err = config.SetModelAlias(configPath, named["alias"], named["provider"], named["model"], named["reasoning_efforts"])
+			input, decodeErr := config.Values(named).ModelAliasInput(named["alias"])
+			if decodeErr != nil {
+				writeWebError(w, http.StatusBadRequest, decodeErr.Error())
+				return
+			}
+			err = config.SetModelAlias(configPath, input)
 			title = "Set model " + named["alias"] + "."
 		case "google":
 			// Decoded by internal/config, not mapped field by field here: the

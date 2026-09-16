@@ -46,6 +46,19 @@ type Message struct {
 	Name       string        `json:"name,omitempty"`
 	ToolCallID string        `json:"tool_call_id,omitempty"`
 	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+	// ProviderReasoning is opaque reasoning state the producing adapter needs
+	// back on this message in the next request of the same turn: OpenRouter's
+	// reasoning_details, Anthropic's signed thinking blocks, OpenAI's
+	// encrypted reasoning items. Reasoning models refuse or forget their own
+	// thinking across tool-call rounds without it. The kernel carries it and
+	// never inspects it; it is not the visible text in
+	// ModelResponse.ReasoningContent.
+	ProviderReasoning json.RawMessage `json:"provider_reasoning,omitempty"`
+	// ProviderReasoningOrigin names the adapter or provider that wrote
+	// ProviderReasoning, so an adapter replays only what it produced. A blob
+	// from another origin is dropped, which is exactly what happened before
+	// the field existed.
+	ProviderReasoningOrigin string `json:"provider_reasoning_origin,omitempty"`
 }
 
 type ToolDefinition struct {
@@ -123,6 +136,15 @@ type ModelRequest struct {
 	Messages        []Message        `json:"messages"`
 	Tools           []ToolDefinition `json:"tools,omitempty"`
 	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
+	// ReasoningSupported says the selected alias declares reasoning-effort
+	// levels. With it set and ReasoningEffort empty, the owner has chosen no
+	// level, and an adapter that can say so tells the provider to reason not
+	// at all rather than leaving a reason-by-default model to its own devices.
+	ReasoningSupported bool `json:"reasoning_supported,omitempty"`
+	// ProviderRouting is the alias's provider-specific routing preference,
+	// already in the provider's own wire shape. Only the adapter it was
+	// written for understands it; the kernel passes it through untouched.
+	ProviderRouting json.RawMessage `json:"provider_routing,omitempty"`
 }
 
 type ModelResponse struct {
@@ -130,7 +152,8 @@ type ModelResponse struct {
 	Usage   ModelUsage `json:"usage,omitzero"`
 	// ReasoningContent is the model's visible chain-of-thought for this
 	// response, when the provider returns one. It is never fed back into a
-	// following request's message history.
+	// following request's message history; the state a provider needs back
+	// travels opaquely in Message.ProviderReasoning instead.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
@@ -139,7 +162,13 @@ type ModelUsage struct {
 	CompletionTokens   int64 `json:"completion_tokens"`
 	TotalTokens        int64 `json:"total_tokens"`
 	CachedPromptTokens int64 `json:"cached_prompt_tokens,omitempty"`
-	ReasoningTokens    int64 `json:"reasoning_tokens,omitempty"`
+	// CacheWriteTokens is how much of the prompt was written to a cache this
+	// call, reported separately by providers that bill cache writes.
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  int64 `json:"reasoning_tokens,omitempty"`
+	// CostUSD is what the provider says the call cost, when it says. Zero
+	// means unreported, not free.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 func (u ModelUsage) Add(other ModelUsage) ModelUsage {
@@ -148,7 +177,9 @@ func (u ModelUsage) Add(other ModelUsage) ModelUsage {
 		CompletionTokens:   u.CompletionTokens + other.CompletionTokens,
 		TotalTokens:        u.TotalTokens + other.TotalTokens,
 		CachedPromptTokens: u.CachedPromptTokens + other.CachedPromptTokens,
+		CacheWriteTokens:   u.CacheWriteTokens + other.CacheWriteTokens,
 		ReasoningTokens:    u.ReasoningTokens + other.ReasoningTokens,
+		CostUSD:            u.CostUSD + other.CostUSD,
 	}
 }
 

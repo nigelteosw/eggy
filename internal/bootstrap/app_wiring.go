@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -212,7 +213,17 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 			return modelCatalog{}, fmt.Errorf("model alias %q provider %q is unavailable", alias, configured.Provider)
 		}
 		catalog.aliases = append(catalog.aliases, alias)
-		catalog.targets[alias] = agent.ModelTarget{Model: model, ModelID: configured.Model}
+		target := agent.ModelTarget{Model: model, ModelID: configured.Model, Reasoning: len(configured.ReasoningEfforts) > 0}
+		if configured.OpenRouter != nil {
+			// Marshalled once here into OpenRouter's own `provider` object;
+			// the adapter forwards the bytes and the kernel never reads them.
+			routing, err := json.Marshal(openRouterRoutingBody(*configured.OpenRouter))
+			if err != nil {
+				return modelCatalog{}, fmt.Errorf("model alias %q openrouter routing: %w", alias, err)
+			}
+			target.ProviderRouting = routing
+		}
+		catalog.targets[alias] = target
 		if len(configured.ReasoningEfforts) > 0 {
 			catalog.efforts[alias] = configured.ReasoningEfforts
 		}
@@ -377,4 +388,27 @@ func (a *approvalAsker) Request(ctx context.Context, action approvals.Action, pa
 		return approvals.Approval{}, fmt.Errorf("could not ask the owner to approve: %w", err)
 	}
 	return approval, nil
+}
+
+// openRouterRoutingBody is OpenRouter's `provider` request object, spelled
+// with its wire names. Only set fields are sent so OpenRouter's defaults
+// apply to the rest.
+func openRouterRoutingBody(routing config.OpenRouterRoutingConfig) map[string]any {
+	body := map[string]any{}
+	if len(routing.Order) > 0 {
+		body["order"] = routing.Order
+	}
+	if len(routing.Only) > 0 {
+		body["only"] = routing.Only
+	}
+	if len(routing.Ignore) > 0 {
+		body["ignore"] = routing.Ignore
+	}
+	if routing.AllowFallbacks != nil {
+		body["allow_fallbacks"] = *routing.AllowFallbacks
+	}
+	if routing.Sort != "" {
+		body["sort"] = routing.Sort
+	}
+	return body
 }

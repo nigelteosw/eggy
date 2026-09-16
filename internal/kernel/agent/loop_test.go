@@ -49,6 +49,36 @@ func TestLoopCarriesImagePartsOnTheOwnerMessage(t *testing.T) {
 	}
 }
 
+func TestLoopReplaysProviderReasoningAndPassesTargetSettings(t *testing.T) {
+	blob := json.RawMessage(`[{"type":"reasoning.encrypted","data":"opaque"}]`)
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ProviderReasoning: blob, ProviderReasoningOrigin: "openrouter", ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}},
+	}}
+	routing := json.RawMessage(`{"order":["anthropic"]}`)
+	loop := NewSelectedLoop(map[string]ModelTarget{"sonnet": {Model: model, ModelID: "anthropic/claude", Reasoning: true, ProviderRouting: routing}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
+	if _, err := loop.Run(context.Background(), "sonnet", "", ports.Message{Content: "status"}, nil, RunOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.requests) != 2 {
+		t.Fatalf("requests=%d", len(model.requests))
+	}
+	for _, request := range model.requests {
+		if !request.ReasoningSupported || string(request.ProviderRouting) != string(routing) {
+			t.Fatalf("request=%#v, want target settings on every request", request)
+		}
+	}
+	var replayed *ports.Message
+	for i := range model.requests[1].Messages {
+		if message := &model.requests[1].Messages[i]; message.Role == ports.RoleAssistant && len(message.ToolCalls) > 0 {
+			replayed = message
+		}
+	}
+	if replayed == nil || string(replayed.ProviderReasoning) != string(blob) || replayed.ProviderReasoningOrigin != "openrouter" {
+		t.Fatalf("replayed=%#v, want the opaque reasoning carried into the next round", replayed)
+	}
+}
+
 func TestLoopSelectedCarriesReasoningContentFromTheFinalTurnOnly(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{
 		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "status", Arguments: json.RawMessage(`{}`)}}}, ReasoningContent: "considering which tool to call"},

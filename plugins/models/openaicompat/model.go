@@ -34,25 +34,48 @@ func New(baseURL, apiKey string, client *http.Client) *Model {
 	return &Model{baseURL: strings.TrimRight(baseURL, "/"), apiKey: apiKey, http: client, openRouter: isOpenRouterURL(baseURL)}
 }
 
+// openRouterOrigin tags ports.Message.ProviderReasoning written by this
+// adapter when talking to OpenRouter, so only OpenRouter requests replay it.
+const openRouterOrigin = "openrouter"
+
 type requestBody struct {
-	Model           string                   `json:"model"`
-	Messages        []providerRequestMessage `json:"messages"`
-	Tools           []providerTool           `json:"tools,omitempty"`
-	ReasoningEffort string                   `json:"reasoning_effort,omitempty"`
-	SessionID       string                   `json:"session_id,omitempty"`
-	CacheControl    *cacheControl            `json:"cache_control,omitempty"`
+	Model    string                   `json:"model"`
+	Messages []providerRequestMessage `json:"messages"`
+	Tools    []providerTool           `json:"tools,omitempty"`
+	// ReasoningEffort is the standard Chat Completions spelling; Reasoning is
+	// OpenRouter's nested normalisation of the same knob across vendors, and
+	// the only one of the two that can say "none". Exactly one is sent.
+	ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+	Reasoning       *reasoningOptions `json:"reasoning,omitempty"`
+	SessionID       string            `json:"session_id,omitempty"`
+	CacheControl    *cacheControl     `json:"cache_control,omitempty"`
+	// Provider is OpenRouter's routing preference, forwarded as the bytes the
+	// alias was configured with.
+	Provider json.RawMessage `json:"provider,omitempty"`
+}
+
+type reasoningOptions struct {
+	Effort string `json:"effort"`
 }
 
 type cacheControl struct {
 	Type string `json:"type"`
 }
 
+// providerRequestMessage carries the role as Eggy spells it. Eggy only ever
+// sends "system" for instructions, never OpenAI's newer "developer": every
+// provider on this wire format accepts "system", while "developer" via
+// OpenRouter is only honoured for anthropic/* and openai/* models.
 type providerRequestMessage struct {
 	Role       string             `json:"role"`
 	Content    any                `json:"content,omitempty"`
 	Name       string             `json:"name,omitempty"`
 	ToolCallID string             `json:"tool_call_id,omitempty"`
 	ToolCalls  []providerToolCall `json:"tool_calls,omitempty"`
+	// ReasoningDetails is OpenRouter's opaque reasoning state, sent back
+	// exactly as it arrived so a reasoning model keeps its own thinking
+	// across tool-call rounds. See ports.Message.ProviderReasoning.
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type providerResponseMessage struct {
@@ -61,9 +84,14 @@ type providerResponseMessage struct {
 	Name       string             `json:"name,omitempty"`
 	ToolCallID string             `json:"tool_call_id,omitempty"`
 	ToolCalls  []providerToolCall `json:"tool_calls,omitempty"`
-	// ReasoningContent is only ever populated when decoding a provider
-	// response; Eggy never sends it back in a following request's history.
+	// ReasoningContent is the visible chain-of-thought (DeepSeek's spelling);
+	// Reasoning is OpenRouter's. Either is surfaced, neither is replayed.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
+	// ReasoningDetails is kept as raw bytes: its entries are provider-specific
+	// and some are encrypted, and the one thing OpenRouter asks is that they
+	// go back unmodified.
+	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
 type providerContentPart struct {
@@ -96,14 +124,34 @@ type providerToolCall struct {
 
 func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.ModelResponse, error) {
 	body := requestBody{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
+	var headers http.Header
 	if m.openRouter {
+		// The conversation ID is the sticky-routing key, so consecutive turns
+		// land on the same upstream and its prompt cache. OpenRouter reads it
+		// from either the body or the header; both are sent so it is found
+		// whichever one a given endpoint honours.
 		body.SessionID = destination.FromContext(ctx).ConversationID()
+		if body.SessionID != "" {
+			headers = http.Header{"X-Session-Id": {body.SessionID}}
+		}
 		if isAnthropicModel(input.Model) {
 			body.CacheControl = &cacheControl{Type: "ephemeral"}
+		}
+		body.Provider = input.ProviderRouting
+		body.ReasoningEffort = ""
+		if input.ReasoningEffort != "" {
+			body.Reasoning = &reasoningOptions{Effort: input.ReasoningEffort}
+		} else if input.ReasoningSupported {
+			// The alias offers levels and none is chosen: say so, otherwise
+			// a model that reasons by default keeps doing it.
+			body.Reasoning = &reasoningOptions{Effort: "none"}
 		}
 	}
 	for _, message := range input.Messages {
 		translated := providerRequestMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
+		if m.openRouter && message.ProviderReasoningOrigin == openRouterOrigin {
+			translated.ReasoningDetails = message.ProviderReasoning
+		}
 		if len(message.Parts) > 0 {
 			content := []providerContentPart{{Type: "text", Text: message.Content}}
 			for _, part := range message.Parts {
@@ -138,13 +186,13 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	if err != nil {
 		return ports.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
 	}
-	response, err := m.request(ctx, http.MethodPost, "/chat/completions", encoded)
+	response, err := m.request(ctx, http.MethodPost, "/chat/completions", encoded, headers)
 	if err != nil {
 		return ports.ModelResponse{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ports.ModelResponse{}, statusError(response.StatusCode)
+		return ports.ModelResponse{}, m.providerError(response)
 	}
 	var result struct {
 		Choices []struct {
@@ -157,10 +205,15 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 			PromptCacheHitTokens int64 `json:"prompt_cache_hit_tokens"`
 			PromptTokensDetails  struct {
 				CachedTokens int64 `json:"cached_tokens"`
+				// CacheWriteTokens is OpenRouter's separate write count; it
+				// is not subtracted from cached_tokens, which are reads.
+				CacheWriteTokens int64 `json:"cache_write_tokens"`
 			} `json:"prompt_tokens_details"`
 			CompletionTokenDetails struct {
 				ReasoningTokens int64 `json:"reasoning_tokens"`
 			} `json:"completion_tokens_details"`
+			// Cost is OpenRouter's charge in USD for this call.
+			Cost float64 `json:"cost"`
 		} `json:"usage"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -171,6 +224,9 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}
 	providerResult := result.Choices[0].Message
 	message := ports.Message{Role: ports.Role(providerResult.Role), Content: providerResult.Content, Name: providerResult.Name, ToolCallID: providerResult.ToolCallID}
+	if m.openRouter && len(providerResult.ReasoningDetails) > 0 && string(providerResult.ReasoningDetails) != "null" {
+		message.ProviderReasoning, message.ProviderReasoningOrigin = providerResult.ReasoningDetails, openRouterOrigin
+	}
 	for _, call := range providerResult.ToolCalls {
 		arguments := json.RawMessage(call.Function.Arguments)
 		if !json.Valid(arguments) {
@@ -178,9 +234,16 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		}
 		message.ToolCalls = append(message.ToolCalls, ports.ToolCall{ID: call.ID, Name: call.Function.Name, Arguments: arguments})
 	}
-	return ports.ModelResponse{Message: message, ReasoningContent: providerResult.ReasoningContent, Usage: ports.ModelUsage{
+	reasoning := providerResult.ReasoningContent
+	if reasoning == "" {
+		reasoning = providerResult.Reasoning
+	}
+	return ports.ModelResponse{Message: message, ReasoningContent: reasoning, Usage: ports.ModelUsage{
 		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
-		CachedPromptTokens: max(result.Usage.PromptTokensDetails.CachedTokens, result.Usage.PromptCacheHitTokens), ReasoningTokens: result.Usage.CompletionTokenDetails.ReasoningTokens,
+		CachedPromptTokens: max(result.Usage.PromptTokensDetails.CachedTokens, result.Usage.PromptCacheHitTokens),
+		CacheWriteTokens:   result.Usage.PromptTokensDetails.CacheWriteTokens,
+		ReasoningTokens:    result.Usage.CompletionTokenDetails.ReasoningTokens,
+		CostUSD:            result.Usage.Cost,
 	}}, nil
 }
 
@@ -207,13 +270,13 @@ func isAnthropicModel(model string) bool {
 // on their behalf. OpenRouter alone returns several hundred entries including
 // image and audio models, so callers are expected to offer a search box.
 func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
-	response, err := m.request(ctx, http.MethodGet, "/models", nil)
+	response, err := m.request(ctx, http.MethodGet, "/models", nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, statusError(response.StatusCode)
+		return nil, m.providerError(response)
 	}
 	var result struct {
 		Data []struct {
@@ -240,7 +303,7 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 // request retries transient failures. body may be nil, which is how a GET is
 // spelled; a nil body must stay a nil io.Reader rather than an empty one, so
 // that the request carries no Content-Length and reads as a plain GET.
-func (m *Model) request(ctx context.Context, method, endpoint string, body []byte) (*http.Response, error) {
+func (m *Model) request(ctx context.Context, method, endpoint string, body []byte, headers http.Header) (*http.Response, error) {
 	for attempt := 0; attempt < 3; attempt++ {
 		var reader io.Reader
 		if body != nil {
@@ -253,6 +316,9 @@ func (m *Model) request(ctx context.Context, method, endpoint string, body []byt
 		request.Header.Set("Authorization", "Bearer "+m.apiKey)
 		if body != nil {
 			request.Header.Set("Content-Type", "application/json")
+		}
+		for name, values := range headers {
+			request.Header[name] = values
 		}
 		response, err := m.http.Do(request)
 		transient := err != nil || response.StatusCode == http.StatusRequestTimeout || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500
@@ -275,6 +341,61 @@ func (m *Model) request(ctx context.Context, method, endpoint string, body []byt
 	}
 	return nil, errors.New("provider request failed")
 }
+
+// providerError turns a failed response into an error the owner can act on.
+// The status alone says which kind of failure it was; the body says why,
+// which for a gateway like OpenRouter includes what the upstream vendor
+// said. Every provider on this wire format uses OpenAI's {"error": {...}}
+// envelope, so the same decoding serves all of them; a body that is not
+// that shape is simply not quoted.
+//
+// An authentication failure is never quoted: providers have been known to
+// echo the presented key, and this error lands in a chat surface. The key
+// is scrubbed from every other body for the same reason.
+func (m *Model) providerError(response *http.Response) error {
+	err := statusError(response.StatusCode)
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return err
+	}
+	raw, _ := io.ReadAll(io.LimitReader(response.Body, maxErrorBody))
+	if m.apiKey != "" {
+		raw = bytes.ReplaceAll(raw, []byte(m.apiKey), []byte("[redacted]"))
+	}
+	var envelope struct {
+		Error struct {
+			Message  string `json:"message"`
+			Metadata struct {
+				Raw          string `json:"raw"`
+				ProviderName string `json:"provider_name"`
+			} `json:"metadata"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return err
+	}
+	detail := strings.TrimSpace(envelope.Error.Message)
+	// OpenRouter passes the upstream's own words through metadata.raw, which
+	// is usually the only part that says what was actually wrong. It is
+	// skipped when message already quotes it, so it is not printed twice.
+	if upstream := strings.TrimSpace(envelope.Error.Metadata.Raw); upstream != "" && !strings.Contains(detail, upstream) {
+		if name := strings.TrimSpace(envelope.Error.Metadata.ProviderName); name != "" {
+			upstream = name + ": " + upstream
+		}
+		if detail != "" {
+			detail += "; "
+		}
+		detail += upstream
+	}
+	if detail == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, detail)
+}
+
+// maxErrorBody bounds how much of an error response is read: enough for any
+// real message, not enough for a misbehaving proxy to make the read the
+// expensive part of the failure.
+const maxErrorBody = 8 << 10
 
 func statusError(status int) error {
 	switch status {

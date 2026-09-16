@@ -26,7 +26,9 @@ test("settings navigation groups configuration by user intent", () => {
       onSessionExpired: () => {},
     }),
   );
-  const labels = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
+  // Scoped to the navigation select: settings cards have selects of their own.
+  const nav = html.match(/<select[^>]*aria-label="Mobile settings navigation"[^>]*>(.*?)<\/select>/)?.[1] ?? "";
+  const labels = [...nav.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
 
   expect(labels).toEqual([
     "Models",

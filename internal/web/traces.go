@@ -52,6 +52,10 @@ type traceSummaryJSON struct {
 	PromptTokens int64  `json:"prompt_tokens"`
 	OutputTokens int64  `json:"completion_tokens"`
 	CachedTokens int64  `json:"cached_prompt_tokens,omitempty"`
+	// CacheWriteTokens and CostUSD are only ever non-zero for providers that
+	// report them (OpenRouter today); the panel hides them otherwise.
+	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
 type traceSpanJSON struct {
@@ -68,6 +72,10 @@ type traceSpanJSON struct {
 	PromptTokens int64  `json:"prompt_tokens,omitempty"`
 	OutputTokens int64  `json:"completion_tokens,omitempty"`
 	CachedTokens int64  `json:"cached_prompt_tokens,omitempty"`
+	// CacheWriteTokens and CostUSD are only ever non-zero for providers that
+	// report them (OpenRouter today); the panel hides them otherwise.
+	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
 }
 
 type traceDetailJSON struct {
@@ -121,11 +129,13 @@ func newTraceDetailHandler(traces TraceDirectory) http.HandlerFunc {
 				// Milliseconds rather than a Go duration string: the panel
 				// formats it, and a number is the only shape it can also sort
 				// and compare on.
-				DurationMS:   span.Duration.Milliseconds(),
-				TotalTokens:  span.Usage.TotalTokens,
-				PromptTokens: span.Usage.PromptTokens,
-				OutputTokens: span.Usage.CompletionTokens,
-				CachedTokens: span.Usage.CachedPromptTokens,
+				DurationMS:       span.Duration.Milliseconds(),
+				TotalTokens:      span.Usage.TotalTokens,
+				PromptTokens:     span.Usage.PromptTokens,
+				OutputTokens:     span.Usage.CompletionTokens,
+				CachedTokens:     span.Usage.CachedPromptTokens,
+				CacheWriteTokens: span.Usage.CacheWriteTokens,
+				CostUSD:          span.Usage.CostUSD,
 			})
 		}
 		writeTraceJSON(w, traceDetailJSON{Trace: traceSummary(trace), Spans: rendered})
@@ -137,13 +147,15 @@ func traceSummary(trace ports.Trace) traceSummaryJSON {
 		ID: trace.ID, ConversationID: trace.ConversationID, Session: trace.Session, Channel: trace.Channel,
 		Source: trace.Source, Kind: trace.Kind, Model: trace.Model, Effort: trace.Effort,
 		Input: trace.Input, Output: trace.Output, Error: trace.Error, Spans: trace.Spans,
-		StartedAt:    trace.StartedAt.UTC().Format(time.RFC3339Nano),
-		DurationMS:   trace.Duration.Milliseconds(),
-		Complete:     trace.Complete,
-		TotalTokens:  trace.Usage.TotalTokens,
-		PromptTokens: trace.Usage.PromptTokens,
-		OutputTokens: trace.Usage.CompletionTokens,
-		CachedTokens: trace.Usage.CachedPromptTokens,
+		StartedAt:        trace.StartedAt.UTC().Format(time.RFC3339Nano),
+		DurationMS:       trace.Duration.Milliseconds(),
+		Complete:         trace.Complete,
+		TotalTokens:      trace.Usage.TotalTokens,
+		PromptTokens:     trace.Usage.PromptTokens,
+		OutputTokens:     trace.Usage.CompletionTokens,
+		CachedTokens:     trace.Usage.CachedPromptTokens,
+		CacheWriteTokens: trace.Usage.CacheWriteTokens,
+		CostUSD:          trace.Usage.CostUSD,
 	}
 }
 

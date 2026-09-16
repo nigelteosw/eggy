@@ -51,6 +51,52 @@ providers:
     api_key_env: OPENROUTER_API_KEY
 ```
 
+### What OpenRouter gets that others do not
+
+The adapter recognises an `openrouter.ai` base URL and adds what OpenRouter
+alone understands. Nothing here leaks into a request to any other provider.
+
+- **Sticky routing.** The conversation ID is sent as the session key (body
+  `session_id` and header `x-session-id`), so consecutive turns land on the
+  same upstream and its prompt cache.
+- **Prompt caching.** `anthropic/*` models get a top-level
+  `cache_control: ephemeral`, OpenRouter's recommended form for multi-turn
+  chats.
+- **Reasoning.** The effort is sent as OpenRouter's nested `reasoning.effort`
+  rather than `reasoning_effort`. When an alias declares `reasoning_efforts`
+  and none is selected, `effort: none` is sent explicitly, so a model that
+  reasons by default does not keep doing so unasked.
+- **Reasoning replay.** OpenRouter's `reasoning_details` are carried back on
+  the assistant message across tool-call rounds within a turn, unmodified, so
+  Anthropic and OpenAI reasoning models keep their own thinking. The visible
+  reasoning text is still never replayed.
+- **Provider routing.** An alias can say which upstream vendors may serve it:
+
+  ```yaml
+  models:
+    sonnet:
+      provider: openrouter
+      model: anthropic/claude-sonnet-4.6
+      openrouter:
+        order: [anthropic, amazon-bedrock]   # try these first
+        ignore: [deepinfra]                  # never these
+        only: []                             # or: allow just these
+        allow_fallbacks: false               # default true
+        sort: price                          # price | throughput | latency
+  ```
+
+  Slugs are OpenRouter's own. The block is refused on any alias whose
+  provider is not OpenRouter. **Settings → Models** has the same fields under
+  *Advanced options*, and `/model add` takes them as `openrouter_order=a,b`,
+  `openrouter_ignore=`, `openrouter_only=`, `openrouter_sort=`, and
+  `openrouter_allow_fallbacks=false` after the positional words.
+- **Cost and cache writes.** OpenRouter reports `cost` and
+  `cache_write_tokens` on every response; both show on the turn's
+  [trace](/eggy/use/traces/).
+- **Upstream errors.** A rejected request quotes OpenRouter's error message
+  and the upstream vendor's own words from `metadata.raw`. Authentication
+  failures are never quoted, since a provider may echo the key.
+
 ## Discover what a provider serves
 
 `discover_models` is **on unless switched off**. It lets a surface ask the
@@ -75,8 +121,8 @@ Two surfaces read it:
 - **`/model providers`** names every provider and says which can be browsed.
   **`/model available <provider> [filter]`** lists its catalog — the filter is
   worth using, since OpenRouter answers with several hundred entries.
-  **`/model add <alias> <provider> <model> [efforts]`** writes the alias, and
-  `/restart` makes it selectable.
+  **`/model add <alias> <provider> <model> [efforts] [openrouter_*=...]`**
+  writes the alias, and `/restart` makes it selectable.
 
 **Discovery is a browse list, never an allowlist.** What Eggy will run stays
 exactly what `models` names, and a discovered model becomes selectable only

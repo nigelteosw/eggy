@@ -101,8 +101,10 @@ func TestModelTranslatesDeepSeekCacheUsage(t *testing.T) {
 
 func TestOpenRouterSendsConversationAsStickySession(t *testing.T) {
 	var body []byte
+	var header string
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body, _ = io.ReadAll(request.Body)
+		header = request.Header.Get("X-Session-Id")
 		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
 	})}
 	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-123"})
@@ -112,6 +114,9 @@ func TestOpenRouterSendsConversationAsStickySession(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"session_id":"thread-123"`) {
 		t.Fatalf("body=%s, want OpenRouter session_id", body)
+	}
+	if header != "thread-123" {
+		t.Fatalf("x-session-id=%q, want the conversation ID in the header as well", header)
 	}
 }
 
@@ -141,9 +146,121 @@ func TestNonOpenRouterRequestsKeepTheStandardChatCompletionsShape(t *testing.T) 
 	if _, err := New("https://api.example/v1", "key", client).Generate(ctx, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "session_id") || strings.Contains(string(body), "cache_control") {
+	if strings.Contains(string(body), "session_id") || strings.Contains(string(body), "cache_control") ||
+		strings.Contains(string(body), `"reasoning"`) || strings.Contains(string(body), `"provider"`) {
 		t.Fatalf("body=%s, want no OpenRouter extensions", body)
 	}
+}
+
+func TestOpenRouterLeavesNonAnthropicModelsUncached(t *testing.T) {
+	body := openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5"})
+	if strings.Contains(body, "cache_control") {
+		t.Fatalf("body=%s, want no cache_control for a non-Anthropic model", body)
+	}
+	if body := openRouterRequestBody(t, ports.ModelRequest{Model: "~anthropic/claude-sonnet-4.6"}); !strings.Contains(body, "cache_control") {
+		t.Fatalf("body=%s, want cache_control for a ~-prefixed Anthropic model", body)
+	}
+}
+
+func TestOpenRouterNestsReasoningEffortAndSaysNoneWhenUnselected(t *testing.T) {
+	body := openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5", ReasoningEffort: "high", ReasoningSupported: true})
+	if !strings.Contains(body, `"reasoning":{"effort":"high"}`) || strings.Contains(body, "reasoning_effort") {
+		t.Fatalf("body=%s, want nested reasoning.effort only", body)
+	}
+	body = openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5", ReasoningSupported: true})
+	if !strings.Contains(body, `"reasoning":{"effort":"none"}`) {
+		t.Fatalf("body=%s, want reasoning turned off when the alias offers levels and none is chosen", body)
+	}
+	body = openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5"})
+	if strings.Contains(body, "reasoning") {
+		t.Fatalf("body=%s, want no reasoning field for an alias without levels", body)
+	}
+}
+
+func TestOpenRouterForwardsProviderRouting(t *testing.T) {
+	routing := json.RawMessage(`{"order":["anthropic","amazon-bedrock"],"allow_fallbacks":false}`)
+	body := openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ProviderRouting: routing})
+	if !strings.Contains(body, `"provider":{"order":["anthropic","amazon-bedrock"],"allow_fallbacks":false}`) {
+		t.Fatalf("body=%s, want the routing object forwarded verbatim", body)
+	}
+}
+
+func TestOpenRouterReplaysItsOwnReasoningDetailsOnly(t *testing.T) {
+	var bodies [][]byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		bodies = append(bodies, body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"","reasoning":"thinking","reasoning_details":[{"type":"reasoning.encrypted","data":"opaque"}],"tool_calls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{}"}}]}}]}`), nil
+	})}
+	model := New("https://openrouter.ai/api/v1", "key", client)
+
+	result, err := model.Generate(context.Background(), ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ReasoningContent != "thinking" || result.Message.ProviderReasoningOrigin != "openrouter" ||
+		string(result.Message.ProviderReasoning) != `[{"type":"reasoning.encrypted","data":"opaque"}]` {
+		t.Fatalf("result=%#v", result)
+	}
+
+	foreign := result.Message
+	foreign.ProviderReasoningOrigin = "bedrock"
+	if _, err := model.Generate(context.Background(), ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", Messages: []ports.Message{result.Message, foreign}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(bodies[1]), `"reasoning_details":[{"type":"reasoning.encrypted","data":"opaque"}]`) != 1 {
+		t.Fatalf("second request body=%s, want exactly the openrouter-origin blob replayed", bodies[1])
+	}
+	if strings.Contains(string(bodies[1]), `"reasoning":"thinking"`) {
+		t.Fatalf("second request body=%s, want visible reasoning never replayed", bodies[1])
+	}
+}
+
+func TestOpenRouterReportsCacheWritesAndCost(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":300,"completion_tokens":5,"total_tokens":305,"cost":0.0125,"prompt_tokens_details":{"cached_tokens":100,"cache_write_tokens":150}}}`), nil
+	})}
+	result, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ports.ModelUsage{PromptTokens: 300, CompletionTokens: 5, TotalTokens: 305, CachedPromptTokens: 100, CacheWriteTokens: 150, CostUSD: 0.0125}
+	if result.Usage != want {
+		t.Fatalf("usage=%+v, want %+v", result.Usage, want)
+	}
+}
+
+func TestProviderErrorsQuoteTheBodyExceptForAuthentication(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadRequest, `{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"max_tokens exceeds 8192 for key sk-secret","provider_name":"Anthropic"}}}`), nil
+	})}
+	_, err := New("https://openrouter.ai/api/v1", "sk-secret", client).Generate(context.Background(), ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400") || !strings.Contains(err.Error(), "Provider returned error; Anthropic: max_tokens exceeds 8192 for key [redacted]") {
+		t.Fatalf("error=%v", err)
+	}
+
+	client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadRequest, `not json`), nil
+	})}
+	_, err = New("https://api.example", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "model"})
+	if err == nil || err.Error() != "provider rejected request (HTTP 400)" {
+		t.Fatalf("error=%v, want the bare status error for an undecodable body", err)
+	}
+}
+
+// openRouterRequestBody returns the JSON body a single OpenRouter Generate
+// sends for input.
+func openRouterRequestBody(t *testing.T, input ports.ModelRequest) string {
+	t.Helper()
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	if _, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
 }
 
 func TestModelParsesReasoningContentAndNeverReplaysIt(t *testing.T) {

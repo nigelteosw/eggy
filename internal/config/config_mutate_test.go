@@ -44,7 +44,7 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "deepseek-fast", Provider: "deepseek", Model: "deepseek-v4-flash"}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -60,7 +60,7 @@ func TestSetModelAliasAddsEntryAndRejectsUnknownProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = SetModelAlias(path, "orphan", "does-not-exist", "some-model", "")
+	err = SetModelAlias(path, ModelAliasInput{Alias: "orphan", Provider: "does-not-exist", Model: "some-model"})
 	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Fatalf("error = %v", err)
 	}
@@ -72,7 +72,7 @@ func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetModelAlias(path, "deepseek-pro", "deepseek", "deepseek-v4-pro", "low,medium,high,max"); err != nil {
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "deepseek-pro", Provider: "deepseek", Model: "deepseek-v4-pro", ReasoningEfforts: []string{"low", "medium", "high", "max"}}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
@@ -84,9 +84,73 @@ func TestSetModelAliasAcceptsAndRejectsReasoningEfforts(t *testing.T) {
 		t.Fatalf("deepseek-pro model = %#v, ok=%v", model, ok)
 	}
 
-	err = SetModelAlias(path, "deepseek-pro", "deepseek", "deepseek-v4-pro", "extreme")
+	err = SetModelAlias(path, ModelAliasInput{Alias: "deepseek-pro", Provider: "deepseek", Model: "deepseek-v4-pro", ReasoningEfforts: []string{"extreme"}})
 	if err == nil || !strings.Contains(err.Error(), "invalid reasoning effort") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSetModelAliasWritesOpenRouterRoutingOnlyForOpenRouter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProvider(path, ProviderInput{Name: "openrouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	routing := &OpenRouterRoutingConfig{Order: []string{"anthropic", "amazon-bedrock"}, Ignore: []string{"deepinfra"}, AllowFallbacks: &off, Sort: "price"}
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "sonnet", Provider: "openrouter", Model: "anthropic/claude-sonnet-5", OpenRouter: routing}); err != nil {
+		t.Fatal(err)
+	}
+	secrets := testSecrets()
+	secrets["OPENROUTER_API_KEY"] = "openrouter-key"
+	reloaded, _, err := LoadConfig(path, mapEnv(secrets))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := reloaded.ModelAliases["sonnet"].OpenRouter
+	if got == nil || strings.Join(got.Order, ",") != "anthropic,amazon-bedrock" || got.Sort != "price" || got.AllowFallbacks == nil || *got.AllowFallbacks {
+		t.Fatalf("routing=%#v", got)
+	}
+	if line, _ := GetModelAliasesConfigText(path); !strings.Contains(line, "openrouter=order:anthropic,amazon-bedrock ignore:deepinfra allow_fallbacks:false sort:price") {
+		t.Fatalf("describe=%q", line)
+	}
+
+	// An all-blank block is the same as none: no openrouter key is written.
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "sonnet", Provider: "openrouter", Model: "anthropic/claude-sonnet-5", OpenRouter: &OpenRouterRoutingConfig{}}); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded, _, err = LoadConfig(path, mapEnv(secrets)); err != nil || reloaded.ModelAliases["sonnet"].OpenRouter != nil {
+		t.Fatalf("routing=%#v err=%v, want an all-blank block written as none", reloaded.ModelAliases["sonnet"].OpenRouter, err)
+	}
+
+	for _, bad := range []ModelAliasInput{
+		{Alias: "routed", Provider: "deepseek", Model: "deepseek-v4-pro", OpenRouter: &OpenRouterRoutingConfig{Sort: "price"}},
+		{Alias: "sonnet", Provider: "openrouter", Model: "m", OpenRouter: &OpenRouterRoutingConfig{Sort: "cheapest"}},
+		{Alias: "sonnet", Provider: "openrouter", Model: "m", OpenRouter: &OpenRouterRoutingConfig{Only: []string{"anthropic"}, Ignore: []string{"anthropic"}}},
+	} {
+		if err := SetModelAlias(path, bad); err == nil {
+			t.Fatalf("input %#v was accepted", bad)
+		}
+	}
+}
+
+func TestValuesDecodeModelAliasInput(t *testing.T) {
+	input, err := (Values{"provider": "openrouter", "model": "m", "reasoning_efforts": "low, high", "openrouter_ignore": "deepinfra, ", "openrouter_allow_fallbacks": "true"}).ModelAliasInput("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.Alias != "a" || strings.Join(input.ReasoningEfforts, ",") != "low,high" || input.OpenRouter == nil ||
+		strings.Join(input.OpenRouter.Ignore, ",") != "deepinfra" || input.OpenRouter.AllowFallbacks == nil || !*input.OpenRouter.AllowFallbacks {
+		t.Fatalf("input=%#v", input)
+	}
+	plain, err := (Values{"provider": "deepseek", "model": "m", "openrouter_order": "", "openrouter_allow_fallbacks": ""}).ModelAliasInput("b")
+	if err != nil || plain.OpenRouter != nil {
+		t.Fatalf("input=%#v err=%v, want no routing block from blank fields", plain, err)
+	}
+	if _, err := (Values{"openrouter_allow_fallbacks": "maybe"}).ModelAliasInput("c"); err == nil {
+		t.Fatal("want a boolean field error")
 	}
 }
 
@@ -95,7 +159,7 @@ func TestRemoveModelAliasDeletesAnAliasButRefusesTheDefault(t *testing.T) {
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetModelAlias(path, "deepseek-fast", "deepseek", "deepseek-v4-flash", ""); err != nil {
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "deepseek-fast", Provider: "deepseek", Model: "deepseek-v4-flash"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := RemoveModelAlias(path, "deepseek-fast"); err != nil {

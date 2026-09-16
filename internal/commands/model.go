@@ -139,20 +139,39 @@ func (s *CommandService) modelAvailable(ctx context.Context, args []string) stri
 		truncated + "\n\nAdd one with /model add <alias> " + provider + " <model>."
 }
 
+const modelAddUsage = "Usage: /model add <alias> <provider> <model> [efforts] [openrouter_order=a,b] [openrouter_only=a] [openrouter_ignore=a] [openrouter_sort=price|throughput|latency] [openrouter_allow_fallbacks=false]\n\nefforts is an optional comma-separated list such as low,medium,high. The openrouter_* keys only apply to an OpenRouter provider."
+
 // modelAdd writes an alias. It is the one command here that changes config,
 // and it deliberately does not select the new alias: the running daemon is
 // still holding the old catalog, so selecting it would fail on an alias the
 // owner can see in config.yaml, which is worse than being told to restart.
 func (s *CommandService) modelAdd(args []string) string {
-	if len(args) < 3 || len(args) > 4 {
-		return "Usage: /model add <alias> <provider> <model> [efforts]\n\nefforts is an optional comma-separated list such as low,medium,high."
+	if len(args) < 3 {
+		return modelAddUsage
 	}
 	alias, provider, modelID := args[0], args[1], args[2]
-	efforts := ""
-	if len(args) == 4 {
-		efforts = args[3]
+	input := config.ModelAliasInput{Alias: alias, Provider: provider, Model: modelID}
+	// The fourth word is efforts by position, as it always was; anything
+	// after it is key=value, which is where the OpenRouter routing keys go.
+	rest := args[3:]
+	if len(rest) > 0 && !strings.Contains(rest[0], "=") {
+		input.ReasoningEfforts = config.SplitCommaList(rest[0])
+		rest = rest[1:]
 	}
-	if err := config.SetModelAlias(s.ConfigPath, alias, provider, modelID, efforts); err != nil {
+	values := config.Values{}
+	for _, arg := range rest {
+		key, value, ok := strings.Cut(arg, "=")
+		if !ok {
+			return modelAddUsage
+		}
+		values[key] = value
+	}
+	routing, err := values.ModelAliasInput(alias)
+	if err != nil {
+		return fmt.Sprintf("Could not add %s: %v", alias, err)
+	}
+	input.OpenRouter = routing.OpenRouter
+	if err := config.SetModelAlias(s.ConfigPath, input); err != nil {
 		return fmt.Sprintf("Could not add %s: %v", alias, err)
 	}
 	return fmt.Sprintf("Added **%s** -> %s %s.\n\nRestart for it to become selectable: /restart", alias, provider, modelID)

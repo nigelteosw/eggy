@@ -270,6 +270,21 @@ func TestModelAddWritesAnAliasAndAsksForARestart(t *testing.T) {
 	if !strings.Contains(string(body), "anthropic/claude-sonnet-5") {
 		t.Fatalf("alias was not written:\n%s", body)
 	}
+	// Routing keys follow the positional words and land in the alias's
+	// openrouter block.
+	output, _, err = service.Execute(context.Background(), "/model add routed openrouter anthropic/claude-sonnet-5 low,high openrouter_order=anthropic,amazon-bedrock openrouter_sort=price openrouter_allow_fallbacks=false")
+	if err != nil || !strings.Contains(output, "Added **routed**") {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+	body, _ = os.ReadFile(path)
+	for _, want := range []string{"order:", "- anthropic", "- amazon-bedrock", "sort: price", "allow_fallbacks: false"} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("routing %q was not written:\n%s", want, body)
+		}
+	}
+	if unknown, _, _ := service.Execute(context.Background(), "/model add x openrouter m openrouter_colour=blue"); !strings.Contains(unknown, "unknown field") {
+		t.Fatalf("output=%q, want an unknown-field rejection", unknown)
+	}
 	// A rejected write must say so rather than report success.
 	rejected, _, err := service.Execute(context.Background(), "/model add nope missing anthropic/claude-sonnet-5")
 	if err != nil || !strings.Contains(rejected, "Could not add nope") {

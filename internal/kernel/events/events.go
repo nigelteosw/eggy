@@ -2,6 +2,8 @@ package events
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
@@ -41,6 +43,41 @@ type Event struct {
 type Message struct {
 	Text  string              `json:"text"`
 	Parts []ports.ContentPart `json:"parts,omitempty"`
+	// Quote is the earlier passage this message replies to, when the surface
+	// has one: a Telegram reply (or partial quote), a highlighted span in the
+	// web UI, a Discord reply later. Surfaces fill it in; only Prompt reads it.
+	Quote *Quote `json:"quote,omitempty"`
+}
+
+// Quote is a replied-to passage, kept surface-neutral so every channel that
+// grows a reply affordance produces the same thing and the model sees one
+// format regardless of where the owner typed.
+type Quote struct {
+	Text string `json:"text"`
+	// OwnMessage is true when the quoted passage came from Eggy, so the
+	// prompt can say so: being pointed back at its own words is a different
+	// situation from the owner introducing new text.
+	OwnMessage bool `json:"own_message,omitempty"`
+}
+
+// Prompt is the message as the model should read it. A reply is prefixed the
+// way Hermes Agent's gateway does it, with the full quoted text rather than a
+// preview: the point is disambiguation -- which prior passage is meant --
+// and a truncated quote silently loses later list items and code. It is
+// injected even when the passage is already in history, for the same reason.
+//
+// The quote is wrapped verbatim, not escaped: a surface that shows the sent
+// message back (the web transcript) must be able to rebuild this string
+// exactly, and the model reads it as prose either way.
+func (m Message) Prompt() string {
+	if m.Quote == nil || strings.TrimSpace(m.Quote.Text) == "" {
+		return m.Text
+	}
+	who := ""
+	if m.Quote.OwnMessage {
+		who = " your previous message"
+	}
+	return fmt.Sprintf("[Replying to%s: \"%s\"]\n\n%s", who, m.Quote.Text, m.Text)
 }
 
 type ApprovalDecision struct {

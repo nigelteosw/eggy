@@ -2,13 +2,81 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, sendChatMessage } from "./api";
-import { Composer } from "./Composer";
+import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
-import { LockIcon } from "./components/ui/icons";
+import { LockIcon, ReplyIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
+
+// The reply prefix as events.Message.Prompt builds it on the backend. The
+// optimistic bubble must be the exact string history will later hold, or the
+// reconcile in loadHistory never drops it; and a recorded user turn is
+// split back apart here so the transcript shows a quote, not brackets.
+const REPLY_PREFIX = /^\[Replying to( your previous message)?: "([\s\S]*?)"\]\n\n([\s\S]*)$/;
+
+function withQuote(quote: Quote | null, text: string): string {
+  if (!quote) return text;
+  return `[Replying to${quote.ownMessage ? " your previous message" : ""}: "${quote.text}"]\n\n${text}`;
+}
+
+function splitQuote(text: string): { quote: string | null; body: string } {
+  const match = REPLY_PREFIX.exec(text);
+  return match ? { quote: match[2], body: match[3] } : { quote: null, body: text };
+}
 type PendingApproval = { id: string; summary: string };
+// Where the floating Reply button sits, relative to the scrolling transcript.
+type SelectionAnchor = { text: string; ownMessage: boolean; top: number; left: number };
+
+// Watches text selection within `container` and reports the selected text
+// with a spot to hang a button on, or null when nothing useful is selected.
+function useSelectionAnchor(container: React.RefObject<HTMLElement | null>) {
+  const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
+
+  useEffect(() => {
+    function update() {
+      const selection = document.getSelection();
+      const host = container.current;
+      if (!selection || selection.isCollapsed || !host || selection.rangeCount === 0) {
+        setAnchor(null);
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const text = selection.toString().trim();
+      if (!text || !host.contains(range.commonAncestorContainer)) {
+        setAnchor(null);
+        return;
+      }
+      // Position from the first line of the selection so the button stays
+      // near where the drag started, not somewhere below a long block.
+      // "Own" from the model's side: a quote of an assistant message tells
+      // it that it is being pointed back at something it said.
+      const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+      const ownMessage = start?.closest("[data-role]")?.getAttribute("data-role") === "assistant";
+      const rects = range.getClientRects();
+      const first = rects.length > 0 ? rects[0] : range.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      setAnchor({
+        text,
+        ownMessage,
+        top: first.top - hostRect.top + host.scrollTop,
+        left: Math.max(0, first.left - hostRect.left + host.scrollLeft),
+      });
+    }
+    // selectionchange fires while the mouse is still dragging; settle on
+    // mouseup/keyup so the button does not chase the cursor.
+    document.addEventListener("mouseup", update);
+    document.addEventListener("keyup", update);
+    document.addEventListener("selectionchange", update);
+    return () => {
+      document.removeEventListener("mouseup", update);
+      document.removeEventListener("keyup", update);
+      document.removeEventListener("selectionchange", update);
+    };
+  }, [container]);
+
+  return [anchor, () => setAnchor(null)] as const;
+}
 
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
   return (
@@ -65,6 +133,9 @@ export function ChatPage({
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [selection, clearSelection] = useSelectionAnchor(transcriptRef);
+  const [quote, setQuote] = useState<Quote | null>(null);
   const threadRef = useRef<string | null>(threadId);
   const previousThreadId = useRef<string | null>(threadId);
   const messages = [...history, ...pending];
@@ -99,6 +170,7 @@ export function ChatPage({
     if (!createdFromDraft) setPending([]);
     setApprovals([]);
     setTyping(false);
+    setQuote(null);
     previousThreadId.current = threadId;
     if (!threadId) return;
     loadHistory();
@@ -144,8 +216,8 @@ export function ChatPage({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend(text: string) {
-    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text }]);
+  async function handleSend(text: string, quote: Quote | null) {
+    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: withQuote(quote, text) }]);
     try {
       let target = threadRef.current;
       if (!target) {
@@ -153,7 +225,7 @@ export function ChatPage({
         threadRef.current = target;
         onThreadCreated?.(target);
       }
-      await sendChatMessage(target, text);
+      await sendChatMessage(target, text, quote ? { text: quote.text, own_message: quote.ownMessage } : null);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
@@ -183,7 +255,27 @@ export function ChatPage({
           <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
         </div>
       </header>
-      <div className="scrollbar-slim flex-1 overflow-y-auto">
+      <div ref={transcriptRef} className="scrollbar-slim relative flex-1 overflow-y-auto">
+        {selection && (
+          <button
+            type="button"
+            // mousedown would collapse the selection before click fires.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setQuote({ text: selection.text, ownMessage: selection.ownMessage });
+              document.getSelection()?.removeAllRanges();
+              clearSelection();
+            }}
+            style={{ top: selection.top, left: selection.left }}
+            className={cn(
+              "absolute z-10 flex -translate-y-[calc(100%+8px)] animate-fade-in-up items-center gap-2 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background shadow-lg",
+              "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+            )}
+          >
+            Reply
+            <ReplyIcon className="h-4 w-4" />
+          </button>
+        )}
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
             <div className="py-16 text-center">
@@ -193,16 +285,23 @@ export function ChatPage({
           {messages.map((message) => {
             const isUser = message.role === "user";
             if (isUser) {
+              const { quote: quoted, body } = splitQuote(message.text);
               return (
-                <div key={message.id} className="flex animate-fade-in-up justify-end">
+                <div key={message.id} data-role="user" className="flex animate-fade-in-up justify-end">
                   <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-sm text-foreground sm:max-w-[72%] sm:px-5">
-                    <MessageBody text={message.text} isUserBubble />
+                    {quoted !== null && (
+                      <div className="mb-2.5 flex items-start rounded-xl bg-black/5 px-3 py-2">
+                        <span aria-hidden="true" className="mr-2.5 w-0.5 shrink-0 self-stretch rounded-full bg-muted-foreground/50" />
+                        <p className="line-clamp-4 whitespace-pre-line break-words text-xs leading-5 text-foreground/75">{quoted}</p>
+                      </div>
+                    )}
+                    <MessageBody text={body} isUserBubble />
                   </div>
                 </div>
               );
             }
             return (
-              <div key={message.id} className="flex animate-fade-in-up gap-3.5">
+              <div key={message.id} data-role="assistant" className="flex animate-fade-in-up gap-3.5">
                 <div
                   aria-hidden="true"
                   className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700"
@@ -263,7 +362,7 @@ export function ChatPage({
           <div ref={bottomRef} />
         </div>
       </div>
-      <Composer onSend={handleSend} onSessionExpired={onSessionExpired} />
+      <Composer onSend={handleSend} onSessionExpired={onSessionExpired} quote={quote} onClearQuote={() => setQuote(null)} />
     </div>
   );
 }

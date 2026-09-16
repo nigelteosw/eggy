@@ -58,7 +58,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 			source = "telegram"
 		}
 		return a.turnService.OwnerMessage(destination.With(ctx, event.Destination), ports.Message{
-			Role: ports.RoleUser, Content: message.Text, Parts: message.Parts,
+			Role: ports.RoleUser, Content: message.Prompt(), Parts: message.Parts,
 		}, source)
 	case events.TypeSchedule:
 		message, err := decodeMessage(event)

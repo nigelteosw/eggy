@@ -161,3 +161,16 @@ export const UsersIcon = (p: IconProps) => (
     <path d="M14 12.5c2.5.2 4 2 4 4.5" />
   </Icon>
 );
+
+export const ReplyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M8 5.5 3.5 9.5 8 13.5" />
+    <path d="M3.5 9.5h7.5a5 5 0 0 1 5 5v1" />
+  </Icon>
+);
+
+export const CloseIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m5 5 10 10M15 5 5 15" />
+  </Icon>
+);

@@ -226,7 +226,8 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, thr
 			return
 		}
 		var input struct {
-			Text string `json:"text"`
+			Text  string        `json:"text"`
+			Quote *events.Quote `json:"quote"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
@@ -236,7 +237,10 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, thr
 			writeWebError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-		payload, err := json.Marshal(events.Message{Text: input.Text})
+		if input.Quote != nil && strings.TrimSpace(input.Quote.Text) == "" {
+			input.Quote = nil
+		}
+		payload, err := json.Marshal(events.Message{Text: input.Text, Quote: input.Quote})
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, "failed to encode message")
 			return

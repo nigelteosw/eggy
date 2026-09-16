@@ -83,15 +83,7 @@ func (h *WebhookHandler) WithImageDownloader(downloader ImageDownloader) *Webhoo
 
 type update struct {
 	UpdateID int64 `json:"update_id"`
-	Message  *struct {
-		MessageID int64       `json:"message_id"`
-		From      user        `json:"from"`
-		Chat      chat        `json:"chat"`
-		Text      string      `json:"text"`
-		Caption   string      `json:"caption"`
-		Photo     []photoSize `json:"photo"`
-		Document  *document   `json:"document"`
-	} `json:"message"`
+	Message  *message `json:"message"`
 	Callback *struct {
 		ID      string `json:"id"`
 		From    user   `json:"from"`
@@ -103,8 +95,47 @@ type update struct {
 	} `json:"callback_query"`
 }
 
+type message struct {
+	MessageID int64       `json:"message_id"`
+	From      user        `json:"from"`
+	Chat      chat        `json:"chat"`
+	Text      string      `json:"text"`
+	Caption   string      `json:"caption"`
+	Photo     []photoSize `json:"photo"`
+	Document  *document   `json:"document"`
+	// ReplyTo is the message the owner replied to, and Quote the part of it
+	// they selected when they replied to a passage rather than the whole.
+	ReplyTo *message `json:"reply_to_message"`
+	Quote   *struct {
+		Text string `json:"text"`
+	} `json:"quote"`
+}
+
+// quote maps a Telegram reply onto the surface-neutral events.Quote. A
+// partial selection wins over the whole message because it is what the owner
+// pointed at; a caption stands in for text on media. Whether the passage is
+// Eggy's own comes from Telegram itself: in the owner's private chat the only
+// bot is Eggy.
+func (m *message) quote() *events.Quote {
+	if m.ReplyTo == nil {
+		return nil
+	}
+	text := m.ReplyTo.Text
+	if text == "" {
+		text = m.ReplyTo.Caption
+	}
+	if m.Quote != nil && strings.TrimSpace(m.Quote.Text) != "" {
+		text = m.Quote.Text
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return &events.Quote{Text: text, OwnMessage: m.ReplyTo.From.IsBot}
+}
+
 type user struct {
-	ID int64 `json:"id"`
+	ID    int64 `json:"id"`
+	IsBot bool  `json:"is_bot"`
 }
 type chat struct {
 	ID int64 `json:"id"`
@@ -246,17 +277,9 @@ func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events
 	return events.Event{}, fmt.Errorf("unsupported Telegram update")
 }
 
-func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *struct {
-	MessageID int64       `json:"message_id"`
-	From      user        `json:"from"`
-	Chat      chat        `json:"chat"`
-	Text      string      `json:"text"`
-	Caption   string      `json:"caption"`
-	Photo     []photoSize `json:"photo"`
-	Document  *document   `json:"document"`
-}) (events.Message, error) {
+func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message) (events.Message, error) {
 	if len(message.Photo) == 0 && message.Document == nil {
-		return events.Message{Text: message.Text}, nil
+		return events.Message{Text: message.Text, Quote: message.quote()}, nil
 	}
 	if h.downloader == nil {
 		return events.Message{}, errors.New("Telegram image download is unavailable")
@@ -280,7 +303,7 @@ func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *struct {
 	if strings.TrimSpace(text) == "" {
 		text = "Describe this image."
 	}
-	return events.Message{Text: text, Parts: []ports.ContentPart{part}}, nil
+	return events.Message{Text: text, Parts: []ports.ContentPart{part}, Quote: message.quote()}, nil
 }
 
 func documentImageType(mediaType, fileName string) string {

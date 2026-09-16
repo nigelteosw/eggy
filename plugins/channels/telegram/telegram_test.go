@@ -174,6 +174,54 @@ func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryI
 	return nil
 }
 
+func TestWebhookCarriesARepliedToMessageAsAQuote(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       *events.Quote
+	}{
+		{"reply to Eggy",
+			`{"update_id":8,"message":{"message_id":4,"from":{"id":42},"chat":{"id":42},"text":"why?","reply_to_message":{"message_id":3,"from":{"id":9,"is_bot":true},"chat":{"id":42},"text":"Because of MAS Notice 643."}}}`,
+			&events.Quote{Text: "Because of MAS Notice 643.", OwnMessage: true}},
+		{"partial quote wins over the whole message",
+			`{"update_id":8,"message":{"message_id":4,"from":{"id":42},"chat":{"id":42},"text":"why?","reply_to_message":{"message_id":3,"from":{"id":9,"is_bot":true},"chat":{"id":42},"text":"A long message."},"quote":{"text":"long"}}}`,
+			&events.Quote{Text: "long", OwnMessage: true}},
+		{"reply to the owner's own earlier message",
+			`{"update_id":8,"message":{"message_id":4,"from":{"id":42},"chat":{"id":42},"text":"this one","reply_to_message":{"message_id":2,"from":{"id":42},"chat":{"id":42},"text":"earlier"}}}`,
+			&events.Quote{Text: "earlier"}},
+		{"media reply falls back to its caption",
+			`{"update_id":8,"message":{"message_id":4,"from":{"id":42},"chat":{"id":42},"text":"what is this","reply_to_message":{"message_id":3,"from":{"id":9,"is_bot":true},"chat":{"id":42},"caption":"chart"}}}`,
+			&events.Quote{Text: "chart", OwnMessage: true}},
+		{"reply to something with no text is no quote",
+			`{"update_id":8,"message":{"message_id":4,"from":{"id":42},"chat":{"id":42},"text":"hm","reply_to_message":{"message_id":3,"from":{"id":9,"is_bot":true},"chat":{"id":42}}}}`,
+			nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got events.Event
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil)
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body))
+			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			var message events.Message
+			if err := json.Unmarshal(got.Payload, &message); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == nil {
+				if message.Quote != nil {
+					t.Fatalf("quote=%#v, want none", message.Quote)
+				}
+				return
+			}
+			if message.Quote == nil || *message.Quote != *tc.want {
+				t.Fatalf("quote=%#v, want %#v", message.Quote, tc.want)
+			}
+		})
+	}
+}
+
 func TestWebhookNormalizesApprovalCallback(t *testing.T) {
 	var got events.Event
 	acknowledger := &recordingAcknowledger{}

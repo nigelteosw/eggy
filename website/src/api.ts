@@ -447,8 +447,13 @@ export function cancelSchedule(id: string): Promise<CommandResult> {
   return request(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export function sendChatMessage(threadId: string, text: string): Promise<CommandResult> {
-  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text }) });
+// A replied-to passage. The backend decides how the model sees it (one
+// format shared with Telegram replies); the web only says what was quoted
+// and whether it was Eggy's own message.
+export type ChatQuote = { text: string; own_message: boolean };
+
+export function sendChatMessage(threadId: string, text: string, quote: ChatQuote | null = null): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text, quote }) });
 }
 
 export function approveChatDecision(approvalId: string, approved: boolean): Promise<CommandResult> {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "./api";
-import { ArrowUpIcon, ChevronDownIcon } from "./components/ui/icons";
+import { ArrowUpIcon, ChevronDownIcon, CloseIcon } from "./components/ui/icons";
 import { cn } from "./lib/utils";
 
 // The three approval modes as the composer says them: a short label for the
@@ -77,18 +77,30 @@ function SettingSelect({
     </div>
   );
 }
+// A selection the user chose to reply to, and whose message it came from.
+export type Quote = { text: string; ownMessage: boolean };
+
 export function Composer({
   onSend,
   onSessionExpired,
+  quote,
+  onClearQuote,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string, quote: Quote | null) => void;
   onSessionExpired: () => void;
+  quote: Quote | null;
+  onClearQuote: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [agent, setAgent] = useState<AgentSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement | null>(null);
+
+  // A fresh quote means the user is mid-thought; bring them to the field.
+  useEffect(() => {
+    if (quote) field.current?.focus();
+  }, [quote]);
 
   useEffect(() => {
     getAgent()
@@ -137,7 +149,8 @@ export function Composer({
     if (!text) return;
     setDraft("");
     if (field.current) field.current.style.height = "auto";
-    onSend(text);
+    onSend(text, quote);
+    onClearQuote();
   }
 
   return (
@@ -149,6 +162,22 @@ export function Composer({
           </p>
         )}
         <div className="rounded-3xl bg-neutral-100 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/30">
+          {quote && (
+            <div className="px-3 pt-3">
+              <div className="relative inline-flex max-w-[16rem] items-start rounded-2xl bg-background px-3 py-2.5 pr-8 shadow-sm">
+                <span aria-hidden="true" className="mr-2.5 mt-0.5 w-0.5 shrink-0 self-stretch rounded-full bg-muted-foreground/50" />
+                <p className="line-clamp-6 whitespace-pre-line break-words text-xs leading-5 text-foreground/85">{quote.text}</p>
+                <button
+                  type="button"
+                  aria-label="Remove quoted text"
+                  onClick={onClearQuote}
+                  className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          )}
           <textarea
             ref={field}
             value={draft}
@@ -165,7 +194,7 @@ export function Composer({
                 submit(event);
               }
             }}
-            placeholder="Ask Eggy anything..."
+            placeholder={quote ? "Reply to the quoted text..." : "Ask Eggy anything..."}
             className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-[18px] pb-2 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
           <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2 pt-1 shadow-[inset_0_1px_0_hsl(var(--border))]">

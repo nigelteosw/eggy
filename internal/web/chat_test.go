@@ -300,6 +300,43 @@ func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 	}
 }
 
+func TestThreadSendCarriesAQuoteThroughToTheEvent(t *testing.T) {
+	memory := newTestMemoryStore(t)
+	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var got events.Event
+	handler := newThreadSendHandler(func(_ context.Context, event events.Event) error { got = event; return nil }, memory)
+
+	body := `{"text":"why?","quote":{"text":"quarterly basis","own_message":true}}`
+	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(body)), "id", "thread-1")
+	response := httptest.NewRecorder()
+	handler(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var message events.Message
+	if err := json.Unmarshal(got.Payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "why?" || message.Quote == nil || message.Quote.Text != "quarterly basis" || !message.Quote.OwnMessage {
+		t.Fatalf("message=%#v", message)
+	}
+
+	// A blank quote is what a client sends when nothing was highlighted; it
+	// must not reach the model as an empty "[Replying to: ""]".
+	request = withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(`{"text":"hi","quote":{"text":" "}}`)), "id", "thread-1")
+	handler(httptest.NewRecorder(), request)
+	var plain events.Message
+	if err := json.Unmarshal(got.Payload, &plain); err != nil {
+		t.Fatal(err)
+	}
+	if plain.Quote != nil {
+		t.Fatalf("quote=%#v, want none", plain.Quote)
+	}
+}
+
 func TestThreadSendReturns404ForAnUnknownThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
 	handler := newThreadSendHandler(func(context.Context, events.Event) error { return nil }, memory)

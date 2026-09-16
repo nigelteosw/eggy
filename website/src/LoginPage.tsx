@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { login, type Login } from "./api";
 import { Button } from "./components/ui/button";
-import { Card, CardContent } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 // The page is one of two: the single owner's password form, or, for an
 // accounts deployment, an ordinary link to the server's Google Sign-In start
@@ -41,31 +42,30 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
       />
       <div className="relative w-full max-w-sm animate-fade-in-up">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-2xl shadow-lift">🥚</div>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-100 text-2xl">🥚</div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Eggy</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Sign in to your assistant</p>
+            <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
+            <p className="mt-1 text-sm text-neutral-700">Sign in to the assistant running on your machine.</p>
           </div>
         </div>
 
-        <Card className="shadow-lift">
-          <CardContent className="pt-5">
-            {loginKind === "google" ? (
-              <div className="flex flex-col gap-4">
-                {failed && (
-                  <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
-                    Sign-in was not completed. Use the Google account you were invited with, and try again.
-                  </p>
-                )}
-                <a
-                  href="/auth/google/start"
-                  className="inline-flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                >
-                  Sign in with Google
-                </a>
-                <p className="text-center text-xs text-muted-foreground">Only invited Google accounts can sign in.</p>
-              </div>
-            ) : (
+        <div className="rounded-3xl bg-neutral-100 p-6 shadow-lift">
+          {loginKind === "google" ? (
+            <div className="flex flex-col gap-4">
+              {failed && (
+                <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+                  Sign-in was not completed. Use the Google account you were invited with, and try again.
+                </p>
+              )}
+              <a
+                href="/auth/google/start"
+                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                Sign in with Google
+              </a>
+              <p className="text-center text-xs text-neutral-700">Only invited Google accounts can sign in.</p>
+            </div>
+          ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="email">Email</Label>
@@ -76,6 +76,7 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
+                  className={FIELD}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -87,20 +88,24 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
+                  className={FIELD}
                 />
               </div>
               {error && (
-                <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+                <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
                   {error}
                 </p>
               )}
-              <Button type="submit" disabled={submitting} className="mt-1 w-full">
+              <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-xl text-base font-semibold">
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </div>
+        <p className="mt-4 text-center text-xs text-neutral-700">
+          This panel only talks to the machine it runs on.
+          {loginKind !== "google" && " The password is the one in your config.yaml."}
+        </p>
       </div>
     </div>
   );

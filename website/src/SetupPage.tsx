@@ -9,9 +9,11 @@ import {
   type SetupValidation,
 } from "./api";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
+import { Switch } from "./components/ui/switch";
+
+const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
 
 const defaults: SetupInput = {
   account_id: "you",
@@ -62,28 +64,21 @@ const sections: { title: string; description: string; fields: Field[] }[] = [
 
 function TelegramSection({ input, update, completed }: { input: SetupInput; update: (name: keyof SetupInput, value: string | boolean) => void; completed: boolean }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Telegram (optional)</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="mx-0.5">
+        <h3 className="text-[15px] font-semibold tracking-tight">Telegram (optional)</h3>
+        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
           Enable Eggy's Telegram channel. This requires TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in the deployment
           environment; pairing a chat happens later, from the accounts settings.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <label className="flex items-center gap-2 text-sm" htmlFor="telegram_enabled">
-          <input
-            id="telegram_enabled"
-            name="telegram_enabled"
-            type="checkbox"
-            checked={input.telegram_enabled}
-            disabled={completed}
-            onChange={(event) => update("telegram_enabled", event.target.checked)}
-          />
-          Enable Telegram
-        </label>
-      </CardContent>
-    </Card>
+        </p>
+      </div>
+      <Switch
+        checked={input.telegram_enabled}
+        onCheckedChange={(checked) => update("telegram_enabled", checked)}
+        disabled={completed}
+        label="Enable Telegram"
+      />
+    </section>
   );
 }
 
@@ -141,26 +136,26 @@ export function SetupPage() {
 
   return (
     <main className="app-canvas min-h-screen px-4 py-8 sm:py-12">
-      <form className="mx-auto flex w-full max-w-3xl flex-col gap-5" onSubmit={submit}>
+      <form className="mx-auto flex w-full max-w-3xl flex-col gap-6" onSubmit={submit}>
         <header>
-          <p className="text-sm font-medium text-primary">First-run setup</p>
+          <p className="text-sm font-medium text-accent-700">First-run setup</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">Configure Eggy</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Settings are written to config.yaml. Credential values stay in your deployment environment.</p>
+          <p className="mt-2 text-sm text-neutral-700">Settings are written to config.yaml. Credential values stay in your deployment environment.</p>
         </header>
 
-        {!authorized && !error && <p className="rounded-md border border-border bg-card p-3 text-sm">Authorizing this setup link…</p>}
+        {!authorized && !error && <p className="rounded-2xl bg-neutral-100 p-3.5 text-sm text-neutral-700">Authorizing this setup link…</p>}
         {sections.map((section) => (
-          <Card key={section.title}>
-            <CardHeader>
-              <CardTitle>{section.title}</CardTitle>
-              <CardDescription>{section.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
+          <section key={section.title} className="flex flex-col gap-3">
+            <div className="mx-0.5">
+              <h3 className="text-[15px] font-semibold tracking-tight">{section.title}</h3>
+              <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">{section.description}</p>
+            </div>
+            <div className="grid gap-3 rounded-2xl bg-neutral-100 p-4 sm:grid-cols-2">
               {section.fields.map((field) => (
                 <div className={field.name.endsWith("url") ? "sm:col-span-2" : ""} key={field.name}>
                   <Label htmlFor={field.name}>{field.label}</Label>
                   <Input
-                    className="mt-2"
+                    className={`mt-2 ${FIELD}`}
                     id={field.name}
                     name={field.name}
                     type={field.type ?? "text"}
@@ -169,35 +164,37 @@ export function SetupPage() {
                     onChange={(event) => update(field.name, event.target.value)}
                     disabled={completed}
                   />
-                  {field.hint && <p className="mt-1 text-xs text-muted-foreground">{field.hint}</p>}
+                  {field.hint && <p className="mt-1 text-xs text-neutral-700">{field.hint}</p>}
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         ))}
 
         <TelegramSection input={input} update={update} completed={completed} />
 
         {validation && (
-          <Card>
-            <CardHeader><CardTitle>Deployment variables</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
+          <section className="flex flex-col gap-3">
+            <div className="mx-0.5">
+              <h3 className="text-[15px] font-semibold tracking-tight">Deployment variables</h3>
+            </div>
+            <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4 text-sm">
               {Object.entries(validation.variables).map(([name, present]) => (
-                <p key={name} className={present ? "text-muted-foreground" : "text-destructive"}>
+                <p key={name} className={present ? "text-neutral-700" : "text-eg-red-ink"}>
                   <span className="font-mono">{name}</span>: {present ? "present" : "missing"}
                 </p>
               ))}
               {Object.values(validation.variables).some((present) => !present) && (
-                <p className="pt-2 text-muted-foreground">Provision missing variables in the deployment environment, then restart and use the newly printed setup URL.</p>
+                <p className="pt-2 text-neutral-700">Provision missing variables in the deployment environment, then restart and use the newly printed setup URL.</p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </section>
         )}
-        {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
+        {error && <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">{error}</p>}
         {completed ? (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">Configuration saved. Waiting for Eggy to start…</p>
+          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-sm text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
         ) : (
-          <div><Button type="submit" disabled={!authorized || busy}>{busy ? "Checking…" : "Validate and start"}</Button></div>
+          <div><Button type="submit" disabled={!authorized || busy} className="rounded-xl">{busy ? "Checking…" : "Validate and start"}</Button></div>
         )}
       </form>
     </main>

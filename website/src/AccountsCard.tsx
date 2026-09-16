@@ -457,7 +457,10 @@ export function ConvertForm({
       <fieldset className={cn(panelClass, "flex flex-col gap-3")}>
         <legend className="text-[12.5px] font-medium">People</legend>
         {accounts.map((account, index) => (
-          <div key={index} className="grid gap-2 rounded-xl bg-background p-3 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] sm:grid-cols-3">
+          <div
+            key={index}
+            className={cn("grid gap-2 sm:grid-cols-3", index > 0 && "pt-3 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]")}
+          >
             <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required className={fieldClass} />
             <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required className={fieldClass} />
             <Input

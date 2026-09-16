@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -35,7 +36,7 @@ type ModelDiscoverer interface {
 // provider's catalog is small enough in bytes to make that the easy choice.
 func newModelDiscoveryHandler(discovery ModelDiscoverer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		headers := []string{"Model", "Name", "Context"}
+		headers := []string{"Model", "Name", "Context", "Reasoning efforts"}
 		provider := strings.TrimSpace(r.URL.Query().Get("provider"))
 		if provider == "" {
 			writeWebError(w, http.StatusBadRequest, "provider is required")
@@ -59,11 +60,29 @@ func newModelDiscoveryHandler(discovery ModelDiscoverer) http.HandlerFunc {
 			if model.ContextLength > 0 {
 				context = strconv.FormatInt(model.ContextLength, 10)
 			}
-			rows = append(rows, []string{model.ID, model.Name, context})
+			// The efforts cell is what the alias form pre-fills from, so it is
+			// spelled exactly as reasoning_efforts takes it.
+			rows = append(rows, []string{model.ID, model.Name, context, catalogEfforts(model)})
 		}
 		writeWebResult(w, webResult{
 			State: webSuccess, TableHeaders: headers, TableRows: rows,
 			Detail: provider + " reports " + strconv.Itoa(len(rows)) + " models. Listing one does not enable it; add it as an alias to make it selectable.",
 		})
 	}
+}
+
+// catalogEfforts is the comma-separated effort list a model accepts, narrowed
+// to what an alias may declare: a level Eggy does not know is left out rather
+// than written into config where validation would refuse the whole alias.
+func catalogEfforts(model ports.CatalogModel) string {
+	if model.Reasoning == nil {
+		return ""
+	}
+	var efforts []string
+	for _, effort := range model.Reasoning.Efforts {
+		if config.ValidReasoningEffort(effort) {
+			efforts = append(efforts, effort)
+		}
+	}
+	return strings.Join(efforts, ",")
 }

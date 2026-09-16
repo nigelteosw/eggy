@@ -220,7 +220,7 @@ func TestModelAvailableListsAndFiltersACatalog(t *testing.T) {
 	discovery := &fakeDiscovery{
 		providers: []string{"openrouter"},
 		models: []ports.CatalogModel{
-			{ID: "anthropic/claude-sonnet-5"}, {ID: "openai/gpt-5"}, {ID: "meta-llama/llama-4"},
+			{ID: "anthropic/claude-sonnet-5", Reasoning: &ports.CatalogReasoning{Efforts: []string{"high", "low"}}}, {ID: "openai/gpt-5"}, {ID: "meta-llama/llama-4"},
 		},
 	}
 	service, _ := modelBrowseService(t, discovery, []string{"fast"})
@@ -229,7 +229,7 @@ func TestModelAvailableListsAndFiltersACatalog(t *testing.T) {
 	if err != nil || !handled || discovery.asked != "openrouter" {
 		t.Fatalf("output=%q handled=%v asked=%q err=%v", output, handled, discovery.asked, err)
 	}
-	for _, want := range []string{"anthropic/claude-sonnet-5", "openai/gpt-5", "/model add"} {
+	for _, want := range []string{"anthropic/claude-sonnet-5  (efforts: high,low)", "openai/gpt-5", "/model add"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("output missing %q:\n%s", want, output)
 		}

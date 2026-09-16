@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
@@ -25,6 +26,14 @@ type Model struct {
 	// and cache hints. Keeping the switch here prevents those fields leaking
 	// into providers that implement only the standard Chat Completions shape.
 	openRouter bool
+	// catalog caches what OpenRouter's /models says about each model's
+	// reasoning, fetched once per process on first need. Telling a model
+	// not to reason is only correct for one that can be told, and the
+	// catalog is the only place that says which those are.
+	catalog struct {
+		sync.Mutex
+		reasoning map[string]*ports.CatalogReasoning
+	}
 }
 
 func New(baseURL, apiKey string, client *http.Client) *Model {
@@ -141,9 +150,11 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		body.ReasoningEffort = ""
 		if input.ReasoningEffort != "" {
 			body.Reasoning = &reasoningOptions{Effort: input.ReasoningEffort}
-		} else if input.ReasoningSupported {
+		} else if input.ReasoningSupported && m.reasoningOptional(ctx, input.Model) {
 			// The alias offers levels and none is chosen: say so, otherwise
-			// a model that reasons by default keeps doing it.
+			// a model that reasons by default keeps doing it. Only for a
+			// model the catalog says can be switched off -- one that always
+			// reasons is left alone rather than sent a parameter it refuses.
 			body.Reasoning = &reasoningOptions{Effort: "none"}
 		}
 	}
@@ -247,6 +258,27 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}}, nil
 }
 
+// reasoningOptional reports whether OpenRouter's catalog says model reasons
+// and can be told not to. Unknown -- the model is not listed, or the catalog
+// could not be fetched -- reads as false, so nothing is sent that the model
+// might reject. A failed fetch is not cached, so the next call tries again.
+func (m *Model) reasoningOptional(ctx context.Context, model string) bool {
+	m.catalog.Lock()
+	defer m.catalog.Unlock()
+	if m.catalog.reasoning == nil {
+		models, err := m.ListModels(ctx)
+		if err != nil {
+			return false
+		}
+		m.catalog.reasoning = make(map[string]*ports.CatalogReasoning, len(models))
+		for _, entry := range models {
+			m.catalog.reasoning[entry.ID] = entry.Reasoning
+		}
+	}
+	reasoning, ok := m.catalog.reasoning[strings.TrimPrefix(model, "~")]
+	return ok && reasoning != nil && !reasoning.Mandatory
+}
+
 func isOpenRouterURL(baseURL string) bool {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
@@ -281,10 +313,14 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 	var result struct {
 		Data []struct {
 			ID string `json:"id"`
-			// Name and context_length are OpenRouter's additions rather than
-			// part of OpenAI's own response, so both stay optional.
+			// Name, context_length, and reasoning are OpenRouter's additions
+			// rather than part of OpenAI's own response, so all stay optional.
 			Name          string `json:"name"`
 			ContextLength int64  `json:"context_length"`
+			Reasoning     *struct {
+				Mandatory        bool     `json:"mandatory"`
+				SupportedEfforts []string `json:"supported_efforts"`
+			} `json:"reasoning"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -295,7 +331,11 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 		if strings.TrimSpace(entry.ID) == "" {
 			continue
 		}
-		models = append(models, ports.CatalogModel{ID: entry.ID, Name: entry.Name, ContextLength: entry.ContextLength})
+		model := ports.CatalogModel{ID: entry.ID, Name: entry.Name, ContextLength: entry.ContextLength}
+		if entry.Reasoning != nil {
+			model.Reasoning = &ports.CatalogReasoning{Mandatory: entry.Reasoning.Mandatory, Efforts: entry.Reasoning.SupportedEfforts}
+		}
+		models = append(models, model)
 	}
 	return models, nil
 }

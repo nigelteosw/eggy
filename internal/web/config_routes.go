@@ -115,6 +115,15 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			if webConfig.ModelDiscovery != nil {
 				result.Lines = webConfig.ModelDiscovery.DiscoverableProviders()
 			}
+			// Which providers are OpenRouter rides along the same way, so the
+			// card can show OpenRouter-only alias settings for exactly those.
+			var openRouter []string
+			for _, name := range slices.Sorted(maps.Keys(cfg.Providers)) {
+				if cfg.Providers[name].IsOpenRouter() {
+					openRouter = append(openRouter, name)
+				}
+			}
+			result.Fields = []webField{{Label: "openrouter_providers", Value: strings.Join(openRouter, ",")}}
 		case "google":
 			// One row, because there is one grant. A second row would suggest
 			// per-product configuration that does not exist.

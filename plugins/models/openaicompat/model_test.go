@@ -162,20 +162,63 @@ func TestOpenRouterLeavesNonAnthropicModelsUncached(t *testing.T) {
 	}
 }
 
-func TestOpenRouterNestsReasoningEffortAndSaysNoneWhenUnselected(t *testing.T) {
-	body := openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5", ReasoningEffort: "high", ReasoningSupported: true})
+func TestOpenRouterNestsReasoningEffortAndSaysNoneOnlyWhereOptional(t *testing.T) {
+	body := openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ReasoningEffort: "high", ReasoningSupported: true})
 	if !strings.Contains(body, `"reasoning":{"effort":"high"}`) || strings.Contains(body, "reasoning_effort") {
 		t.Fatalf("body=%s, want nested reasoning.effort only", body)
 	}
-	body = openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5", ReasoningSupported: true})
+	body = openRouterRequestBody(t, ports.ModelRequest{Model: "~anthropic/claude-sonnet-4.6", ReasoningSupported: true})
 	if !strings.Contains(body, `"reasoning":{"effort":"none"}`) {
-		t.Fatalf("body=%s, want reasoning turned off when the alias offers levels and none is chosen", body)
+		t.Fatalf("body=%s, want reasoning turned off when the alias offers levels, none is chosen, and the catalog allows it", body)
 	}
-	body = openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5"})
+	for _, model := range []string{"google/gemini-2.5-pro", "vendor/unlisted"} {
+		if body = openRouterRequestBody(t, ports.ModelRequest{Model: model, ReasoningSupported: true}); strings.Contains(body, "reasoning") {
+			t.Fatalf("body=%s, want no reasoning field for %s, which cannot be switched off or is unknown", body, model)
+		}
+	}
+	body = openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"})
 	if strings.Contains(body, "reasoning") {
 		t.Fatalf("body=%s, want no reasoning field for an alias without levels", body)
 	}
 }
+
+func TestOpenRouterFetchesTheCatalogOnceAndRetriesAfterFailure(t *testing.T) {
+	listings, fail := 0, true
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/models") {
+			listings++
+			if fail {
+				return jsonResponse(http.StatusNotFound, `{}`), nil
+			}
+			return jsonResponse(http.StatusOK, openRouterCatalog), nil
+		}
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	model := New("https://openrouter.ai/api/v1", "key", client)
+	request := ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ReasoningSupported: true}
+	if _, err := model.Generate(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	fail = false
+	for range 3 {
+		if _, err := model.Generate(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One failed listing that was not cached, then one that was.
+	if listings != 2 {
+		t.Fatalf("listings=%d, want the catalog fetched again after a failure and then kept", listings)
+	}
+}
+
+// openRouterCatalog is the shape of OpenRouter's /models entries as of
+// 2026-09: a reasoning descriptor with an off switch and levels for Claude,
+// mandatory with no levels for Gemini, and absent for a non-reasoning model.
+const openRouterCatalog = `{"data":[
+	{"id":"anthropic/claude-sonnet-4.6","name":"Claude Sonnet 4.6","context_length":200000,"reasoning":{"mandatory":false,"supported_efforts":["max","high","medium","low"],"default_effort":"medium"}},
+	{"id":"google/gemini-2.5-pro","name":"Gemini 2.5 Pro","context_length":1048576,"reasoning":{"mandatory":true}},
+	{"id":"deepseek/deepseek-chat","name":"DeepSeek V3","context_length":163840,"reasoning":null}
+]}`
 
 func TestOpenRouterForwardsProviderRouting(t *testing.T) {
 	routing := json.RawMessage(`{"order":["anthropic","amazon-bedrock"],"allow_fallbacks":false}`)
@@ -254,6 +297,9 @@ func openRouterRequestBody(t *testing.T, input ports.ModelRequest) string {
 	t.Helper()
 	var body []byte
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/models") {
+			return jsonResponse(http.StatusOK, openRouterCatalog), nil
+		}
 		body, _ = io.ReadAll(request.Body)
 		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
 	})}
@@ -369,7 +415,7 @@ func TestListModelsReadsCatalogAsAnAuthenticatedGET(t *testing.T) {
 		method, requestURL = request.Method, request.URL.String()
 		authorization = request.Header.Get("Authorization")
 		_, hasContentType = request.Header["Content-Type"]
-		return jsonResponse(http.StatusOK, `{"data":[{"id":"anthropic/claude-sonnet-5","name":"Claude Sonnet 5","context_length":200000},{"id":"openai/gpt-5"},{"id":"   "}]}`), nil
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"anthropic/claude-sonnet-5","name":"Claude Sonnet 5","context_length":200000,"reasoning":{"mandatory":false,"supported_efforts":["high","low"]}},{"id":"openai/gpt-5","reasoning":{"mandatory":true}},{"id":"   "}]}`), nil
 	})}
 	models, err := New("https://openrouter.ai/api/v1/", "top-secret-key", client).ListModels(context.Background())
 	if err != nil {
@@ -385,14 +431,15 @@ func TestListModelsReadsCatalogAsAnAuthenticatedGET(t *testing.T) {
 	// The entry with a blank id is dropped; nothing else is filtered, because
 	// which models are worth running is the owner's call.
 	want := []ports.CatalogModel{
-		{ID: "anthropic/claude-sonnet-5", Name: "Claude Sonnet 5", ContextLength: 200000},
-		{ID: "openai/gpt-5"},
+		{ID: "anthropic/claude-sonnet-5", Name: "Claude Sonnet 5", ContextLength: 200000, Reasoning: &ports.CatalogReasoning{Efforts: []string{"high", "low"}}},
+		{ID: "openai/gpt-5", Reasoning: &ports.CatalogReasoning{Mandatory: true}},
 	}
 	if len(models) != len(want) {
 		t.Fatalf("models=%#v want=%#v", models, want)
 	}
 	for i := range want {
-		if models[i] != want[i] {
+		if models[i].ID != want[i].ID || models[i].Name != want[i].Name || models[i].ContextLength != want[i].ContextLength ||
+			models[i].Reasoning.Mandatory != want[i].Reasoning.Mandatory || strings.Join(models[i].Reasoning.Efforts, ",") != strings.Join(want[i].Reasoning.Efforts, ",") {
 			t.Fatalf("models[%d]=%#v want=%#v", i, models[i], want[i])
 		}
 	}

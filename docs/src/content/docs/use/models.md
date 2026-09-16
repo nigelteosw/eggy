@@ -62,7 +62,7 @@ models:
     reasoning_efforts: [low, medium, high, max]
 ```
 
-Eggy accepts only `low`, `medium`, `high`, and `max`. When an effort is selected
+Eggy accepts `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. When an effort is selected
 for an alias, the OpenAI-compatible adapter sends it as `reasoning_effort`
 (OpenRouter's nested `reasoning.effort` on an OpenRouter provider). For aliases
 without declared values, no effort parameter is sent at all — an empty list is

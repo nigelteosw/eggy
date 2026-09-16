@@ -210,6 +210,21 @@ type CatalogModel struct {
 	ID            string `json:"id"`
 	Name          string `json:"name,omitempty"`
 	ContextLength int64  `json:"context_length,omitempty"`
+	// Reasoning is nil for a model that does not reason at all, or whose
+	// provider does not say.
+	Reasoning *CatalogReasoning `json:"reasoning,omitempty"`
+}
+
+// CatalogReasoning is what a provider says about a model's reasoning: the
+// effort levels it accepts, and whether it can be told not to reason at all.
+// It is what an alias's reasoning_efforts can be filled in from.
+type CatalogReasoning struct {
+	// Mandatory means the model always reasons and there is no off switch;
+	// asking for "none" is either refused or ignored.
+	Mandatory bool `json:"mandatory,omitempty"`
+	// Efforts is the provider's own list, in the provider's own order. Empty
+	// means the model reasons but takes no effort parameter.
+	Efforts []string `json:"efforts,omitempty"`
 }
 
 type Tool interface {

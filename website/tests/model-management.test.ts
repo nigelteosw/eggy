@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { removeModelAlias } from "../src/api";
 import { ConfigPage } from "../src/ConfigPage";
-import { ModelRowActions, modelDraftForRow, routingFromCell } from "../src/ModelsCard";
+import { ModelRowActions, modelDraftForRow, openRouterProvidersOf, routingFromCell } from "../src/ModelsCard";
 import { DataTable } from "../src/components/ui/data-table";
 
 const realFetch = globalThis.fetch;
@@ -19,6 +19,15 @@ test("model rows map back into the editable fields", () => {
     reasoningEfforts: "low, high",
     routing: { order: "", only: "", ignore: "", allowFallbacks: "", sort: "" },
   });
+});
+
+test("the models section names which providers are OpenRouter", () => {
+  expect(openRouterProvidersOf({ state: "success", fields: [{ label: "openrouter_providers", value: "openrouter, router2" }] })).toEqual([
+    "openrouter",
+    "router2",
+  ]);
+  expect(openRouterProvidersOf({ state: "success", fields: [{ label: "openrouter_providers", value: "" }] })).toEqual([]);
+  expect(openRouterProvidersOf(null)).toEqual([]);
 });
 
 test("the routing column maps back into the OpenRouter fields", () => {

@@ -42,8 +42,10 @@ func TestModelDiscoveryRouteReturnsTheProviderCatalog(t *testing.T) {
 	discovery := &stubDiscovery{
 		providers: []string{"openrouter"},
 		models: []ports.CatalogModel{
-			{ID: "anthropic/claude-sonnet-5", Name: "Claude Sonnet 5", ContextLength: 200000},
-			{ID: "openai/gpt-5"},
+			// Efforts are narrowed to what an alias may declare: "ultra" is
+			// not a level Eggy knows and must not be offered.
+			{ID: "anthropic/claude-sonnet-5", Name: "Claude Sonnet 5", ContextLength: 200000, Reasoning: &ports.CatalogReasoning{Efforts: []string{"max", "high", "ultra", "low"}}},
+			{ID: "openai/gpt-5", Reasoning: &ports.CatalogReasoning{Mandatory: true}},
 		},
 	}
 	config.ModelDiscovery = discovery
@@ -59,8 +61,8 @@ func TestModelDiscoveryRouteReturnsTheProviderCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"anthropic/claude-sonnet-5", "Claude Sonnet 5", "200000"},
-		{"openai/gpt-5", "", ""},
+		{"anthropic/claude-sonnet-5", "Claude Sonnet 5", "200000", "max,high,low"},
+		{"openai/gpt-5", "", "", ""},
 	}
 	if len(result.TableRows) != len(want) {
 		t.Fatalf("rows=%#v", result.TableRows)

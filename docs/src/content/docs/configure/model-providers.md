@@ -65,7 +65,14 @@ alone understands. Nothing here leaks into a request to any other provider.
 - **Reasoning.** The effort is sent as OpenRouter's nested `reasoning.effort`
   rather than `reasoning_effort`. When an alias declares `reasoning_efforts`
   and none is selected, `effort: none` is sent explicitly, so a model that
-  reasons by default does not keep doing so unasked.
+  reasons by default does not keep doing so unasked — but only for a model
+  OpenRouter's catalog says can be switched off. One that always reasons
+  (Gemini, DeepSeek R1) is left alone. The catalog is fetched once per
+  process, on first need.
+- **Effort levels from the catalog.** OpenRouter's `/models` says which
+  efforts each model accepts. Browsing shows them, picking a row pre-fills
+  `reasoning_efforts` from them, and `/model available` lists them beside
+  each ID.
 - **Reasoning replay.** OpenRouter's `reasoning_details` are carried back on
   the assistant message across tool-call rounds within a turn, unmodified, so
   Anthropic and OpenAI reasoning models keep their own thinking. The visible
@@ -86,8 +93,8 @@ alone understands. Nothing here leaks into a request to any other provider.
   ```
 
   Slugs are OpenRouter's own. The block is refused on any alias whose
-  provider is not OpenRouter. **Settings → Models** has the same fields under
-  *Advanced options*, and `/model add` takes them as `openrouter_order=a,b`,
+  provider is not OpenRouter. **Settings → Models** shows the same fields
+  under *Advanced options* once the alias's provider is an OpenRouter one, and `/model add` takes them as `openrouter_order=a,b`,
   `openrouter_ignore=`, `openrouter_only=`, `openrouter_sort=`, and
   `openrouter_allow_fallbacks=false` after the positional words.
 - **Cost and cache writes.** OpenRouter reports `cost` and

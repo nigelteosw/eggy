@@ -42,6 +42,13 @@ export function routingFromCell(cell: string): Routing {
   return routing;
 }
 
+// openRouterProvidersOf reads the provider names the server marked as
+// OpenRouter off the models section.
+export function openRouterProvidersOf(result: CommandResult | null): string[] {
+  const value = result?.fields?.find((field) => field.label === "openrouter_providers")?.value ?? "";
+  return value.split(",").map((name) => name.trim()).filter(Boolean);
+}
+
 export function modelDraftForRow(row: string[]) {
   return {
     alias: row[0] ?? "",
@@ -94,8 +101,12 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
-  // Providers that opted in to discovery ride along on the section itself.
+  // Providers that opted in to discovery ride along on the section itself,
+  // as do the ones that are OpenRouter, which is what gates the routing
+  // fields: they mean nothing anywhere else and the server refuses them.
   const browsable = useMemo(() => result?.lines ?? [], [result]);
+  const openRouterProviders = useMemo(() => openRouterProvidersOf(result), [result]);
+  const routable = openRouterProviders.includes(provider.trim());
   const [browseProvider, setBrowseProvider] = useState("");
   useEffect(() => {
     if (!browseProvider && browsable.length > 0) setBrowseProvider(browsable[0]);
@@ -126,10 +137,13 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     }
   }
 
-  function choose(modelId: string) {
+  function choose(row: string[]) {
     setProvider(browseProvider);
-    setModel(modelId);
-    if (!alias) setAlias(aliasFor(modelId));
+    setModel(row[0]);
+    if (!alias) setAlias(aliasFor(row[0]));
+    // The catalog's effort list is a starting point like the alias is: it
+    // fills an empty field and never overwrites one the owner has typed in.
+    if (!reasoningEfforts && row[3]) setReasoningEfforts(row[3]);
   }
 
   function resetForm() {
@@ -160,11 +174,17 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
       provider,
       model,
       reasoning_efforts: reasoningEfforts,
-      openrouter_order: routing.order,
-      openrouter_only: routing.only,
-      openrouter_ignore: routing.ignore,
-      openrouter_allow_fallbacks: routing.allowFallbacks,
-      openrouter_sort: routing.sort,
+      // Routing is sent only for an OpenRouter provider, so moving an alias
+      // to another provider drops its old routing instead of failing on it.
+      ...(routable
+        ? {
+            openrouter_order: routing.order,
+            openrouter_only: routing.only,
+            openrouter_ignore: routing.ignore,
+            openrouter_allow_fallbacks: routing.allowFallbacks,
+            openrouter_sort: routing.sort,
+          }
+        : {}),
     });
     if (!saved) return;
     resetForm();
@@ -256,15 +276,15 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                     <li key={row[0]} className="shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
                       <button
                         type="button"
-                        onClick={() => choose(row[0])}
+                        onClick={() => choose(row)}
                         className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-neutral-100"
                       >
                         <span className="font-mono text-xs [overflow-wrap:anywhere]">{row[0]}</span>
-                        {(row[1] || row[2]) && (
+                        {(row[1] || row[2] || row[3]) && (
                           <span className="text-xs text-neutral-700">
-                            {row[1]}
-                            {row[1] && row[2] ? " · " : ""}
-                            {row[2] ? `${Number(row[2]).toLocaleString()} ctx` : ""}
+                            {[row[1], row[2] ? `${Number(row[2]).toLocaleString()} ctx` : "", row[3] ? `efforts: ${row[3]}` : ""]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         )}
                       </button>
@@ -301,29 +321,30 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                 onChange={(e) => setReasoningEfforts(e.target.value)}
                 className={cn(FIELD, "mt-3")}
               />
-              {/* Routing is OpenRouter's alone: the server refuses it on any
-                  other provider, so the fields say so rather than the card
-                  guessing which provider entries are OpenRouter. */}
-              <p className="mt-3 text-[12.5px] font-medium">OpenRouter routing</p>
-              <p className="mt-1 text-xs text-neutral-700">
-                Only for aliases on an OpenRouter provider. Slugs are OpenRouter's (anthropic, amazon-bedrock, deepinfra…).
-              </p>
-              <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <Input placeholder="order (try these first, comma-separated)" aria-label="OpenRouter order" value={routing.order} onChange={(e) => setRouting({ ...routing, order: e.target.value })} className={FIELD} />
-                <Input placeholder="only (allow just these)" aria-label="OpenRouter only" value={routing.only} onChange={(e) => setRouting({ ...routing, only: e.target.value })} className={FIELD} />
-                <Input placeholder="ignore (never these)" aria-label="OpenRouter ignore" value={routing.ignore} onChange={(e) => setRouting({ ...routing, ignore: e.target.value })} className={FIELD} />
-                <Select aria-label="OpenRouter sort" value={routing.sort} onChange={(e) => setRouting({ ...routing, sort: e.target.value })} className="bg-background">
-                  <option value="">sort: default</option>
-                  <option value="price">sort: price</option>
-                  <option value="throughput">sort: throughput</option>
-                  <option value="latency">sort: latency</option>
-                </Select>
-                <Select aria-label="OpenRouter fallbacks" value={routing.allowFallbacks} onChange={(e) => setRouting({ ...routing, allowFallbacks: e.target.value })} className="bg-background">
-                  <option value="">fallbacks: default (allowed)</option>
-                  <option value="true">fallbacks: allowed</option>
-                  <option value="false">fallbacks: never</option>
-                </Select>
-              </div>
+              {routable && (
+                <>
+                  <p className="mt-3 text-[12.5px] font-medium">OpenRouter routing</p>
+                  <p className="mt-1 text-xs text-neutral-700">
+                    Which upstream vendors may serve this alias. Slugs are OpenRouter's (anthropic, amazon-bedrock, deepinfra…).
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    <Input placeholder="order (try these first, comma-separated)" aria-label="OpenRouter order" value={routing.order} onChange={(e) => setRouting({ ...routing, order: e.target.value })} className={FIELD} />
+                    <Input placeholder="only (allow just these)" aria-label="OpenRouter only" value={routing.only} onChange={(e) => setRouting({ ...routing, only: e.target.value })} className={FIELD} />
+                    <Input placeholder="ignore (never these)" aria-label="OpenRouter ignore" value={routing.ignore} onChange={(e) => setRouting({ ...routing, ignore: e.target.value })} className={FIELD} />
+                    <Select aria-label="OpenRouter sort" value={routing.sort} onChange={(e) => setRouting({ ...routing, sort: e.target.value })} className="bg-background">
+                      <option value="">sort: default</option>
+                      <option value="price">sort: price</option>
+                      <option value="throughput">sort: throughput</option>
+                      <option value="latency">sort: latency</option>
+                    </Select>
+                    <Select aria-label="OpenRouter fallbacks" value={routing.allowFallbacks} onChange={(e) => setRouting({ ...routing, allowFallbacks: e.target.value })} className="bg-background">
+                      <option value="">fallbacks: default (allowed)</option>
+                      <option value="true">fallbacks: allowed</option>
+                      <option value="false">fallbacks: never</option>
+                    </Select>
+                  </div>
+                </>
+              )}
             </details>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
               <Button type="submit" disabled={saving}>{saving ? "Saving..." : editingAlias ? "Update model" : "Save model"}</Button>

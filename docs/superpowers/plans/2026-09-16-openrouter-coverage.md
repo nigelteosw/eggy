@@ -163,3 +163,20 @@ model_aliases:
 - [x] 12. Docs: `configure/model-providers.md` OpenRouter section (routing, reasoning off,
       replay note, cost in traces); `use/models.md` mention of the routing control.
 - [x] 13. `go vet ./... && go test ./...`; `website` tests; commit to main.
+
+## Follow-up (same day): catalog-driven efforts and gated routing fields
+
+OpenRouter's `/models` carries a per-model `reasoning` object
+(`{mandatory, supported_efforts, default_effort}`), which changes two things above:
+
+- `effort: "none"` is only valid where `mandatory` is false. The adapter now fetches
+  the catalog once per process (retrying after a failed fetch) and sends `none` only
+  for a model it says can be switched off. Unlisted or mandatory → nothing sent.
+- `ports.CatalogModel.Reasoning{Mandatory, Efforts}` is filled from it; the browse
+  table has an "Reasoning efforts" column, picking a row pre-fills an empty
+  `reasoning_efforts`, and `/model available` prints the efforts. The accepted set
+  widened to `minimal|low|medium|high|xhigh|max`; unknown levels are dropped before
+  they reach config.
+- The models section now carries `fields: [{label: openrouter_providers}]`, and the
+  card shows the routing fields only when the typed provider is one of them. Routing
+  is sent only in that case, so moving an alias off OpenRouter drops stale routing.

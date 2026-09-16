@@ -695,7 +695,7 @@ var (
 	branchPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 	configuredNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	environmentNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
-	validReasoningEfforts  = map[string]bool{"low": true, "medium": true, "high": true, "max": true}
+	validReasoningEfforts  = map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 )
 
 // TavilyConfig is Eggy's reach into the open web: web_search finds pages,

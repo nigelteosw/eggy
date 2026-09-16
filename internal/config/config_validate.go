@@ -516,6 +516,11 @@ func (c Config) validateSecrets(s Secrets) error {
 	return nil
 }
 
+// ValidReasoningEffort is the rule Validate applies to reasoning_efforts,
+// exported so a surface filling the list in from a provider's catalog can
+// drop levels Eggy does not know before they reach config.
+func ValidReasoningEffort(effort string) bool { return validReasoningEfforts[effort] }
+
 var validOpenRouterSorts = map[string]bool{"": true, "price": true, "throughput": true, "latency": true}
 
 // validateOpenRouterRouting refuses a routing block that OpenRouter would

@@ -113,7 +113,11 @@ func (s *CommandService) modelAvailable(ctx context.Context, args []string) stri
 		if filter != "" && !strings.Contains(strings.ToLower(model.ID), filter) && !strings.Contains(strings.ToLower(model.Name), filter) {
 			continue
 		}
-		matched = append(matched, model.ID)
+		line := model.ID
+		if model.Reasoning != nil && len(model.Reasoning.Efforts) > 0 {
+			line += "  (efforts: " + strings.Join(model.Reasoning.Efforts, ",") + ")"
+		}
+		matched = append(matched, line)
 	}
 	if len(matched) == 0 {
 		if filter != "" {

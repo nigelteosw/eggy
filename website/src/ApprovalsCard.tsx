@@ -174,18 +174,18 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
             {rows.map((row) => (
               <div
                 key={row[ID]}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]"
+                className="grid grid-cols-1 gap-3 px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]"
               >
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-mono text-[14.5px] text-foreground">{row[ACTION]}</span>
+                    <span className="font-mono text-[14.5px] text-foreground [overflow-wrap:anywhere]">{row[ACTION]}</span>
                     <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] tracking-wide text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]">
                       {row[STATE]}
                     </span>
                   </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-neutral-700">{row[SUMMARY]}</span>
+                  <span className="mt-1 block break-words text-xs leading-relaxed text-neutral-700">{row[SUMMARY]}</span>
                 </span>
-                <span className="flex items-center gap-1.5">
+                <span className="flex flex-wrap items-center gap-1.5">
                   {row[REQUESTED] && (
                     <span className="mr-1 whitespace-nowrap text-xs tabular-nums text-neutral-700">{row[REQUESTED]}</span>
                   )}

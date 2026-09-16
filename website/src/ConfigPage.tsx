@@ -108,7 +108,7 @@ export function ConfigPage({
               aria-current={candidate.id === active ? "page" : undefined}
               onClick={() => setActive(candidate.id)}
               className={cn(
-                "mb-0.5 block min-h-[42px] w-full rounded-[13px] px-3.5 py-2.5 text-left text-sm text-foreground transition-colors",
+                "mb-0.5 block min-h-[42px] w-full rounded-lg px-3.5 py-2.5 text-left text-sm text-foreground transition-colors",
                 candidate.id === active ? "bg-background font-semibold" : "font-normal hover:bg-background/60",
               )}
             >
@@ -120,7 +120,7 @@ export function ConfigPage({
           <button
             type="button"
             onClick={handleLogout}
-            className="flex min-h-[42px] w-full items-center gap-2.5 rounded-[13px] px-3.5 text-left text-sm text-foreground hover:bg-background/60"
+            className="flex min-h-[42px] w-full items-center gap-2.5 rounded-lg px-3.5 text-left text-sm text-foreground hover:bg-background/60"
           >
             <LogoutIcon className="h-[17px] w-[17px] text-neutral-700" />
             Log out

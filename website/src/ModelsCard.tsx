@@ -216,7 +216,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                         onClick={() => choose(row[0])}
                         className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-neutral-100"
                       >
-                        <span className="font-mono text-xs">{row[0]}</span>
+                        <span className="font-mono text-xs [overflow-wrap:anywhere]">{row[0]}</span>
                         {(row[1] || row[2]) && (
                           <span className="text-xs text-neutral-700">
                             {row[1]}

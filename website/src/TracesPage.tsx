@@ -111,7 +111,7 @@ function Prompt({ request }: { request: string }) {
   if (!prompt || raw) {
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-medium text-neutral-700">Request</span>
           {prompt && (
             <button
@@ -129,7 +129,7 @@ function Prompt({ request }: { request: string }) {
   }
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium text-neutral-700">
           Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
         </span>
@@ -159,7 +159,7 @@ function Prompt({ request }: { request: string }) {
         ))}
       </div>
       {prompt.tool_names && prompt.tool_names.length > 0 && (
-        <p className="text-xs text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
+        <p className="break-words text-xs text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
       )}
     </div>
   );

@@ -29,11 +29,11 @@ export function AppNavigation({
   onLogout?: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-6 bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-6">
+    <header className="flex h-14 min-w-0 shrink-0 items-center gap-3 bg-background sm:gap-6 px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-6">
       <span className="text-base font-semibold tracking-tight">
         Eggy<span className="ml-1 text-primary">.</span>
       </span>
-      <nav aria-label="Main navigation" className="flex h-full items-center gap-1">
+      <nav aria-label="Main navigation" className="flex h-full shrink-0 items-center gap-1">
         {(
           [
             ["chat", "Chat"],
@@ -52,7 +52,7 @@ export function AppNavigation({
               }
             }}
             className={cn(
-              "flex h-9 items-center rounded-xl px-3.5 text-sm font-medium transition-colors",
+              "flex h-9 items-center rounded-xl px-2.5 text-sm sm:px-3.5 font-medium transition-colors",
               view === destination
                 ? "bg-accent-100 text-accent-700"
                 : "text-muted-foreground hover:bg-neutral-100 hover:text-foreground",
@@ -76,7 +76,7 @@ export function AppNavigation({
           <button
             type="button"
             onClick={onLogout}
-            className="rounded-xl px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="shrink-0 whitespace-nowrap rounded-xl px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             Sign out
           </button>
@@ -293,11 +293,11 @@ export function App() {
             )}
           </>
         ) : view === "traces" ? (
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
         ) : (
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 min-w-0 flex-1">
             <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} />
           </div>
         )}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { Thread, deleteThread, listThreads, renameThread } from "./api";
 import { PanelIcon, PlusIcon } from "./components/ui/icons";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 
 const initialThreadMaxAgeMs = 5 * 60 * 1000;
 
@@ -198,7 +198,7 @@ export function ThreadSidebar({
       // Put the old title back rather than leaving the sidebar claiming a
       // rename that the server refused.
       setThreads((current) => current.map((thread) => (thread.id === threadId ? { ...thread, title: previous } : thread)));
-      setError(err instanceof Error ? err.message : "Could not rename chat");
+      setError(errorMessage(err, "Could not rename chat"));
     }
   }
 
@@ -210,7 +210,7 @@ export function ThreadSidebar({
     try {
       await deleteThread(thread.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete chat");
+      setError(errorMessage(err, "Could not delete chat"));
       return;
     }
     setThreads((current) => current.filter((row) => row.id !== thread.id));

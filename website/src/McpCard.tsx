@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, MCPServerInput, SessionExpiredError, listMCPServers, removeMCPServer, setMCPServer } from "./api";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { Switch } from "./components/ui/switch";
-
-const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD } from "./components/ui/form";
 
 // Column positions in the rows /api/config/mcp returns. Named here so the row
 // actions below read as intent rather than as indexes into an anonymous array.
@@ -35,7 +36,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
           onSessionExpired();
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to load");
+        setError(errorMessage(err, "Failed to load"));
       });
   }, [onSessionExpired]);
 
@@ -72,7 +73,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(errorMessage(err, "Failed to save"));
     } finally {
       setSaving(false);
     }
@@ -88,16 +89,13 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to remove");
+      setError(errorMessage(err, "Failed to remove"));
     }
   }
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">MCP servers</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">External tool servers Eggy can call during a turn.</p>
-      </div>
+      <CardHeader title="MCP servers" description="External tool servers Eggy can call during a turn." />
       <div className="flex flex-col gap-3">
         <DataTable
           headers={result?.table_headers}
@@ -170,9 +168,9 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
           timeouts, and tool filters stay config.yaml-only.
         </p>
         {error && (
-          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+          <ErrorBanner>
             {error}
-          </p>
+          </ErrorBanner>
         )}
       </div>
     </section>

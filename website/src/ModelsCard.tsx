@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import { CommandResult, SessionExpiredError, discoverModels, removeModelAlias } from "./api";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 import { Button } from "./components/ui/button";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
-
-const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD } from "./components/ui/form";
 
 // aliasFor suggests a short name from a model ID: "anthropic/claude-sonnet-5"
 // becomes "claude-sonnet-5". It is only a starting point -- the field stays
@@ -131,7 +132,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         return;
       }
       setCatalog(null);
-      setBrowseError(err instanceof Error ? err.message : "Could not reach the provider");
+      setBrowseError(errorMessage(err, "Could not reach the provider"));
     } finally {
       setBrowsing(false);
     }
@@ -205,7 +206,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         onSessionExpired();
         return;
       }
-      setActionError(err instanceof Error ? err.message : "Could not remove model");
+      setActionError(errorMessage(err, "Could not remove model"));
     } finally {
       setRemovingAlias(null);
     }
@@ -213,13 +214,15 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">Models</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Aliases that map a short name onto a provider's model. Only aliases listed here can be selected — browsing a
-          provider shows what it offers, it does not enable anything.
-        </p>
-      </div>
+      <CardHeader
+        title="Models"
+        description={
+          <>
+            Aliases that map a short name onto a provider's model. Only aliases listed here can be selected — browsing a
+            provider shows what it offers, it does not enable anything.
+          </>
+        }
+      />
       <div className="flex flex-col gap-3">
         <DataTable
           headers={result?.table_headers}
@@ -300,9 +303,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               </>
             )}
             {browseError && (
-              <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+              <ErrorBanner>
                 {browseError}
-              </p>
+              </ErrorBanner>
             )}
           </div>
         )}
@@ -359,9 +362,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         )}
         {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
         {(actionError || error) && (
-          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+          <ErrorBanner>
             {actionError || error}
-          </p>
+          </ErrorBanner>
         )}
       </div>
     </section>

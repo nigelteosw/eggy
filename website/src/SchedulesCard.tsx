@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, SessionExpiredError, cancelSchedule, listSchedules } from "./api";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { errorMessage } from "./lib/utils";
 
 // Column positions in the rows /api/schedules returns.
 const ID = 0;
@@ -28,7 +31,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
           onSessionExpired();
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to load");
+        setError(errorMessage(err, "Failed to load"));
       });
   }, [onSessionExpired]);
 
@@ -48,7 +51,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not cancel schedule");
+      setError(errorMessage(err, "Could not cancel schedule"));
     } finally {
       setCancelling(null);
     }
@@ -58,13 +61,16 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
 
   return (
     <div className="mb-2">
-      <div className="mx-0.5 mb-3">
-        <h3 className="text-[15px] font-semibold tracking-tight">Schedules</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Everything Eggy will do on a timer, soonest first. Ask it in chat to create one; cancel it here. The heartbeat
-          is a separate mechanism and does not appear in this list.
-        </p>
-      </div>
+      <CardHeader
+        title="Schedules"
+        className="mb-3"
+        description={
+          <>
+            Everything Eggy will do on a timer, soonest first. Ask it in chat to create one; cancel it here. The heartbeat
+            is a separate mechanism and does not appear in this list.
+          </>
+        }
+      />
       {rows.length === 0 ? (
         <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">Nothing is scheduled.</p>
       ) : (
@@ -101,9 +107,9 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
         </div>
       )}
       {error && (
-        <p className="mt-3 rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner className="mt-3">
           {error}
-        </p>
+        </ErrorBanner>
       )}
     </div>
   );

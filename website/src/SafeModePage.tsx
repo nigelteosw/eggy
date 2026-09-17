@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { getRawConfig, getStartupFailure, saveRawConfig, SessionExpiredError } from "./api";
 import { Button } from "./components/ui/button";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { errorMessage } from "./lib/utils";
 
 // Shown when eggyd could not start. There is no chat and no settings panel
 // behind this screen -- the agent is not running -- so it offers the one thing
@@ -29,7 +32,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
           onSessionExpired();
           return;
         }
-        setFailure(err instanceof Error ? err.message : "Eggy did not start.");
+        setFailure(errorMessage(err, "Eggy did not start."));
       })
       .finally(() => setLoading(false));
   }, [onSessionExpired]);
@@ -46,7 +49,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
         onSessionExpired();
         return;
       }
-      setRejection(err instanceof Error ? err.message : "Eggy refused the config");
+      setRejection(errorMessage(err, "Eggy refused the config"));
       setSaving(false);
     }
   }
@@ -63,20 +66,14 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
         </div>
 
         <section className="flex flex-col gap-3">
-          <div className="mx-0.5">
-            <h3 className="text-[15px] font-semibold tracking-tight">Why it did not start</h3>
-            <p className="mt-1.5 text-[12.5px] leading-relaxed text-neutral-700">Fix the config below and save. Eggy retries startup as soon as it loads.</p>
-          </div>
+          <CardHeader title="Why it did not start" description="Fix the config below and save. Eggy retries startup as soon as it loads." />
           <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-4 py-3 text-sm text-eg-red-ink">
             {loading ? "Loading..." : failure}
           </pre>
         </section>
 
         <section className="flex flex-col gap-3">
-          <div className="mx-0.5">
-            <h3 className="text-[15px] font-semibold tracking-tight">config.yaml</h3>
-            <p className="mt-1.5 text-[12.5px] leading-relaxed text-neutral-700">Saved only if it loads, so a second bad config cannot lock you out.</p>
-          </div>
+          <CardHeader title="config.yaml" description="Saved only if it loads, so a second bad config cannot lock you out." />
           <textarea
             spellCheck={false}
             value={config}
@@ -90,10 +87,10 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
             </Button>
           </div>
           {rejection && (
-            <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-4 py-3 text-sm text-eg-red-ink" role="alert">
+            <ErrorBanner preformatted>
               {rejection}
               {"\n\nThe stored config is unchanged."}
-            </pre>
+            </ErrorBanner>
           )}
           {saved && (
             <p className="rounded-2xl bg-accent-100 px-4 py-3 text-sm text-accent-900" role="status">

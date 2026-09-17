@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getWatchList, saveWatchList } from "./api";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { PRIMARY_BUTTON } from "./components/ui/form";
+import { errorMessage } from "./lib/utils";
 
 // The heartbeat's watch list, sitting directly above the heartbeat itself
 // because an interval with an empty list is a heartbeat that never beats.
@@ -28,7 +32,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
           onSessionExpired();
           return;
         }
-        setError(err instanceof Error ? err.message : "Could not read the watch list");
+        setError(errorMessage(err, "Could not read the watch list"));
       })
       .finally(() => setLoading(false));
   }, [onSessionExpired]);
@@ -47,7 +51,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not save the watch list");
+      setError(errorMessage(err, "Could not save the watch list"));
     } finally {
       setSaving(false);
     }
@@ -55,14 +59,17 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
 
   return (
     <div className="mb-2">
-      <div className="mx-0.5 mb-3">
-        <h3 className="text-[15px] font-semibold tracking-tight">Watch list</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          What the heartbeat checks each time it wakes. One thing to look at per line — an item that wants a time of
-          its own is a schedule, not a watch entry. Eggy edits this too, noting what it has already told you so a
-          later check-in does not repeat itself. An empty list means every beat is skipped.
-        </p>
-      </div>
+      <CardHeader
+        title="Watch list"
+        className="mb-3"
+        description={
+          <>
+            What the heartbeat checks each time it wakes. One thing to look at per line — an item that wants a time of
+            its own is a schedule, not a watch entry. Eggy edits this too, noting what it has already told you so a
+            later check-in does not repeat itself. An empty list means every beat is skipped.
+          </>
+        }
+      />
 
       <div className="flex items-baseline justify-between gap-3 px-0.5 pb-2">
         <span className="text-[12.5px] font-medium">watch.md</span>
@@ -85,7 +92,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
           type="button"
           onClick={handleSave}
           disabled={loading || saving}
-          className="min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           {saving ? "Saving..." : "Save watch list"}
         </button>
@@ -101,9 +108,9 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
         </p>
       )}
       {error && (
-        <p className="mt-3 rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner className="mt-3">
           {error}
-        </p>
+        </ErrorBanner>
       )}
     </div>
   );

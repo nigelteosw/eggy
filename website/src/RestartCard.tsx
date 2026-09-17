@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { SessionExpiredError, restartEggy } from "./api";
 import { Button } from "./components/ui/button";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { errorMessage } from "./lib/utils";
 
 // Every save in this panel ends with "restart Eggy for this to take effect",
 // because adapters are built once at startup. This is that restart, and it is
@@ -31,7 +34,7 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
       }
       // The reason a restart was refused is the config that would not have
       // started, which is what the owner edits against.
-      setRejection(err instanceof Error ? err.message : "Eggy refused to restart");
+      setRejection(errorMessage(err, "Eggy refused to restart"));
     } finally {
       setRestarting(false);
     }
@@ -39,13 +42,15 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">Restart</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Rebuild Eggy around config.yaml as it now stands. Nothing is redeployed, and durable state is kept. A config
-          Eggy cannot load is refused here rather than applied.
-        </p>
-      </div>
+      <CardHeader
+        title="Restart"
+        description={
+          <>
+            Rebuild Eggy around config.yaml as it now stands. Nothing is redeployed, and durable state is kept. A config
+            Eggy cannot load is refused here rather than applied.
+          </>
+        }
+      />
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3.5">
           <Button type="button" variant="secondary" onClick={handleRestart} disabled={restarting}>
@@ -53,13 +58,10 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
           </Button>
         </div>
         {rejection && (
-          <pre
-            className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink"
-            role="alert"
-          >
+          <ErrorBanner preformatted>
             {rejection}
             {"\n\nEggy is still running on the config it started with."}
-          </pre>
+          </ErrorBanner>
         )}
         {restarted && (
           <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">

@@ -4,8 +4,9 @@ import { Button } from "./components/ui/button";
 import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { Switch } from "./components/ui/switch";
-
-const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD } from "./components/ui/form";
 
 export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const { result, error, saving, save } = useConfigSection("providers", onSessionExpired);
@@ -34,10 +35,7 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">Providers</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">Model endpoints Eggy can talk to.</p>
-      </div>
+      <CardHeader title="Providers" description="Model endpoints Eggy can talk to." />
       <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No providers configured yet." />
         <details className="rounded-2xl bg-neutral-100 p-4">
@@ -65,9 +63,9 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
         </details>
         {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
         {error && (
-          <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+          <ErrorBanner>
             {error}
-          </p>
+          </ErrorBanner>
         )}
       </div>
     </section>

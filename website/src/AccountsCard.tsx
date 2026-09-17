@@ -19,7 +19,10 @@ import {
 } from "./api";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "./components/ui/form";
 
 // The accounts card is the whole of who-may-use-Eggy, operated from here and
 // nowhere else: the list, the sign-in client, and the address Eggy's own
@@ -27,15 +30,6 @@ import { cn } from "./lib/utils";
 // server, so what this card can do is exactly what config allows, and a
 // change that config refuses comes back as the refusal's own words.
 
-function describe(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
-}
-
-const fieldClass =
-  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
-const labelClass = "text-[11.5px] font-normal text-neutral-700";
-const primaryButtonClass =
-  "min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
 const ghostButtonClass =
   "min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
 const destructiveButtonClass =
@@ -54,7 +48,7 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
       await setTelegramEnabled(!enabled);
       onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then each person links their own Telegram from their row above.");
     } catch (err) {
-      onError(describe(err, "Could not change Telegram enablement"));
+      onError(errorMessage(err, "Could not change Telegram enablement"));
     } finally {
       setBusy(false);
     }
@@ -171,13 +165,13 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
   async function link() {
     setBusy(true);
     try { setPairing(await createTelegramPairing(account.id)); }
-    catch (err) { onError(describe(err, "Could not start Telegram pairing")); }
+    catch (err) { onError(errorMessage(err, "Could not start Telegram pairing")); }
     finally { setBusy(false); }
   }
   async function unlink() {
     setBusy(true);
     try { await unlinkTelegram(account.id); setPairing(null); window.location.reload(); }
-    catch (err) { onError(describe(err, "Could not unlink Telegram")); }
+    catch (err) { onError(errorMessage(err, "Could not unlink Telegram")); }
     finally { setBusy(false); }
   }
   if (account.telegram_user_id) {
@@ -197,7 +191,7 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
           <li>Come back here — your row updates when it&apos;s done.</li>
         </ol>
         <div className="flex flex-wrap items-center gap-2">
-          <a href={pairing.url} target="_blank" rel="noreferrer" className={cn(primaryButtonClass, "inline-flex items-center")}>
+          <a href={pairing.url} target="_blank" rel="noreferrer" className={cn(PRIMARY_BUTTON, "inline-flex items-center")}>
             Open Telegram
           </a>
           <CopyButton text={pairing.url} label="Copy link" />
@@ -375,20 +369,20 @@ function AccountForm({
       <div className={"grid gap-3 " + (initial ? "" : "sm:grid-cols-2")}>
         {!initial && (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="account-id" className={labelClass}>Account ID</Label>
-            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required className={fieldClass} />
+            <Label htmlFor="account-id" className={FIELD_LABEL}>Account ID</Label>
+            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required className={FIELD_COMPACT} />
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="account-email" className={labelClass}>Google email</Label>
-          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required className={fieldClass} />
+          <Label htmlFor="account-email" className={FIELD_LABEL}>Google email</Label>
+          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required className={FIELD_COMPACT} />
           {initial?.enrolled && (
             <p className="text-xs text-neutral-700">This account has enrolled. Reset its binding before changing the address.</p>
           )}
         </div>
       </div>
       <div className="flex gap-2">
-        <button type="submit" disabled={saving} className={primaryButtonClass}>
+        <button type="submit" disabled={saving} className={PRIMARY_BUTTON}>
           {saving ? "Saving..." : initial ? "Save account" : "Add account"}
         </button>
         {onCancel && (
@@ -442,7 +436,7 @@ export function ConvertForm({
         onSessionExpired();
         return;
       }
-      setError(describe(err, "Conversion failed"));
+      setError(errorMessage(err, "Conversion failed"));
     } finally {
       setSaving(false);
     }
@@ -461,15 +455,15 @@ export function ConvertForm({
             key={index}
             className={cn("grid gap-2 sm:grid-cols-3", index > 0 && "pt-3 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]")}
           >
-            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required className={fieldClass} />
-            <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required className={fieldClass} />
+            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required className={FIELD_COMPACT} />
+            <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required className={FIELD_COMPACT} />
             <Input
               aria-label={`Account ${index + 1} Telegram`}
               inputMode="numeric"
               value={account.telegram_user_id ? String(account.telegram_user_id) : ""}
               onChange={(e) => update(index, { telegram_user_id: e.target.value.trim() === "" ? 0 : Number(e.target.value) })}
               placeholder="telegram user id (optional)"
-              className={fieldClass}
+              className={FIELD_COMPACT}
             />
           </div>
         ))}
@@ -478,7 +472,7 @@ export function ConvertForm({
         </button>
       </fieldset>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-migration-owner" className={labelClass}>Migration owner (receives the existing history)</Label>
+        <Label htmlFor="convert-migration-owner" className={FIELD_LABEL}>Migration owner (receives the existing history)</Label>
         <select
           id="convert-migration-owner"
           value={migrationOwner}
@@ -493,19 +487,19 @@ export function ConvertForm({
         </select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-client-id" className={labelClass}>Google sign-in client ID (Web application client)</Label>
-        <Input id="convert-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={fieldClass} />
+        <Label htmlFor="convert-client-id" className={FIELD_LABEL}>Google sign-in client ID (Web application client)</Label>
+        <Input id="convert-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={FIELD_COMPACT} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-secret-env" className={labelClass}>client_secret_env (name of the variable holding the client secret)</Label>
-        <Input id="convert-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={fieldClass} />
+        <Label htmlFor="convert-secret-env" className={FIELD_LABEL}>client_secret_env (name of the variable holding the client secret)</Label>
+        <Input id="convert-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={FIELD_COMPACT} />
       </div>
       {error && (
-        <p className="rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner>
           {error}
-        </p>
+        </ErrorBanner>
       )}
-      <button type="submit" disabled={saving} className={primaryButtonClass}>
+      <button type="submit" disabled={saving} className={PRIMARY_BUTTON}>
         {saving ? "Converting..." : "Convert to accounts"}
       </button>
     </form>
@@ -545,7 +539,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           onSessionExpired();
           return;
         }
-        setError(describe(err, "Failed to load accounts"));
+        setError(errorMessage(err, "Failed to load accounts"));
       });
   }, [onSessionExpired, seeded]);
 
@@ -567,7 +561,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
         onSessionExpired();
         return false;
       }
-      setError(describe(err, "Request failed"));
+      setError(errorMessage(err, "Request failed"));
       return false;
     } finally {
       setSaving(false);
@@ -589,17 +583,19 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">People</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Each person signs in with their own Google account and has private conversations and memory; everyone can
-          change these settings.
-        </p>
-      </div>
+      <CardHeader
+        title="People"
+        description={
+          <>
+            Each person signs in with their own Google account and has private conversations and memory; everyone can
+            change these settings.
+          </>
+        }
+      />
       {error && (
-        <p className="rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner>
           {error}
-        </p>
+        </ErrorBanner>
       )}
       {notice && <p className="rounded-xl bg-neutral-100 px-3 py-2 text-sm">{notice}</p>}
 
@@ -720,14 +716,14 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             is never shown here.
           </p>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="login-client-id" className={labelClass}>Client ID</Label>
-            <Input id="login-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={fieldClass} />
+            <Label htmlFor="login-client-id" className={FIELD_LABEL}>Client ID</Label>
+            <Input id="login-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={FIELD_COMPACT} />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="login-secret-env" className={labelClass}>client_secret_env</Label>
-            <Input id="login-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={fieldClass} />
+            <Label htmlFor="login-secret-env" className={FIELD_LABEL}>client_secret_env</Label>
+            <Input id="login-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={FIELD_COMPACT} />
           </div>
-          <button type="submit" disabled={saving} className={cn(primaryButtonClass, "self-start")}>
+          <button type="submit" disabled={saving} className={cn(PRIMARY_BUTTON, "self-start")}>
             {saving ? "Saving..." : "Save sign-in client"}
           </button>
         </form>
@@ -747,10 +743,10 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             accidentally authorizing their personal account is refused.
           </p>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="expected-email" className={labelClass}>Email</Label>
-            <Input id="expected-email" type="email" value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="eggy@yourdomain" className={fieldClass} />
+            <Label htmlFor="expected-email" className={FIELD_LABEL}>Email</Label>
+            <Input id="expected-email" type="email" value={expected} onChange={(e) => setExpected(e.target.value)} placeholder="eggy@yourdomain" className={FIELD_COMPACT} />
           </div>
-          <button type="submit" disabled={saving} className={cn(primaryButtonClass, "self-start")}>
+          <button type="submit" disabled={saving} className={cn(PRIMARY_BUTTON, "self-start")}>
             {saving ? "Saving..." : "Save expected account"}
           </button>
         </form>

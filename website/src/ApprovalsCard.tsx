@@ -7,7 +7,10 @@ import {
   listApprovals,
   setApprovalMode,
 } from "./api";
-import { cn } from "./lib/utils";
+import { errorMessage } from "./lib/utils";
+import { CardHeader } from "./components/ui/card-header";
+import { SelectedCheckIcon } from "./components/ui/icons";
+import { ErrorBanner } from "./components/ui/error-banner";
 
 // Column positions in the rows /api/approvals returns.
 const ID = 0;
@@ -50,7 +53,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
           onSessionExpired();
           return;
         }
-        setError(err instanceof Error ? err.message : "Failed to load");
+        setError(errorMessage(err, "Failed to load"));
       });
     getApprovalMode()
       .then((result) => {
@@ -83,7 +86,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not change the approval mode");
+      setError(errorMessage(err, "Could not change the approval mode"));
     } finally {
       setSwitching(false);
     }
@@ -102,7 +105,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not record decision");
+      setError(errorMessage(err, "Could not record decision"));
     } finally {
       setDeciding(null);
     }
@@ -113,13 +116,16 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
   return (
     <div className="flex flex-col gap-7">
       <div>
-        <div className="mx-0.5 mb-3">
-          <h3 className="text-[15px] font-semibold tracking-tight">Approval mode</h3>
-          <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-            The standing answer to "may I?". It applies to every surface at once — this panel, Telegram, and
-            unprompted turns.
-          </p>
-        </div>
+        <CardHeader
+          title="Approval mode"
+          className="mb-3"
+          description={
+            <>
+              The standing answer to "may I?". It applies to every surface at once — this panel, Telegram, and
+              unprompted turns.
+            </>
+          }
+        />
         <div role="radiogroup" aria-label="Approval mode" className="flex flex-col">
           {MODES.map((option) => {
             const selected = mode === option.value;
@@ -137,19 +143,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                   <span className="block text-sm font-medium">{option.label}</span>
                   <span className="mt-0.5 block text-xs leading-relaxed text-neutral-700">{option.note}</span>
                 </span>
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={cn("shrink-0 text-accent-600", selected ? "opacity-100" : "opacity-0")}
-                >
-                  <path d="M4.5 10.5 8 14l7.5-8" />
-                </svg>
+                <SelectedCheckIcon selected={selected} />
               </button>
             );
           })}
@@ -158,13 +152,16 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
       </div>
 
       <div>
-        <div className="mx-0.5 mb-3">
-          <h3 className="text-[15px] font-semibold tracking-tight">Waiting on you</h3>
-          <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-            Protected actions waiting on you, oldest first. An approval past its window shows as expired: it still
-            counts as pending until it is decided, which is why it appears here rather than vanishing.
-          </p>
-        </div>
+        <CardHeader
+          title="Waiting on you"
+          className="mb-3"
+          description={
+            <>
+              Protected actions waiting on you, oldest first. An approval past its window shows as expired: it still
+              counts as pending until it is decided, which is why it appears here rather than vanishing.
+            </>
+          }
+        />
         {rows.length === 0 ? (
           <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">
             Nothing is waiting on you.
@@ -213,9 +210,9 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
       </div>
 
       {error && (
-        <p className="rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner>
           {error}
-        </p>
+        </ErrorBanner>
       )}
     </div>
   );

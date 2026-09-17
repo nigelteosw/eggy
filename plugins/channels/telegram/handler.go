@@ -82,7 +82,7 @@ func (h *WebhookHandler) WithImageDownloader(downloader ImageDownloader) *Webhoo
 }
 
 type update struct {
-	UpdateID int64 `json:"update_id"`
+	UpdateID int64    `json:"update_id"`
 	Message  *message `json:"message"`
 	Callback *struct {
 		ID      string `json:"id"`

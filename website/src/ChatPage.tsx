@@ -5,7 +5,7 @@ import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getC
 import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
 import { LockIcon, ReplyIcon } from "./components/ui/icons";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
 
@@ -231,7 +231,7 @@ export function ChatPage({
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to send");
+      setError(errorMessage(err, "Failed to send"));
     }
   }
 
@@ -244,7 +244,7 @@ export function ChatPage({
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to record decision");
+      setError(errorMessage(err, "Failed to record decision"));
     }
   }
 

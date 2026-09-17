@@ -10,7 +10,9 @@ import {
   type TraceSummary,
 } from "./api";
 import { Button } from "./components/ui/button";
+import { ErrorBanner } from "./components/ui/error-banner";
 import { ChevronLeftIcon, ChevronDownIcon } from "./components/ui/icons";
+import { errorMessage } from "./lib/utils";
 
 // Browse conversations, inspect one turn, then select a step without moving the timeline.
 
@@ -338,9 +340,9 @@ function StepInspector({ item }: { item: Placed }) {
         </span>
       </div>
       {span.error && (
-        <p role="alert" className="mb-4 rounded-2xl bg-eg-red-tint p-3.5 text-sm leading-relaxed text-eg-red-ink">
+        <ErrorBanner className="mb-4 p-3.5 leading-relaxed">
           {span.error}
-        </p>
+        </ErrorBanner>
       )}
       {model && (
         <p className="mb-4 text-xs tabular-nums text-neutral-700">
@@ -439,9 +441,9 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
         )}
       </header>
       {trace.error && (
-        <p role="alert" className="rounded-2xl bg-eg-red-tint p-3.5 text-sm leading-relaxed text-eg-red-ink">
+        <ErrorBanner className="p-3.5 leading-relaxed">
           {trace.error}
-        </p>
+        </ErrorBanner>
       )}
       <dl className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-2xl bg-neutral-100 p-4 2xl:grid-cols-4">
         {[
@@ -501,7 +503,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
       })
       .catch((reason) => {
         if (!current) return;
-        setError(reason instanceof Error ? reason.message : "Could not load this turn");
+        setError(errorMessage(reason, "Could not load this turn"));
         onSessionExpired(reason);
       });
     return () => {
@@ -733,7 +735,7 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
         onSessionExpired();
         return;
       }
-      setError(reason instanceof Error ? reason.message : "Could not load traces");
+      setError(errorMessage(reason, "Could not load traces"));
     },
     [onSessionExpired],
   );
@@ -787,9 +789,9 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
         </Button>
       </header>
       {error && (
-        <p role="alert" className="mx-5 mb-5 rounded-2xl bg-eg-red-tint p-4 text-sm leading-relaxed text-eg-red-ink">
+        <ErrorBanner className="mx-5 mb-5 p-4 leading-relaxed">
           {error}
-        </p>
+        </ErrorBanner>
       )}
       {traces.length ? (
         <TraceBrowser traces={traces} titles={titles} onSessionExpired={rowFailed} />

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getRawConfig, saveRawConfig } from "./api";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { errorMessage } from "./lib/utils";
 
 export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [config, setConfig] = useState("");
@@ -16,7 +19,7 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
           onSessionExpired();
           return;
         }
-        setRejection(err instanceof Error ? err.message : "Could not read config.yaml");
+        setRejection(errorMessage(err, "Could not read config.yaml"));
       })
       .finally(() => setLoading(false));
   }, [onSessionExpired]);
@@ -33,7 +36,7 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
         onSessionExpired();
         return;
       }
-      setRejection(err instanceof Error ? err.message : "Eggy refused the config");
+      setRejection(errorMessage(err, "Eggy refused the config"));
     } finally {
       setSaving(false);
     }
@@ -41,12 +44,7 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
 
   return (
     <div className="mb-2">
-      <div className="mx-0.5 mb-3">
-        <h3 className="text-[15px] font-semibold tracking-tight">config.yaml</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Everything the forms above cover, plus the settings they do not. Saved only if Eggy can load it.
-        </p>
-      </div>
+      <CardHeader title="config.yaml" className="mb-3" description="Everything the forms above cover, plus the settings they do not. Saved only if Eggy can load it." />
       <details className="rounded-2xl bg-neutral-100 p-4">
         <summary className="cursor-pointer text-[12.5px] font-medium">Edit config.yaml</summary>
         <div className="mt-3 flex flex-col gap-3">
@@ -73,13 +71,10 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
         </div>
       </details>
       {rejection && (
-        <pre
-          className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink"
-          role="alert"
-        >
+        <ErrorBanner preformatted className="mt-3">
           {rejection}
           {"\n\nThe stored config is unchanged."}
-        </pre>
+        </ErrorBanner>
       )}
       {saved && (
         <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-700" role="status">

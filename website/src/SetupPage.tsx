@@ -12,8 +12,10 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
-
-const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+import { CardHeader } from "./components/ui/card-header";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD } from "./components/ui/form";
+import { errorMessage } from "./lib/utils";
 
 const defaults: SetupInput = {
   account_id: "you",
@@ -65,13 +67,15 @@ const sections: { title: string; description: string; fields: Field[] }[] = [
 function TelegramSection({ input, update, completed }: { input: SetupInput; update: (name: keyof SetupInput, value: string | boolean) => void; completed: boolean }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="mx-0.5">
-        <h3 className="text-[15px] font-semibold tracking-tight">Telegram (optional)</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Enable Eggy's Telegram channel. This requires TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in the deployment
-          environment; pairing a chat happens later, from the accounts settings.
-        </p>
-      </div>
+      <CardHeader
+        title="Telegram (optional)"
+        description={
+          <>
+            Enable Eggy's Telegram channel. This requires TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in the deployment
+            environment; pairing a chat happens later, from the accounts settings.
+          </>
+        }
+      />
       <Switch
         checked={input.telegram_enabled}
         onCheckedChange={(checked) => update("telegram_enabled", checked)}
@@ -93,7 +97,7 @@ export function SetupPage() {
   useEffect(() => {
     consumeSetupFragment(window.location, window.history, exchangeSetupToken)
       .then(() => setAuthorized(true))
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Could not authorize setup."));
+      .catch((reason) => setError(errorMessage(reason, "Could not authorize setup.")));
   }, []);
 
   useEffect(() => {
@@ -146,10 +150,10 @@ export function SetupPage() {
         {!authorized && !error && <p className="rounded-2xl bg-neutral-100 p-3.5 text-sm text-neutral-700">Authorizing this setup link…</p>}
         {sections.map((section) => (
           <section key={section.title} className="flex flex-col gap-3">
-            <div className="mx-0.5">
-              <h3 className="text-[15px] font-semibold tracking-tight">{section.title}</h3>
-              <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">{section.description}</p>
-            </div>
+            <CardHeader
+              title={section.title}
+              description={section.description}
+            />
             <div className="grid gap-3 rounded-2xl bg-neutral-100 p-4 sm:grid-cols-2">
               {section.fields.map((field) => (
                 <div className={field.name.endsWith("url") ? "sm:col-span-2" : ""} key={field.name}>
@@ -175,9 +179,7 @@ export function SetupPage() {
 
         {validation && (
           <section className="flex flex-col gap-3">
-            <div className="mx-0.5">
-              <h3 className="text-[15px] font-semibold tracking-tight">Deployment variables</h3>
-            </div>
+            <CardHeader title="Deployment variables" />
             <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4 text-sm">
               {Object.entries(validation.variables).map(([name, present]) => (
                 <p key={name} className={present ? "text-neutral-700" : "text-eg-red-ink"}>
@@ -190,7 +192,7 @@ export function SetupPage() {
             </div>
           </section>
         )}
-        {error && <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">{error}</p>}
+        {error && <ErrorBanner>{error}</ErrorBanner>}
         {completed ? (
           <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-sm text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
         ) : (

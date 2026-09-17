@@ -174,3 +174,21 @@ export const CloseIcon = (p: IconProps) => (
     <path d="m5 5 10 10M15 5 5 15" />
   </Icon>
 );
+
+// The tick on a selectable option card. Always laid out and only shown when
+// selected, so choosing an option does not shift the row.
+export const SelectedCheckIcon = ({ selected }: { selected: boolean }) => (
+  <svg
+    width="17"
+    height="17"
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={selected ? "shrink-0 text-accent-600 opacity-100" : "shrink-0 text-accent-600 opacity-0"}
+  >
+    <path d="M4.5 10.5 8 14l7.5-8" />
+  </svg>
+);

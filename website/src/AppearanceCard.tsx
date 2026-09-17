@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { SessionExpiredError, type Theme, applyTheme, setTheme } from "./api";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
+import { CardHeader } from "./components/ui/card-header";
+import { SelectedCheckIcon } from "./components/ui/icons";
+import { ErrorBanner } from "./components/ui/error-banner";
 
 const OPTIONS: { value: Theme; label: string; description: string; swatch: string }[] = [
   { value: "dark", label: "Charcoal", description: "Neutral dark. The default.", swatch: "bg-[hsl(0_0%_11%)]" },
@@ -35,18 +38,13 @@ export function AppearanceCard({
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : "Could not save theme");
+      setError(errorMessage(err, "Could not save theme"));
     }
   }
 
   return (
     <div className="mb-2">
-      <div className="mx-0.5 mb-3">
-        <h3 className="text-[15px] font-semibold tracking-tight">Appearance</h3>
-        <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">
-          Saved to your config, so it follows you to any browser you log in from.
-        </p>
-      </div>
+      <CardHeader title="Appearance" className="mb-3" description="Saved to your config, so it follows you to any browser you log in from." />
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         {OPTIONS.map((option) => {
           const selected = theme === option.value;
@@ -69,27 +67,15 @@ export function AppearanceCard({
                 <span className="block text-sm font-medium">{option.label}</span>
                 <span className="mt-0.5 block text-xs text-neutral-700">{option.description}</span>
               </span>
-              <svg
-                width="17"
-                height="17"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={cn("shrink-0 text-accent-600", selected ? "opacity-100" : "opacity-0")}
-              >
-                <path d="M4.5 10.5 8 14l7.5-8" />
-              </svg>
+              <SelectedCheckIcon selected={selected} />
             </button>
           );
         })}
       </div>
       {error && (
-        <p className="mt-3 rounded-xl bg-eg-red-tint px-3 py-2 text-sm text-eg-red-ink" role="alert">
+        <ErrorBanner className="mt-3">
           {error}
-        </p>
+        </ErrorBanner>
       )}
     </div>
   );

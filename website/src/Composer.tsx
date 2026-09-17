@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "./api";
 import { ArrowUpIcon, ChevronDownIcon, CloseIcon } from "./components/ui/icons";
-import { cn } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 
 // The three approval modes as the composer says them: a short label for the
 // chip, and the full sentence as its tooltip. The sentences are the ones
@@ -120,7 +120,7 @@ export function Composer({
         onSessionExpired();
         return;
       }
-      setNote(err instanceof Error ? err.message : "Could not change that setting");
+      setNote(errorMessage(err, "Could not change that setting"));
     } finally {
       setBusy(false);
     }
@@ -137,7 +137,7 @@ export function Composer({
         onSessionExpired();
         return;
       }
-      setNote(err instanceof Error ? err.message : "Could not change the approval mode");
+      setNote(errorMessage(err, "Could not change the approval mode"));
     } finally {
       setBusy(false);
     }

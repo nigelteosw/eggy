@@ -132,6 +132,29 @@ type providerToolCall struct {
 }
 
 func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.ModelResponse, error) {
+	body, headers, err := m.buildRequest(ctx, input)
+	if err != nil {
+		return ports.ModelResponse{}, err
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return ports.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
+	}
+	response, err := m.request(ctx, http.MethodPost, "/chat/completions", encoded, headers)
+	if err != nil {
+		return ports.ModelResponse{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ports.ModelResponse{}, m.providerError(response)
+	}
+	return m.decodeResponse(response.Body)
+}
+
+// buildRequest translates a port request into the wire body, plus the headers
+// that ride alongside it. The OpenRouter extensions are applied here and only
+// here, so a provider that speaks plain Chat Completions never sees them.
+func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (requestBody, http.Header, error) {
 	body := requestBody{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
 	var headers http.Header
 	if m.openRouter {
@@ -159,32 +182,9 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		}
 	}
 	for _, message := range input.Messages {
-		translated := providerRequestMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
-		if m.openRouter && message.ProviderReasoningOrigin == openRouterOrigin {
-			translated.ReasoningDetails = message.ProviderReasoning
-		}
-		if len(message.Parts) > 0 {
-			content := []providerContentPart{{Type: "text", Text: message.Content}}
-			for _, part := range message.Parts {
-				if part.Type != ports.ContentTypeImage {
-					return ports.ModelResponse{}, fmt.Errorf("unsupported message content type %q", part.Type)
-				}
-				if strings.TrimSpace(part.MediaType) == "" {
-					return ports.ModelResponse{}, errors.New("image content is missing a media type")
-				}
-				if len(part.Data) == 0 {
-					return ports.ModelResponse{}, errors.New("image content is empty")
-				}
-				content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{
-					URL: "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
-				}})
-			}
-			translated.Content = content
-		}
-		for _, call := range message.ToolCalls {
-			providerCall := providerToolCall{ID: call.ID, Type: "function"}
-			providerCall.Function.Name, providerCall.Function.Arguments = call.Name, string(call.Arguments)
-			translated.ToolCalls = append(translated.ToolCalls, providerCall)
+		translated, err := m.translateMessage(message)
+		if err != nil {
+			return requestBody{}, nil, err
 		}
 		body.Messages = append(body.Messages, translated)
 	}
@@ -193,18 +193,46 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 		translated.Function.Name, translated.Function.Description, translated.Function.Parameters = tool.Name, tool.Description, tool.Schema
 		body.Tools = append(body.Tools, translated)
 	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return ports.ModelResponse{}, fmt.Errorf("encode model request: %w", err)
+	return body, headers, nil
+}
+
+// translateMessage spells one port message the way the wire takes it. Text
+// stays a string; a message carrying parts becomes a content array, since
+// that is the only shape in which an image can be sent.
+func (m *Model) translateMessage(message ports.Message) (providerRequestMessage, error) {
+	translated := providerRequestMessage{Role: string(message.Role), Content: message.Content, Name: message.Name, ToolCallID: message.ToolCallID}
+	if m.openRouter && message.ProviderReasoningOrigin == openRouterOrigin {
+		translated.ReasoningDetails = message.ProviderReasoning
 	}
-	response, err := m.request(ctx, http.MethodPost, "/chat/completions", encoded, headers)
-	if err != nil {
-		return ports.ModelResponse{}, err
+	if len(message.Parts) > 0 {
+		content := []providerContentPart{{Type: "text", Text: message.Content}}
+		for _, part := range message.Parts {
+			if part.Type != ports.ContentTypeImage {
+				return providerRequestMessage{}, fmt.Errorf("unsupported message content type %q", part.Type)
+			}
+			if strings.TrimSpace(part.MediaType) == "" {
+				return providerRequestMessage{}, errors.New("image content is missing a media type")
+			}
+			if len(part.Data) == 0 {
+				return providerRequestMessage{}, errors.New("image content is empty")
+			}
+			content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{
+				URL: "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
+			}})
+		}
+		translated.Content = content
 	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ports.ModelResponse{}, m.providerError(response)
+	for _, call := range message.ToolCalls {
+		providerCall := providerToolCall{ID: call.ID, Type: "function"}
+		providerCall.Function.Name, providerCall.Function.Arguments = call.Name, string(call.Arguments)
+		translated.ToolCalls = append(translated.ToolCalls, providerCall)
 	}
+	return translated, nil
+}
+
+// decodeResponse reads a successful completion back into the port shape,
+// including the usage counters the vendors spell differently.
+func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 	var result struct {
 		Choices []struct {
 			Message providerResponseMessage `json:"message"`
@@ -227,7 +255,7 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 			Cost float64 `json:"cost"`
 		} `json:"usage"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(body).Decode(&result); err != nil {
 		return ports.ModelResponse{}, fmt.Errorf("decode provider response: %w", err)
 	}
 	if len(result.Choices) == 0 {

@@ -3,8 +3,9 @@ import { login, type Login } from "./api";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
-
-const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+import { ErrorBanner } from "./components/ui/error-banner";
+import { FIELD } from "./components/ui/form";
+import { errorMessage } from "./lib/utils";
 
 // The page is one of two: the single owner's password form, or, for an
 // accounts deployment, an ordinary link to the server's Google Sign-In start
@@ -26,7 +27,7 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
       await login(email, password);
       onLoggedIn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(errorMessage(err, "Login failed"));
     } finally {
       setSubmitting(false);
     }
@@ -53,9 +54,9 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
           {loginKind === "google" ? (
             <div className="flex flex-col gap-4">
               {failed && (
-                <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+                <ErrorBanner>
                   Sign-in was not completed. Use the Google account you were invited with, and try again.
-                </p>
+                </ErrorBanner>
               )}
               <a
                 href="/auth/google/start"
@@ -92,9 +93,9 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
                 />
               </div>
               {error && (
-                <p className="rounded-2xl bg-eg-red-tint px-3.5 py-2.5 text-sm text-eg-red-ink" role="alert">
+                <ErrorBanner>
                   {error}
-                </p>
+                </ErrorBanner>
               )}
               <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-xl text-base font-semibold">
                 {submitting ? "Signing in..." : "Sign in"}

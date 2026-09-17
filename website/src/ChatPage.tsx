@@ -130,6 +130,10 @@ export function ChatPage({
   // just typed by replacing it wholesale.
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
+  // activity is the turn's current status line ("Calling web_search..."),
+  // drawn in place of the generic typing label. It never enters history;
+  // the reply that ends the turn clears it.
+  const [activity, setActivity] = useState<string | null>(null);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -170,6 +174,7 @@ export function ChatPage({
     if (!createdFromDraft) setPending([]);
     setApprovals([]);
     setTyping(false);
+    setActivity(null);
     setQuote(null);
     previousThreadId.current = threadId;
     if (!threadId) return;
@@ -181,6 +186,7 @@ export function ChatPage({
     source.addEventListener("message", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
       setTyping(false);
+      setActivity(null);
       setHistory((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text: event.text ?? "" }]);
       // A reply means the turn that recorded our pending send has finished;
       // reconcile now rather than waiting for the next reconnect.
@@ -189,6 +195,12 @@ export function ChatPage({
     });
 
     source.addEventListener("typing", () => setTyping(true));
+
+    source.addEventListener("progress", (raw) => {
+      const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
+      setTyping(true);
+      setActivity(event.text ?? null);
+    });
 
     source.addEventListener("edit", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
@@ -321,7 +333,7 @@ export function ChatPage({
                 <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.15s]" />
                 <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.3s]" />
               </span>
-              Eggy is typing
+              <span className="truncate">{activity ?? "Eggy is typing"}</span>
             </div>
           )}
           {approvals.map((approval) => (

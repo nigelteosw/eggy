@@ -372,7 +372,7 @@ export function listTools(): Promise<CommandResult> {
 }
 
 export type ChatEvent = {
-  kind: "message" | "typing" | "edit" | "approval";
+  kind: "message" | "typing" | "progress" | "edit" | "approval";
   id?: string;
   text?: string;
   approval?: { id: string; summary: string };

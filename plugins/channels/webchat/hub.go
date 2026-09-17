@@ -17,6 +17,10 @@ const (
 	EventTyping   EventKind = "typing"
 	EventEdit     EventKind = "edit"
 	EventApproval EventKind = "approval"
+	// EventProgress carries a transient status line ("Calling web_search...")
+	// the browser draws beside its typing indicator. It is not a message:
+	// it never enters history and the next reply supersedes it.
+	EventProgress EventKind = "progress"
 )
 
 type ApprovalPayload struct {

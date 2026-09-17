@@ -8,11 +8,12 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// The browser surface renders edits and a typing indicator as its own SSE
-// event kinds, so it honours both optional extensions.
+// The browser surface renders edits, a typing indicator and a progress line
+// as its own SSE event kinds, so it honours all three optional extensions.
 var (
 	_ ports.TrackableChannel = (*Channel)(nil)
 	_ ports.TypingChannel    = (*Channel)(nil)
+	_ ports.ProgressChannel  = (*Channel)(nil)
 )
 
 // Channel implements ports.Channel over a Hub. It is a browser chat
@@ -70,6 +71,13 @@ func (c *Channel) EditText(ctx context.Context, messageID string, text string) e
 func (c *Channel) SendTyping(ctx context.Context) error {
 	if accountID, threadID, ok := c.thread(ctx); ok {
 		c.hub.Broadcast(accountID, threadID, Event{Kind: EventTyping})
+	}
+	return nil
+}
+
+func (c *Channel) ShowProgress(ctx context.Context, text string) error {
+	if accountID, threadID, ok := c.thread(ctx); ok {
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventProgress, Text: text})
 	}
 	return nil
 }

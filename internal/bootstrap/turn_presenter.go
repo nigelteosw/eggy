@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -26,12 +27,14 @@ func (p turnPresenter) StartTyping(ctx context.Context) func() {
 }
 
 // ShowToolCalls returns a tool-call callback and a matching finish function
-// that surface a live "Calling <tool>..." indicator, editing one message in
-// place as more tools are called during the turn -- the same
-// DeliverTrackable/EditText mechanism a coding run's progress uses, reused
-// here so an ordinary tool call (e.g. current_time) is visible mid-turn too,
-// not folded silently into the final reply. finish is always safe to call, a
-// no-op if no tool was ever called.
+// that surface a live "Calling <tool>..." indicator. On a channel with a
+// status line (ports.ProgressChannel -- the browser, which draws it beside
+// its typing dots) the status stays out of the conversation and the final
+// reply simply supersedes it. Elsewhere it is one message edited in place as
+// more tools are called -- the same DeliverTrackable/EditText mechanism a
+// coding run's progress uses, reused here so an ordinary tool call (e.g.
+// current_time) is visible mid-turn too, not folded silently into the final
+// reply. finish is always safe to call, a no-op if no tool was ever called.
 func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(string), finish func()) {
 	var messageID string
 	var calls []string
@@ -45,10 +48,16 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 	}
 	onToolCall = func(name string) {
 		calls = append(calls, name)
-		render("Calling " + strings.Join(calls, ", ") + "...")
+		text := "Calling " + strings.Join(calls, ", ") + "..."
+		if err := channelutil.ShowProgress(ctx, p.channel, text); !errors.Is(err, channelutil.ErrProgressUnsupported) {
+			return
+		}
+		render(text)
 	}
 	finish = func() {
-		if len(calls) == 0 {
+		// Only the message form needs settling: a status line has nothing
+		// left to say once the reply that replaces it is on its way.
+		if messageID == "" {
 			return
 		}
 		render("Called " + strings.Join(calls, ", ") + ".")

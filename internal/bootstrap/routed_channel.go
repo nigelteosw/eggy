@@ -27,8 +27,8 @@ import (
 // Telegram fallback: a reply sent to the wrong surface reaches the wrong
 // person.
 //
-// It implements the optional ports.TrackableChannel and ports.TypingChannel
-// extensions unconditionally, because a Go type either has a method or it
+// It implements the optional ports.TrackableChannel, ports.TypingChannel and
+// ports.ProgressChannel extensions unconditionally, because a Go type either has a method or it
 // does not and the honest answer here ("trackable when this turn routes to
 // a trackable channel") is not expressible statically. The capability check
 // therefore moves inside each method, via the channelutil helpers, so a
@@ -118,6 +118,14 @@ func (r *routedChannel) EditText(ctx context.Context, messageID, text string) er
 		return err
 	}
 	return channelutil.EditText(ctx, channel, messageID, text)
+}
+
+func (r *routedChannel) ShowProgress(ctx context.Context, text string) error {
+	channel, err := r.route(ctx)
+	if err != nil {
+		return err
+	}
+	return channelutil.ShowProgress(ctx, channel, text)
 }
 
 func (r *routedChannel) SendTyping(ctx context.Context) error {

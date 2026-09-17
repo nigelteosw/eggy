@@ -131,3 +131,17 @@ func TestChannelDropsDeliveryForANonWebTurn(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestChannelShowProgressBroadcastsAProgressEvent(t *testing.T) {
+	hub := NewHub()
+	channel := New(hub)
+	_, events, unregister := hub.Register("owner", "thread-1")
+	defer unregister()
+
+	if err := channel.ShowProgress(webTurn("thread-1"), "Calling current_time..."); err != nil {
+		t.Fatal(err)
+	}
+	if event := recv(t, events); event.Kind != EventProgress || event.Text != "Calling current_time..." || event.ID != "" {
+		t.Fatalf("event=%#v", event)
+	}
+}

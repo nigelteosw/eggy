@@ -269,6 +269,16 @@ type TypingChannel interface {
 	SendTyping(ctx context.Context) error
 }
 
+// ProgressChannel is a Channel that can show what a turn is doing right now
+// -- "Calling web_search..." -- without that status becoming a message in
+// the conversation. A surface without it gets the same status as a
+// trackable message instead (see channelutil.ShowProgress), so the
+// extension only changes where the status is drawn, never whether it is.
+type ProgressChannel interface {
+	Channel
+	ShowProgress(ctx context.Context, text string) error
+}
+
 type AgentContext struct {
 	Soul   string `json:"soul"`
 	User   string `json:"user"`

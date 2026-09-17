@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { removeModelAlias } from "../src/api";
 import { ConfigPage } from "../src/ConfigPage";
-import { ModelRowActions, modelDraftForRow, openRouterProvidersOf, routingFromCell } from "../src/ModelsCard";
+import { ModelRowActions, catalogEffortsFor, modelDraftForRow, openRouterProvidersOf, routingFromCell } from "../src/ModelsCard";
 import { DataTable } from "../src/components/ui/data-table";
 
 const realFetch = globalThis.fetch;
@@ -90,4 +90,20 @@ test("the Models section keeps its restart action nearby", () => {
 
   expect(html).toContain("Restart Eggy");
   expect(html).toContain("New model choices appear in chat after restart");
+});
+
+test("the provider's catalog answers a typed model's reasoning efforts", () => {
+  const catalog = {
+    state: "success",
+    table_rows: [
+      ["deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "1000000", "max, high, low"],
+      ["openai/gpt-4.1", "GPT-4.1", "1000000", ""],
+    ],
+  } as const;
+
+  expect(catalogEffortsFor(catalog, "deepseek/deepseek-v4.1-flash")).toBe("max, high, low");
+  expect(catalogEffortsFor(catalog, "~deepseek/deepseek-v4.1-flash")).toBe("max, high, low");
+  expect(catalogEffortsFor(catalog, "openai/gpt-4.1")).toBe("");
+  expect(catalogEffortsFor(catalog, "nobody/nothing")).toBeNull();
+  expect(catalogEffortsFor(null, "deepseek/deepseek-v4.1-flash")).toBeNull();
 });

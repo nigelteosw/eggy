@@ -70,9 +70,11 @@ alone understands. Nothing here leaks into a request to any other provider.
   (Gemini, DeepSeek R1) is left alone. The catalog is fetched once per
   process, on first need.
 - **Effort levels from the catalog.** OpenRouter's `/models` says which
-  efforts each model accepts. Browsing shows them, picking a row pre-fills
-  `reasoning_efforts` from them, and `/model available` lists them beside
-  each ID.
+  efforts each model accepts. Browsing shows them, and the alias form fills
+  `reasoning_efforts` from them whether you pick a row or type the model ID
+  yourself; the field is only typed by hand for a provider that cannot list
+  its models, or after choosing to override the catalog's answer.
+  `/model available` lists them beside each ID.
 - **Reasoning replay.** OpenRouter's `reasoning_details` are carried back on
   the assistant message across tool-call rounds within a turn, unmodified, so
   Anthropic and OpenAI reasoning models keep their own thinking. The visible

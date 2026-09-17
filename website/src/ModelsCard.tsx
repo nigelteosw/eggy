@@ -50,6 +50,17 @@ export function openRouterProvidersOf(result: CommandResult | null): string[] {
   return value.split(",").map((name) => name.trim()).filter(Boolean);
 }
 
+// catalogEffortsFor reads what a provider's catalog says about one model's
+// reasoning efforts: the comma-separated list, "" for a model the catalog
+// lists without efforts, and null for a model the catalog does not list at
+// all (so nothing is known and the owner may still need to type them).
+export function catalogEffortsFor(catalog: CommandResult | null, model: string): string | null {
+  const wanted = model.trim().replace(/^~/, "");
+  if (!wanted) return null;
+  const row = catalog?.table_rows?.find((candidate) => candidate[0] === wanted);
+  return row ? row[3] ?? "" : null;
+}
+
 export function modelDraftForRow(row: string[]) {
   return {
     alias: row[0] ?? "",
@@ -87,6 +98,11 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [reasoningEfforts, setReasoningEfforts] = useState("");
+  // catalogEfforts is what the provider itself reports for the model in the
+  // form; null when the provider was not asked or does not list the model.
+  // overrideEfforts opens the free-text field on top of a catalog answer.
+  const [catalogEfforts, setCatalogEfforts] = useState<string | null>(null);
+  const [overrideEfforts, setOverrideEfforts] = useState(false);
   const [routing, setRouting] = useState<Routing>(EMPTY_ROUTING);
   const [editingAlias, setEditingAlias] = useState<string | null>(null);
   const [removingAlias, setRemovingAlias] = useState<string | null>(null);
@@ -101,6 +117,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   const [browsing, setBrowsing] = useState(false);
   const [browseError, setBrowseError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  // One catalog per provider per page: browsing and the model-field lookup
+  // share it, so typing a model after browsing costs no second fetch.
+  const catalogs = useRef(new Map<string, CommandResult>());
 
   // Providers that opted in to discovery ride along on the section itself,
   // as do the ones that are OpenRouter, which is what gates the routing
@@ -120,12 +139,20 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     return rows.filter((row) => row.some((cell) => cell.toLowerCase().includes(needle)));
   }, [catalog, filter]);
 
+  async function catalogFor(name: string): Promise<CommandResult> {
+    const cached = catalogs.current.get(name);
+    if (cached) return cached;
+    const fetched = await discoverModels(name);
+    catalogs.current.set(name, fetched);
+    return fetched;
+  }
+
   async function handleBrowse() {
     if (!browseProvider) return;
     setBrowsing(true);
     setBrowseError(null);
     try {
-      setCatalog(await discoverModels(browseProvider));
+      setCatalog(await catalogFor(browseProvider));
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
@@ -142,9 +169,31 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     setProvider(browseProvider);
     setModel(row[0]);
     if (!alias) setAlias(aliasFor(row[0]));
-    // The catalog's effort list is a starting point like the alias is: it
-    // fills an empty field and never overwrites one the owner has typed in.
-    if (!reasoningEfforts && row[3]) setReasoningEfforts(row[3]);
+    applyCatalogEfforts(row[3] ?? "");
+  }
+
+  // applyCatalogEfforts takes the provider's answer as the alias's efforts.
+  // The provider knows its own models better than a typed guess, so this
+  // does overwrite, unless the owner has explicitly opened the override.
+  function applyCatalogEfforts(efforts: string) {
+    setCatalogEfforts(efforts);
+    if (!overrideEfforts) setReasoningEfforts(efforts);
+  }
+
+  // lookupEfforts asks the provider about the model once the owner is done
+  // typing it. Only providers that opted in to discovery are asked; a
+  // provider that cannot list its models leaves the field to the owner.
+  async function lookupEfforts() {
+    const name = provider.trim();
+    if (!browsable.includes(name) || !model.trim()) return;
+    try {
+      const efforts = catalogEffortsFor(await catalogFor(name), model);
+      if (efforts === null) setCatalogEfforts(null);
+      else applyCatalogEfforts(efforts);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) onSessionExpired();
+      // Any other failure just leaves the field editable, as it was.
+    }
   }
 
   function resetForm() {
@@ -152,6 +201,8 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     setProvider("");
     setModel("");
     setReasoningEfforts("");
+    setCatalogEfforts(null);
+    setOverrideEfforts(false);
     setRouting(EMPTY_ROUTING);
     setEditingAlias(null);
   }
@@ -162,6 +213,8 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
     setProvider(draft.provider);
     setModel(draft.model);
     setReasoningEfforts(draft.reasoningEfforts);
+    setCatalogEfforts(null);
+    setOverrideEfforts(false);
     setRouting(draft.routing);
     setEditingAlias(draft.alias);
     setActionError(null);
@@ -314,16 +367,51 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           <summary className="cursor-pointer text-[12.5px] font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
-            <Input placeholder="provider" value={provider} onChange={(e) => setProvider(e.target.value)} required className={FIELD} />
-            <Input placeholder="model" value={model} onChange={(e) => setModel(e.target.value)} required className={cn(FIELD, "sm:col-span-2 font-mono")} />
+            <Input
+              placeholder="provider"
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value);
+                setCatalogEfforts(null);
+              }}
+              onBlur={lookupEfforts}
+              required
+              className={FIELD}
+            />
+            <Input
+              placeholder="model"
+              value={model}
+              onChange={(e) => {
+                setModel(e.target.value);
+                setCatalogEfforts(null);
+              }}
+              onBlur={lookupEfforts}
+              required
+              className={cn(FIELD, "sm:col-span-2 font-mono")}
+            />
+            {catalogEfforts !== null && (
+              <p className="text-xs text-neutral-700 sm:col-span-2" role="status">
+                {catalogEfforts ? `Reasoning efforts: ${catalogEfforts}` : "No reasoning efforts"} (from {provider.trim()})
+              </p>
+            )}
             <details className="sm:col-span-2">
               <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
-              <Input
-                placeholder="reasoning_efforts (comma-separated, optional)"
-                value={reasoningEfforts}
-                onChange={(e) => setReasoningEfforts(e.target.value)}
-                className={cn(FIELD, "mt-3")}
-              />
+              {/* The efforts field is typed only when the provider gave no
+                  answer, or the owner insists: a catalog answer is the
+                  provider's own and rarely worth second-guessing. */}
+              {catalogEfforts !== null && !overrideEfforts ? (
+                <Button type="button" variant="ghost" size="sm" className="mt-3" onClick={() => setOverrideEfforts(true)}>
+                  Override reasoning efforts
+                </Button>
+              ) : (
+                <Input
+                  placeholder="reasoning_efforts (comma-separated, optional)"
+                  aria-label="Reasoning efforts"
+                  value={reasoningEfforts}
+                  onChange={(e) => setReasoningEfforts(e.target.value)}
+                  className={cn(FIELD, "mt-3")}
+                />
+              )}
               {routable && (
                 <>
                   <p className="mt-3 text-[12.5px] font-medium">OpenRouter routing</p>

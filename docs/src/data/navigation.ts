@@ -41,6 +41,7 @@ export const navigation: readonly DocNavGroup[] = [
       { title: "Schedules and heartbeat", path: "/configure/automation", description: "Run turns you are not present for, paced by a watch list." },
       { title: "Google Workspace", path: "/configure/google-workspace", description: "Gmail, Calendar, Drive, Docs, Sheets and Contacts through one grant." },
       { title: "Web search", path: "/configure/web-search", description: "Search the open web and read pages with Tavily." },
+      { title: "Discord", path: "/configure/discord", description: "Talk to Eggy in a private Discord DM, with the bot added from the panel." },
       { title: "Repository inspection", path: "/configure/repositories", description: "Configure trusted read-only repository access." },
     ],
   },

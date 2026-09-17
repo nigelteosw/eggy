@@ -64,6 +64,10 @@ google:
   **Settings → Accounts** — see [Linking your Telegram](/eggy/use/telegram/#linking-your-telegram)
   — not by editing this field by hand. Someone who only uses the web panel
   leaves it unset; their scheduled output stays in their own history.
+- `discord_user_id` maps a Discord user to this account the same way, by
+  that person linking their own Discord from **Settings → Accounts** — see
+  [Discord](/eggy/configure/discord/). It is bound separately from Telegram;
+  the two never imply each other.
 - `web.google_login` names the Web application client. The secret is read from
   the environment variable named, never written to the file.
 - `google.expected_email` names Eggy's own Workspace user. Required when

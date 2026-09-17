@@ -45,6 +45,7 @@ type AccountRecord struct {
 	ID             string
 	Email          string
 	TelegramUserID int64
+	DiscordUserID  string
 }
 
 // csrfHeader carries the per-session CSRF token on every mutating request.

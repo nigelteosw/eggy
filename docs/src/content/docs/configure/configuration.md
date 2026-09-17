@@ -14,7 +14,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `data_dir` | Durable artifact root |
 | `owner` | Canonical single-owner identity (legacy shape) |
 | `telegram` | Optional numeric Telegram owner (legacy shape) |
-| `accounts` | The people who may use this Eggy, each with a Google address and optional Telegram sender |
+| `accounts` | The people who may use this Eggy, each with a Google address and optional Telegram and Discord identities |
 | `web` | The Google sign-in client for accounts |
 | `agent` | Default model alias and timezone |
 | `providers` | Model adapter connections and catalog discovery |
@@ -24,6 +24,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `mcp` | Optional trusted remote or local servers |
 | `google` | Optional Google Workspace grant, Eggy's expected identity, products, and approval overrides |
 | `tavily` | Optional web search and page extraction |
+| `discord` | Optional Discord DM bot; the token is set from the panel, not here |
 | `heartbeat` | Optional periodic check-in that speaks only when warranted |
 | `approvals` | Where a fresh deployment's approval mode starts |
 | `appearance` | Web panel theme |
@@ -35,6 +36,7 @@ Each section links to the guide that explains it:
 [MCP servers](/eggy/configure/mcp-servers/),
 [Google Workspace](/eggy/configure/google-workspace/),
 [web search](/eggy/configure/web-search/),
+[Discord](/eggy/configure/discord/),
 [repositories](/eggy/configure/repositories/),
 [schedules and heartbeat](/eggy/configure/automation/), and
 [approvals](/eggy/use/approvals/).

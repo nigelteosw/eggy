@@ -25,6 +25,9 @@ accounts:
     # Optional: the numeric Telegram user that speaks for this account. Never
     # a username. Leave it out for a web-only person.
     telegram_user_id: 123456789
+    # Optional: the Discord user that speaks for this account, bound by that
+    # person linking their own Discord from Settings. Never a username.
+    discord_user_id: "123456789012345678"
   - id: partner
     google_email: partner@example.com
 web:

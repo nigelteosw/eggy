@@ -102,11 +102,22 @@ should only ever add a new package under
 
 - Telegram keeps webhook authentication, sender allowlisting (numeric IDs
   mapped to accounts, private chats only), and update deduplication.
+- Discord is private DMs only: one bot, linked users mapped to accounts through
+  single-use tokens, one-to-one DMs verified against the recipient. Guild
+  channels, threads, group DMs, bots, and webhooks never enter the harness,
+  and a Discord destination is delivered to Discord or not at all -- never
+  redirected to Telegram. The SDK is confined to
+  `plugins/channels/discord/client.go` behind a fakeable transport.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
   consolidates their approvals.
 - Generic Telegram selections can never satisfy an approval, authorize a
-  mutation, or be read as approve/reject.
+  mutation, or be read as approve/reject. Discord has no decision surface at
+  all: an approval raised there is a notice pointing at the web panel.
+- Chat-connection credentials an owner sets from the panel (a Discord bot
+  token today) live sealed in `plugins/auth/connections`, keyed by
+  connection, never in `config.yaml`. The environment variable is an
+  operator override, not a boot requirement.
 - Eggy has no repository commit, push, pull-request, or merge capability. If any
   returns, independent payload-bound approvals and protected-branch denial are
   mandatory, and none of it arrives as a side effect of another change.

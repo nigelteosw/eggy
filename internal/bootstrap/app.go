@@ -49,6 +49,10 @@ type AppOptions struct {
 	Now          func() time.Time
 	Logger       *slog.Logger
 	FakeAdapters bool
+	// discordTransport replaces the DiscordGo client in package tests, so
+	// the whole wiring -- intake, dispatch, turn, delivery -- runs over a
+	// fake gateway. Unexported: it is not a supported option.
+	discordTransport discordTransport
 }
 
 // maxToolStepsPerTurn is no longer a work cap. A turn that outgrows its
@@ -83,6 +87,7 @@ type App struct {
 	workspaces  *repo.WorkspaceSessions
 	mcp         *mcpadapter.Manager
 	database    *sqlitestore.Store
+	discord     discordWiring
 	accounts    web.AccountDirectory
 	now         func() time.Time
 	// location is the owner's timezone, resolved once at construction. The
@@ -190,7 +195,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	telegramSurface := newTelegramWiring(config, secrets, options, app.accounts, consumePairing)
 	connectionCredentials := openConnectionCredentials(database, secrets, options.Logger)
-	app.channel = newRoutedChannel(telegramSurface.channel, webChannel, nil)
+	app.discord = newDiscordWiring(config, secrets, options, app.accounts, connectionCredentials, app.Enqueue, identityLinks)
+	app.channel = newRoutedChannel(telegramSurface.channel, webChannel, app.discord.channel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
 	// The channel is already routed by context, so an approval asked during a
 	// Telegram turn arrives in Telegram and one asked in web chat arrives there.
@@ -492,6 +498,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		webConfig.Connections = connectionCredentials
 	}
 	webConfig.DiscordLinking = config.DiscordEnabled()
+	webConfig.DiscordRunning = app.discord.running()
 	webConfig.DiscordApplicationID = config.Discord.ApplicationID
 	webHandler := web.NewWebHandler(options.ConfigPath, webConfig)
 	app.httpHandler = web.NewHTTPHandler(web.Routes{

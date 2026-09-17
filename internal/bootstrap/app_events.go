@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -442,6 +443,15 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.scheduler.Recover(ctx); err != nil {
 		return err
 	}
+	// The gateway opens after recovery. On the way out it closes before the
+	// deferred workers.Wait drains in-flight turns: intake stops first, and
+	// replies still go out, because sends are REST calls that need no
+	// gateway. Close is idempotent, so a restart closes the old transport
+	// exactly once.
+	if err := a.discord.open(ctx, a.logger); err != nil {
+		return fmt.Errorf("open discord gateway: %w", err)
+	}
+	defer a.discord.close(a.logger)
 	scheduleTicker := time.NewTicker(time.Minute)
 	defer scheduleTicker.Stop()
 	heartbeat := a.heartbeatTicks()

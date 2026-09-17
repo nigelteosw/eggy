@@ -23,6 +23,7 @@ docker run --detach --name "$container" \
   --env EGGY_PUBLIC_BASE_URL=https://eggy-smoke.example \
   --env TELEGRAM_BOT_TOKEN=fake \
   --env TELEGRAM_WEBHOOK_SECRET=fake-webhook \
+  --env DISCORD_BOT_TOKEN=smoke-discord-secret \
   --env DEEPSEEK_API_KEY=smoke-provider-secret \
   --volume "$data_dir:/data" \
   "$image" >/dev/null
@@ -47,5 +48,8 @@ for context_file in SOUL.md accounts/42/memories/USER.md accounts/42/memories/ME
   docker exec "$container" sh -c "test \"\$(stat -c %a /data/$context_file)\" = 600"
 done
 docker exec "$container" sh -c '! grep -R -F "smoke-provider-secret" /data/config.yaml /data/SOUL.md /data/accounts'
+# A bot token in the environment is a redaction target like every other
+# credential, and with fake adapters no Discord gateway is ever opened.
+docker exec "$container" sh -c '! grep -R -F "smoke-discord-secret" /data/config.yaml /data/SOUL.md /data/accounts'
 docker exec "$container" curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null
 echo "Eggy Docker smoke test passed"

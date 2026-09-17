@@ -132,15 +132,12 @@ type ToolCall struct {
 }
 
 type ModelRequest struct {
-	Model           string           `json:"model"`
-	Messages        []Message        `json:"messages"`
-	Tools           []ToolDefinition `json:"tools,omitempty"`
-	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
-	// ReasoningSupported says the selected alias declares reasoning-effort
-	// levels. With it set and ReasoningEffort empty, the owner has chosen no
-	// level, and an adapter that can say so tells the provider to reason not
-	// at all rather than leaving a reason-by-default model to its own devices.
-	ReasoningSupported bool `json:"reasoning_supported,omitempty"`
+	Model    string           `json:"model"`
+	Messages []Message        `json:"messages"`
+	Tools    []ToolDefinition `json:"tools,omitempty"`
+	// ReasoningEffort is the level the owner chose, or empty for the
+	// provider's own default for the model.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// ProviderRouting is the alias's provider-specific routing preference,
 	// already in the provider's own wire shape. Only the adapter it was
 	// written for understands it; the kernel passes it through untouched.

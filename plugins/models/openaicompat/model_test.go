@@ -162,52 +162,20 @@ func TestOpenRouterLeavesNonAnthropicModelsUncached(t *testing.T) {
 	}
 }
 
-func TestOpenRouterNestsReasoningEffortAndSaysNoneOnlyWhereOptional(t *testing.T) {
-	body := openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ReasoningEffort: "high", ReasoningSupported: true})
+func TestOpenRouterNestsReasoningEffortAndLeavesTheDefaultToOpenRouter(t *testing.T) {
+	body := openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ReasoningEffort: "high"})
 	if !strings.Contains(body, `"reasoning":{"effort":"high"}`) || strings.Contains(body, "reasoning_effort") {
 		t.Fatalf("body=%s, want nested reasoning.effort only", body)
 	}
-	body = openRouterRequestBody(t, ports.ModelRequest{Model: "~anthropic/claude-sonnet-4.6", ReasoningSupported: true})
-	if !strings.Contains(body, `"reasoning":{"effort":"none"}`) {
-		t.Fatalf("body=%s, want reasoning turned off when the alias offers levels, none is chosen, and the catalog allows it", body)
+	if body = openRouterRequestBody(t, ports.ModelRequest{Model: "openai/gpt-5", ReasoningEffort: "none"}); !strings.Contains(body, `"reasoning":{"effort":"none"}`) {
+		t.Fatalf("body=%s, want an explicit none passed through", body)
 	}
-	for _, model := range []string{"google/gemini-2.5-pro", "vendor/unlisted"} {
-		if body = openRouterRequestBody(t, ports.ModelRequest{Model: model, ReasoningSupported: true}); strings.Contains(body, "reasoning") {
-			t.Fatalf("body=%s, want no reasoning field for %s, which cannot be switched off or is unknown", body, model)
+	// No chosen effort is OpenRouter's default for the model, not Eggy's
+	// guess: the request says nothing about reasoning at all.
+	for _, model := range []string{"~anthropic/claude-sonnet-4.6", "google/gemini-2.5-pro", "vendor/unlisted"} {
+		if body = openRouterRequestBody(t, ports.ModelRequest{Model: model}); strings.Contains(body, "reasoning") {
+			t.Fatalf("body=%s, want no reasoning field for %s without a chosen effort", body, model)
 		}
-	}
-	body = openRouterRequestBody(t, ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6"})
-	if strings.Contains(body, "reasoning") {
-		t.Fatalf("body=%s, want no reasoning field for an alias without levels", body)
-	}
-}
-
-func TestOpenRouterFetchesTheCatalogOnceAndRetriesAfterFailure(t *testing.T) {
-	listings, fail := 0, true
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if strings.HasSuffix(request.URL.Path, "/models") {
-			listings++
-			if fail {
-				return jsonResponse(http.StatusNotFound, `{}`), nil
-			}
-			return jsonResponse(http.StatusOK, openRouterCatalog), nil
-		}
-		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
-	})}
-	model := New("https://openrouter.ai/api/v1", "key", client)
-	request := ports.ModelRequest{Model: "anthropic/claude-sonnet-4.6", ReasoningSupported: true}
-	if _, err := model.Generate(context.Background(), request); err != nil {
-		t.Fatal(err)
-	}
-	fail = false
-	for range 3 {
-		if _, err := model.Generate(context.Background(), request); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// One failed listing that was not cached, then one that was.
-	if listings != 2 {
-		t.Fatalf("listings=%d, want the catalog fetched again after a failure and then kept", listings)
 	}
 }
 

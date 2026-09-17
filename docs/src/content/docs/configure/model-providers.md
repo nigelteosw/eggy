@@ -63,12 +63,10 @@ alone understands. Nothing here leaks into a request to any other provider.
   `cache_control: ephemeral`, OpenRouter's recommended form for multi-turn
   chats.
 - **Reasoning.** The effort is sent as OpenRouter's nested `reasoning.effort`
-  rather than `reasoning_effort`. When an alias declares `reasoning_efforts`
-  and none is selected, `effort: none` is sent explicitly, so a model that
-  reasons by default does not keep doing so unasked — but only for a model
-  OpenRouter's catalog says can be switched off. One that always reasons
-  (Gemini, DeepSeek R1) is left alone. The catalog is fetched once per
-  process, on first need.
+  rather than `reasoning_effort`. With no effort selected, nothing is sent
+  and the model runs at OpenRouter's own default for it (the catalog's
+  `default_effort`). To turn reasoning off, pick `none` — models that allow
+  it list it among their efforts.
 - **Effort levels from the catalog.** OpenRouter's `/models` says which
   efforts each model accepts. Browsing shows them, and the alias form fills
   `reasoning_efforts` from them whether you pick a row or type the model ID

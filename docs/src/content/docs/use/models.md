@@ -62,13 +62,13 @@ models:
     reasoning_efforts: [low, medium, high, max]
 ```
 
-Eggy accepts `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. When an effort is selected
-for an alias, the OpenAI-compatible adapter sends it as `reasoning_effort`
-(OpenRouter's nested `reasoning.effort` on an OpenRouter provider). For aliases
-without declared values, no effort parameter is sent at all — an empty list is
-the off switch, not a default. An alias *with* declared values and no current
-selection tells OpenRouter `effort: none`, so a reason-by-default model stays
-off until a level is picked.
+Eggy accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. When an
+effort is selected for an alias, the OpenAI-compatible adapter sends it as
+`reasoning_effort` (OpenRouter's nested `reasoning.effort` on an OpenRouter
+provider). With no selection, no effort parameter is sent and the model runs
+at the provider's own default — for OpenRouter that is the catalog's
+`default_effort`, usually `medium` or `high`. To keep a reason-by-default
+model quiet, pick `none`; models that allow it list it among their efforts.
 
 On OpenRouter an alias can also pin which upstream vendors serve it; see
 [Model providers](/eggy/configure/model-providers/).

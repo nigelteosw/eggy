@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
@@ -26,14 +25,6 @@ type Model struct {
 	// and cache hints. Keeping the switch here prevents those fields leaking
 	// into providers that implement only the standard Chat Completions shape.
 	openRouter bool
-	// catalog caches what OpenRouter's /models says about each model's
-	// reasoning, fetched once per process on first need. Telling a model
-	// not to reason is only correct for one that can be told, and the
-	// catalog is the only place that says which those are.
-	catalog struct {
-		sync.Mutex
-		reasoning map[string]*ports.CatalogReasoning
-	}
 }
 
 func New(baseURL, apiKey string, client *http.Client) *Model {
@@ -173,13 +164,10 @@ func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (req
 		body.ReasoningEffort = ""
 		if input.ReasoningEffort != "" {
 			body.Reasoning = &reasoningOptions{Effort: input.ReasoningEffort}
-		} else if input.ReasoningSupported && m.reasoningOptional(ctx, input.Model) {
-			// The alias offers levels and none is chosen: say so, otherwise
-			// a model that reasons by default keeps doing it. Only for a
-			// model the catalog says can be switched off -- one that always
-			// reasons is left alone rather than sent a parameter it refuses.
-			body.Reasoning = &reasoningOptions{Effort: "none"}
 		}
+		// No effort chosen means OpenRouter's own default for the model,
+		// which its catalog reports as default_effort. An owner who wants
+		// reasoning off picks "none" from the levels, where offered.
 	}
 	for _, message := range input.Messages {
 		translated, err := m.translateMessage(message)
@@ -284,27 +272,6 @@ func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 		ReasoningTokens:    result.Usage.CompletionTokenDetails.ReasoningTokens,
 		CostUSD:            result.Usage.Cost,
 	}}, nil
-}
-
-// reasoningOptional reports whether OpenRouter's catalog says model reasons
-// and can be told not to. Unknown -- the model is not listed, or the catalog
-// could not be fetched -- reads as false, so nothing is sent that the model
-// might reject. A failed fetch is not cached, so the next call tries again.
-func (m *Model) reasoningOptional(ctx context.Context, model string) bool {
-	m.catalog.Lock()
-	defer m.catalog.Unlock()
-	if m.catalog.reasoning == nil {
-		models, err := m.ListModels(ctx)
-		if err != nil {
-			return false
-		}
-		m.catalog.reasoning = make(map[string]*ports.CatalogReasoning, len(models))
-		for _, entry := range models {
-			m.catalog.reasoning[entry.ID] = entry.Reasoning
-		}
-	}
-	reasoning, ok := m.catalog.reasoning[strings.TrimPrefix(model, "~")]
-	return ok && reasoning != nil && !reasoning.Mandatory
 }
 
 func isOpenRouterURL(baseURL string) bool {

@@ -695,7 +695,9 @@ var (
 	branchPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 	configuredNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	environmentNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
-	validReasoningEfforts  = map[string]bool{"minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	// validReasoningEfforts is the union of what OpenRouter's catalog reports
+	// across models; "none" is how a reason-by-default model is switched off.
+	validReasoningEfforts = map[string]bool{"none": true, "minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 )
 
 // TavilyConfig is Eggy's reach into the open web: web_search finds pages,

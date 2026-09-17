@@ -213,7 +213,7 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 			return modelCatalog{}, fmt.Errorf("model alias %q provider %q is unavailable", alias, configured.Provider)
 		}
 		catalog.aliases = append(catalog.aliases, alias)
-		target := agent.ModelTarget{Model: model, ModelID: configured.Model, Reasoning: len(configured.ReasoningEfforts) > 0}
+		target := agent.ModelTarget{Model: model, ModelID: configured.Model}
 		if configured.OpenRouter != nil {
 			// Marshalled once here into OpenRouter's own `provider` object;
 			// the adapter forwards the bytes and the kernel never reads them.

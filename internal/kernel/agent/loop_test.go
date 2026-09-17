@@ -56,7 +56,7 @@ func TestLoopReplaysProviderReasoningAndPassesTargetSettings(t *testing.T) {
 		{Message: ports.Message{Role: ports.RoleAssistant, Content: "ready"}},
 	}}
 	routing := json.RawMessage(`{"order":["anthropic"]}`)
-	loop := NewSelectedLoop(map[string]ModelTarget{"sonnet": {Model: model, ModelID: "anthropic/claude", Reasoning: true, ProviderRouting: routing}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
+	loop := NewSelectedLoop(map[string]ModelTarget{"sonnet": {Model: model, ModelID: "anthropic/claude", ProviderRouting: routing}}, StaticTools{&fakeTool{name: "status", result: json.RawMessage(`{}`)}}, ContextPolicy{})
 	if _, err := loop.Run(context.Background(), "sonnet", "", ports.Message{Content: "status"}, nil, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestLoopReplaysProviderReasoningAndPassesTargetSettings(t *testing.T) {
 		t.Fatalf("requests=%d", len(model.requests))
 	}
 	for _, request := range model.requests {
-		if !request.ReasoningSupported || string(request.ProviderRouting) != string(routing) {
+		if string(request.ProviderRouting) != string(routing) {
 			t.Fatalf("request=%#v, want target settings on every request", request)
 		}
 	}

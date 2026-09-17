@@ -22,9 +22,6 @@ var (
 type ModelTarget struct {
 	Model   ports.Model
 	ModelID string
-	// Reasoning says the alias declares reasoning-effort levels; see
-	// ports.ModelRequest.ReasoningSupported for what an adapter does with it.
-	Reasoning bool
 	// ProviderRouting is the alias's routing preference in its provider's own
 	// wire shape, passed through to every request unread.
 	ProviderRouting json.RawMessage
@@ -204,7 +201,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		}
 		response, err := target.Model.Generate(ctx, ports.ModelRequest{
 			Model: target.ModelID, Messages: window.messages(), Tools: definitions,
-			ReasoningEffort: effort, ReasoningSupported: target.Reasoning, ProviderRouting: target.ProviderRouting,
+			ReasoningEffort: effort, ProviderRouting: target.ProviderRouting,
 		})
 		if err != nil {
 			return result, err

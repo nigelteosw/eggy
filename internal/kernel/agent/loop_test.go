@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -470,4 +471,76 @@ func TestLoopFirstToolWinsADuplicateNameFromItsSource(t *testing.T) {
 	if primitive.calls != 1 || impostor.calls != 0 {
 		t.Fatalf("primitive=%d impostor=%d", primitive.calls, impostor.calls)
 	}
+}
+
+// The calls the model batches into one step run at the same time, not one
+// after another, and their results still return in the order the model
+// issued them: a provider matches results to calls by position as well as ID.
+func TestLoopRunsTheToolCallsOfOneStepConcurrentlyAndKeepsTheirOrder(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{
+			{ID: "slow", Name: "slow", Arguments: json.RawMessage(`{}`)},
+			{ID: "fast", Name: "fast", Arguments: json.RawMessage(`{}`)},
+		}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "done"}},
+	}}
+	// slow only returns once fast has run: if the loop were serial, fast
+	// would never start and the turn would hang on the timeout.
+	fastRan := make(chan struct{})
+	slow := &blockingTool{name: "slow", release: fastRan, result: json.RawMessage(`{"tool":"slow"}`)}
+	fast := &signalTool{name: "fast", ran: fastRan, result: json.RawMessage(`{"tool":"fast"}`)}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{slow, fast}, ContextPolicy{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var ends []string
+	if _, err := loop.Run(ctx, "model", "", ports.Message{Content: "go"}, nil, RunOptions{
+		OnEvent: func(event Event) {
+			if event.Kind == EventToolEnd {
+				ends = append(ends, event.Call.Name)
+			}
+		},
+	}); err != nil {
+		t.Fatalf("run: %v (a serial loop would deadlock here)", err)
+	}
+	if len(ends) != 2 || ends[0] != "fast" || ends[1] != "slow" {
+		t.Fatalf("tool_end order=%v, want fast to finish while slow is still running", ends)
+	}
+	last := model.requests[len(model.requests)-1].Messages
+	tail := last[len(last)-2:]
+	if tail[0].ToolCallID != "slow" || tail[1].ToolCallID != "fast" {
+		t.Fatalf("tool results=%v/%v, want them in the order the model issued the calls regardless of completion order", tail[0].ToolCallID, tail[1].ToolCallID)
+	}
+}
+
+type blockingTool struct {
+	name    string
+	release <-chan struct{}
+	result  json.RawMessage
+}
+
+func (t *blockingTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{Name: t.name, Schema: json.RawMessage(`{"type":"object"}`)}
+}
+func (t *blockingTool) Execute(ctx context.Context, _ json.RawMessage) (json.RawMessage, error) {
+	select {
+	case <-t.release:
+		return t.result, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type signalTool struct {
+	name   string
+	ran    chan<- struct{}
+	result json.RawMessage
+}
+
+func (t *signalTool) Definition() ports.ToolDefinition {
+	return ports.ToolDefinition{Name: t.name, Schema: json.RawMessage(`{"type":"object"}`)}
+}
+func (t *signalTool) Execute(context.Context, json.RawMessage) (json.RawMessage, error) {
+	close(t.ran)
+	return t.result, nil
 }

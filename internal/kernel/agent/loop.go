@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -166,10 +167,17 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		input.Role = ports.RoleUser
 		messages = append(messages, input)
 	}
+	// Tool calls in a step finish concurrently, and the observer on the other
+	// end -- the progress indicator, the trace -- is written as a plain
+	// callback, so events are serialized here rather than at every consumer.
+	var emitMu sync.Mutex
 	emit := func(event Event) {
-		if options.OnEvent != nil {
-			options.OnEvent(event)
+		if options.OnEvent == nil {
+			return
 		}
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		options.OnEvent(event)
 	}
 	// preserved is everything the caller handed in: instructions, durable
 	// context, recent conversation, and the request itself. Compaction only
@@ -218,28 +226,44 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		}
 		window.tail = append(window.tail, assistant)
 		emit(Event{Kind: EventAssistantMessage, Message: assistant})
-		for _, call := range assistant.ToolCalls {
+		// Every call in the step is resolved against the catalog before any
+		// of them runs: an unknown or disallowed name fails the step outright,
+		// and it should not have half the step's side effects behind it.
+		resolved := make([]ports.Tool, len(assistant.ToolCalls))
+		for i, call := range assistant.ToolCalls {
 			tool, ok := tools[call.Name]
-			if !ok {
+			if !ok || !allowsCall(options, call) {
 				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
 			}
-			if !allowsCall(options, call) {
-				return result, fmt.Errorf("%w: %s", ErrUnknownTool, call.Name)
-			}
-			emit(Event{Kind: EventToolStart, Call: call})
-			output, toolErr := tool.Execute(ctx, call.Arguments)
-			kind := EventToolEnd
-			if toolErr != nil {
-				output, _ = json.Marshal(map[string]string{"error": toolErr.Error()})
-				kind = EventToolError
-			}
-			// Bounded here rather than at compaction time: the newest step is
-			// never folded away, so an unbounded result would otherwise be the
-			// one input that can evade the budget entirely.
-			toolMessage := ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: l.policy.boundToolResult(string(output))}
-			window.tail = append(window.tail, toolMessage)
-			emit(Event{Kind: kind, Call: call, Output: string(output), Err: toolErr, Message: toolMessage})
+			resolved[i] = tool
 		}
+		// The calls in one step run concurrently. The model batched them
+		// because none depends on another's result -- a memory update and a
+		// web search, say -- so waiting on them one at a time only adds their
+		// latencies. Their results still join the history in the order the
+		// model issued them, which is the order providers expect them back.
+		toolMessages := make([]ports.Message, len(assistant.ToolCalls))
+		var wg sync.WaitGroup
+		for i, call := range assistant.ToolCalls {
+			emit(Event{Kind: EventToolStart, Call: call})
+			wg.Add(1)
+			go func(i int, call ports.ToolCall, tool ports.Tool) {
+				defer wg.Done()
+				output, toolErr := tool.Execute(ctx, call.Arguments)
+				kind := EventToolEnd
+				if toolErr != nil {
+					output, _ = json.Marshal(map[string]string{"error": toolErr.Error()})
+					kind = EventToolError
+				}
+				// Bounded here rather than at compaction time: the newest step is
+				// never folded away, so an unbounded result would otherwise be the
+				// one input that can evade the budget entirely.
+				toolMessages[i] = ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: l.policy.boundToolResult(string(output))}
+				emit(Event{Kind: kind, Call: call, Output: string(output), Err: toolErr, Message: toolMessages[i]})
+			}(i, call, resolved[i])
+		}
+		wg.Wait()
+		window.tail = append(window.tail, toolMessages...)
 		steps++
 	}
 }

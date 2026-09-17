@@ -34,12 +34,25 @@ type WebUIConfig struct {
 	// AccountMode switches the panel from the single-owner password login to
 	// Google Sign-In with revocable sessions. Sessions and Accounts must be
 	// set with it; the password and login-link routes are not mounted.
-	AccountMode         bool
-	Sessions            SessionStore
-	Accounts            AccountDirectory
-	InitializeAccount   func(string) error
-	TelegramPairings    TelegramPairingStore
+	AccountMode       bool
+	Sessions          SessionStore
+	Accounts          AccountDirectory
+	InitializeAccount func(string) error
+	// IdentityLinks mints and cancels the single-use tokens that bind a
+	// chat sender to an account, for every connection. Nil when no chat
+	// connection is enabled.
+	IdentityLinks       IdentityLinkStore
 	TelegramBotUsername string
+	// DiscordLinking mounts the Discord link routes; DiscordApplicationID
+	// lets the card offer a direct DM link; DiscordRunning reports whether
+	// this process holds a live bot connection.
+	DiscordLinking       bool
+	DiscordApplicationID string
+	DiscordRunning       bool
+	// Connections is the sealed credential store bot tokens are saved into
+	// from the panel. Nil without an encryption key, in which case the
+	// Discord card explains what to set.
+	Connections ConnectionCredentials
 	// GoogleLogin, Identities and LoginSealer are the Sign-In routes'
 	// collaborators. All three are required in account mode.
 	GoogleLogin GoogleLogin
@@ -285,10 +298,18 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/config/login", guard(loginClientSetRoute(configPath)))
 	mux.Handle("POST /api/config/google/expected-email", guard(expectedEmailSetRoute(configPath)))
 	mux.Handle("POST /api/config/telegram/enabled", guard(telegramEnabledRoute(configPath, webConfig)))
-	if webConfig.TelegramPairings != nil {
-		mux.Handle("POST /api/accounts/{id}/telegram/pairing", guard(telegramPairingCreateRoute(webConfig.TelegramPairings, webConfig.TelegramBotUsername, cryptoRead, now)))
-		mux.Handle("DELETE /api/accounts/{id}/telegram", guard(telegramUnlinkRoute(configPath, webConfig.TelegramPairings)))
+	if webConfig.IdentityLinks != nil && webConfig.TelegramBotUsername != "" {
+		mux.Handle("POST /api/accounts/{id}/telegram/pairing", guard(telegramPairingCreateRoute(webConfig.IdentityLinks, webConfig.TelegramBotUsername, cryptoRead, now)))
 	}
+	mux.Handle("DELETE /api/accounts/{id}/telegram", guard(telegramUnlinkRoute(configPath, webConfig.IdentityLinks)))
+	if webConfig.IdentityLinks != nil && webConfig.DiscordLinking {
+		mux.Handle("POST /api/accounts/{id}/discord/link", guard(discordLinkCreateRoute(webConfig.IdentityLinks, webConfig.DiscordApplicationID, cryptoRead, now)))
+	}
+	mux.Handle("DELETE /api/accounts/{id}/discord", guard(discordUnlinkRoute(configPath, webConfig.IdentityLinks)))
+	// The Discord card: config plus the one credential set from the panel.
+	mux.Handle("GET /api/config/discord", guard(discordGetRoute(configPath, webConfig)))
+	mux.Handle("POST /api/config/discord", guard(discordSetRoute(configPath, webConfig)))
+	mux.Handle("DELETE /api/config/discord/token", guard(discordTokenClearRoute(webConfig)))
 
 	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))

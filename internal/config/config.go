@@ -39,6 +39,8 @@ type Config struct {
 	DataDir  string         `yaml:"data_dir"`
 	Owner    OwnerConfig    `yaml:"owner,omitempty"`
 	Telegram TelegramConfig `yaml:"telegram,omitempty"`
+	// Discord is the optional personal Discord DM channel; see discord.go.
+	Discord DiscordConfig `yaml:"discord,omitempty"`
 	// Accounts is the explicit allowlist of people who may use this
 	// deployment. Set, it replaces owner.id and telegram.owner_id, and every
 	// browser login goes through Google Sign-In (web.google_login). See
@@ -476,6 +478,7 @@ type MCPToolFilterConfig struct {
 type Secrets struct {
 	TelegramBotToken      string
 	TelegramWebhookSecret string
+	DiscordBotToken       string
 	ProviderAPIKeys       map[string]string
 	GitHubToken           string
 	EncryptionKey         string
@@ -495,7 +498,7 @@ type Secrets struct {
 // values are skipped: redacting "" would replace every byte of every line.
 func (s Secrets) Values() []string {
 	values := []string{
-		s.TelegramBotToken, s.TelegramWebhookSecret, s.GitHubToken,
+		s.TelegramBotToken, s.TelegramWebhookSecret, s.DiscordBotToken, s.GitHubToken,
 		s.EncryptionKey,
 		s.GoogleClientSecret,
 		s.GoogleLoginClientSecret,
@@ -529,6 +532,7 @@ func (s Secrets) Values() []string {
 func SecretsFromEnv(getenv func(string) string) Secrets {
 	return Secrets{
 		TelegramBotToken: getenv("TELEGRAM_BOT_TOKEN"), TelegramWebhookSecret: getenv("TELEGRAM_WEBHOOK_SECRET"),
+		DiscordBotToken:       getenv(DiscordBotTokenEnv),
 		GitHubToken:           getenv("GITHUB_TOKEN"),
 		EncryptionKey:         getenv("EGGY_ENCRYPTION_KEY"),
 		UIUserEmail:           getenv("EGGY_UI_USER_EMAIL"),

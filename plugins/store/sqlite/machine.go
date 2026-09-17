@@ -25,7 +25,11 @@ import (
 // by account as well as by their old key. A version-6 binary refuses a 7
 // database, which is deliberate -- it would read every account's records as
 // one owner's.
-const MachineStateVersion = 8
+//
+// 9 generalises Telegram pairing tokens into identity_links keyed by
+// connection, so a Discord linking token and a Telegram one are the same
+// record with a different connection.
+const MachineStateVersion = 9
 
 const machineStateVersionKey = "machine_state_version"
 

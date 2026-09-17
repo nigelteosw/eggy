@@ -65,6 +65,9 @@ func (c Config) Validate() error {
 	if err := c.validateAccounts(); err != nil {
 		return err
 	}
+	if err := c.validateDiscord(); err != nil {
+		return err
+	}
 	u, err := url.Parse(c.Server.PublicBaseURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return errors.New("server.public_base_url must be an HTTP(S) URL")

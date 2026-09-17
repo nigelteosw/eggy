@@ -31,6 +31,10 @@ type AccountConfig struct {
 	// means this person does not use Telegram. Never a username: those are
 	// reassignable.
 	TelegramUserID int64 `yaml:"telegram_user_id,omitempty"`
+	// DiscordUserID is the opaque Discord user that maps onto this account,
+	// bound by redeeming a linking token in a DM. Empty means this person does
+	// not use Discord.
+	DiscordUserID string `yaml:"discord_user_id,omitempty"`
 }
 
 // WebConfig holds the inbound login settings. It is separate from

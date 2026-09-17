@@ -15,9 +15,15 @@ import {
   setLoginClient,
   createTelegramPairing,
   unlinkTelegram,
+  createDiscordLink,
+  unlinkDiscord,
+  getDiscord,
+  setDiscord,
+  clearDiscordToken,
 } from "../src/api";
 import { LoginPage } from "../src/LoginPage";
-import { AccountsCard, AccountsList, ConvertForm, ResetBindingConfirm, TelegramLinkControl } from "../src/AccountsCard";
+import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, ResetBindingConfirm, TelegramLinkControl } from "../src/AccountsCard";
+import { DiscordCard, describeDiscord } from "../src/DiscordCard";
 import { GoogleIdentity } from "../src/GoogleCard";
 import { ConfigPage } from "../src/ConfigPage";
 import { AppNavigation } from "../src/App";
@@ -198,4 +204,63 @@ test("settings navigation includes accounts", () => {
   const html = renderToStaticMarkup(createElement(ConfigPage, { theme: "dark", onThemeChange: () => {}, onSessionExpired: () => {} }));
   const labels = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
   expect(labels).toContain("Accounts");
+});
+
+test("Discord linking is a single-use command sent to the bot, never an ID typed in", async () => {
+  const html = renderToStaticMarkup(createElement(DiscordLinkControl, {
+    account: { id: "nigel", email: "nigel@example.com", enrolled: true, signed_in: true, self: true },
+    available: true,
+    onError: () => {},
+  }));
+  expect(html).toContain("Link Discord");
+  expect(html).not.toContain("Discord user ID");
+  const other = renderToStaticMarkup(createElement(DiscordLinkControl, {
+    account: { id: "partner", email: "partner@example.com", enrolled: true, signed_in: false, self: false },
+    available: true,
+    onError: () => {},
+  }));
+  expect(other).toBe("");
+  const calls = fakeFetch((call) => call.method === "POST" ? { command: "/link token", expires_at: "2026-09-13T00:10:00Z" } : { state: "success" });
+  expect((await createDiscordLink("nigel")).command).toBe("/link token");
+  await unlinkDiscord("nigel");
+  expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+    "POST /api/accounts/nigel/discord/link",
+    "DELETE /api/accounts/nigel/discord",
+  ]);
+});
+
+test("the accounts list shows Discord status only when Discord is enabled", () => {
+  const props = {
+    accounts: [{ id: "nigel", email: "nigel@example.com", discord_user_id: "1001", enrolled: true, signed_in: true, self: true }],
+    telegramEnabled: false,
+    pairingAvailable: false,
+    onEdit: () => {},
+    onRemove: () => {},
+    onReset: () => {},
+    onShowSteps: () => {},
+    onError: () => {},
+  };
+  expect(renderToStaticMarkup(createElement(AccountsList, props))).not.toContain("Discord");
+  const enabled = renderToStaticMarkup(createElement(AccountsList, { ...props, discordEnabled: true, discordLinkingAvailable: true }));
+  expect(enabled).toContain("Discord 1001");
+  expect(enabled).toContain("Unlink Discord");
+});
+
+test("the Discord card writes the token once and reads back only whether it is set", async () => {
+  expect(describeDiscord({ enabled: false, application_id: "", bot_token_set: false, running: false })).toEqual(["disabled", "—", "not set"]);
+  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "environment", running: false })).toEqual(["enabled (restart to start)", "42", "from environment"]);
+  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "stored", running: true })).toEqual(["running", "42", "stored"]);
+  const calls = fakeFetch((call) => call.method === "GET" ? { enabled: false, application_id: "", bot_token_set: false, running: false } : { state: "success" });
+  await getDiscord();
+  await setDiscord({ enabled: true, application_id: "42", bot_token: "secret" });
+  await clearDiscordToken();
+  expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+    "GET /api/config/discord",
+    "POST /api/config/discord",
+    "DELETE /api/config/discord/token",
+  ]);
+  expect(calls[1].body).toBe(JSON.stringify({ enabled: true, application_id: "42", bot_token: "secret" }));
+  const html = renderToStaticMarkup(createElement(DiscordCard, { onSessionExpired: () => {} }));
+  expect(html).toContain('type="password"');
+  expect(html).toContain("Bot token");
 });

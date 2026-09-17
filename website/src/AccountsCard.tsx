@@ -15,7 +15,10 @@ import {
   createTelegramPairing,
   unlinkTelegram,
   setTelegramEnabled,
+  createDiscordLink,
+  unlinkDiscord,
   type TelegramPairing,
+  type DiscordLink,
 } from "./api";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
@@ -218,6 +221,72 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
   );
 }
 
+// DiscordLinkControl is the person's own Discord, inline in their row. There
+// is no deep link into a DM, so the person copies a single-use command and
+// sends it to the bot; the token is the whole proof.
+export function DiscordLinkControl({ account, available, onError }: { account: AccountRow; available: boolean; onError: (message: string) => void }) {
+  const [link, setLink] = useState<DiscordLink | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!account.self) return null;
+  async function start() {
+    setBusy(true);
+    try { setLink(await createDiscordLink(account.id)); }
+    catch (err) { onError(errorMessage(err, "Could not start Discord linking")); }
+    finally { setBusy(false); }
+  }
+  async function unlink() {
+    setBusy(true);
+    try { await unlinkDiscord(account.id); setLink(null); window.location.reload(); }
+    catch (err) { onError(errorMessage(err, "Could not unlink Discord")); }
+    finally { setBusy(false); }
+  }
+  if (account.discord_user_id) {
+    return (
+      <button type="button" disabled={busy} onClick={unlink} className={textActionClass}>
+        Unlink Discord
+      </button>
+    );
+  }
+  if (link) {
+    return (
+      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-sm text-accent-900">
+        <p className="font-medium">Finish in Discord</p>
+        <ol className="list-decimal pl-5">
+          <li>Open a direct message with the Eggy bot.</li>
+          <li>Send it the command below, exactly as shown.</li>
+          <li>Come back here — your row updates when it&apos;s done.</li>
+        </ol>
+        <code className="break-all rounded-lg bg-background px-2 py-1 text-xs">{link.command}</code>
+        <div className="flex flex-wrap items-center gap-2">
+          <CopyButton text={link.command} label="Copy command" />
+          {link.dm_url && (
+            <a href={link.dm_url} target="_blank" rel="noreferrer" className={cn(PRIMARY_BUTTON, "inline-flex items-center")}>
+              Open Discord
+            </a>
+          )}
+          <button type="button" onClick={() => window.location.reload()} className={textActionClass}>
+            I&apos;ve done this
+          </button>
+        </div>
+        <p className="text-xs">
+          Single-use, expires at {new Date(link.expires_at).toLocaleTimeString()}. Don&apos;t share it: whoever sends it first claims your account&apos;s Discord.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={!available || busy}
+      onClick={start}
+      title={available ? undefined : "Linking is unavailable until Discord is enabled and Eggy restarted."}
+      className={textActionClass}
+    >
+      {busy ? "Creating token…" : "Link Discord"}
+    </button>
+  );
+}
+
 function Avatar({ id, self }: { id: string; self: boolean }) {
   return (
     <span
@@ -236,6 +305,8 @@ export function AccountsList({
   accounts,
   telegramEnabled,
   pairingAvailable,
+  discordEnabled = false,
+  discordLinkingAvailable = false,
   onEdit,
   onRemove,
   onReset,
@@ -245,6 +316,8 @@ export function AccountsList({
   accounts: AccountRow[];
   telegramEnabled: boolean;
   pairingAvailable: boolean;
+  discordEnabled?: boolean;
+  discordLinkingAvailable?: boolean;
   onEdit: (account: AccountRow) => void;
   onRemove: (account: AccountRow) => void;
   onReset: (account: AccountRow) => void;
@@ -262,6 +335,7 @@ export function AccountsList({
           account.signed_in ? "Signed in" : "Not signed in",
         ];
         if (telegramEnabled) status.push(account.telegram_user_id ? `Telegram ${account.telegram_user_id}` : "Telegram not linked");
+        if (discordEnabled) status.push(account.discord_user_id ? `Discord ${account.discord_user_id}` : "Discord not linked");
         const pending = !account.enrolled || (telegramEnabled && !account.telegram_user_id);
         return (
           <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
@@ -281,6 +355,7 @@ export function AccountsList({
                 </button>
               )}
               {telegramEnabled && <TelegramLinkControl account={account} available={pairingAvailable} onError={onError} />}
+              {discordEnabled && <DiscordLinkControl account={account} available={discordLinkingAvailable} onError={onError} />}
               <button type="button" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`} className={textActionClass}>
                 Edit
               </button>
@@ -618,6 +693,8 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             accounts={view?.accounts ?? []}
             telegramEnabled={view?.telegram_enabled ?? false}
             pairingAvailable={view?.telegram_pairing_available ?? false}
+            discordEnabled={view?.discord_enabled ?? false}
+            discordLinkingAvailable={view?.discord_linking_available ?? false}
             onEdit={(account) => show("edit", account)}
             onRemove={(account) => show("remove", account)}
             onReset={(account) => show("reset", account)}
@@ -700,6 +777,13 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           )}
         </div>
       </details>
+
+      {view?.discord_enabled && (
+        <p className="text-xs text-neutral-700">
+          Discord is enabled: each person links their own Discord from their row above by sending the bot a single-use
+          command in a DM. The bot itself is set up under Settings → Connections.
+        </p>
+      )}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
         <summary className="cursor-pointer text-[12.5px] font-medium">Google sign-in client</summary>

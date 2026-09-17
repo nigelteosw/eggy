@@ -2,11 +2,13 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
@@ -77,7 +79,7 @@ func webCtx(threadID string) context.Context {
 func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.Deliver(webCtx("thread-1"), "hello"); err != nil {
 		t.Fatal(err)
@@ -93,7 +95,7 @@ func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 func TestRoutedChannelDeliverReachesTelegramForATelegramDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.Deliver(telegramCtx(), "hello"); err != nil {
 		t.Fatal(err)
@@ -109,7 +111,7 @@ func TestRoutedChannelDeliverReachesTelegramForATelegramDestination(t *testing.T
 func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.Deliver(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
@@ -122,7 +124,7 @@ func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T)
 func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{deliverErr: errors.New("web down")}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.Deliver(webCtx("thread-1"), "hello"); err == nil {
 		t.Fatal("expected the web channel's error to propagate")
@@ -132,7 +134,7 @@ func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) 
 func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{trackableID: "123"}
 	web := &fakeChannel{trackableID: "abc"}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
@@ -146,7 +148,7 @@ func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelDeliverTrackableFallsBackToPlainDeliveryForABaseChannel(t *testing.T) {
 	telegram := &fakeChannel{trackableID: "123"}
 	web := &baseChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
@@ -161,7 +163,7 @@ func TestRoutedChannelDeliverTrackableFallsBackToPlainDeliveryForABaseChannel(t 
 }
 
 func TestRoutedChannelEditTextReportsUnsupportedForABaseChannel(t *testing.T) {
-	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{})
+	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{}, nil)
 
 	err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done")
 	if !errors.Is(err, channelutil.ErrEditsUnsupported) {
@@ -170,7 +172,7 @@ func TestRoutedChannelEditTextReportsUnsupportedForABaseChannel(t *testing.T) {
 }
 
 func TestRoutedChannelSendTypingIsANoopForABaseChannel(t *testing.T) {
-	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{})
+	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{}, nil)
 
 	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatalf("err=%v, want a silent no-op for a channel with no typing indicator", err)
@@ -180,7 +182,7 @@ func TestRoutedChannelSendTypingIsANoopForABaseChannel(t *testing.T) {
 func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done"); err != nil {
 		t.Fatal(err)
@@ -196,7 +198,7 @@ func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatal(err)
@@ -212,7 +214,7 @@ func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web)
+	channel := newRoutedChannel(telegram, web, nil)
 
 	approval := approvals.Approval{ID: "approval-1"}
 	if err := channel.DeliverApproval(webCtx("thread-1"), approval); err != nil {
@@ -228,7 +230,7 @@ func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 
 func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured(t *testing.T) {
 	telegram := &fakeChannel{}
-	channel := newRoutedChannel(telegram, nil)
+	channel := newRoutedChannel(telegram, nil, nil)
 	if channel != ports.Channel(telegram) {
 		t.Fatal("expected newRoutedChannel to return the sole non-nil channel directly, not wrap it")
 	}
@@ -239,7 +241,7 @@ func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured
 // dropped, while web-addressed delivery still routes normally.
 func TestWebOnlyDeploymentDropsTelegramAddressedDeliveryInsteadOfRedirectingIt(t *testing.T) {
 	web := &fakeChannel{name: "web"}
-	channel := newRoutedChannel(nil, web)
+	channel := newRoutedChannel(nil, web, nil)
 
 	proactive := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
 	if err := channel.Deliver(proactive, "heartbeat check-in"); err != nil {
@@ -258,5 +260,104 @@ func TestWebOnlyDeploymentDropsTelegramAddressedDeliveryInsteadOfRedirectingIt(t
 	}
 	if len(web.delivered) != 1 || web.delivered[0] != "reply" {
 		t.Fatalf("web delivered=%v, want owner-initiated web turns unaffected", web.delivered)
+	}
+}
+
+func discordCtx(channelID string) context.Context {
+	return destination.With(context.Background(), destination.Destination{Kind: destination.Discord, ChannelID: channelID})
+}
+
+func TestRoutedChannelDeliversDiscordDestinationsOnlyToDiscord(t *testing.T) {
+	telegram, web, discord := &fakeChannel{}, &fakeChannel{}, &fakeChannel{}
+	channel := newRoutedChannel(telegram, web, discord)
+
+	if err := channel.Deliver(discordCtx("chan-1"), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.DeliverApproval(discordCtx("chan-1"), approvals.Approval{ID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(discord.delivered) != 1 || len(discord.approvalDelivered) != 1 {
+		t.Fatalf("discord=%#v", discord)
+	}
+	if len(telegram.delivered) != 0 || len(web.delivered) != 0 || len(telegram.approvalDelivered) != 0 {
+		t.Fatalf("telegram=%#v web=%#v, want untouched", telegram, web)
+	}
+}
+
+func TestRoutedChannelRefusesADiscordDestinationWithoutAChannelID(t *testing.T) {
+	telegram, discord := &fakeChannel{}, &fakeChannel{}
+	channel := newRoutedChannel(telegram, &fakeChannel{}, discord)
+
+	if err := channel.Deliver(discordCtx(""), "hello"); err == nil {
+		t.Fatal("expected an error before delivery")
+	}
+	if len(telegram.delivered) != 0 || len(discord.delivered) != 0 {
+		t.Fatalf("telegram=%#v discord=%#v, want nothing delivered", telegram, discord)
+	}
+}
+
+func TestRoutedChannelRefusesAnUnknownDestinationKindInsteadOfFallingBackToTelegram(t *testing.T) {
+	telegram := &fakeChannel{}
+	channel := newRoutedChannel(telegram, &fakeChannel{}, &fakeChannel{})
+	ctx := destination.With(context.Background(), destination.Destination{Kind: "slack"})
+
+	if err := channel.Deliver(ctx, "hello"); err == nil {
+		t.Fatal("expected an error for an unknown kind")
+	}
+	if len(telegram.delivered) != 0 {
+		t.Fatalf("telegram=%#v, want no fallback delivery", telegram)
+	}
+}
+
+func TestRoutedChannelRefusesDiscordDeliveryWhenDiscordIsNotConfigured(t *testing.T) {
+	telegram := &fakeChannel{}
+	channel := newRoutedChannel(telegram, &fakeChannel{}, nil)
+
+	if err := channel.Deliver(discordCtx("chan-1"), "hello"); err == nil {
+		t.Fatal("expected an error: a Discord target cannot become Telegram")
+	}
+	if len(telegram.delivered) != 0 {
+		t.Fatalf("telegram=%#v, want no fallback delivery", telegram)
+	}
+}
+
+func TestRoutedChannelDiscordSupportsTrackableAndTypingExtensions(t *testing.T) {
+	discord := &fakeChannel{trackableID: "m1"}
+	channel := newRoutedChannel(&fakeChannel{}, &fakeChannel{}, discord)
+
+	id, err := channel.(ports.TrackableChannel).DeliverTrackable(discordCtx("c"), "working")
+	if err != nil || id != "m1" {
+		t.Fatalf("id=%q err=%v", id, err)
+	}
+	if err := channel.(ports.TrackableChannel).EditText(discordCtx("c"), "m1", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := channel.(ports.TypingChannel).SendTyping(discordCtx("c")); err != nil {
+		t.Fatal(err)
+	}
+	if discord.typingCalls != 1 || len(discord.editCalls) != 1 {
+		t.Fatalf("discord=%#v", discord)
+	}
+}
+
+// A message event carrying a destination nothing can deliver to is refused
+// at ingress, before any turn runs, rather than being answered on Telegram.
+func TestProcessEventRefusesAnInvalidDestinationBeforeStartingATurn(t *testing.T) {
+	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	telegram := &fakeChannel{name: "telegram"}
+	app.channel = newRoutedChannel(telegram, &fakeChannel{}, nil)
+	payload, _ := json.Marshal(events.Message{Text: "hello"})
+	for _, dest := range []destination.Destination{{Kind: destination.Discord}, {Kind: "slack"}} {
+		event := events.Event{ID: "discord:message:1", Type: events.TypeMessage, Owner: "42", Source: "discord", Destination: dest, Payload: payload}
+		if err := app.processEvent(ownerCtx(), event); err == nil {
+			t.Fatalf("destination %+v: expected an ingress error", dest)
+		}
+	}
+	if len(telegram.delivered) != 0 {
+		t.Fatalf("telegram delivered=%v, want nothing", telegram.delivered)
 	}
 }

@@ -178,16 +178,19 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	app.chatHub = webchat.NewHub()
 	webChannel := webchat.New(app.chatHub)
-	var telegramPairings *telegramPairingCoordinator
-	if config.TelegramEnabled() {
-		telegramPairings = &telegramPairingCoordinator{store: database, configPath: options.ConfigPath, now: options.Now, logger: options.Logger}
+	// One coordinator serves every chat connection's linking tokens; it
+	// exists whenever any connection could redeem one.
+	var identityLinks *identityLinkCoordinator
+	if config.TelegramEnabled() || config.DiscordEnabled() {
+		identityLinks = &identityLinkCoordinator{store: database, configPath: options.ConfigPath, now: options.Now, logger: options.Logger}
 	}
 	var consumePairing func(context.Context, string, int64) error
-	if telegramPairings != nil {
-		consumePairing = telegramPairings.consume
+	if identityLinks != nil && config.TelegramEnabled() {
+		consumePairing = identityLinks.consumeTelegram
 	}
 	telegramSurface := newTelegramWiring(config, secrets, options, app.accounts, consumePairing)
-	app.channel = newRoutedChannel(telegramSurface.channel, webChannel)
+	connectionCredentials := openConnectionCredentials(database, secrets, options.Logger)
+	app.channel = newRoutedChannel(telegramSurface.channel, webChannel, nil)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
 	// The channel is already routed by context, so an approval asked during a
 	// Telegram turn arrives in Telegram and one asked in web chat arrives there.
@@ -211,6 +214,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// the MCP OAuth client secrets were absent, so every other credential was
 	// kept out of durable context and recall while those two were not.
 	activeSecrets := secrets.Values()
+	if connectionCredentials != nil {
+		activeSecrets = append(activeSecrets, connectionCredentials.Values(connectionIDs...)...)
+	}
 	skillsStore := skillsadapter.Open(layout.Skills(), 32<<10)
 	skillsService := services.NewSkillsService(skillsStore)
 	approvalExecutors := map[approvals.Action]ApprovalExecutor{}
@@ -453,7 +459,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	webHandler := web.NewWebHandler(options.ConfigPath, web.WebUIConfig{
+	webConfig := web.WebUIConfig{
 		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
 		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
@@ -475,9 +481,19 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Restarter:           app,
 		Getenv:              options.Getenv,
 		TrustedProxyHops:    config.Server.TrustedProxyHops,
-		TelegramPairings:    telegramPairings,
 		TelegramBotUsername: telegramSurface.botUsername,
-	})
+	}
+	// Assigned only when present, so a nil pointer never boxes into a
+	// non-nil interface the panel would then call.
+	if identityLinks != nil {
+		webConfig.IdentityLinks = identityLinks
+	}
+	if connectionCredentials != nil {
+		webConfig.Connections = connectionCredentials
+	}
+	webConfig.DiscordLinking = config.DiscordEnabled()
+	webConfig.DiscordApplicationID = config.Discord.ApplicationID
+	webHandler := web.NewWebHandler(options.ConfigPath, webConfig)
 	app.httpHandler = web.NewHTTPHandler(web.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath,
 		Telegram:    telegramSurface.webhook(config, secrets, app.Enqueue),

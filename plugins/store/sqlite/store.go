@@ -141,7 +141,7 @@ func Open(path string, _ ...int) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(telegramPairingSchema); err != nil {
+	if _, err := db.Exec(identityLinkSchema); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -163,6 +163,10 @@ func Open(path string, _ ...int) (*Store, error) {
 		return nil, err
 	}
 	if err := upgradeToAccounts(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := upgradeIdentityLinks(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

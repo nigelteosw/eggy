@@ -5,6 +5,7 @@ import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
 import { McpCard } from "./McpCard";
 import { GoogleCard } from "./GoogleCard";
+import { DiscordCard } from "./DiscordCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { WatchCard } from "./WatchCard";
 import { ToolsCard } from "./ToolsCard";
@@ -39,7 +40,7 @@ type Section = {
 
 const SECTIONS: Section[] = [
   { id: "models", label: "Models", title: "Models", description: "Providers and the aliases that route to them.", icon: <CpuIcon /> },
-  { id: "connections", label: "Connections", title: "Connections", description: "Connect external tools and Google Workspace.", icon: <PlugIcon /> },
+  { id: "connections", label: "Connections", title: "Connections", description: "Connect external tools, Google Workspace, and chat bots.", icon: <PlugIcon /> },
   { id: "capabilities", label: "Capabilities", title: "Capabilities", description: "See what Eggy can use during a turn.", icon: <WrenchIcon /> },
   { id: "automation", label: "Automation", title: "Automation", description: "Scheduled runs and the periodic check-in.", icon: <ClockIcon /> },
   { id: "permissions", label: "Permissions", title: "Permissions", description: "Review actions that need your approval.", icon: <CheckShieldIcon /> },
@@ -146,6 +147,7 @@ export function ConfigPage({
             <>
               <McpCard onSessionExpired={onSessionExpired} />
               <GoogleCard onSessionExpired={onSessionExpired} />
+              <DiscordCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "capabilities" && <ToolsCard onSessionExpired={onSessionExpired} />}

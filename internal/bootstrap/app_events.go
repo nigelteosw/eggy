@@ -49,6 +49,12 @@ func (a *App) Enqueue(ctx context.Context, event events.Event) error {
 func (a *App) processEvent(ctx context.Context, event events.Event) error {
 	switch event.Type {
 	case events.TypeMessage:
+		// Ingress is where a destination is checked, so a producer that
+		// stamped something undeliverable fails here rather than after a
+		// model call whose reply then has nowhere honest to go.
+		if err := event.Destination.Validate(); err != nil {
+			return err
+		}
 		message, err := decodeMessage(event)
 		if err != nil {
 			return err

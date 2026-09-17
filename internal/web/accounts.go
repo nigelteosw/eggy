@@ -21,6 +21,7 @@ type accountView struct {
 	ID             string `json:"id"`
 	Email          string `json:"email"`
 	TelegramUserID int64  `json:"telegram_user_id,omitempty"`
+	DiscordUserID  string `json:"discord_user_id,omitempty"`
 	Enrolled       bool   `json:"enrolled"`
 	SignedIn       bool   `json:"signed_in"`
 	Self           bool   `json:"self"`
@@ -43,6 +44,8 @@ type accountsView struct {
 	LegacyTelegramEmail string `json:"-"`
 	TelegramEnabled     bool   `json:"telegram_enabled"`
 	TelegramPairing     bool   `json:"telegram_pairing_available"`
+	DiscordEnabled      bool   `json:"discord_enabled"`
+	DiscordLinking      bool   `json:"discord_linking_available"`
 }
 
 func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.Time) http.HandlerFunc {
@@ -62,10 +65,11 @@ func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.
 			ExpectedEmail: cfg.Google.ExpectedEmail, MigrationOwnerID: cfg.MigrationOwnerID,
 			LegacyOwner: cfg.Owner.ID, LegacyTelegramID: cfg.Telegram.OwnerID,
 			Accounts:        []accountView{},
-			TelegramEnabled: cfg.TelegramEnabled(), TelegramPairing: webConfig.TelegramBotUsername != "" && webConfig.TelegramPairings != nil,
+			TelegramEnabled: cfg.TelegramEnabled(), TelegramPairing: webConfig.TelegramBotUsername != "" && webConfig.IdentityLinks != nil,
+			DiscordEnabled: cfg.DiscordEnabled(), DiscordLinking: webConfig.DiscordLinking && webConfig.IdentityLinks != nil,
 		}
 		for _, account := range cfg.Accounts {
-			row := accountView{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID, Self: account.ID == self}
+			row := accountView{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID, Self: account.ID == self}
 			if webConfig.Identities != nil {
 				_, _, bound, err := webConfig.Identities.IdentityOf(r.Context(), account.ID)
 				if err != nil {
@@ -167,8 +171,8 @@ func accountRemoveRoute(configPath string, webConfig WebUIConfig) http.HandlerFu
 				return
 			}
 		}
-		if webConfig.TelegramPairings != nil {
-			if err := webConfig.TelegramPairings.DeleteTelegramPairings(r.Context(), id); err != nil {
+		if webConfig.IdentityLinks != nil {
+			if err := webConfig.IdentityLinks.DeleteIdentityLinks(r.Context(), id, ""); err != nil {
 				writeWebError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -198,8 +202,8 @@ func accountResetBindingRoute(webConfig WebUIConfig) http.HandlerFunc {
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if webConfig.TelegramPairings != nil {
-			if err := webConfig.TelegramPairings.DeleteTelegramPairings(r.Context(), id); err != nil {
+		if webConfig.IdentityLinks != nil {
+			if err := webConfig.IdentityLinks.DeleteIdentityLinks(r.Context(), id, ""); err != nil {
 				writeWebError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -216,10 +220,7 @@ func accountResetBindingRoute(webConfig WebUIConfig) http.HandlerFunc {
 // such check: there is nothing an absent credential could break by turning
 // the channel off.
 func telegramEnabledRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc {
-	getenv := webConfig.Getenv
-	if getenv == nil {
-		getenv = os.Getenv
-	}
+	getenv := webConfig.getenv()
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Enabled bool `json:"enabled"`
@@ -251,6 +252,15 @@ func telegramEnabledRoute(configPath string, webConfig WebUIConfig) http.Handler
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: restartToApply})
 	}
+}
+
+// getenv is the configured environment lookup, defaulting to the process
+// environment like the raw editor does.
+func (c WebUIConfig) getenv() func(string) string {
+	if c.Getenv == nil {
+		return os.Getenv
+	}
+	return c.Getenv
 }
 
 func loginClientSetRoute(configPath string) http.HandlerFunc {

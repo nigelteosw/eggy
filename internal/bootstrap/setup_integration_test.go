@@ -131,7 +131,7 @@ func TestFreshInstallCompletesSetupBootsAndPairsTelegram(t *testing.T) {
 	raw[7] = 9
 	code := base64.RawURLEncoding.EncodeToString(raw[:])
 	hash := sha256.Sum256(raw[:])
-	if err := app.database.CreateTelegramPairing(ctx, "you", hash, time.Now().Add(10*time.Minute)); err != nil {
+	if err := app.database.CreateIdentityLink(ctx, "you", TelegramConnection, hash, time.Now().Add(10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	post := func(sender int64, text string) int {

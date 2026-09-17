@@ -193,6 +193,7 @@ export type AccountRow = {
   id: string;
   email: string;
   telegram_user_id?: number;
+  discord_user_id?: string;
   enrolled: boolean;
   signed_in: boolean;
   self: boolean;
@@ -209,6 +210,8 @@ export type AccountsView = {
   legacy_telegram_id?: number;
   telegram_enabled: boolean;
   telegram_pairing_available: boolean;
+  discord_enabled: boolean;
+  discord_linking_available: boolean;
 };
 
 export type AccountInput = { id: string; email: string; telegram_user_id: number };
@@ -245,6 +248,40 @@ export function unlinkTelegram(id: string): Promise<CommandResult> {
 
 export function setTelegramEnabled(enabled: boolean): Promise<CommandResult> {
   return request("/api/config/telegram/enabled", { method: "POST", body: JSON.stringify({ enabled }) });
+}
+
+// Discord has no deep link that carries a payload into a DM, so linking is
+// a command the person sends the bot; dm_url only opens the right chat.
+export type DiscordLink = { command: string; dm_url?: string; expires_at: string };
+
+export function createDiscordLink(id: string): Promise<DiscordLink> {
+  return request(`/api/accounts/${encodeURIComponent(id)}/discord/link`, { method: "POST" });
+}
+
+export function unlinkDiscord(id: string): Promise<CommandResult> {
+  return request(`/api/accounts/${encodeURIComponent(id)}/discord`, { method: "DELETE" });
+}
+
+// The Discord card: the bot token is written once and never read back;
+// the view only says whether one is set and where it came from.
+export type DiscordView = {
+  enabled: boolean;
+  application_id: string;
+  bot_token_set: boolean;
+  bot_token_source?: "stored" | "environment";
+  running: boolean;
+};
+
+export function getDiscord(): Promise<DiscordView> {
+  return request("/api/config/discord");
+}
+
+export function setDiscord(input: { enabled: boolean; application_id: string; bot_token: string }): Promise<CommandResult> {
+  return request("/api/config/discord", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function clearDiscordToken(): Promise<CommandResult> {
+  return request("/api/config/discord/token", { method: "DELETE" });
 }
 
 export function setLoginClient(clientId: string, clientSecretEnv: string): Promise<CommandResult> {

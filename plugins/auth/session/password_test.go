@@ -39,7 +39,7 @@ func TestValidatePasswordBounds(t *testing.T) {
 		{"invalid utf-8", "valid-prefix\xff\xfe-suffix", false},
 		{"whitespace preserved", "   padded password   ", true},
 		{"multibyte counts bytes", strings.Repeat("é", 6), true}, // 12 bytes
-		{"multibyte short", strings.Repeat("é", 5), false},      // 10 bytes
+		{"multibyte short", strings.Repeat("é", 5), false},       // 10 bytes
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,15 +3,16 @@ import {
   AccountInput,
   AccountRow,
   AccountsView,
+  PendingAccountError,
   SessionExpiredError,
   addAccount,
   convertToAccounts,
   editAccount,
   getAccounts,
   removeAccount,
-  resetAccountBinding,
+  revokeAccountSessions,
+  setAccountPassword,
   setExpectedGoogleEmail,
-  setLoginClient,
   createTelegramPairing,
   unlinkTelegram,
   setTelegramEnabled,
@@ -27,11 +28,12 @@ import { CardHeader } from "./components/ui/card-header";
 import { ErrorBanner } from "./components/ui/error-banner";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "./components/ui/form";
 
-// The accounts card is the whole of who-may-use-Eggy, operated from here and
-// nowhere else: the list, the sign-in client, and the address Eggy's own
-// Google connection must belong to. Every write is a config mutation on the
-// server, so what this card can do is exactly what config allows, and a
-// change that config refuses comes back as the refusal's own words.
+// The People card is the whole of who-may-use-Eggy, operated from here and
+// nowhere else: the list, each person's password and chat links, and the
+// address Eggy's own Google connection must belong to. Membership writes are
+// config mutations on the server; passwords go to the credential store and
+// never come back. Every trusted person can do everything here: there are
+// no roles.
 
 const ghostButtonClass =
   "min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
@@ -68,15 +70,16 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
 
 // inviteText is what the person who added an account sends to the person it
 // belongs to. It names every step between "added" and "chatting on
-// Telegram", so nobody has to reconstruct the flow from the docs.
+// Telegram", so nobody has to reconstruct the flow from the docs. The
+// password is deliberately not here: it is handed over some other way.
 export function inviteText(account: AccountRow, telegramEnabled: boolean, origin: string): string {
   const lines = [
     `You've been added to Eggy as "${account.id}".`,
-    `1. Open ${origin} and sign in with Google as ${account.email}.`,
+    `1. Open ${origin} and sign in with the username "${account.id}" and the password you were given.`,
   ];
   if (telegramEnabled) {
-    lines.push('2. In Settings → Accounts, click "Link Telegram", open the link, and tap Start in Telegram.');
-    lines.push("After that you can message Eggy on Telegram or in the web panel.");
+    lines.push('2. In Settings → People, click "Link Telegram", open the link, and tap Start in Telegram.');
+    lines.push("After that you can message Eggy on Telegram or in the web panel, and send /web there for a one-tap sign-in link.");
   } else {
     lines.push("After that you can message Eggy in the web panel.");
   }
@@ -108,12 +111,18 @@ function CopyButton({ text, label = "Copy invite" }: { text: string; label?: str
 // them.
 export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { account: AccountRow; telegramEnabled: boolean; onDismiss?: () => void }) {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
+  const ready = account.password_state !== "pending";
   const steps: { label: string; done: boolean; hint: string }[] = [
     { label: "Added to Eggy", done: true, hint: "" },
     {
-      label: `Signs in with Google as ${account.email}`,
-      done: account.enrolled,
-      hint: account.enrolled ? "" : `Send them ${origin}. Their first Google sign-in enrolls them.`,
+      label: account.password_state === "environment" ? "Signs in with the deployment's credentials" : "Has a password",
+      done: ready,
+      hint: ready ? "" : "Their password was not stored. Set it from their row.",
+    },
+    {
+      label: "Signs in",
+      done: account.signed_in,
+      hint: account.signed_in ? "" : ready ? `Send them ${origin} and their password.` : "",
     },
   ];
   if (telegramEnabled) {
@@ -301,6 +310,18 @@ function Avatar({ id, self }: { id: string; self: boolean }) {
   );
 }
 
+// passwordLabel is the one-line credential state a row shows.
+export function passwordLabel(account: AccountRow): string {
+  switch (account.password_state) {
+    case "environment":
+      return "Managed in deployment environment";
+    case "set":
+      return "Password set";
+    default:
+      return "Password pending";
+  }
+}
+
 export function AccountsList({
   accounts,
   telegramEnabled,
@@ -309,7 +330,8 @@ export function AccountsList({
   discordLinkingAvailable = false,
   onEdit,
   onRemove,
-  onReset,
+  onPassword,
+  onRevoke,
   onShowSteps,
   onError,
 }: {
@@ -320,7 +342,8 @@ export function AccountsList({
   discordLinkingAvailable?: boolean;
   onEdit: (account: AccountRow) => void;
   onRemove: (account: AccountRow) => void;
-  onReset: (account: AccountRow) => void;
+  onPassword: (account: AccountRow) => void;
+  onRevoke: (account: AccountRow) => void;
   onShowSteps: (account: AccountRow) => void;
   onError: (message: string) => void;
 }) {
@@ -330,13 +353,13 @@ export function AccountsList({
   return (
     <ul className="flex flex-col">
       {accounts.map((account) => {
-        const status = [
-          account.enrolled ? "Enrolled" : "Not enrolled",
-          account.signed_in ? "Signed in" : "Not signed in",
-        ];
+        const status = [passwordLabel(account), account.signed_in ? "Signed in" : "Not signed in"];
         if (telegramEnabled) status.push(account.telegram_user_id ? `Telegram ${account.telegram_user_id}` : "Telegram not linked");
+        if (telegramEnabled && account.web_link_available) status.push("/web available");
         if (discordEnabled) status.push(account.discord_user_id ? `Discord ${account.discord_user_id}` : "Discord not linked");
-        const pending = !account.enrolled || (telegramEnabled && !account.telegram_user_id);
+        const pending = account.password_state === "pending" || !account.signed_in || (telegramEnabled && !account.telegram_user_id);
+        const passwordAction =
+          account.password_state === "environment" ? null : account.password_state === "pending" ? "Retry password setup" : account.self ? "Change password" : "Reset password";
         return (
           <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
             <Avatar id={account.id} self={account.self} />
@@ -345,7 +368,6 @@ export function AccountsList({
                 {account.id}
                 {account.self && <span className="ml-1 text-neutral-700">(you)</span>}
               </p>
-              <p className="truncate text-sm text-neutral-700">{account.email}</p>
               <p className="mt-0.5 text-xs tabular-nums text-neutral-700">{status.join(" · ")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
@@ -359,11 +381,14 @@ export function AccountsList({
               <button type="button" onClick={() => onEdit(account)} aria-label={`Edit ${account.id}`} className={textActionClass}>
                 Edit
               </button>
-              {account.enrolled && (
-                <button type="button" onClick={() => onReset(account)} aria-label={`Reset binding for ${account.id}`} className={textActionClass}>
-                  Reset binding
+              {passwordAction && (
+                <button type="button" onClick={() => onPassword(account)} aria-label={`${passwordAction} for ${account.id}`} className={textActionClass}>
+                  {passwordAction}
                 </button>
               )}
+              <button type="button" onClick={() => onRevoke(account)} aria-label={`Revoke sessions for ${account.id}`} className={textActionClass}>
+                Revoke sessions
+              </button>
               {!account.self && (
                 <button type="button" onClick={() => onRemove(account)} aria-label={`Remove ${account.id}`} className={destructiveTextActionClass}>
                   Remove
@@ -377,21 +402,69 @@ export function AccountsList({
   );
 }
 
-// ResetBindingConfirm says what a reset does before it does it: the person
-// is signed out everywhere and enrolls again with the configured address the
-// next time they sign in. That is the consequence, and it is the reason a
-// changed address needs this step rather than silently re-enrolling someone.
-export function ResetBindingConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
+// PasswordForm sets or changes one person's password. Your own change asks
+// for the current password and ends every session you have, this one
+// included; another person's reset needs no current password and ends
+// theirs. Fields are cleared on submit either way: a password never lingers
+// in a form after it has been sent, and never appears in an invite.
+export function PasswordForm({ account, saving, onSubmit, onCancel }: { account: AccountRow; saving: boolean; onSubmit: (password: string, current?: string) => Promise<boolean>; onCancel: () => void }) {
+  const [password, setPassword] = useState("");
+  const [current, setCurrent] = useState("");
+  const title = account.password_state === "pending" ? `Set a password for ${account.id}` : account.self ? "Change your password" : `Reset ${account.id}'s password`;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Reset binding for ${account}`}>
+    <form
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const next = password;
+        const previous = current;
+        setPassword("");
+        setCurrent("");
+        await onSubmit(next, account.self ? previous : undefined);
+      }}
+      className={cn(panelClass, "flex flex-col gap-3")}
+      aria-label={title}
+    >
+      <p className="text-[12.5px] font-medium">{title}</p>
+      {account.self ? (
+        <p className="text-xs text-neutral-700">You will be signed out everywhere and sign in again with the new password.</p>
+      ) : (
+        <p className="text-xs text-neutral-700">They are signed out everywhere and any unused Telegram sign-in link stops working. Hand the new password over yourself; it is never shown again.</p>
+      )}
+      {account.self && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="current-password" className={FIELD_LABEL}>Current password</Label>
+          <Input id="current-password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required className={FIELD_COMPACT} />
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="new-password" className={FIELD_LABEL}>New password (at least 12 characters)</Label>
+        <Input id="new-password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required className={FIELD_COMPACT} />
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" disabled={saving} className={PRIMARY_BUTTON}>
+          {saving ? "Saving..." : account.self ? "Change password" : "Set password"}
+        </button>
+        <button type="button" onClick={onCancel} className={ghostButtonClass}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// RevokeConfirm says what revocation does before it does it: every session
+// and unused sign-in link of the account ends; the password stays. It is
+// the one credential control the environment-managed account has here.
+export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account: string; self: boolean; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
       <p className="text-sm text-eg-red-ink">
-        Reset <strong>{account}</strong>&apos;s Google binding? They will be signed out everywhere and must enroll again with
-        the Google account configured for them. Do this after changing their address, or if they lost access to the old
-        Google account.
+        Revoke every session of <strong>{account}</strong>? {self ? "You" : "They"} will be signed out everywhere and any unused
+        Telegram sign-in link stops working. The password does not change.
       </p>
       <div className="flex gap-2">
         <button type="button" onClick={onConfirm} className={destructiveButtonClass}>
-          Reset binding
+          Revoke sessions
         </button>
         <button type="button" onClick={onCancel} className={ghostButtonClass}>
           Cancel
@@ -406,7 +479,7 @@ function RemoveConfirm({ account, onConfirm, onCancel }: { account: string; onCo
     <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
       <p className="text-sm text-eg-red-ink">
         Remove <strong>{account}</strong>? They are signed out immediately and can no longer sign in. Their private
-        conversations and memory stay in the database.
+        conversations and memory stay in the database, and this username is never reissued.
       </p>
       <div className="flex gap-2">
         <button type="button" onClick={onConfirm} className={destructiveButtonClass}>
@@ -427,33 +500,40 @@ function AccountForm({
   saving,
 }: {
   initial?: AccountRow;
-  onSubmit: (input: AccountInput) => void;
+  onSubmit: (input: AccountInput & { password: string }) => void;
   onCancel?: () => void;
   saving: boolean;
 }) {
   const [id, setId] = useState(initial?.id ?? "");
-  const [email, setEmail] = useState(initial?.email ?? "");
+  const [password, setPassword] = useState("");
+  const [telegram, setTelegram] = useState(initial?.telegram_user_id ? String(initial.telegram_user_id) : "");
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit({ id, email, telegram_user_id: initial?.telegram_user_id ?? 0 });
+        const next = password;
+        setPassword("");
+        onSubmit({ id, password: next, telegram_user_id: telegram.trim() === "" ? 0 : Number(telegram) });
       }}
       className="flex flex-col gap-3"
     >
       <div className={"grid gap-3 " + (initial ? "" : "sm:grid-cols-2")}>
         {!initial && (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="account-id" className={FIELD_LABEL}>Account ID</Label>
-            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" required className={FIELD_COMPACT} />
+            <Label htmlFor="account-id" className={FIELD_LABEL}>Username</Label>
+            <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" autoCapitalize="none" required className={FIELD_COMPACT} />
+            <p className="text-xs text-neutral-700">Immutable: it cannot be renamed later, and a removed username is never reissued.</p>
+          </div>
+        )}
+        {!initial && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="account-password" className={FIELD_LABEL}>Password (at least 12 characters)</Label>
+            <Input id="account-password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(e) => setPassword(e.target.value)} required className={FIELD_COMPACT} />
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="account-email" className={FIELD_LABEL}>Google email</Label>
-          <Input id="account-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lauren@example.com" required className={FIELD_COMPACT} />
-          {initial?.enrolled && (
-            <p className="text-xs text-neutral-700">This account has enrolled. Reset its binding before changing the address.</p>
-          )}
+          <Label htmlFor="account-telegram" className={FIELD_LABEL}>Telegram user ID (optional)</Label>
+          <Input id="account-telegram" inputMode="numeric" value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="numeric, never a username" className={FIELD_COMPACT} />
         </div>
       </div>
       <div className="flex gap-2">
@@ -471,10 +551,11 @@ function AccountForm({
 }
 
 // ConvertForm is how a single-owner deployment becomes an accounts deployment
-// from the panel: the people, the sign-in client, and which account the
-// existing history belongs to, in one write. The legacy owner is proposed as
-// the first account and as the migration owner, since that is almost always
-// who is filling this in.
+// from the panel: the people, which account the existing history belongs
+// to, and which one keeps signing in with the deployment's credentials, in
+// one write. The legacy owner is proposed for both, since that is almost
+// always who is filling this in. Everyone else's password is set from the
+// list afterwards.
 export function ConvertForm({
   legacyOwner,
   legacyTelegramId,
@@ -487,11 +568,10 @@ export function ConvertForm({
   onSessionExpired: () => void;
 }) {
   const [accounts, setAccounts] = useState<AccountInput[]>([
-    { id: legacyTelegramId ? "owner" : legacyOwner || "owner", email: "", telegram_user_id: legacyTelegramId ?? 0 },
+    { id: legacyTelegramId ? "owner" : legacyOwner || "owner", telegram_user_id: legacyTelegramId ?? 0 },
   ]);
-  const [clientId, setClientId] = useState("");
-  const [secretEnv, setSecretEnv] = useState("EGGY_GOOGLE_LOGIN_CLIENT_SECRET");
   const [migrationOwner, setMigrationOwner] = useState(accounts[0].id);
+  const [passwordAccount, setPasswordAccount] = useState(accounts[0].id);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -504,7 +584,7 @@ export function ConvertForm({
     setSaving(true);
     setError(null);
     try {
-      await convertToAccounts({ accounts, login_client_id: clientId, login_client_secret_env: secretEnv, migration_owner_id: migrationOwner });
+      await convertToAccounts({ accounts, migration_owner_id: migrationOwner, password_account_id: passwordAccount });
       onConverted();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -520,18 +600,19 @@ export function ConvertForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <p className="text-sm text-neutral-700">
-        This Eggy has one owner signing in with a password. Converting gives each person their own account, signed in
-        with Google. The existing conversations and memory go to the migration owner; everyone else starts empty.
+        This Eggy has one owner. Converting gives each person their own account with a username and password. The
+        existing conversations and memory go to the migration owner; everyone else starts empty. One account keeps
+        signing in with the deployment&apos;s EGGY_UI_USER_EMAIL / EGGY_UI_PASSWORD; set the others&apos; passwords
+        from the list afterwards.
       </p>
       <fieldset className={cn(panelClass, "flex flex-col gap-3")}>
         <legend className="text-[12.5px] font-medium">People</legend>
         {accounts.map((account, index) => (
           <div
             key={index}
-            className={cn("grid gap-2 sm:grid-cols-3", index > 0 && "pt-3 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]")}
+            className={cn("grid gap-2 sm:grid-cols-2", index > 0 && "pt-3 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]")}
           >
-            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="id" required className={FIELD_COMPACT} />
-            <Input aria-label={`Account ${index + 1} email`} type="email" value={account.email} onChange={(e) => update(index, { email: e.target.value })} placeholder="google email" required className={FIELD_COMPACT} />
+            <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="username" required className={FIELD_COMPACT} />
             <Input
               aria-label={`Account ${index + 1} Telegram`}
               inputMode="numeric"
@@ -542,7 +623,7 @@ export function ConvertForm({
             />
           </div>
         ))}
-        <button type="button" onClick={() => setAccounts((current) => [...current, { id: "", email: "", telegram_user_id: 0 }])} className={cn(ghostButtonClass, "self-start")}>
+        <button type="button" onClick={() => setAccounts((current) => [...current, { id: "", telegram_user_id: 0 }])} className={cn(ghostButtonClass, "self-start")}>
           Add another person
         </button>
       </fieldset>
@@ -562,12 +643,19 @@ export function ConvertForm({
         </select>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-client-id" className={FIELD_LABEL}>Google sign-in client ID (Web application client)</Label>
-        <Input id="convert-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={FIELD_COMPACT} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="convert-secret-env" className={FIELD_LABEL}>client_secret_env (name of the variable holding the client secret)</Label>
-        <Input id="convert-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={FIELD_COMPACT} />
+        <Label htmlFor="convert-password-account" className={FIELD_LABEL}>Environment login (signs in with EGGY_UI_USER_EMAIL / EGGY_UI_PASSWORD)</Label>
+        <select
+          id="convert-password-account"
+          value={passwordAccount}
+          onChange={(e) => setPasswordAccount(e.target.value)}
+          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+        >
+          {accounts.map((account, index) => (
+            <option key={index} value={account.id}>
+              {account.id || `(account ${index + 1})`}
+            </option>
+          ))}
+        </select>
       </div>
       {error && (
         <ErrorBanner>
@@ -588,13 +676,12 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<AccountRow | null>(null);
   const [removing, setRemoving] = useState<AccountRow | null>(null);
-  const [resetting, setResetting] = useState<AccountRow | null>(null);
+  const [changingPassword, setChangingPassword] = useState<AccountRow | null>(null);
+  const [revoking, setRevoking] = useState<AccountRow | null>(null);
   // steps is whose onboarding checklist is open: set when an account is
   // added, or when someone clicks "Getting started" on a row. It is keyed by
   // id so a reload keeps showing the same person's current progress.
   const [steps, setSteps] = useState<string | null>(null);
-  const [clientId, setClientId] = useState("");
-  const [secretEnv, setSecretEnv] = useState("");
   const [expected, setExpected] = useState("");
   const [seeded, setSeeded] = useState(false);
 
@@ -603,8 +690,6 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
       .then((loaded) => {
         setView(loaded);
         if (!seeded) {
-          setClientId(loaded.login_client_id);
-          setSecretEnv(loaded.login_client_secret_env || "EGGY_GOOGLE_LOGIN_CLIENT_SECRET");
           setExpected(loaded.expected_email);
           setSeeded(true);
         }
@@ -643,10 +728,11 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
     }
   }
 
-  function show(which: "edit" | "remove" | "reset" | "steps", account: AccountRow) {
+  function show(which: "edit" | "remove" | "password" | "revoke" | "steps", account: AccountRow) {
     setEditing(which === "edit" ? account : null);
     setRemoving(which === "remove" ? account : null);
-    setResetting(which === "reset" ? account : null);
+    setChangingPassword(which === "password" ? account : null);
+    setRevoking(which === "revoke" ? account : null);
     setSteps(which === "steps" ? account.id : null);
   }
 
@@ -659,11 +745,12 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
   return (
     <div className="flex flex-col gap-5">
       <CardHeader
-        title="People"
+        title="People — trusted users who can administer this deployment"
         description={
           <>
-            Each person signs in with their own Google account and has private conversations and memory; everyone can
-            change these settings.
+            Each person signs in with their own username and password and has private conversations, memory,
+            schedules and settings. There are no roles: everyone here can change everything, including each other&apos;s
+            passwords.
           </>
         }
       />
@@ -679,7 +766,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           legacyOwner={view.legacy_owner ?? ""}
           legacyTelegramId={view.legacy_telegram_id}
           onConverted={() => {
-            setNotice("Converted. Restart Eggy; from then on everyone signs in with Google.");
+            setNotice("Converted. Restart Eggy, then set each new person's password from the list.");
             load();
           }}
           onSessionExpired={onSessionExpired}
@@ -697,10 +784,17 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             discordLinkingAvailable={view?.discord_linking_available ?? false}
             onEdit={(account) => show("edit", account)}
             onRemove={(account) => show("remove", account)}
-            onReset={(account) => show("reset", account)}
+            onPassword={(account) => show("password", account)}
+            onRevoke={(account) => show("revoke", account)}
             onShowSteps={(account) => show("steps", account)}
             onError={setError}
           />
+          {view?.environment_alias && (
+            <p className="text-xs text-neutral-700">
+              <strong>{view.password_account_id}</strong> signs in as <code>{view.environment_alias}</code> with the password set
+              in the deployment environment (EGGY_UI_PASSWORD). Changing it means changing the variable and restarting.
+            </p>
+          )}
           {stepsAccount && view && (
             <OnboardingSteps account={stepsAccount} telegramEnabled={view.telegram_enabled} onDismiss={() => setSteps(null)} />
           )}
@@ -713,21 +807,43 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
               onCancel={() => setRemoving(null)}
             />
           )}
-          {resetting && (
-            <ResetBindingConfirm
-              account={resetting.id}
-              onConfirm={async () => {
-                if (await run(() => resetAccountBinding(resetting.id))) setResetting(null);
+          {changingPassword && (
+            <PasswordForm
+              key={changingPassword.id}
+              account={changingPassword}
+              saving={saving}
+              onCancel={() => setChangingPassword(null)}
+              onSubmit={async (password, current) => {
+                const ok = await run(() => setAccountPassword(changingPassword.id, password, current));
+                if (ok) {
+                  setChangingPassword(null);
+                  // Your own change ended your session; the next request
+                  // finds it gone and returns you to the login page.
+                  if (changingPassword.self) onSessionExpired();
+                }
+                return ok;
               }}
-              onCancel={() => setResetting(null)}
+            />
+          )}
+          {revoking && (
+            <RevokeConfirm
+              account={revoking.id}
+              self={revoking.self}
+              onConfirm={async () => {
+                if (await run(() => revokeAccountSessions(revoking.id))) {
+                  setRevoking(null);
+                  if (revoking.self) onSessionExpired();
+                }
+              }}
+              onCancel={() => setRevoking(null)}
             />
           )}
           <div className={cn(panelClass, "flex flex-col gap-3")}>
             <p className="text-[12.5px] font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
             {!editing && (
               <p className="text-xs text-neutral-700">
-                Adding someone reserves their place; they enroll the first time they sign in with this Google
-                address. You&apos;ll get an invite to send them.
+                Choose their username and a password, and hand the password over yourself. You&apos;ll get an invite to
+                send them; the password is never in it.
               </p>
             )}
             {editing ? (
@@ -737,7 +853,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
                 saving={saving}
                 onCancel={() => setEditing(null)}
                 onSubmit={async (input) => {
-                  if (await run(() => editAccount(editing.id, { email: input.email, telegram_user_id: input.telegram_user_id }))) setEditing(null);
+                  if (await run(() => editAccount(editing.id, { telegram_user_id: input.telegram_user_id }))) setEditing(null);
                 }}
               />
             ) : (
@@ -745,7 +861,30 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
                 key={view?.accounts.length ?? 0}
                 saving={saving}
                 onSubmit={async (input) => {
-                  if (await run(() => addAccount(input))) setSteps(input.id);
+                  setSaving(true);
+                  setError(null);
+                  setNotice(null);
+                  try {
+                    const result = await addAccount(input);
+                    setNotice([result.title, result.detail].filter(Boolean).join(" "));
+                    setSteps(input.id);
+                  } catch (err) {
+                    if (err instanceof SessionExpiredError) {
+                      onSessionExpired();
+                      return;
+                    }
+                    if (err instanceof PendingAccountError) {
+                      // Membership exists, the password does not: the row
+                      // is listed as pending with "Retry password setup".
+                      setError(err.message);
+                      setSteps(input.id);
+                    } else {
+                      setError(errorMessage(err, "Request failed"));
+                    }
+                  } finally {
+                    setSaving(false);
+                    load();
+                  }
                 }}
               />
             )}
@@ -784,34 +923,6 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           command in a DM. The bot itself is set up under Settings → Connections.
         </p>
       )}
-
-      <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Google sign-in client</summary>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            run(() => setLoginClient(clientId, secretEnv));
-          }}
-          className="mt-3 flex flex-col gap-3"
-        >
-          <p className="text-xs text-neutral-700">
-            The <strong>Web application</strong> OAuth client people sign in with. Its redirect URI is this panel&apos;s
-            address plus <code>/auth/google/callback</code>. The secret is read from the named environment variable and
-            is never shown here.
-          </p>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="login-client-id" className={FIELD_LABEL}>Client ID</Label>
-            <Input id="login-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={FIELD_COMPACT} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="login-secret-env" className={FIELD_LABEL}>client_secret_env</Label>
-            <Input id="login-secret-env" value={secretEnv} onChange={(e) => setSecretEnv(e.target.value)} required className={FIELD_COMPACT} />
-          </div>
-          <button type="submit" disabled={saving} className={cn(PRIMARY_BUTTON, "self-start")}>
-            {saving ? "Saving..." : "Save sign-in client"}
-          </button>
-        </form>
-      </details>
 
       <details className="rounded-2xl bg-neutral-100 p-4">
         <summary className="cursor-pointer text-[12.5px] font-medium">Expected Google account</summary>

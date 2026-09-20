@@ -13,13 +13,12 @@ export type CommandResult = {
 
 export class SessionExpiredError extends Error {}
 
-// Session is what GET /api/session establishes. In account mode it names the
-// signed-in person and carries the CSRF token every mutating request must
-// send; the legacy password login answers with neither. It is held here, in
-// the one module every request goes through, so the token rides along
-// without each caller remembering it -- and so a 401 or a logout can drop
-// it in one place before the next person signs in on the same tab.
-export type Account = { id: string; email: string };
+// Session is what GET /api/session establishes: the signed-in person and
+// the CSRF token every mutating request must send. It is held here, in the
+// one module every request goes through, so the token rides along without
+// each caller remembering it -- and so a 401 or a logout can drop it in one
+// place before the next person signs in on the same tab.
+export type Account = { id: string; username: string };
 export type Session = { account?: Account; csrf?: string };
 
 let session: Session | null = null;
@@ -65,9 +64,9 @@ export function checkSession(): Promise<Session> {
 // because in safe mode every other route is absent or reporting the failure.
 export type Mode = "normal" | "safe" | "setup";
 export type Theme = "dark" | "light";
-// Login is which way in exists: the single owner's password form, or Google
-// Sign-In for an accounts deployment.
-export type Login = "password" | "google";
+// Login is whether a way in exists: the username/password form, or nothing
+// -- a safe mode that could not establish who anyone is.
+export type Login = "password" | "unavailable";
 
 // The probe carries the theme as well as the mode because it is the only
 // response that lands before first paint. Reading the preference any later
@@ -80,16 +79,14 @@ export function getMode(): Promise<Probe> {
   return request<Probe>("/api/mode").then((result) => ({
     mode: result.mode ?? "normal",
     theme: result.theme === "light" ? "light" : "dark",
-    login: result.login === "google" ? "google" : "password",
+    login: result.login === "unavailable" ? "unavailable" : "password",
   }));
 }
 
 export type SetupInput = {
   account_id: string;
-  google_email: string;
+  telegram_user_id?: number;
   public_base_url: string;
-  login_client_id: string;
-  login_client_secret_env: string;
   provider_name: string;
   provider_base_url: string;
   provider_api_key_env: string;
@@ -178,23 +175,35 @@ export async function saveRawConfig(body: string): Promise<CommandResult> {
   return result;
 }
 
-export function login(email: string, password: string): Promise<CommandResult> {
-  return request("/api/login", { method: "POST", body: JSON.stringify({ email, password }) });
+export function login(username: string, password: string): Promise<CommandResult> {
+  return request("/api/login", { method: "POST", body: JSON.stringify({ username, password }) });
+}
+
+// redeemWebLoginLink exchanges the token a Telegram /web link carried in its
+// fragment for a session. The custom header is the browser boundary for a
+// request no session token can cover: a cross-origin page cannot add it
+// without a preflight the server never grants.
+export function redeemWebLoginLink(token: string): Promise<CommandResult> {
+  return request("/api/login/link", { method: "POST", headers: { "X-Eggy-Login": "1" }, body: JSON.stringify({ token }) });
 }
 
 export function logout(): Promise<CommandResult> {
   return request("/api/logout", { method: "POST" }).finally(clearSession);
 }
 
-// The accounts card: who may use this deployment, whether each has enrolled
-// and is signed in, the sign-in client, and the address Eggy's own Google
-// connection must belong to. Every write is a config mutation on the server.
+// The People card: who may use this deployment, how each signs in, and the
+// address Eggy's own Google connection must belong to. password_state is
+// "environment" for the account the operator's credentials sign in, "set"
+// once a local password exists, "pending" for a membership whose password
+// was never stored. Nothing here is a password or a hash.
+export type PasswordState = "environment" | "set" | "pending";
+
 export type AccountRow = {
   id: string;
-  email: string;
   telegram_user_id?: number;
   discord_user_id?: string;
-  enrolled: boolean;
+  password_state: PasswordState;
+  web_link_available: boolean;
   signed_in: boolean;
   self: boolean;
 };
@@ -202,8 +211,8 @@ export type AccountRow = {
 export type AccountsView = {
   account_mode: boolean;
   accounts: AccountRow[];
-  login_client_id: string;
-  login_client_secret_env: string;
+  password_account_id: string;
+  environment_alias?: string;
   expected_email: string;
   migration_owner_id?: string;
   legacy_owner?: string;
@@ -214,17 +223,37 @@ export type AccountsView = {
   discord_linking_available: boolean;
 };
 
-export type AccountInput = { id: string; email: string; telegram_user_id: number };
+export type AccountInput = { id: string; telegram_user_id: number };
 
 export function getAccounts(): Promise<AccountsView> {
   return request<AccountsView>("/api/config/accounts");
 }
 
-export function addAccount(input: AccountInput): Promise<CommandResult> {
-  return request("/api/config/accounts", { method: "POST", body: JSON.stringify(input) });
+// PendingAccountError is the creation's partial outcome: membership was
+// written, the password was not. The retry is setting the password on the
+// listed pending account, not creating the ID again.
+export class PendingAccountError extends Error {}
+
+export async function addAccount(input: AccountInput & { password: string }): Promise<CommandResult> {
+  const response = await fetch("/api/config/accounts", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(session?.csrf ? { [CSRF_HEADER]: session.csrf } : {}) },
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json()) as CommandResult & { account_created?: boolean };
+  if (response.status === 401) {
+    clearSession();
+    throw new SessionExpiredError(body.title ?? "Not authenticated");
+  }
+  if (!response.ok) {
+    if (body.account_created) throw new PendingAccountError([body.title, body.detail].filter(Boolean).join(" "));
+    throw new Error(body.title ?? "Request failed");
+  }
+  return body;
 }
 
-export function editAccount(id: string, input: { email: string; telegram_user_id: number }): Promise<CommandResult> {
+export function editAccount(id: string, input: { telegram_user_id: number }): Promise<CommandResult> {
   return request(`/api/config/accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
@@ -232,8 +261,17 @@ export function removeAccount(id: string): Promise<CommandResult> {
   return request(`/api/config/accounts/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export function resetAccountBinding(id: string): Promise<CommandResult> {
-  return request(`/api/config/accounts/${encodeURIComponent(id)}/reset-binding`, { method: "POST" });
+// setAccountPassword changes a password. Your own change requires the
+// current password and signs you out everywhere; another person's reset
+// does not need theirs and signs them out.
+export function setAccountPassword(id: string, password: string, currentPassword?: string): Promise<CommandResult> {
+  const body: Record<string, string> = { password };
+  if (currentPassword) body.current_password = currentPassword;
+  return request(`/api/config/accounts/${encodeURIComponent(id)}/password`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function revokeAccountSessions(id: string): Promise<CommandResult> {
+  return request(`/api/config/accounts/${encodeURIComponent(id)}/revoke-sessions`, { method: "POST", body: "{}" });
 }
 
 export type TelegramPairing = { url: string; expires_at: string };
@@ -284,19 +322,14 @@ export function clearDiscordToken(): Promise<CommandResult> {
   return request("/api/config/discord/token", { method: "DELETE" });
 }
 
-export function setLoginClient(clientId: string, clientSecretEnv: string): Promise<CommandResult> {
-  return request("/api/config/login", { method: "POST", body: JSON.stringify({ client_id: clientId, client_secret_env: clientSecretEnv }) });
-}
-
 export function setExpectedGoogleEmail(email: string): Promise<CommandResult> {
   return request("/api/config/google/expected-email", { method: "POST", body: JSON.stringify({ email }) });
 }
 
 export type ConvertInput = {
   accounts: AccountInput[];
-  login_client_id: string;
-  login_client_secret_env: string;
   migration_owner_id: string;
+  password_account_id: string;
 };
 
 export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {

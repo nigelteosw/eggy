@@ -31,10 +31,7 @@ test("setup form requests settings and credential names, never credential values
   const html = renderToStaticMarkup(createElement(SetupPage));
   for (const name of [
     "account_id",
-    "google_email",
     "public_base_url",
-    "login_client_id",
-    "login_client_secret_env",
     "provider_name",
     "provider_base_url",
     "provider_api_key_env",
@@ -43,7 +40,7 @@ test("setup form requests settings and credential names, never credential values
   ]) {
     expect(html).toContain(`name="${name}"`);
   }
-  expect(html).not.toContain('name="login_client_secret"');
+  expect(html).not.toContain('name="google_email"');
   expect(html).not.toContain('name="provider_api_key"');
   expect(html).not.toContain('type="password"');
   expect(html).toContain("Account");

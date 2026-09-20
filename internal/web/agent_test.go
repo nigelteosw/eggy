@@ -243,7 +243,7 @@ func (s *scopedAgentSwitch) SelectModel(ctx context.Context, alias string) error
 	s.models[p.AccountID] = alias
 	return nil
 }
-func (s *scopedAgentSwitch) ReasoningEfforts(string) []string                   { return nil }
+func (s *scopedAgentSwitch) ReasoningEfforts(string) []string                    { return nil }
 func (s *scopedAgentSwitch) ReasoningEffort(context.Context) (string, error)     { return "", nil }
 func (s *scopedAgentSwitch) SelectReasoningEffort(context.Context, string) error { return nil }
 func (s *scopedAgentSwitch) ShowThinking(ctx context.Context) (bool, error) {

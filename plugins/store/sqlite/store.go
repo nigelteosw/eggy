@@ -105,68 +105,24 @@ type Store struct {
 	path string
 }
 
-// Open creates a Store at path and initializes its schema.
+// Open creates a Store at path and initializes its schema. A fresh database
+// gets the current schema directly; an existing one runs every in-place
+// upgrade and is then refused if it still needs the offline local login
+// cutover (see OpenForLocalAuthMigration).
 func Open(path string, _ ...int) (*Store, error) {
-	if err := prepareDatabaseFile(path); err != nil {
-		return nil, err
-	}
-
-	db, err := sql.Open("sqlite", path)
+	db, err := openDatabase(path)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+	if err := upgradeBeforeLocalAuth(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+	if err := requireLocalLoginCutover(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(schema); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(machineSchema); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(sessionSchema); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(identitySchema); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(identityLinkSchema); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	// Refuse a newer database before touching it; the stamp itself is
-	// written again below, after every upgrade has run.
-	if err := refuseNewerMachineState(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := ensureThreadWorkspaceColumns(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	// Traces recorded before /clear started a new one all carry the empty
-	// session, which is exactly right: they are the one stretch that ran
-	// before anybody could separate them.
-	if err := ensureColumn(db, "traces", "session", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := upgradeToAccounts(db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	if err := upgradeIdentityLinks(db); err != nil {
+	if _, err := db.Exec(accountAuthSchema); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -180,6 +136,51 @@ func Open(path string, _ ...int) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+// openDatabase opens the file and applies the base schema, which is safe on
+// any database: every statement is IF NOT EXISTS.
+func openDatabase(path string) (*sql.DB, error) {
+	if err := prepareDatabaseFile(path); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+
+	for _, stmt := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`, schema, machineSchema, sessionSchema, identityLinkSchema} {
+		if _, err := db.Exec(stmt); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+	return db, nil
+}
+
+// upgradeBeforeLocalAuth runs the in-place upgrades that predate local auth.
+// Each is driven by the tables' actual shape and idempotent, so a crash
+// halfway is repaired by running them again.
+func upgradeBeforeLocalAuth(db *sql.DB) error {
+	// Refuse a newer database before touching it; the stamp itself is
+	// written again by the caller, after every upgrade has run.
+	if err := refuseNewerMachineState(db); err != nil {
+		return err
+	}
+	if err := ensureThreadWorkspaceColumns(db); err != nil {
+		return err
+	}
+	// Traces recorded before /clear started a new one all carry the empty
+	// session, which is exactly right: they are the one stretch that ran
+	// before anybody could separate them.
+	if err := ensureColumn(db, "traces", "session", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := upgradeToAccounts(db); err != nil {
+		return err
+	}
+	return upgradeIdentityLinks(db)
 }
 
 func prepareDatabaseFile(path string) error {

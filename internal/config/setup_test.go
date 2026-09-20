@@ -11,24 +11,22 @@ import (
 
 func validSetupInput() SetupInput {
 	return SetupInput{
-		AccountID:            "you",
-		GoogleEmail:          "you@example.com",
-		PublicBaseURL:        "https://eggy.example.com",
-		LoginClientID:        "login-client",
-		LoginClientSecretEnv: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET",
-		ProviderName:         "deepseek",
-		ProviderBaseURL:      "https://api.deepseek.com",
-		ProviderAPIKeyEnv:    "DEEPSEEK_API_KEY",
-		ModelAlias:           "deepseek-pro",
-		ModelID:              "deepseek-v4-pro",
+		AccountID:         "you",
+		PublicBaseURL:     "https://eggy.example.com",
+		ProviderName:      "deepseek",
+		ProviderBaseURL:   "https://api.deepseek.com",
+		ProviderAPIKeyEnv: "DEEPSEEK_API_KEY",
+		ModelAlias:        "deepseek-pro",
+		ModelID:           "deepseek-v4-pro",
 	}
 }
 
 func setupEnv() map[string]string {
 	return map[string]string{
-		"EGGY_ENCRYPTION_KEY":             "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-		"EGGY_GOOGLE_LOGIN_CLIENT_SECRET": "login-secret-value",
-		"DEEPSEEK_API_KEY":                "provider-secret-value",
+		"EGGY_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+		"EGGY_UI_USER_EMAIL":  "you@example.com",
+		"EGGY_UI_PASSWORD":    "operator-password-value",
+		"DEEPSEEK_API_KEY":    "provider-secret-value",
 	}
 }
 
@@ -45,7 +43,7 @@ func TestCompleteSetupWritesOnlyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{input.ProviderAPIKeyEnv, input.LoginClientSecretEnv, "EGGY_ENCRYPTION_KEY"} {
+	for _, name := range []string{input.ProviderAPIKeyEnv, "EGGY_UI_PASSWORD", "EGGY_ENCRYPTION_KEY"} {
 		if value := getenv(name); value != "" && bytes.Contains(body, []byte(value)) {
 			t.Fatalf("secret from %s written to YAML", name)
 		}
@@ -57,8 +55,8 @@ func TestCompleteSetupWritesOnlyConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Accounts) != 1 || cfg.Accounts[0].ID != "you" {
-		t.Fatalf("accounts = %#v", cfg.Accounts)
+	if len(cfg.Accounts) != 1 || cfg.Accounts[0].ID != "you" || cfg.PasswordAccountID() != "you" {
+		t.Fatalf("accounts = %#v bound=%q", cfg.Accounts, cfg.PasswordAccountID())
 	}
 	if cfg.DataDir != root || cfg.Runner.Root != filepath.Join(root, "runs") {
 		t.Fatalf("paths = data %q runner %q", cfg.DataDir, cfg.Runner.Root)
@@ -72,7 +70,7 @@ func TestCompleteSetupWritesOnlyConfig(t *testing.T) {
 func TestCompleteSetupLeavesNoFilesWhenCandidateIsInvalid(t *testing.T) {
 	root := t.TempDir()
 	input := validSetupInput()
-	input.GoogleEmail = "not-an-email"
+	input.AccountID = "../you"
 	err := CompleteSetup(root, filepath.Join(root, "config.yaml"), input, mapEnv(setupEnv()))
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -109,7 +107,8 @@ func TestValidateSetupReportsMissingRequiredVariables(t *testing.T) {
 		drop string
 	}{
 		{"encryption", "EGGY_ENCRYPTION_KEY"},
-		{"login", "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"},
+		{"login", "EGGY_UI_PASSWORD"},
+		{"alias", "EGGY_UI_USER_EMAIL"},
 		{"provider", "DEEPSEEK_API_KEY"},
 	}
 	for _, tt := range tests {

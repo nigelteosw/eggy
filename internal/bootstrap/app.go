@@ -70,6 +70,7 @@ const maxToolStepsPerTurn = 500
 type App struct {
 	config      config.Config
 	store       ports.StateStore
+	runtime     *services.AgentRuntime
 	context     ports.ContextStore
 	channel     ports.Channel
 	chatHub     *webchat.Hub
@@ -258,6 +259,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
+	app.runtime = agentRuntime
 	// One kernel-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
@@ -435,8 +437,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		ModelAliases:   aliases,
 		ModelDiscovery: discovery,
 		PublicBaseURL:  config.Server.PublicBaseURL,
-		SigningKey:     []byte(secrets.EncryptionKey),
-		AccountMode:    config.AccountMode(),
+		WebLoginLink:   app.webLoginLinkMinter(database, options.ConfigPath),
 		Now:            options.Now,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
@@ -461,17 +462,16 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
-	googleLogin, loginSealer, err := newGoogleLogin(config, secrets, options)
+	passwordAccountID, environmentAlias, environmentHash, err := loginConfig(config, secrets)
 	if err != nil {
 		return nil, err
 	}
 	webConfig := web.WebUIConfig{
-		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
-		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
-		AccountMode: config.AccountMode(), Sessions: database, Accounts: app.accounts,
-		InitializeAccount: func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
-		GoogleLogin:       googleLogin, Identities: database, LoginSealer: loginSealer,
+		Now:     options.Now,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database,
+		Auth: database, Sessions: database, Accounts: app.accounts,
+		PasswordAccountID: passwordAccountID, EnvironmentAlias: environmentAlias, EnvironmentPasswordHash: environmentHash,
+		InitializeAccount:   func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
 		PublicBaseURL:       config.Server.PublicBaseURL,
 		MCP:                 mcpAdministration.webView(),
 		Tools:               registry,

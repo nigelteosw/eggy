@@ -37,7 +37,7 @@ func (f *fakeWatchList) ReplaceDocument(_ context.Context, document ports.Contex
 
 func watchTestHandler(t *testing.T, watch WatchList) (http.Handler, *http.Cookie) {
 	t.Helper()
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Watch = watch
 	handler := NewWebHandler("", webConfig)
 	return handler, webLoginCookie(t, handler)
@@ -46,7 +46,7 @@ func watchTestHandler(t *testing.T, watch WatchList) (http.Handler, *http.Cookie
 func postWatch(t *testing.T, handler http.Handler, cookie *http.Cookie, body string) webResult {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/api/context/watch", strings.NewReader(body))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -66,7 +66,7 @@ func TestWebWatchGetReturnsTheStoredList(t *testing.T) {
 	handler, cookie := watchTestHandler(t, &fakeWatchList{watch: "# Watch\n\n- PR #18\n"})
 
 	request := httptest.NewRequest(http.MethodGet, "/api/context/watch", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -130,7 +130,7 @@ func TestWebWatchRoutesAreAbsentWithoutAStore(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "/api/context/watch", nil),
 		httptest.NewRequest(http.MethodPost, "/api/context/watch", strings.NewReader(`{"content":"x"}`)),
 	} {
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusNotFound {
@@ -142,7 +142,7 @@ func TestWebWatchRoutesAreAbsentWithoutAStore(t *testing.T) {
 // The session gate is the whole authorization story for a document that tells
 // Eggy what to look at.
 func TestWebWatchRoutesRequireASession(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Watch = &fakeWatchList{}
 	handler := NewWebHandler("", webConfig)
 

@@ -30,13 +30,13 @@ func TestWebApprovalsListReportsWhatIsWaiting(t *testing.T) {
 		{ID: "stale", Action: "calendar.create", Summary: "Book a room", Status: approvals.Pending,
 			CreatedAt: now.Add(-3 * time.Hour), ExpiresAt: now.Add(-150 * time.Minute)},
 	}}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Approvals = directory
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/approvals", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -64,7 +64,7 @@ func TestWebApprovalsListReportsWhatIsWaiting(t *testing.T) {
 }
 
 func TestWebApprovalsRouteRequiresSession(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Approvals = &fakeApprovalDirectory{}
 	handler := NewWebHandler("", webConfig)
 	response := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func (f *fakeApprovalMode) SetMode(_ context.Context, mode ports.ApprovalMode) e
 func TestWebApprovalModeSetsTheSameSwitch(t *testing.T) {
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
 	gate := &fakeApprovalMode{}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.ApprovalMode = gate
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
@@ -109,7 +109,7 @@ func TestWebApprovalModeSetsTheSameSwitch(t *testing.T) {
 			request = httptest.NewRequest(method, path, strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		}
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -150,7 +150,7 @@ func TestWebApprovalModeSetsTheSameSwitch(t *testing.T) {
 // An unauthenticated write would let anyone who can reach the port turn every
 // gate off.
 func TestWebApprovalModeRequiresASession(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
 	webConfig.ApprovalMode = &fakeApprovalMode{}
 	handler := NewWebHandler("", webConfig)
 	response := httptest.NewRecorder()

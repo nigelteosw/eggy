@@ -22,18 +22,18 @@ import (
 
 func freshInstallEnv() map[string]string {
 	return map[string]string{
-		"DEEPSEEK_API_KEY":                "provider-secret",
-		"EGGY_GOOGLE_LOGIN_CLIENT_SECRET": "login-secret",
-		"TELEGRAM_BOT_TOKEN":              "telegram-bot-token-fixture",
-		"TELEGRAM_WEBHOOK_SECRET":         "telegram-webhook-fixture",
-		"EGGY_ENCRYPTION_KEY":             "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+		"DEEPSEEK_API_KEY":        "provider-secret",
+		"EGGY_UI_USER_EMAIL":      "you@example.com",
+		"EGGY_UI_PASSWORD":        "operator-password-fixture",
+		"TELEGRAM_BOT_TOKEN":      "telegram-bot-token-fixture",
+		"TELEGRAM_WEBHOOK_SECRET": "telegram-webhook-fixture",
+		"EGGY_ENCRYPTION_KEY":     "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 	}
 }
 
 func freshInstallSetupInput() config.SetupInput {
 	return config.SetupInput{
-		AccountID: "you", GoogleEmail: "you@example.com", PublicBaseURL: "https://eggy.test",
-		LoginClientID: "web-client", LoginClientSecretEnv: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET",
+		AccountID: "you", PublicBaseURL: "https://eggy.test",
 		ProviderName: "deepseek", ProviderBaseURL: "https://deepseek.test", ProviderAPIKeyEnv: "DEEPSEEK_API_KEY",
 		ModelAlias: "deepseek-pro", ModelID: "deepseek-v4-pro", TelegramEnabled: true,
 	}

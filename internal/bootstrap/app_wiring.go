@@ -127,6 +127,13 @@ func openStores(config config.Config, logger *slog.Logger) (stores, error) {
 			return stores{}, fmt.Errorf("move owner documents to account %q: %w", owner, err)
 		}
 	}
+	// Credential rows follow membership: configured accounts get one,
+	// removed ones are retired. Before any store is handed out, so the
+	// first login of this boot finds its row.
+	if err := reconcileAccountAuth(context.Background(), database, config); err != nil {
+		_ = database.Close()
+		return stores{}, err
+	}
 	opened.database = database
 	opened.state = database.State()
 	opened.schedules = database.Schedules()

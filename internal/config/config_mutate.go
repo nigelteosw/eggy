@@ -25,6 +25,9 @@ func LoadDocument(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("open config: %w", err)
 	}
+	if err := requireLocalLoginShape(data); err != nil {
+		return Config{}, err
+	}
 	var cfg Config
 	if err := decodeKnownYAML(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)

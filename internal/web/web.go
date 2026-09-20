@@ -9,17 +9,17 @@ import (
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/webui"
 )
 
 // WebUIConfig holds what NewWebHandler needs beyond the config file path:
-// the single owner login credential and the key used to sign session
-// cookies (Eggy's existing EGGY_ENCRYPTION_KEY -- see
-// docs/superpowers/specs/2026-07-22-web-config-ui-design.md), plus the chat
-// wiring (docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md):
-// ChatHub/Enqueue/Memory/OwnerID are only read by the /api/chat/* routes and
-// may be left zero-valued in tests that only exercise login/config routes.
+// the credential store and the environment login binding every session
+// starts from, plus the chat wiring
+// (docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md):
+// ChatHub/Enqueue/Memory are only read by the /api/chat/* routes and may be
+// left zero-valued in tests that only exercise login/config routes.
 // MCPLoginStarter begins an OAuth authorization for one configured MCP
 // server and returns the provider URL to send the owner to.
 type MCPLoginStarter interface {
@@ -27,17 +27,24 @@ type MCPLoginStarter interface {
 }
 
 type WebUIConfig struct {
-	UserEmail  string
-	Password   string
-	SigningKey []byte
-	Now        func() time.Time
-	// AccountMode switches the panel from the single-owner password login to
-	// Google Sign-In with revocable sessions. Sessions and Accounts must be
-	// set with it; the password and login-link routes are not mounted.
-	AccountMode       bool
-	Sessions          SessionStore
-	Accounts          AccountDirectory
-	InitializeAccount func(string) error
+	Now func() time.Time
+	// Auth, Sessions and Accounts are the login's three authorities: the
+	// credential and link records, the session rows, and the configured
+	// membership. All three are required for any way in to exist; with any
+	// missing the panel reports login as unavailable.
+	Auth     ports.AccountAuthStore
+	Sessions SessionStore
+	Accounts AccountDirectory
+	// PasswordAccountID is the account bound to the environment credentials
+	// when this process started; EnvironmentAlias is the username that
+	// stands for it, and EnvironmentPasswordHash the configured password
+	// prehashed into the stored-password format so a wrong guess against it
+	// costs what a wrong local password does. None of the three is
+	// persisted, and the hash is never sent anywhere.
+	PasswordAccountID       string
+	EnvironmentAlias        string
+	EnvironmentPasswordHash string
+	InitializeAccount       func(string) error
 	// IdentityLinks mints and cancels the single-use tokens that bind a
 	// chat sender to an account, for every connection. Nil when no chat
 	// connection is enabled.
@@ -53,11 +60,6 @@ type WebUIConfig struct {
 	// from the panel. Nil without an encryption key, in which case the
 	// Discord card explains what to set.
 	Connections ConnectionCredentials
-	// GoogleLogin, Identities and LoginSealer are the Sign-In routes'
-	// collaborators. All three are required in account mode.
-	GoogleLogin GoogleLogin
-	Identities  IdentityStore
-	LoginSealer VerifierSealer
 	// PublicBaseURL is the deployment's public origin, which the CSRF
 	// same-origin check accepts alongside the request's own Host.
 	PublicBaseURL string
@@ -65,7 +67,6 @@ type WebUIConfig struct {
 	Enqueue       func(context.Context, events.Event) error
 	Memory        HistoryReader
 	Threads       ThreadDirectory
-	OwnerID       string
 	// MCP is the running MCP manager, or nil when no server is configured.
 	// The web panel edits MCP config through internal/config like every other
 	// section; this is only the part config cannot do -- starting an OAuth
@@ -133,10 +134,6 @@ type WebUIConfig struct {
 const (
 	webSessionCookie = "eggy_session"
 	webSessionTTL    = 12 * time.Hour
-	// webLoginLinkTTL bounds how long a /web link is worth stealing. It is
-	// minutes rather than hours because the link travels through a chat
-	// transcript, which is a place credentials linger.
-	webLoginLinkTTL = 5 * time.Minute
 )
 
 type webResult struct {
@@ -185,17 +182,18 @@ const (
 	modeSafe   = "safe"
 )
 
-// The two ways into the panel, as /api/mode names them.
+// What /api/mode says about the way in: the username/password form, or
+// nothing -- safe mode without a database or identity to check against.
 const (
-	loginPassword = "password"
-	loginGoogle   = "google"
+	loginPassword    = "password"
+	loginUnavailable = "unavailable"
 )
 
 func loginKind(webConfig WebUIConfig) string {
-	if webConfig.AccountMode {
-		return loginGoogle
+	if loginAvailable(webConfig) {
+		return loginPassword
 	}
-	return loginPassword
+	return loginUnavailable
 }
 
 // writeMode answers the unauthenticated probe the UI makes before anything
@@ -205,10 +203,10 @@ func loginKind(webConfig WebUIConfig) string {
 // the session means the login page cannot honour it at all. A theme name is
 // not a secret, so there is nothing here for an anonymous caller to learn.
 //
-// Login says which way in exists -- the password form, or Google Sign-In --
-// so the login page renders the right control before anyone has a session.
-// Which of the two is not a secret: the Sign-In route answers the same
-// question to anyone who requests it.
+// Login says whether a way in exists -- the password form, or nothing in a
+// safe mode that cannot identify anyone -- so the login page renders the
+// right screen before anyone has a session. That is not a secret: the login
+// route answers the same question to anyone who posts to it.
 func writeMode(mode string, theme func() string, login string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -241,7 +239,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		now = time.Now
 	}
 	throttle := session.NewLoginThrottle(now)
-	links := newSpentLinks()
+	limiter := newVerifyLimiter()
+	dummy := dummyPasswordHash()
 	mux := http.NewServeMux()
 	// Every route below the login endpoints is owner-only, so the session
 	// check is bound once here rather than repeated on each registration. It
@@ -249,35 +248,21 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// that visibly does not say guard, instead of one that happens to be
 	// missing two arguments among thirty that carry them.
 	guard := func(next http.HandlerFunc) http.Handler {
-		if webConfig.AccountMode {
-			return requireAccountSession(webConfig, now, next)
-		}
-		return requireWebSession(webConfig, now, next)
+		return requireAccountSession(webConfig, now, next)
 	}
 	mux.Handle("GET /", webUIHandler())
 	mux.HandleFunc("GET /api/mode", writeMode(modeNormal, configuredTheme(configPath), loginKind(webConfig)))
-	if webConfig.AccountMode {
-		// No password, no one-tap link: the only way in is a verified
-		// Google identity, and the only way out is revoking the row.
-		mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, _ *http.Request) {
-			writeWebError(w, http.StatusUnauthorized, "sign in with Google")
-		})
-		mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
-		mux.Handle("GET /api/session", guard(handleAccountSession))
-		if webConfig.GoogleLogin != nil {
-			// Neither route is session-gated: start is how a session begins,
-			// and the callback is authenticated by its single-use state.
-			mux.HandleFunc("GET /auth/google/start", handleGoogleStart(webConfig, now))
-			mux.HandleFunc("GET /auth/google/callback", handleGoogleCallback(webConfig, now))
-		}
-	} else {
-		mux.HandleFunc("POST /api/login", handleWebLogin(webConfig, throttle, now))
-		mux.HandleFunc("POST /api/logout", handleWebLogout())
-		mux.HandleFunc("GET /auth/link", handleWebLoginLink(webConfig, links, now))
-		mux.Handle("GET /api/session", guard(func(w http.ResponseWriter, _ *http.Request) {
-			writeWebResult(w, webResult{State: webSuccess, Title: "Session is valid."})
-		}))
+	mux.HandleFunc("POST /api/login", handlePasswordLogin(configPath, webConfig, throttle, limiter, dummy, now))
+	mux.HandleFunc("POST /api/login/link", handleWebLoginLinkRedeem(configPath, webConfig, throttle, now))
+	// Any other method on the credential routes is 405, not the asset
+	// server's 404: a GET with a password in the query string must not be
+	// mistaken for a missing page.
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		mux.HandleFunc(method+" /api/login", methodNotAllowed)
+		mux.HandleFunc(method+" /api/login/link", methodNotAllowed)
 	}
+	mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
+	mux.Handle("GET /api/session", guard(handleAccountSession))
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
@@ -290,12 +275,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// The accounts card. Every write is a config mutation; the routes add
 	// only who-may-do-what and the live enrollment/session state.
 	mux.Handle("GET /api/config/accounts", guard(accountsGetRoute(configPath, webConfig, now)))
-	mux.Handle("POST /api/config/accounts", guard(accountAddRoute(configPath, webConfig)))
-	mux.Handle("POST /api/config/accounts/convert", guard(accountsConvertRoute(configPath)))
-	mux.Handle("PATCH /api/config/accounts/{id}", guard(accountEditRoute(configPath, webConfig)))
+	mux.Handle("POST /api/config/accounts", guard(accountAddRoute(configPath, webConfig, limiter)))
+	mux.Handle("POST /api/config/accounts/convert", guard(accountsConvertRoute(configPath, webConfig)))
+	mux.Handle("PATCH /api/config/accounts/{id}", guard(accountEditRoute(configPath)))
 	mux.Handle("DELETE /api/config/accounts/{id}", guard(accountRemoveRoute(configPath, webConfig)))
-	mux.Handle("POST /api/config/accounts/{id}/reset-binding", guard(accountResetBindingRoute(webConfig)))
-	mux.Handle("POST /api/config/login", guard(loginClientSetRoute(configPath)))
+	mux.Handle("POST /api/config/accounts/{id}/password", guard(accountPasswordRoute(configPath, webConfig, limiter)))
+	mux.Handle("POST /api/config/accounts/{id}/revoke-sessions", guard(accountRevokeSessionsRoute(configPath, webConfig)))
 	mux.Handle("POST /api/config/google/expected-email", guard(expectedEmailSetRoute(configPath)))
 	mux.Handle("POST /api/config/telegram/enabled", guard(telegramEnabledRoute(configPath, webConfig)))
 	if webConfig.IdentityLinks != nil && webConfig.TelegramBotUsername != "" {
@@ -339,6 +324,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/agent", guard(newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/model", guard(newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/effort", guard(newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/thinking", guard(newAgentThinkingHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Watch)))
 	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Watch)))
 	if webConfig.Traces != nil {
@@ -355,10 +341,23 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	return mux
 }
 
+func methodNotAllowed(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Allow", http.MethodPost)
+	writeWebError(w, http.StatusMethodNotAllowed, "method not allowed")
+}
+
 func webUIHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(webui.Assets()))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && isApplicationRoute(r.URL.Path) {
+			if r.URL.Path == "/auth/link" {
+				// The login token rides in this page's fragment. The
+				// fragment never reaches the server, but the page must not
+				// be cached with it in a history entry, nor leak its URL
+				// as a referrer to anything the shell loads.
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+			}
 			request := r.Clone(r.Context())
 			request.URL.Path = "/"
 			fileServer.ServeHTTP(w, request)
@@ -369,7 +368,7 @@ func webUIHandler() http.Handler {
 }
 
 func isApplicationRoute(path string) bool {
-	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/"
+	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/" || path == "/auth/link"
 }
 
 func webModelRemoveRoute(configPath string) http.HandlerFunc {

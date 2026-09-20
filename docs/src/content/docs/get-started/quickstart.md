@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Build Eggy, run it locally with Google sign-in, and start your first conversation.
+description: Build Eggy, run it locally with local account login, and start your first conversation.
 eyebrow: Get started
 ---
 
@@ -12,9 +12,7 @@ carries over to [Railway](/eggy/get-started/deploy-railway/).
 
 - Go 1.26, Bun, Git
 - An API key for at least one model provider
-- A Google Cloud project with a **Web application** OAuth client for sign-in
-  (redirect URI `http://localhost:8080/auth/google/callback`; Google allows
-  plain `http` for `localhost`) — see [Accounts](/eggy/configure/accounts/)
+- A username and password for your own account
 - Optional: a Google Workspace user for Eggy itself, a Desktop OAuth client,
   a Telegram bot token and webhook secret
 
@@ -39,7 +37,8 @@ Create `.env` in the checkout:
 ```dotenv
 EGGY_ENCRYPTION_KEY=...   # openssl rand -base64 32; paste the value, keep it stable
 DEEPSEEK_API_KEY=...      # or whichever provider you plan to use
-EGGY_GOOGLE_LOGIN_CLIENT_SECRET=...   # the Web application client's secret
+EGGY_UI_USER_EMAIL=...    # your username on the login form
+EGGY_UI_PASSWORD=...      # your password; rotate it here, then restart
 ```
 
 `EGGY_PUBLIC_BASE_URL` is optional for local use — Eggy falls back to
@@ -69,9 +68,8 @@ Open that URL. It signs you into the setup page automatically — the token is
 in the link's fragment, never sent as a query parameter a proxy might log.
 Fill in:
 
-- **Account** — an ID for yourself and the Google address you'll sign in with
-- **Sign-in** — the Web application client ID, and the variable name holding
-  its secret (`EGGY_GOOGLE_LOGIN_CLIENT_SECRET` above)
+- **Account** — an ID for yourself (your username), and optionally the
+  numeric Telegram ID you'll link later
 - **Model** — the provider, its base URL, and the variable name holding its
   API key (`DEEPSEEK_API_KEY` above)
 - **Telegram** (optional) — check the box only if `TELEGRAM_BOT_TOKEN` and
@@ -90,8 +88,8 @@ curl http://localhost:8080/readyz
 
 ## Sign in
 
-Open `http://localhost:8080/`, click **Sign in with Google**, and sign in with
-the address you gave setup. The first sign-in enrolls the account. Your
+Open `http://localhost:8080/` and sign in with the username and password from
+your environment (`EGGY_UI_USER_EMAIL` / `EGGY_UI_PASSWORD`). Your
 conversations, memory and settings are under `data/accounts/you/`.
 
 Browsers accept Eggy's `Secure` session cookie on `localhost` over plain
@@ -108,12 +106,15 @@ files with, or forward mail to, that address.
 
 ## Add a second person
 
-1. **Settings → Accounts → Add an account** with their ID and Google address.
-   Access changes immediately; no restart needed.
-2. They open the same address and sign in with Google. They get their own
-   empty history and memory, and the shared Google connection.
+1. **Settings → People → Add an account** with their ID and a password you
+   hand them by hand. Access changes immediately; no restart needed.
+2. They open the same address and sign in with that username and password.
+   They get their own empty history, memory, and personal settings.
+3. If they use Telegram, they link their own chat from their row on the same
+   card, or send themselves a `/web` link once linked.
 
-Removing someone from the same card signs them out at once. Full details in
+Removing someone from the same card signs them out at once, and their
+username is never reissued. Full details in
 [Accounts](/eggy/configure/accounts/).
 
 ## Telegram (optional)
@@ -134,9 +135,9 @@ only required once you turn on the capability that needs it:
 
 | Variable | When it's needed |
 | --- | --- |
-| `EGGY_ENCRYPTION_KEY` | Always. Seals sessions and the Google Workspace grant. |
+| `EGGY_ENCRYPTION_KEY` | Always. Seals sessions, account credentials, and the Google Workspace grant. |
 | Your provider's API key (e.g. `DEEPSEEK_API_KEY`) | Always. Name it as the "API key variable" during setup. |
-| Your sign-in client's secret (e.g. `EGGY_GOOGLE_LOGIN_CLIENT_SECRET`) | Always. Name it as the "Client secret variable" during setup. |
+| `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD` | Always. The first account's sign-in; the only password the environment manages. |
 | `EGGY_PUBLIC_BASE_URL` | Recommended once you're not on `localhost`; auto-detected on Railway. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` | Only if you enable Telegram. |
 | `GITHUB_TOKEN` | Only once a repository is configured. |
@@ -151,8 +152,9 @@ only ever stores which variable to read from, never the value.
 
 Setting any of `EGGY_ACCOUNTS`, `EGGY_OWNER_ID`, or `EGGY_TELEGRAM_OWNER_ID`
 skips the setup page entirely: Eggy generates `config.yaml` from those
-variables on first boot instead, the way earlier versions always did. See
-`.env.example` for the full set this path reads. Useful for scripted or
-non-interactive provisioning; the guided page above is otherwise the better
-default. Do not set `EGGY_UI_USER_EMAIL`/`EGGY_UI_PASSWORD` alongside
-`EGGY_ACCOUNTS`: with accounts there is no password login.
+variables on first boot instead, the way earlier versions always did. `EGGY_ACCOUNTS`
+lists the people as `id[:telegram_user_id]`, comma-separated, and with more
+than one entry `EGGY_OWNER_ID` must name which of them the `EGGY_UI_*`
+credentials above sign in. See `.env.example` for the full set this path
+reads. Useful for scripted or non-interactive provisioning; the guided page
+above is otherwise the better default.

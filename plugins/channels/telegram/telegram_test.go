@@ -471,3 +471,42 @@ func TestClientDeliversToTheActingAccountsChatOnly(t *testing.T) {
 		t.Fatalf("no principal: err=%v", err)
 	}
 }
+
+// The verified sender rides on the event only for a message typed in the
+// private chat: a selection callback carries none, even when its selected
+// text is a command, and nothing is stamped for a refused update.
+func TestWebhookStampsTheVerifiedSenderOnMessagesOnly(t *testing.T) {
+	var got events.Event
+	resolve := func(sender int64) (string, bool) {
+		if sender == 77 {
+			return "partner", true
+		}
+		return "", false
+	}
+	handler := NewWebhookHandler(resolve, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).
+		WithSelectionResolver(func(string) (string, bool) { return "/web", true })
+	post := func(body, secret string) int {
+		request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(body))
+		request.Header.Set("X-Telegram-Bot-Api-Secret-Token", secret)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+	if code := post(`{"update_id":1,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":"/web"}}`, "secret"); code != http.StatusNoContent || got.SenderID != "77" || got.Owner != "partner" {
+		t.Fatalf("private message: status=%d sender=%q owner=%q", code, got.SenderID, got.Owner)
+	}
+	got = events.Event{}
+	if code := post(`{"update_id":2,"callback_query":{"id":"cb","from":{"id":77},"data":"select:abc","message":{"message_id":9,"chat":{"id":77}}}}`, "secret"); code != http.StatusNoContent || got.SenderID != "" || got.Owner != "partner" {
+		t.Fatalf("selection callback: status=%d sender=%q owner=%q", code, got.SenderID, got.Owner)
+	}
+	got = events.Event{}
+	if code := post(`{"update_id":3,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":"/web"}}`, "wrong"); code != http.StatusUnauthorized || got.SenderID != "" {
+		t.Fatalf("bad secret: status=%d sender=%q", code, got.SenderID)
+	}
+	if code := post(`{"update_id":4,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"/web"}}`, "secret"); code != http.StatusForbidden || got.SenderID != "" {
+		t.Fatalf("unmapped sender: status=%d sender=%q", code, got.SenderID)
+	}
+	if code := post(`{"update_id":5,"message":{"message_id":1,"from":{"id":77},"chat":{"id":-100123},"text":"/web"}}`, "secret"); code != http.StatusForbidden || got.SenderID != "" {
+		t.Fatalf("group: status=%d sender=%q", code, got.SenderID)
+	}
+}

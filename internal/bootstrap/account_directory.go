@@ -29,7 +29,7 @@ func (d accountDirectory) current() (config.Config, bool) {
 }
 
 func accountRecord(account config.AccountConfig) web.AccountRecord {
-	return web.AccountRecord{ID: account.ID, Email: account.GoogleEmail, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
+	return web.AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
 }
 
 func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
@@ -44,16 +44,21 @@ func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
 	return accountRecord(account), true
 }
 
-func (d accountDirectory) AccountForEmail(email string) (web.AccountRecord, bool) {
+// PasswordAccountID is the environment login's binding as the config is
+// now. Compared against the boot-time binding on every environment login,
+// so a rebinding after boot refuses rather than hands the operator's
+// password to someone else.
+func (d accountDirectory) PasswordAccountID() string {
 	cfg, valid := d.current()
 	if !valid {
-		return web.AccountRecord{}, false
+		return ""
 	}
-	account, ok := cfg.AccountForEmail(email)
-	if !ok {
-		return web.AccountRecord{}, false
-	}
-	return accountRecord(account), true
+	return cfg.PasswordAccountID()
+}
+
+func (d accountDirectory) TelegramEnabled() bool {
+	cfg, valid := d.current()
+	return valid && cfg.TelegramEnabled()
 }
 
 func (d accountDirectory) Accounts() []web.AccountRecord {

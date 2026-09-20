@@ -18,10 +18,18 @@ import (
 // exercise the routes: aliases are fixed at construction, and an effort that
 // the selected model does not support is not reported.
 type fakeAgentSwitch struct {
-	aliases []string
-	efforts map[string][]string
-	model   string
-	effort  string
+	aliases      []string
+	efforts      map[string][]string
+	model        string
+	effort       string
+	hideThinking bool
+}
+
+func (f *fakeAgentSwitch) ShowThinking(context.Context) (bool, error) { return !f.hideThinking, nil }
+
+func (f *fakeAgentSwitch) SetShowThinking(_ context.Context, show bool) error {
+	f.hideThinking = !show
+	return nil
 }
 
 func (f *fakeAgentSwitch) Aliases() []string { return slices.Clone(f.aliases) }
@@ -63,7 +71,7 @@ func agentCall(t *testing.T, handler http.Handler, cookie *http.Cookie, method, 
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if cookie != nil {
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -93,7 +101,7 @@ func TestWebAgentReportsWhatTheComposerCanOffer(t *testing.T) {
 		model:   "thinker",
 		effort:  "medium",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeStrict}
 	handler := NewWebHandler("", webConfig)
@@ -124,7 +132,7 @@ func TestWebAgentModelWriteAnswersWithTheResultingState(t *testing.T) {
 		model:   "thinker",
 		effort:  "high",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeStrict}
 	handler := NewWebHandler("", webConfig)
@@ -159,7 +167,7 @@ func TestWebAgentEffortRejectsALevelTheModelDoesNotSupport(t *testing.T) {
 		efforts: map[string][]string{"thinker": {"low", "high"}},
 		model:   "thinker",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeNormal}
 	handler := NewWebHandler("", webConfig)
@@ -183,7 +191,7 @@ func TestWebAgentEffortRejectsALevelTheModelDoesNotSupport(t *testing.T) {
 // Model selection changes what every subsequent turn runs on and costs, so it
 // is owner-only like every other write in this panel.
 func TestWebAgentRoutesRequireASession(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
 	webConfig.Agent = &fakeAgentSwitch{aliases: []string{"fast"}, model: "fast"}
 	handler := NewWebHandler("", webConfig)
 	for _, route := range []struct{ method, path, body string }{
@@ -200,10 +208,94 @@ func TestWebAgentRoutesRequireASession(t *testing.T) {
 // With no model backend wired the composer must be told so, rather than being
 // handed an empty list it would draw as "no models configured".
 func TestWebAgentWithoutARuntimeIsAbsentRatherThanEmpty(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
 	if response := agentCall(t, handler, cookie, http.MethodGet, "/api/agent", ""); response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// scopedAgentSwitch records settings per principal, standing in for the
+// runtime's per-account state, so a route that let a body name the account
+// would be caught writing the other one's row.
+type scopedAgentSwitch struct {
+	models   map[string]string
+	thinking map[string]bool
+}
+
+func (s *scopedAgentSwitch) Aliases() []string { return []string{"shared-default", "other"} }
+func (s *scopedAgentSwitch) SelectedModel(ctx context.Context) (string, error) {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	if m := s.models[p.AccountID]; m != "" {
+		return m, nil
+	}
+	return "shared-default", nil
+}
+func (s *scopedAgentSwitch) SelectModel(ctx context.Context, alias string) error {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	s.models[p.AccountID] = alias
+	return nil
+}
+func (s *scopedAgentSwitch) ReasoningEfforts(string) []string                    { return nil }
+func (s *scopedAgentSwitch) ReasoningEffort(context.Context) (string, error)     { return "", nil }
+func (s *scopedAgentSwitch) SelectReasoningEffort(context.Context, string) error { return nil }
+func (s *scopedAgentSwitch) ShowThinking(ctx context.Context) (bool, error) {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	hidden, ok := s.thinking[p.AccountID]
+	return !ok || !hidden, nil
+}
+func (s *scopedAgentSwitch) SetShowThinking(ctx context.Context, show bool) error {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	s.thinking[p.AccountID] = !show
+	return nil
+}
+
+func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
+	now := time.Now().UTC()
+	cfg, db, _ := accountWebConfig(t, now)
+	agent := &scopedAgentSwitch{models: map[string]string{}, thinking: map[string]bool{}}
+	cfg.Agent = agent
+	handler := NewWebHandler("", cfg)
+	nigel, nigelCSRF := signIn(t, handler, db, "nigel", now)
+	partner, partnerCSRF := signIn(t, handler, db, "partner", now)
+
+	// A body naming another account is not a way to write their row: the
+	// form route ignores the field, the JSON route refuses it.
+	response := authenticatedJSON(handler, nigel, nigelCSRF, http.MethodPost, "/api/agent/model", "")
+	_ = response
+	form := httptest.NewRequest(http.MethodPost, "/api/agent/model", strings.NewReader("model=other&account_id=partner"))
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	attachSession(form, nigel)
+	formResponse := httptest.NewRecorder()
+	handler.ServeHTTP(formResponse, form)
+	if formResponse.Code != http.StatusOK {
+		t.Fatalf("model status=%d body=%s", formResponse.Code, formResponse.Body.String())
+	}
+	if agent.models["nigel"] != "other" || agent.models["partner"] != "" {
+		t.Fatalf("models=%v", agent.models)
+	}
+	if response := authenticatedJSON(handler, nigel, nigelCSRF, http.MethodPost, "/api/agent/thinking", `{"show":false,"account_id":"partner"}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("thinking with account_id status=%d", response.Code)
+	}
+	if response := authenticatedJSON(handler, nigel, nigelCSRF, http.MethodPost, "/api/agent/thinking", `{"show":false}`); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"show_thinking":false`) {
+		t.Fatalf("thinking status=%d body=%s", response.Code, response.Body.String())
+	}
+	// partner still sees the defaults.
+	response = authenticatedJSON(handler, partner, partnerCSRF, http.MethodGet, "/api/agent", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model":"shared-default"`) || !strings.Contains(response.Body.String(), `"show_thinking":true`) {
+		t.Fatalf("partner's view=%s", response.Body.String())
 	}
 }

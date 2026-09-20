@@ -7,14 +7,13 @@ import { ErrorBanner } from "./components/ui/error-banner";
 import { FIELD } from "./components/ui/form";
 import { errorMessage } from "./lib/utils";
 
-// The page is one of two: the single owner's password form, or, for an
-// accounts deployment, an ordinary link to the server's Google Sign-In start
-// route. The link is deliberately not a script -- the browser leaves for
-// Google and comes back with a session cookie; nothing here touches a token.
-// failed is the callback's one generic outcome: which check refused the
-// sign-in is logged on the server, never shown.
-export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Login; failed: boolean; onLoggedIn: () => void }) {
-  const [email, setEmail] = useState("");
+// The username/password form. The username is the account ID -- or, for
+// the account the deployment environment signs in, the alias the operator
+// configured. When the server cannot identify anyone (a safe mode without
+// its database) the form is replaced by that fact rather than a control that
+// cannot work.
+export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLoggedIn: () => void }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -24,7 +23,8 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
     setSubmitting(true);
     setError(null);
     try {
-      await login(email, password);
+      await login(username, password);
+      setPassword("");
       onLoggedIn();
     } catch (err) {
       setError(errorMessage(err, "Login failed"));
@@ -51,31 +51,22 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
         </div>
 
         <div className="rounded-3xl bg-neutral-100 p-6 shadow-lift">
-          {loginKind === "google" ? (
-            <div className="flex flex-col gap-4">
-              {failed && (
-                <ErrorBanner>
-                  Sign-in was not completed. Use the Google account you were invited with, and try again.
-                </ErrorBanner>
-              )}
-              <a
-                href="/auth/google/start"
-                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              >
-                Sign in with Google
-              </a>
-              <p className="text-center text-xs text-neutral-700">Only invited Google accounts can sign in.</p>
-            </div>
+          {loginKind === "unavailable" ? (
+            <ErrorBanner>
+              Eggy is in safe mode and cannot identify anyone right now. Repair config.yaml on the host, then sign in.
+            </ErrorBanner>
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="username">Username</Label>
                 <Input
-                  id="email"
-                  type="email"
+                  id="username"
+                  type="text"
                   autoComplete="username"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
                   required
                   className={FIELD}
                 />
@@ -104,8 +95,8 @@ export function LoginPage({ login: loginKind, failed, onLoggedIn }: { login: Log
           )}
         </div>
         <p className="mt-4 text-center text-xs text-neutral-700">
-          This panel only talks to the machine it runs on.
-          {loginKind !== "google" && " The password is the one in your config.yaml."}
+          This panel only talks to the machine it runs on. On a phone, send /web to Eggy in Telegram for a one-tap
+          sign-in link.
         </p>
       </div>
     </div>

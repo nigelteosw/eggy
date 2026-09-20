@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { applyTheme, checkSession, clearSession, getMode, logout, type Account, type Login, type Mode, type Theme } from "./api";
 import { LoginPage } from "./LoginPage";
+import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "./WebLoginLinkPage";
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
@@ -64,14 +65,14 @@ export function AppNavigation({
       </nav>
       {account && (
         <div className="ml-auto flex min-w-0 items-center gap-2.5 text-sm">
-          <span className="hidden truncate text-muted-foreground sm:inline" title={account.email}>
-            {account.email}
+          <span className="hidden truncate text-muted-foreground sm:inline" title={account.username}>
+            {account.username}
           </span>
           <div
             aria-hidden="true"
             className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700 sm:flex"
           >
-            {account.email.charAt(0).toUpperCase()}
+            {account.username.charAt(0).toUpperCase()}
           </div>
           <button
             type="button"
@@ -92,13 +93,13 @@ export function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [loginKind, setLoginKind] = useState<Login>("password");
   const [account, setAccount] = useState<Account | undefined>(undefined);
-  // The callback's generic failure lands on "/?login=failed"; read once and
-  // then taken out of the address bar so a reload does not repeat it.
-  const [loginFailed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const failed = new URLSearchParams(window.location.search).get("login") === "failed";
-    if (failed) window.history.replaceState({}, "", window.location.pathname);
-    return failed;
+  // A Telegram /web link lands on /auth/link#token=…: the token is taken
+  // out of the address bar once, on the first render, and held in memory
+  // until the person clicks Continue. A refresh afterwards finds no token
+  // and has to ask Telegram for a new link, which is the intended cost.
+  const [webLoginToken, setWebLoginToken] = useState<string | null>(() => {
+    if (typeof window === "undefined" || window.location.pathname !== "/auth/link") return null;
+    return takeWebLoginToken(window.location, window.history);
   });
   const [view, setView] = useState<View>(() =>
     viewForPath(typeof window === "undefined" ? "/" : window.location.pathname),
@@ -182,6 +183,25 @@ export function App() {
     }
   }
 
+  if (webLoginToken !== null) {
+    return (
+      <WebLoginLinkPage
+        token={webLoginToken}
+        currentUsername={account?.username ?? currentUsernameFor()}
+        onSignedIn={() => {
+          setWebLoginToken(null);
+          afterWebLoginLink()
+            .then((session) => {
+              setAccount(session.account);
+              setStatus("authenticated");
+            })
+            .catch(() => setStatus("unauthenticated"));
+          navigate("chat");
+        }}
+      />
+    );
+  }
+
   if (status === "checking") {
     return (
       <div className="app-canvas flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
@@ -195,7 +215,6 @@ export function App() {
     return (
       <LoginPage
         login={loginKind}
-        failed={loginFailed}
         onLoggedIn={() => {
           checkSession()
             .then((session) => setAccount(session.account))

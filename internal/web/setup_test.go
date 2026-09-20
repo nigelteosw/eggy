@@ -113,11 +113,11 @@ func TestSetupValidationReportsOnlyNamedCredentialPresence(t *testing.T) {
 	now := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
 	mode := testSetupMode(now, "known-token", func(config.SetupInput) error { return nil })
 	mode.Validate = func(input config.SetupInput) (map[string]bool, error) {
-		return map[string]bool{input.LoginClientSecretEnv: true, input.ProviderAPIKeyEnv: false, "EGGY_ENCRYPTION_KEY": true}, nil
+		return map[string]bool{"EGGY_UI_PASSWORD": true, input.ProviderAPIKeyEnv: false, "EGGY_ENCRYPTION_KEY": true}, nil
 	}
 	handler := NewSetupModeHandler(mode)
 	cookie := exchangeSetup(t, handler, "known-token")
-	response := setupRequest(handler, http.MethodPost, "/api/setup/validate", `{"login_client_secret_env":"LOGIN_SECRET","provider_api_key_env":"MODEL_KEY"}`, cookie)
+	response := setupRequest(handler, http.MethodPost, "/api/setup/validate", `{"account_id":"you","provider_api_key_env":"MODEL_KEY"}`, cookie)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -127,7 +127,7 @@ func TestSetupValidationReportsOnlyNamedCredentialPresence(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Variables) != 3 || !got.Variables["LOGIN_SECRET"] || got.Variables["MODEL_KEY"] {
+	if len(got.Variables) != 3 || !got.Variables["EGGY_UI_PASSWORD"] || got.Variables["MODEL_KEY"] {
 		t.Fatalf("variables=%#v", got.Variables)
 	}
 }

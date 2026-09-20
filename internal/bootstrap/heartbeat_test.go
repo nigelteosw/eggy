@@ -414,7 +414,7 @@ func (s *perAccountContextStore) Load(ctx context.Context) (ports.AgentContext, 
 // ever delivered to a neighbour's chat in its place.
 func TestHeartbeatBeatsPerAccountUnderEachPrincipal(t *testing.T) {
 	cfg := accountTestConfig(t.TempDir())
-	cfg.Accounts = append(cfg.Accounts, config.AccountConfig{ID: "quiet", GoogleEmail: "quiet@example.com", TelegramUserID: 99})
+	cfg.Accounts = append(cfg.Accounts, config.AccountConfig{ID: "quiet", TelegramUserID: 99})
 	app := &App{config: cfg, context: &perAccountContextStore{watch: map[string]string{
 		"nigel":   "# Eggy Watch\n\n- the oven\n",
 		"partner": "# Eggy Watch\n\n- the deploy\n", // web-only: no Telegram

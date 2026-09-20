@@ -19,10 +19,7 @@ import { errorMessage } from "./lib/utils";
 
 const defaults: SetupInput = {
   account_id: "you",
-  google_email: "",
   public_base_url: typeof window === "undefined" ? "" : window.location.origin,
-  login_client_id: "",
-  login_client_secret_env: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET",
   provider_name: "deepseek",
   provider_base_url: "https://api.deepseek.com",
   provider_api_key_env: "DEEPSEEK_API_KEY",
@@ -36,20 +33,17 @@ type Field = { name: keyof SetupInput; label: string; hint?: string; type?: stri
 const sections: { title: string; description: string; fields: Field[] }[] = [
   {
     title: "Account",
-    description: "Create the first person allowed to sign in. The account ID becomes its durable owner key.",
+    description: "Create the first person allowed to sign in. The account ID is their immutable username; it cannot be renamed or reissued.",
     fields: [
       { name: "account_id", label: "Account ID", hint: "Letters, digits, dots, underscores, or hyphens." },
-      { name: "google_email", label: "Google email", type: "email" },
       { name: "public_base_url", label: "Public URL", type: "url" },
     ],
   },
   {
     title: "Sign-in",
-    description: "Use a Google Web OAuth client. Enter the secret's environment variable name, never the secret.",
-    fields: [
-      { name: "login_client_id", label: "Google Web client ID" },
-      { name: "login_client_secret_env", label: "Client secret variable" },
-    ],
+    description:
+      "This account signs in with the EGGY_UI_USER_EMAIL and EGGY_UI_PASSWORD already set in the deployment environment. Nothing is typed here; setup only checks they are present. Add other people from Settings → People afterwards.",
+    fields: [],
   },
   {
     title: "Model",

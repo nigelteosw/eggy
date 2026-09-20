@@ -82,7 +82,7 @@ func (f *fakeDiscord) sends() []string {
 // discordAccountConfig is the pairing config with Discord on and both
 // accounts linked: nigel to 9001, partner to 77.
 func discordAccountConfig() string {
-	body := strings.Replace(pairingAccountConfig(), "  - id: nigel\n    google_email: nigel@example.com\n", "  - id: nigel\n    google_email: nigel@example.com\n    discord_user_id: \"9001\"\n", 1)
+	body := strings.Replace(pairingAccountConfig(), "  - id: nigel\n", "  - id: nigel\n    discord_user_id: \"9001\"\n", 1)
 	return strings.Replace(body, "data_dir: /data\n", "", 1)
 }
 
@@ -99,7 +99,7 @@ func newDiscordApp(t *testing.T) (*App, *fakeDiscord, string) {
 		t.Fatal(err)
 	}
 	getenv := func(key string) string {
-		return map[string]string{"LOGIN_SECRET": "s", "MODEL_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_WEBHOOK_SECRET": "w", "EGGY_ENCRYPTION_KEY": strings.Repeat("A", 43) + "="}[key]
+		return map[string]string{"EGGY_UI_USER_EMAIL": "owner@example.com", "EGGY_UI_PASSWORD": "operator-password", "MODEL_KEY": "k", "TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_WEBHOOK_SECRET": "w", "EGGY_ENCRYPTION_KEY": strings.Repeat("A", 43) + "="}[key]
 	}
 	cfg, secrets, err := config.LoadConfig(configPath, getenv)
 	if err != nil {

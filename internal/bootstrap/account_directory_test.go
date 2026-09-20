@@ -14,11 +14,8 @@ func liveAccountConfig() string {
 data_dir: /data
 accounts:
   - id: nigel
-    google_email: nigel@example.com
 web:
-  google_login:
-    client_id: client
-    client_secret_env: LOGIN_SECRET
+  password_account_id: nigel
 agent:
   default_model: model
 providers:
@@ -46,13 +43,16 @@ func TestAccountDirectoryResolvesLiveValidatedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := newAccountDirectory(path, nil, config.Config{})
-	if _, ok := directory.AccountForEmail("new@example.com"); ok {
+	if _, ok := directory.Account("new"); ok {
 		t.Fatal("unknown account resolved")
 	}
-	if err := config.AddAccount(path, config.AccountInput{ID: "new", GoogleEmail: "new@example.com"}); err != nil {
+	if directory.PasswordAccountID() != "nigel" {
+		t.Fatalf("password account = %q", directory.PasswordAccountID())
+	}
+	if err := config.AddAccount(path, config.AccountInput{ID: "new", TelegramUserID: 5}); err != nil {
 		t.Fatal(err)
 	}
-	if account, ok := directory.AccountForEmail("new@example.com"); !ok || account.ID != "new" {
+	if account, ok := directory.Account("new"); !ok || account.ID != "new" || account.TelegramUserID != 5 {
 		t.Fatalf("added account = %#v, %v", account, ok)
 	}
 	if err := config.RemoveAccount(path, "new"); err != nil {

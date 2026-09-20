@@ -33,7 +33,7 @@ func (f *fakeTraceDirectory) Trace(_ context.Context, id string) (ports.Trace, [
 
 func traceTestHandler(t *testing.T, traces TraceDirectory) (http.Handler, *http.Cookie) {
 	t.Helper()
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Traces = traces
 	handler := NewWebHandler("", webConfig)
 	return handler, webLoginCookie(t, handler)
@@ -42,7 +42,7 @@ func traceTestHandler(t *testing.T, traces TraceDirectory) (http.Handler, *http.
 func getTrace(t *testing.T, handler http.Handler, cookie *http.Cookie, path string, into any) int {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if into != nil && response.Code == http.StatusOK {
@@ -142,7 +142,7 @@ func TestTraceDetailIsANotFoundForAnUnknownID(t *testing.T) {
 func TestTraceRoutesAreAbsentWhenTracingIsOff(t *testing.T) {
 	t.Parallel()
 
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
 	if code := getTrace(t, handler, cookie, "/api/traces", nil); code == http.StatusOK {
@@ -153,7 +153,7 @@ func TestTraceRoutesAreAbsentWhenTracingIsOff(t *testing.T) {
 func TestTraceRoutesRequireASession(t *testing.T) {
 	t.Parallel()
 
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Traces = &fakeTraceDirectory{}
 	handler := NewWebHandler("", webConfig)
 

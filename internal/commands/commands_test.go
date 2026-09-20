@@ -3,15 +3,12 @@ package commands
 import (
 	"context"
 	"errors"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/auth/session"
 )
 
 type fakeTurns struct{ stopped bool }
@@ -347,61 +344,21 @@ runner:
 `
 }
 
-func TestWebCommandSendsAVerifiableSignInLink(t *testing.T) {
-	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
-	service := New(Options{
-		PublicBaseURL: "https://eggy.test/",
-		SigningKey:    []byte("signing-key"),
-		Now:           func() time.Time { return now },
-	})
-	reply, handled, err := service.Execute(context.Background(), "/web")
-	if err != nil || !handled {
-		t.Fatalf("handled=%v err=%v", handled, err)
-	}
-	prefix := "https://eggy.test/auth/link?token="
-	index := strings.Index(reply, prefix)
-	if index < 0 {
-		t.Fatalf("reply=%q", reply)
-	}
-	token, err := url.QueryUnescape(strings.Fields(reply[index+len(prefix):])[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !session.VerifyLoginLink([]byte("signing-key"), token, now) {
-		t.Fatalf("link token does not verify: %q", token)
-	}
-	if session.VerifyLoginLink([]byte("signing-key"), token, now.Add(webLoginLinkTTL+time.Second)) {
-		t.Fatal("link token outlives its TTL")
-	}
-}
-
 // Without an address there is nothing to send, and saying so beats sending a
 // link to nowhere.
 func TestWebCommandWithoutAPublicAddress(t *testing.T) {
-	reply, handled, err := New(Options{SigningKey: []byte("k")}).Execute(context.Background(), "/web")
+	reply, handled, err := New(Options{}).Execute(context.Background(), "/web")
 	if err != nil || !handled || !strings.Contains(reply, "public_base_url") {
 		t.Fatalf("reply=%q handled=%v err=%v", reply, handled, err)
 	}
 }
 
-func TestWebCommandWithoutASigningKeyFallsBackToTheBareAddress(t *testing.T) {
-	reply, _, err := New(Options{PublicBaseURL: "https://eggy.test"}).Execute(context.Background(), "/web")
+func TestWebCommandWithoutAMinterSendsTheBareAddress(t *testing.T) {
+	reply, _, err := New(Options{PublicBaseURL: "https://eggy.test"}).Execute(WithWebLoginSender(context.Background(), "123"), "/web")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(reply, "/auth/link") || !strings.Contains(reply, "https://eggy.test") {
-		t.Fatalf("reply=%q", reply)
-	}
-}
-
-// In account mode there is no bearer link to hand out: /web sends the
-// address, and the person signs in with Google there.
-func TestWebCommandInAccountModeSendsOnlyTheAddress(t *testing.T) {
-	reply, handled, err := New(Options{PublicBaseURL: "https://eggy.example", SigningKey: []byte("k"), AccountMode: true, Now: time.Now}).Execute(context.Background(), "/web")
-	if err != nil || !handled {
-		t.Fatalf("handled=%v err=%v", handled, err)
-	}
-	if !strings.Contains(reply, "https://eggy.example") || strings.Contains(reply, "/auth/link") || strings.Contains(reply, "token=") {
+	if strings.Contains(reply, "/auth/link") || !strings.Contains(reply, "https://eggy.test") || !strings.Contains(reply, "username and password") {
 		t.Fatalf("reply=%q", reply)
 	}
 }

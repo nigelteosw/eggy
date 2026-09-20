@@ -2,8 +2,10 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,29 +14,32 @@ import (
 )
 
 // accountTestConfig is appTestConfig converted to accounts: two people, one
-// of them the historical owner, and the login client accounts require.
+// of them the historical owner and bound to the environment login.
 func accountTestConfig(dataDir string) config.Config {
 	cfg := appTestConfig(dataDir)
 	cfg.Owner = config.OwnerConfig{}
 	cfg.Telegram = config.TelegramConfig{}
 	cfg.Accounts = []config.AccountConfig{
-		{ID: "nigel", GoogleEmail: "nigel@example.com", TelegramUserID: 42},
-		{ID: "partner", GoogleEmail: "partner@example.com"},
+		{ID: "nigel", TelegramUserID: 42},
+		{ID: "partner"},
 	}
-	cfg.Web.GoogleLogin = config.GoogleLoginConfig{ClientID: "web-client", ClientSecretEnv: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"}
+	cfg.Web.PasswordAccountID = "nigel"
 	cfg.MigrationOwnerID = "nigel"
 	return cfg
 }
 
 func accountTestSecrets() config.Secrets {
 	secrets := appTestSecrets("provider-secret")
-	secrets.GoogleLoginClientSecret = "login-secret"
+	secrets.UIUserEmail = "owner@example.com"
+	secrets.UIPassword = "operator-password"
 	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	return secrets
 }
 
-func TestAccountModeMountsGoogleSignInAndLegacyModeDoesNot(t *testing.T) {
-	probe := func(t *testing.T, cfg config.Config, secrets config.Secrets) int {
+// Both shapes mount the same login: the accounts list and the legacy
+// owner each answer the password route, and neither has a Google route.
+func TestBothConfigShapesMountTheSameLogin(t *testing.T) {
+	probe := func(t *testing.T, cfg config.Config, secrets config.Secrets, path string) int {
 		t.Helper()
 		app, err := NewApp(cfg, secrets, AppOptions{})
 		if err != nil {
@@ -42,14 +47,21 @@ func TestAccountModeMountsGoogleSignInAndLegacyModeDoesNot(t *testing.T) {
 		}
 		defer app.database.Close()
 		response := httptest.NewRecorder()
-		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/start", nil))
+		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"username":"owner@example.com","password":"operator-password"}`)))
 		return response.Code
 	}
-	if code := probe(t, accountTestConfig(t.TempDir()), accountTestSecrets()); code != http.StatusFound {
-		t.Fatalf("account mode start status=%d", code)
-	}
-	if code := probe(t, appTestConfig(t.TempDir()), appTestSecrets("provider-secret")); code != http.StatusNotFound {
-		t.Fatalf("legacy mode start status=%d", code)
+	legacySecrets := appTestSecrets("provider-secret")
+	legacySecrets.UIUserEmail, legacySecrets.UIPassword = "owner@example.com", "operator-password"
+	for name, tc := range map[string]struct {
+		cfg     config.Config
+		secrets config.Secrets
+	}{"accounts": {accountTestConfig(t.TempDir()), accountTestSecrets()}, "legacy": {appTestConfig(t.TempDir()), legacySecrets}} {
+		if code := probe(t, tc.cfg, tc.secrets, "/api/login"); code != http.StatusOK {
+			t.Fatalf("%s login status=%d", name, code)
+		}
+		if code := probe(t, tc.cfg, tc.secrets, "/auth/google/start"); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s google start status=%d", name, code)
+		}
 	}
 }
 
@@ -110,5 +122,66 @@ func TestApprovalModeAndModelPreferencesArePerAccount(t *testing.T) {
 	}
 	if mode, _ := app.approvals.Mode(nigel); mode != ports.ModeStrict {
 		t.Fatalf("nigel's mode = %q after partner chose auto", mode)
+	}
+}
+
+// Personal runtime settings belong to the account, not to the session: they
+// survive a password reset and a fresh sign-in, a newly created person
+// starts from the deployment defaults, and none of it touches the shared
+// provider configuration.
+func TestPersonalSettingsFollowTheAccountAndLeaveSharedConfigAlone(t *testing.T) {
+	app, err := NewApp(accountTestConfig(t.TempDir()), accountTestSecrets(), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.database.Close()
+	ctx := context.Background()
+	nigel := ports.WithPrincipal(ctx, ports.Principal{AccountID: "nigel"})
+	partner := ports.WithPrincipal(ctx, ports.Principal{AccountID: "partner"})
+	before := app.config.Providers
+
+	if err := app.runtime.SetShowThinking(nigel, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.approvals.SetMode(nigel, ports.ModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(partner); !show {
+		t.Fatal("partner lost thinking because nigel hid theirs")
+	}
+	if mode, _ := app.approvals.Mode(partner); mode != ports.ModeNormal {
+		t.Fatalf("partner's mode=%q after nigel chose auto", mode)
+	}
+	// A password reset and revocation change credentials and sessions,
+	// not preferences.
+	record, err := app.database.AccountAuth(ctx, "nigel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.database.SetAccountPassword(ctx, "nigel", "encoded", record.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.database.RevokeAccountAuth(ctx, "nigel"); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(nigel); show {
+		t.Fatal("nigel's thinking preference was lost by a credential change")
+	}
+	if mode, _ := app.approvals.Mode(nigel); mode != ports.ModeAuto {
+		t.Fatalf("nigel's mode=%q after a credential change", mode)
+	}
+	// A new person inherits nothing.
+	third := ports.WithPrincipal(ctx, ports.Principal{AccountID: "third"})
+	if err := initializeAccountState(app.database.State(), nil, "third"); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(third); !show {
+		t.Fatal("a new account inherited hidden thinking")
+	}
+	if mode, _ := app.approvals.Mode(third); mode != ports.ModeNormal {
+		t.Fatalf("a new account inherited mode %q", mode)
+	}
+	if fmt.Sprint(app.config.Providers) != fmt.Sprint(before) {
+		t.Fatal("personal settings changed the shared provider configuration")
 	}
 }

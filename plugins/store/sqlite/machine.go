@@ -29,7 +29,14 @@ import (
 // 9 generalises Telegram pairing tokens into identity_links keyed by
 // connection, so a Discord linking token and a Telegram one are the same
 // record with a different connection.
-const MachineStateVersion = 9
+//
+// 10 is local accounts: credentials and single-use browser login links are
+// SQLite records (account_auth, web_login_links), and every session issued
+// under the retired Google Sign-In is invalidated. This one is not applied
+// in place by Open: it is the offline cutover eggyd --migrate-local-login
+// runs after backing up the home, because it goes together with a rewrite
+// of config.yaml.
+const MachineStateVersion = localAuthVersion
 
 const machineStateVersionKey = "machine_state_version"
 

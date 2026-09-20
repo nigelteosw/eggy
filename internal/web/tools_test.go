@@ -17,7 +17,7 @@ func (c fakeToolCatalog) Catalog() []services.ToolListing { return c.listings }
 
 func TestWebToolListReportsNameSourceAndDescriptionInCatalogOrder(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.Tools = fakeToolCatalog{listings: []services.ToolListing{
 		{Source: services.SourceKernel, Definition: ports.ToolDefinition{Name: "current_time", Description: "The time now"}},
 		{Source: "mcp", Definition: ports.ToolDefinition{Name: "calendar__list_events", Description: "List events"}},
@@ -26,7 +26,7 @@ func TestWebToolListReportsNameSourceAndDescriptionInCatalogOrder(t *testing.T) 
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/tools", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -54,7 +54,7 @@ func TestWebToolListReportsNameSourceAndDescriptionInCatalogOrder(t *testing.T) 
 }
 
 func TestWebToolListRequiresSession(t *testing.T) {
-	handler := NewWebHandler("", testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	handler := NewWebHandler("", testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/tools", nil))
 	if response.Code != http.StatusUnauthorized {

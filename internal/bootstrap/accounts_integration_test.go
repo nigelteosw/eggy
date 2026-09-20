@@ -2,8 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-jose/go-jose/v4"
-
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/approvals"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
@@ -26,14 +22,10 @@ import (
 )
 
 // fakeGoogle stands in for every Google endpoint an accounts deployment
-// touches: the model provider is faked beside it. Sign-In and the shared
-// Workspace grant share Google's token endpoint, told apart by the redirect
-// each flow registered; the identity endpoint answers for the Workspace
-// grant, the JWKS for Sign-In. Who each answers as is the test's to script.
+// touches: the model provider is faked beside it. Only the shared outbound
+// Workspace grant reaches Google now; who it answers as is the test's to
+// script.
 type fakeGoogle struct {
-	key *rsa.PrivateKey
-	// signInAs is the person the next Sign-In completes as.
-	signInAs struct{ subject, email string }
 	// workspaceAs is the account the next Workspace grant belongs to.
 	workspaceAs struct{ subject, email string }
 	modelBodies []string
@@ -41,30 +33,7 @@ type fakeGoogle struct {
 
 func newFakeGoogle(t *testing.T) *fakeGoogle {
 	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &fakeGoogle{key: key}
-}
-
-func (g *fakeGoogle) idToken(t *testing.T, nonce string) string {
-	t.Helper()
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: g.key}, (&jose.SignerOptions{}).WithHeader("kid", "k1"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	claims, _ := json.Marshal(map[string]any{
-		"iss": "https://accounts.google.com", "aud": "web-client", "sub": g.signInAs.subject,
-		"email": g.signInAs.email, "email_verified": true, "nonce": nonce,
-		"iat": time.Now().Unix(), "exp": time.Now().Add(time.Hour).Unix(),
-	})
-	signed, err := signer.Sign(claims)
-	if err != nil {
-		t.Fatal(err)
-	}
-	compact, _ := signed.CompactSerialize()
-	return compact
+	return &fakeGoogle{}
 }
 
 func (g *fakeGoogle) client(t *testing.T) *http.Client {
@@ -77,18 +46,7 @@ func (g *fakeGoogle) client(t *testing.T) *http.Client {
 			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"noted"}}]}`), nil
 		case request.URL.Host == "telegram.test":
 			return appJSON(200, `{"ok":true,"result":{"message_id":1}}`), nil
-		case request.URL.Host == "www.googleapis.com" && strings.HasPrefix(request.URL.Path, "/oauth2/v3/certs"):
-			body, _ := json.Marshal(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &g.key.PublicKey, KeyID: "k1", Algorithm: "RS256", Use: "sig"}}})
-			return appJSON(200, string(body)), nil
 		case request.URL.Host == "oauth2.googleapis.com" && request.URL.Path == "/token":
-			body, _ := io.ReadAll(request.Body)
-			form, _ := url.ParseQuery(string(body))
-			if strings.HasSuffix(form.Get("redirect_uri"), "/auth/google/callback") {
-				// Sign-In: the nonce rides in the code the test minted.
-				nonce := strings.TrimPrefix(form.Get("code"), "code-for-")
-				response, _ := json.Marshal(map[string]any{"access_token": "dropped", "token_type": "Bearer", "id_token": g.idToken(t, nonce)})
-				return appJSON(200, string(response)), nil
-			}
 			return appJSON(200, `{"access_token":"workspace-access","refresh_token":"workspace-refresh","token_type":"Bearer","expires_in":3600,"scope":"https://www.googleapis.com/auth/gmail.modify openid"}`), nil
 		case request.URL.Host == "openidconnect.googleapis.com":
 			response, _ := json.Marshal(map[string]any{"sub": g.workspaceAs.subject, "email": g.workspaceAs.email, "email_verified": true})
@@ -98,32 +56,16 @@ func (g *fakeGoogle) client(t *testing.T) *http.Client {
 	})}
 }
 
-// signIn drives a browser through Sign-In against app and returns the
-// session cookie it lands with, or nil when the callback refused.
-func signInThrough(t *testing.T, app *App, google *fakeGoogle, subject, email string) *http.Cookie {
+// loginThrough posts a username and password to app and returns the
+// session cookie it lands with, or nil when the login refused.
+func loginThrough(t *testing.T, app *App, username, password string) *http.Cookie {
 	t.Helper()
-	google.signInAs.subject, google.signInAs.email = subject, email
-	start := httptest.NewRecorder()
-	app.Handler().ServeHTTP(start, httptest.NewRequest(http.MethodGet, "/auth/google/start", nil))
-	if start.Code != http.StatusFound {
-		t.Fatalf("start status=%d body=%s", start.Code, start.Body.String())
-	}
-	target, err := url.Parse(start.Header().Get("Location"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var browser *http.Cookie
-	for _, c := range start.Result().Cookies() {
-		if c.Name == "eggy_login" {
-			browser = c
-		}
-	}
-	query := target.Query()
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(query.Get("state"))+"&code="+url.QueryEscape("code-for-"+query.Get("nonce")), nil)
-	request.AddCookie(browser)
-	callback := httptest.NewRecorder()
-	app.Handler().ServeHTTP(callback, request)
-	for _, c := range callback.Result().Cookies() {
+	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
+	request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(string(body)))
+	request.RemoteAddr = "10.9." + strings.TrimSuffix(strings.Repeat("1.", 1), ".") + "." + username[:1] + ":1"
+	response := httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	for _, c := range response.Result().Cookies() {
 		if c.Name == "eggy_session" && c.Value != "" && c.MaxAge >= 0 {
 			return c
 		}
@@ -194,17 +136,29 @@ func TestAccountsEndToEnd(t *testing.T) {
 		t.Fatal("a shared memories directory was created")
 	}
 
-	// 3. Both sign in through Google; a stranger cannot.
-	nigelCookie := signInThrough(t, app, google, "sub-nigel", "nigel@example.com")
-	partnerCookie := signInThrough(t, app, google, "sub-partner", "partner@example.com")
-	if nigelCookie == nil || partnerCookie == nil {
-		t.Fatal("an allowlisted person could not sign in")
+	// 3. nigel signs in with the environment login and gives partner a
+	// local password from the People card; partner signs in with it. A
+	// stranger and a wrong password cannot.
+	nigelCookie := loginThrough(t, app, "owner@example.com", "operator-password")
+	if nigelCookie == nil {
+		t.Fatal("the environment login did not sign nigel in")
 	}
-	if stranger := signInThrough(t, app, google, "sub-stranger", "stranger@example.com"); stranger != nil {
+	nigelID, nigelCSRF := sessionOf(t, app, nigelCookie)
+	if nigelID != "nigel" {
+		t.Fatalf("nigel's session resolved to %q", nigelID)
+	}
+	if response := apiCall(t, app, nigelCookie, nigelCSRF, http.MethodPost, "/api/config/accounts/partner/password", `{"password":"partner-password-long"}`); response.Code != http.StatusOK {
+		t.Fatalf("set partner's password: status=%d body=%s", response.Code, response.Body.String())
+	}
+	partnerCookie := loginThrough(t, app, "partner", "partner-password-long")
+	if partnerCookie == nil {
+		t.Fatal("partner could not sign in with the local password")
+	}
+	if stranger := loginThrough(t, app, "stranger", "partner-password-long"); stranger != nil {
 		t.Fatal("an unlisted person signed in")
 	}
-	if id, _ := sessionOf(t, app, nigelCookie); id != "nigel" {
-		t.Fatalf("nigel's session resolved to %q", id)
+	if wrong := loginThrough(t, app, "partner", "operator-password"); wrong != nil {
+		t.Fatal("the environment password signed partner in")
 	}
 	partnerID, partnerCSRF := sessionOf(t, app, partnerCookie)
 	if partnerID != "partner" {
@@ -315,7 +269,7 @@ func TestAccountsEndToEnd(t *testing.T) {
 	if response := apiCall(t, app, partnerCookie, partnerCSRF, http.MethodGet, "/api/session", ""); response.Code != http.StatusUnauthorized {
 		t.Fatalf("removed partner still has a session: status=%d", response.Code)
 	}
-	if signInThrough(t, app, google, "sub-partner", "partner@example.com") != nil {
+	if loginThrough(t, app, "partner", "partner-password-long") != nil {
 		t.Fatal("removed partner signed in again")
 	}
 	if response := apiCall(t, app, nigelCookie, "", http.MethodGet, "/api/session", ""); response.Code != http.StatusOK {

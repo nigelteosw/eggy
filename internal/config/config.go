@@ -42,8 +42,9 @@ type Config struct {
 	// Discord is the optional personal Discord DM channel; see discord.go.
 	Discord DiscordConfig `yaml:"discord,omitempty"`
 	// Accounts is the explicit allowlist of people who may use this
-	// deployment. Set, it replaces owner.id and telegram.owner_id, and every
-	// browser login goes through Google Sign-In (web.google_login). See
+	// deployment. Set, it replaces owner.id and telegram.owner_id; one of
+	// them (web.password_account_id) signs in with the environment
+	// credentials and the rest with local passwords held in SQLite. See
 	// accounts.go for the rules and the legacy normalization.
 	Accounts []AccountConfig `yaml:"accounts,omitempty"`
 	Web      WebConfig       `yaml:"web,omitempty"`
@@ -485,13 +486,13 @@ type Secrets struct {
 	MCPBearerTokens       map[string]string
 	MCPOAuthClientSecrets map[string]string
 	GoogleClientSecret    string
-	// GoogleLoginClientSecret belongs to the inbound Web client (Google
-	// Sign-In); GoogleClientSecret to the outbound Desktop client. Two
-	// clients, two secrets.
-	GoogleLoginClientSecret string
-	TavilyAPIKey            string
-	UIUserEmail             string
-	UIPassword              string
+	TavilyAPIKey          string
+	// UIUserEmail and UIPassword are the operator-configured login of the
+	// account web.password_account_id names. The "email" in the name is
+	// historical: it is an alias the person types as their username, not an
+	// address anything is sent to.
+	UIUserEmail string
+	UIPassword  string
 }
 
 // Values returns every secret Eggy currently holds, for redaction. Empty
@@ -501,7 +502,6 @@ func (s Secrets) Values() []string {
 		s.TelegramBotToken, s.TelegramWebhookSecret, s.DiscordBotToken, s.GitHubToken,
 		s.EncryptionKey,
 		s.GoogleClientSecret,
-		s.GoogleLoginClientSecret,
 		s.TavilyAPIKey,
 		s.UIPassword,
 	}
@@ -549,6 +549,9 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err != nil {
 		return cfg, Secrets{}, fmt.Errorf("open config: %w", err)
 	}
+	if err := requireLocalLoginShape(data); err != nil {
+		return cfg, Secrets{}, err
+	}
 	if err := decodeKnownYAML(data, &cfg); err != nil {
 		return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
 	}
@@ -575,9 +578,6 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	}
 	if cfg.Google.ClientSecretEnv != "" {
 		secrets.GoogleClientSecret = getenv(cfg.Google.ClientSecretEnv)
-	}
-	if cfg.Web.GoogleLogin.ClientSecretEnv != "" {
-		secrets.GoogleLoginClientSecret = getenv(cfg.Web.GoogleLogin.ClientSecretEnv)
 	}
 	if cfg.Tavily.Enabled && cfg.Tavily.APIKeyEnv != "" {
 		secrets.TavilyAPIKey = getenv(cfg.Tavily.APIKeyEnv)

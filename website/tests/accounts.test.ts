@@ -9,10 +9,10 @@ import {
   getMode,
   logout,
   removeAccount,
-  resetAccountBinding,
+  revokeAccountSessions,
   sendChatMessage,
+  setAccountPassword,
   setExpectedGoogleEmail,
-  setLoginClient,
   createTelegramPairing,
   unlinkTelegram,
   createDiscordLink,
@@ -22,7 +22,7 @@ import {
   clearDiscordToken,
 } from "../src/api";
 import { LoginPage } from "../src/LoginPage";
-import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, ResetBindingConfirm, TelegramLinkControl } from "../src/AccountsCard";
+import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordForm, RevokeConfirm, TelegramLinkControl, inviteText } from "../src/AccountsCard";
 import { DiscordCard, describeDiscord } from "../src/DiscordCard";
 import { GoogleIdentity } from "../src/GoogleCard";
 import { ConfigPage } from "../src/ConfigPage";
@@ -48,32 +48,27 @@ function fakeFetch(respond: (call: Call) => unknown): Call[] {
   return calls;
 }
 
-test("the mode probe says which way in exists", async () => {
-  fakeFetch(() => ({ mode: "normal", theme: "dark", login: "google" }));
+test("the mode probe says whether a way in exists", async () => {
+  fakeFetch(() => ({ mode: "normal", theme: "dark", login: "unavailable" }));
   const probe = await getMode();
-  expect(probe.login).toBe("google");
+  expect(probe.login).toBe("unavailable");
   fakeFetch(() => ({ mode: "normal", theme: "dark" }));
   expect((await getMode()).login).toBe("password");
 });
 
-test("google login renders an ordinary link and a failed-login notice, never a password form", () => {
-  const html = renderToStaticMarkup(createElement(LoginPage, { login: "google", failed: true, onLoggedIn: () => {} }));
-  expect(html).toContain('href="/auth/google/start"');
-  expect(html).toContain("Sign in with Google");
-  expect(html).not.toContain('type="password"');
-  expect(html).toContain("Sign-in was not completed");
-
-  const password = renderToStaticMarkup(createElement(LoginPage, { login: "password", failed: false, onLoggedIn: () => {} }));
+test("the login page is a username and password form with no Google route", () => {
+  const password = renderToStaticMarkup(createElement(LoginPage, { login: "password", onLoggedIn: () => {} }));
   expect(password).toContain('type="password"');
+  expect(password).toContain('id="username"');
   expect(password).not.toContain("/auth/google/start");
 });
 
 test("the session carries the account and its csrf token, and mutating requests send it", async () => {
   const calls = fakeFetch((call) =>
-    call.path === "/api/session" ? { state: "success", account: { id: "nigel", email: "nigel@example.com" }, csrf: "tok-123" } : { state: "success" },
+    call.path === "/api/session" ? { state: "success", account: { id: "nigel", username: "nigel" }, csrf: "tok-123" } : { state: "success" },
   );
   const session = await checkSession();
-  expect(session.account?.email).toBe("nigel@example.com");
+  expect(session.account?.username).toBe("nigel");
   expect(currentSession()?.account?.id).toBe("nigel");
   await sendChatMessage("t1", "hi");
   const send = calls.find((call) => call.path.endsWith("/send"))!;
@@ -83,7 +78,7 @@ test("the session carries the account and its csrf token, and mutating requests 
 
 test("logout posts with the csrf token and clears the cached session", async () => {
   const calls = fakeFetch((call) =>
-    call.path === "/api/session" ? { state: "success", account: { id: "nigel", email: "nigel@example.com" }, csrf: "tok-123" } : { state: "success" },
+    call.path === "/api/session" ? { state: "success", account: { id: "nigel", username: "nigel" }, csrf: "tok-123" } : { state: "success" },
   );
   await checkSession();
   await logout();
@@ -95,7 +90,7 @@ test("logout posts with the csrf token and clears the cached session", async () 
 
 test("a 401 clears the cached session so the next user starts clean", async () => {
   fakeFetch((call) =>
-    call.path === "/api/session" ? { state: "success", account: { id: "a", email: "a@example.com" }, csrf: "a" } : { state: "success" },
+    call.path === "/api/session" ? { state: "success", account: { id: "a", username: "a" }, csrf: "a" } : { state: "success" },
   );
   await checkSession();
   globalThis.fetch = (async () => new Response(JSON.stringify({ state: "error", title: "not authenticated" }), { status: 401 })) as typeof fetch;
@@ -105,45 +100,82 @@ test("a 401 clears the cached session so the next user starts clean", async () =
 
 test("the navigation shows who is signed in with a sign-out control", () => {
   const html = renderToStaticMarkup(
-    createElement(AppNavigation, { view: "chat", onNavigate: () => {}, account: { id: "nigel", email: "nigel@example.com" }, onLogout: () => {} }),
+    createElement(AppNavigation, { view: "chat", onNavigate: () => {}, account: { id: "nigel", username: "nigel" }, onLogout: () => {} }),
   );
-  expect(html).toContain("nigel@example.com");
+  expect(html).toContain("nigel");
   expect(html).toContain("Sign out");
 });
 
-test("the accounts list shows enrollment and session state, with edit, remove and reset actions", () => {
+const row = (overrides: Partial<Parameters<typeof AccountsList>[0]["accounts"][number]> & { id: string }) => ({
+  password_state: "set" as const,
+  web_link_available: false,
+  signed_in: false,
+  self: false,
+  ...overrides,
+});
+
+test("the people list shows credential and session state, with password, revoke and remove actions", () => {
   const html = renderToStaticMarkup(
     createElement(AccountsList, {
       accounts: [
-        { id: "nigel", email: "nigel@example.com", telegram_user_id: 42, enrolled: true, signed_in: true, self: true },
-        { id: "partner", email: "partner@example.com", enrolled: false, signed_in: false, self: false },
+        row({ id: "nigel", telegram_user_id: 42, password_state: "environment", web_link_available: true, signed_in: true, self: true }),
+        row({ id: "partner", password_state: "set" }),
+        row({ id: "third", password_state: "pending" }),
       ],
+      telegramEnabled: true,
+      pairingAvailable: true,
       onEdit: () => {},
       onRemove: () => {},
-      onReset: () => {},
+      onPassword: () => {},
+      onRevoke: () => {},
+      onShowSteps: () => {},
+      onError: () => {},
     }),
   );
-  expect(html).toContain("nigel@example.com");
-  expect(html).toContain("Enrolled");
-  expect(html).toContain("Signed in");
-  expect(html).toContain("Not enrolled");
+  expect(html).toContain("Managed in deployment environment");
+  expect(html).toContain("/web available");
+  expect(html).toContain("Password set");
+  expect(html).toContain("Password pending");
+  expect(html).toContain("Retry password setup for third");
+  expect(html).toContain("Reset password for partner");
+  expect(html).not.toContain("password for nigel");
+  expect(html).toContain("Revoke sessions for nigel");
   expect(html).toContain("Edit partner");
   expect(html).toContain("Remove partner");
-  expect(html).toContain("Reset binding for nigel");
   // Your own row cannot be removed from here.
   expect(html).not.toContain("Remove nigel");
+  expect(html).not.toContain("pbkdf2");
 });
 
-test("resetting a binding names its consequence before it happens", () => {
-  const html = renderToStaticMarkup(createElement(ResetBindingConfirm, { account: "partner", onConfirm: () => {}, onCancel: () => {} }));
-  expect(html).toContain("signed out");
-  expect(html).toContain("enroll again");
+test("your own row offers a password change that asks for the current password", () => {
+  const own = renderToStaticMarkup(createElement(PasswordForm, { account: row({ id: "nigel", self: true }), saving: false, onSubmit: async () => true, onCancel: () => {} }));
+  expect(own).toContain("Change your password");
+  expect(own).toContain('autoComplete="current-password"');
+  expect(own).toContain('autoComplete="new-password"');
+  expect(own).toContain("signed out everywhere");
+  const other = renderToStaticMarkup(createElement(PasswordForm, { account: row({ id: "partner" }), saving: false, onSubmit: async () => true, onCancel: () => {} }));
+  expect(other).toContain("Reset partner");
+  expect(other).not.toContain("current-password");
+  expect(other).toContain("never shown again");
 });
 
-test("the accounts card covers the login client and expected email, naming the secret only by variable", () => {
+test("revoking sessions names its consequence before it happens", () => {
+  const html = renderToStaticMarkup(createElement(RevokeConfirm, { account: "partner", self: false, onConfirm: () => {}, onCancel: () => {} }));
+  expect(html).toContain("signed out everywhere");
+  expect(html).toContain("password does not change");
+});
+
+test("the invite never carries a password", () => {
+  const text = inviteText(row({ id: "partner" }), true, "https://eggy.example");
+  expect(text).toContain('username "partner"');
+  expect(text).toContain("/web");
+  expect(text).not.toMatch(/password: /);
+});
+
+test("the people card names the environment login only by variable and has no Google sign-in client", () => {
   const html = renderToStaticMarkup(createElement(AccountsCard, { onSessionExpired: () => {} }));
-  expect(html).toContain("Google sign-in client");
-  expect(html).toContain("client_secret_env");
+  expect(html).toContain("People");
+  expect(html).not.toContain("Google sign-in client");
   expect(html).toContain("Expected Google account");
   expect(html).not.toContain("config.yaml");
 });
@@ -154,6 +186,8 @@ test("a single-owner deployment is offered conversion from the panel, not a file
   );
   expect(html).toContain("Convert to accounts");
   expect(html).toContain("migration");
+  expect(html).toContain("EGGY_UI_PASSWORD");
+  expect(html).not.toContain("google");
   expect(html).not.toContain("config.yaml");
   expect(html).not.toContain("YAML");
 });
@@ -169,23 +203,24 @@ test("the google card shows the verified identity against the expected one and s
 
 test("account management calls the config routes", async () => {
   const calls = fakeFetch(() => ({ state: "success" }));
-  await addAccount({ id: "third", email: "third@example.com", telegram_user_id: 7 });
+  await addAccount({ id: "third", telegram_user_id: 7, password: "third-password-long" });
   await removeAccount("th/ird");
-  await resetAccountBinding("partner");
-  await setLoginClient("client", "ENV_NAME");
+  await setAccountPassword("partner", "partner-password-long");
+  await revokeAccountSessions("partner");
   await setExpectedGoogleEmail("eggy@example.com");
   expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
     "POST /api/config/accounts",
     "DELETE /api/config/accounts/th%2Fird",
-    "POST /api/config/accounts/partner/reset-binding",
-    "POST /api/config/login",
+    "POST /api/config/accounts/partner/password",
+    "POST /api/config/accounts/partner/revoke-sessions",
     "POST /api/config/google/expected-email",
   ]);
+  expect(JSON.parse(calls[0].body)).toEqual({ id: "third", telegram_user_id: 7, password: "third-password-long" });
 });
 
 test("Telegram linking uses authenticated deep links instead of numeric ID input", async () => {
   const html = renderToStaticMarkup(createElement(TelegramLinkControl, {
-    account: { id: "nigel", email: "nigel@example.com", enrolled: true, signed_in: true, self: true },
+    account: row({ id: "nigel", signed_in: true, self: true }),
     available: true,
     onError: () => {},
   }));
@@ -200,22 +235,22 @@ test("Telegram linking uses authenticated deep links instead of numeric ID input
   ]);
 });
 
-test("settings navigation includes accounts", () => {
+test("settings navigation includes people", () => {
   const html = renderToStaticMarkup(createElement(ConfigPage, { theme: "dark", onThemeChange: () => {}, onSessionExpired: () => {} }));
   const labels = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
-  expect(labels).toContain("Accounts");
+  expect(labels).toContain("People");
 });
 
 test("Discord linking is a single-use command sent to the bot, never an ID typed in", async () => {
   const html = renderToStaticMarkup(createElement(DiscordLinkControl, {
-    account: { id: "nigel", email: "nigel@example.com", enrolled: true, signed_in: true, self: true },
+    account: row({ id: "nigel", signed_in: true, self: true }),
     available: true,
     onError: () => {},
   }));
   expect(html).toContain("Link Discord");
   expect(html).not.toContain("Discord user ID");
   const other = renderToStaticMarkup(createElement(DiscordLinkControl, {
-    account: { id: "partner", email: "partner@example.com", enrolled: true, signed_in: false, self: false },
+    account: row({ id: "partner" }),
     available: true,
     onError: () => {},
   }));
@@ -231,12 +266,13 @@ test("Discord linking is a single-use command sent to the bot, never an ID typed
 
 test("the accounts list shows Discord status only when Discord is enabled", () => {
   const props = {
-    accounts: [{ id: "nigel", email: "nigel@example.com", discord_user_id: "1001", enrolled: true, signed_in: true, self: true }],
+    accounts: [row({ id: "nigel", discord_user_id: "1001", signed_in: true, self: true })],
     telegramEnabled: false,
     pairingAvailable: false,
     onEdit: () => {},
     onRemove: () => {},
-    onReset: () => {},
+    onPassword: () => {},
+    onRevoke: () => {},
     onShowSteps: () => {},
     onError: () => {},
   };

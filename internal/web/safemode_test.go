@@ -21,7 +21,7 @@ func testSafeMode(t *testing.T, configPath string, repaired *bool) http.Handler 
 			return map[string]string{"DEEPSEEK_API_KEY": "key", "TELEGRAM_BOT_TOKEN": "token", "TELEGRAM_WEBHOOK_SECRET": "secret", "GITHUB_TOKEN": "gh"}[name]
 		},
 		Repaired: func() { *repaired = true },
-		Web:      testWebConfig(now),
+		Web:      testWebConfig(t, now),
 	})
 }
 
@@ -39,7 +39,7 @@ func safeModeConfigPath(t *testing.T) string {
 func safeModeCookie(t *testing.T, handler http.Handler) *http.Cookie {
 	t.Helper()
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
 	cookies := login.Result().Cookies()
 	if len(cookies) != 1 {
 		t.Fatalf("login did not set a session cookie: %s", login.Body.String())
@@ -70,7 +70,7 @@ func TestSafeModeServesTheAppAndAnnouncesItself(t *testing.T) {
 // The same probe on a running Eggy says the opposite, so the app can tell the
 // two apart on one request.
 func TestNormalModeAnnouncesItself(t *testing.T) {
-	handler := NewWebHandler("", testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	handler := NewWebHandler("", testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
@@ -102,7 +102,7 @@ func TestSafeModeRequiresSessionForFailureAndConfig(t *testing.T) {
 	cookie := safeModeCookie(t, handler)
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/safemode", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	handler.ServeHTTP(response, request)
 	if !strings.Contains(response.Body.String(), "field scheduler not found") {
 		t.Fatalf("failure not reported to the owner: %s", response.Body.String())
@@ -110,7 +110,7 @@ func TestSafeModeRequiresSessionForFailureAndConfig(t *testing.T) {
 
 	configResponse := httptest.NewRecorder()
 	configRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
-	configRequest.AddCookie(cookie)
+	attachSession(configRequest, cookie)
 	handler.ServeHTTP(configResponse, configRequest)
 	if !strings.Contains(configResponse.Body.String(), "heartbeat_cadence") {
 		t.Fatalf("config not served verbatim: %s", configResponse.Body.String())
@@ -124,7 +124,7 @@ func TestSafeModeSavesRepairedConfigAndSignalsRestart(t *testing.T) {
 	cookie := safeModeCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader(validConfig()))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -156,7 +156,7 @@ func TestSafeModeRejectsConfigThatWouldNotStart(t *testing.T) {
 	cookie := safeModeCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader("server:\n  listen: ':8080'\nnonsense: true\n"))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -198,61 +198,58 @@ func TestSafeModeReportsOtherRoutesUnavailable(t *testing.T) {
 	}
 }
 
-// Safe mode in account mode: no password login exists, and recovery is only
-// reachable through Google Sign-In against the accounts the broken config
-// still names -- or, when that cannot be established, not at all.
-func TestSafeModeInAccountModeHasNoPasswordFallback(t *testing.T) {
-	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
-	cfg, database, _, _ := googleWebConfig(t, now)
-	// A password in the environment must change nothing.
-	cfg.UserEmail, cfg.Password, cfg.SigningKey = "owner@example.com", "hunter2", []byte("legacy-key")
-	handler := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: cfg})
-
+// Safe mode has no fallback: with the database and identity unavailable
+// nobody gets in, and the routes say so rather than pretending a login
+// exists. With them, the ordinary password login works against the
+// existing sessions -- a local password included, so recovery does not
+// depend on the environment credentials alone.
+func TestSafeModeWithoutIdentityHasNoFallbackAndWithItUsesTheNormalLogin(t *testing.T) {
+	now := time.Now().UTC()
+	unavailable := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: WebUIConfig{EnvironmentAlias: "owner@example.com", EnvironmentPasswordHash: environmentHash(t, "hunter2")}})
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	unavailable.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
 	if login.Code != http.StatusUnauthorized || len(login.Result().Cookies()) != 0 {
-		t.Fatalf("password login in account-mode safe mode: status=%d", login.Code)
+		t.Fatalf("login without identity: status=%d", login.Code)
 	}
+	mode := httptest.NewRecorder()
+	unavailable.ServeHTTP(mode, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
+	if !strings.Contains(mode.Body.String(), `"login":"unavailable"`) {
+		t.Fatalf("mode=%s", mode.Body.String())
+	}
+
+	cfg, database, _ := accountWebConfig(t, now)
+	localPassword(t, database, "partner", "partner-password-long")
+	handler := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: cfg})
 	unauthed := httptest.NewRecorder()
 	handler.ServeHTTP(unauthed, httptest.NewRequest(http.MethodGet, "/api/safemode", nil))
 	if unauthed.Code != http.StatusUnauthorized {
 		t.Fatalf("safemode without session: status=%d", unauthed.Code)
 	}
-	// A Google-verified account gets in.
-	state, browser := start(t, handler)
-	cookie := sessionCookie(callback(handler, "state="+state+"&code=good-code", browser))
-	if cookie == nil {
-		t.Fatal("google sign-in did not issue a session in safe mode")
-	}
-	authed := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/safemode", nil)
-	request.AddCookie(cookie)
-	handler.ServeHTTP(authed, request)
-	if authed.Code == http.StatusUnauthorized || !strings.Contains(authed.Body.String(), "boom") {
-		t.Fatalf("safemode with session: status=%d body=%s", authed.Code, authed.Body.String())
-	}
-	raw := httptest.NewRecorder()
-	rawRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
-	rawRequest.AddCookie(cookie)
-	handler.ServeHTTP(raw, rawRequest)
-	if raw.Code != http.StatusOK {
-		t.Fatalf("raw config with session: status=%d", raw.Code)
-	}
-	_ = database
-
-	// When identity cannot be established, every route says so and nothing
-	// signs in.
-	generic := NewSafeModeHandler(SafeMode{ConfigPath: safeModeConfigPath(t), Failure: errors.New("boom"), Web: WebUIConfig{AccountMode: true, UserEmail: "owner@example.com", Password: "hunter2", SigningKey: []byte("k")}})
-	for _, probe := range []struct{ method, target string }{{http.MethodPost, "/api/login"}, {http.MethodGet, "/api/safemode"}, {http.MethodGet, "/api/config/raw"}, {http.MethodGet, "/auth/google/start"}} {
-		response := httptest.NewRecorder()
-		generic.ServeHTTP(response, httptest.NewRequest(probe.method, probe.target, strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
-		if response.Code == http.StatusOK || len(response.Result().Cookies()) != 0 {
-			t.Fatalf("%s %s: status=%d cookies=%d", probe.method, probe.target, response.Code, len(response.Result().Cookies()))
+	for _, credentials := range []string{`{"username":"owner@example.com","password":"hunter2"}`, `{"username":"partner","password":"partner-password-long"}`} {
+		login := httptest.NewRecorder()
+		handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(credentials)))
+		if login.Code != http.StatusOK || len(login.Result().Cookies()) != 1 {
+			t.Fatalf("login %s: status=%d body=%s", credentials, login.Code, login.Body.String())
+		}
+		cookie := login.Result().Cookies()[0]
+		authed := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/safemode", nil)
+		attachSession(request, cookie)
+		handler.ServeHTTP(authed, request)
+		if authed.Code == http.StatusUnauthorized || !strings.Contains(authed.Body.String(), "boom") {
+			t.Fatalf("safemode with session: status=%d body=%s", authed.Code, authed.Body.String())
+		}
+		raw := httptest.NewRecorder()
+		rawRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
+		attachSession(rawRequest, cookie)
+		handler.ServeHTTP(raw, rawRequest)
+		if raw.Code != http.StatusOK {
+			t.Fatalf("raw config with session: status=%d", raw.Code)
 		}
 	}
-	mode := httptest.NewRecorder()
-	generic.ServeHTTP(mode, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
-	if mode.Code != http.StatusOK || !strings.Contains(mode.Body.String(), "safe") {
-		t.Fatalf("mode probe: status=%d body=%s", mode.Code, mode.Body.String())
+	wrong := httptest.NewRecorder()
+	handler.ServeHTTP(wrong, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"partner","password":"hunter2"}`)))
+	if wrong.Code != http.StatusUnauthorized {
+		t.Fatalf("someone else's password: status=%d", wrong.Code)
 	}
 }

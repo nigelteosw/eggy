@@ -179,8 +179,10 @@ homeless, but both callers *are* the command surface, and moving it would have
 two plugin packages import a third.
 
 **Accounts are ownership, not roles.** A deployment names its people in
-`accounts:`; each signs in with their own Google identity (`plugins/auth/google`,
-an inbound OIDC adapter that keeps no token) and owns private conversations,
+`accounts:`; each signs in with a private username and password (hashes,
+sessions, and single-use `/web` links in `eggy.db` through `plugins/auth/session`
+and the SQLite store; the environment-bound account signs in with
+`EGGY_UI_USER_EMAIL`/`EGGY_UI_PASSWORD`) and owns private conversations,
 memory, watch list, schedules, traces, approvals, and `/mode` and `/model`
 choices. Every account holds every capability — config, restart, MCP, the
 shared Google connection — and the only authorization question anywhere is

@@ -1,33 +1,27 @@
 ---
 title: Deploy on Railway
-description: Run one durable Eggy daemon on Railway with a mounted home directory, Google sign-in for its people, and Eggy's own Google Workspace identity.
+description: Run one durable Eggy daemon on Railway with a mounted home directory, local accounts for its people, and Eggy's own Google Workspace identity.
 eyebrow: Get started
 ---
 
 Eggy's container and `railway.toml` are designed for a single Railway replica.
 Durable state belongs on a Railway volume mounted at `/data`. This guide sets
 up a fresh deployment with [accounts](/eggy/configure/accounts/): each person
-signs in with their own Google account, and Eggy connects to Google Workspace
-as its own user.
+signs in with a private username and password, and Eggy connects to Google
+Workspace as its own user.
 
-## 1. Google, before Railway
+## 1. Google, before Railway — only if you use the integration
 
-Do this first; the deployment needs the values.
+Sign-in needs no Google client at all. If you will connect Eggy's own
+Workspace identity:
 
 1. **Create Eggy's own Workspace user** in Google Admin, for example
    `eggy@yourdomain`. An ordinary user with a mailbox and calendar, not a
    service account. This is who Eggy *is* on Google; everyone shares it.
-2. In a Google Cloud project, configure the **OAuth consent screen**. With an
-   *Internal* audience anyone in your domain can sign in; with *External* in
-   *Testing*, every person (and Eggy's own user) must be added as a test user.
-3. Create a **Web application** OAuth client for sign-in. Add the redirect URI
-   `https://<your-railway-domain>/auth/google/callback` — you can fill the
-   domain in after step 2 below and redeploy nothing; only the client's
-   redirect list changes. Note its client ID and secret.
-4. Create a **Desktop app** OAuth client for Eggy's Workspace grant and enable
-   the APIs for the products you want, per the
+2. Create a **Desktop app** OAuth client for Eggy's Workspace grant and
+   enable the APIs for the products you want, per the
    [Google Workspace guide](/eggy/configure/google-workspace/). Note its client
-   ID and secret. The two clients are never interchangeable.
+   ID and secret. Nothing is registered against your Railway domain.
 
 ## 2. Create the service
 
@@ -36,22 +30,22 @@ Connect the GitHub repository to a Railway service. Railway builds the root
 replica. Create a volume and mount it at `/data`: losing it loses
 configuration, sessions, OAuth grants, memory, schedules, skills and logs.
 
-Generate a public domain for the service and use it for the sign-in client's
-redirect URI above.
+Generate a public domain for the service; it is the address your people
+sign in at.
 
 ## 3. Variables
 
 Set only the credentials Eggy cannot generate on its own; you configure
-everything else — the first account, the sign-in client ID, the model — from
-the setup page after deploying. Railway's injected `PORT` overrides
+everything else — the first account, the model — from the setup page after
+deploying. Railway's injected `PORT` overrides
 `server.listen`, and `RAILWAY_PUBLIC_DOMAIN` is picked up automatically for
 `server.public_base_url`.
 
 | Variable | Purpose |
 | --- | --- |
-| `EGGY_ENCRYPTION_KEY` | Base64-encoded 32-byte key; seals sessions and grants. Generate with `openssl rand -base64 32` and keep it stable. |
-| `EGGY_GOOGLE_LOGIN_CLIENT_SECRET` | The **Web application** sign-in client's secret. Name it whatever you like — you tell setup the variable name, not the value. |
-| `DEEPSEEK_API_KEY` | Your model provider's API key. Same naming freedom as above. |
+| `EGGY_ENCRYPTION_KEY` | Base64-encoded 32-byte key; seals sessions, account credentials, and grants. Generate with `openssl rand -base64 32` and keep it stable. |
+| `EGGY_UI_USER_EMAIL`, `EGGY_UI_PASSWORD` | The first account's username and password on the login form. Every other person gets a local password from the People card. Rotating this password is an environment change plus a restart. |
+| `DEEPSEEK_API_KEY` | Your model provider's API key. Name it whatever you like — you tell setup the variable name, not the value. |
 
 Optional, only once you enable Telegram from Settings after setup:
 
@@ -66,20 +60,18 @@ after the first sign-in, so nothing else is needed now.
 
 ### Headless setup (alternative)
 
-Setting `EGGY_ACCOUNTS` (as `id:google_email[:telegram_user_id]`,
-comma-separated), `EGGY_GOOGLE_LOGIN_CLIENT_ID`, and
-`EGGY_GOOGLE_EXPECTED_EMAIL` skips the setup page and generates
-`config.yaml` on first boot instead, for scripted provisioning. Do **not**
-set `EGGY_UI_USER_EMAIL` or `EGGY_UI_PASSWORD` alongside it: with accounts
-there is no password login, and a config with both is refused.
+Setting `EGGY_ACCOUNTS` (as `id[:telegram_user_id]`, comma-separated) skips
+the setup page and generates `config.yaml` on first boot instead, for
+scripted provisioning. With more than one entry, `EGGY_OWNER_ID` must name
+which of them the `EGGY_UI_*` credentials above sign in. `EGGY_ACCOUNTS` and
+the single-owner `EGGY_TELEGRAM_OWNER_ID` shape are exclusive.
 
 ## 4. Sign in
 
 Open the service's domain. With no `EGGY_ACCOUNTS` set, Railway's deploy logs
-show a one-time setup URL — open it, fill in your account, the sign-in client
-ID, and the model, and **Validate and start**. The page then shows
-**Sign in with Google**; sign in with the address you gave setup. The first
-sign-in enrolls the account and binds it to your Google identity.
+show a one-time setup URL — open it, fill in your account ID, the model, and
+**Validate and start**. The page then shows the username/password form; sign
+in with `EGGY_UI_USER_EMAIL` and `EGGY_UI_PASSWORD`.
 
 Then, under **Settings → Connections → Google Workspace**, set the Desktop
 client ID, `client_secret_env: GOOGLE_CLIENT_SECRET`, and the products; save
@@ -96,23 +88,41 @@ user.
 
 Everyone with an account can do this.
 
-1. **Settings → Accounts → Add an account.** Give them a short ID and the
-   Google address they will sign in with. Save — access changes immediately,
-   no restart needed.
-2. If the consent screen is *External / Testing*, add their address as a test
-   user in Google Cloud.
-3. Send them the panel address. They sign in with Google with that address;
-   the first sign-in enrolls them. They start with empty conversations and
-   memory, their own `/mode` and `/model`, and the shared Google connection.
-4. If they use Telegram, they link it themselves from **Settings →
-   Accounts → Link Telegram** — see
+1. **Settings → People → Add an account.** Give them a short ID (their
+   username), a password you hand them by hand, and optionally their numeric
+   Telegram ID. Save — access changes immediately, no restart needed.
+2. Send them the panel address. They sign in with that username and password.
+   They start with empty conversations and memory, their own `/mode` and
+   `/model`, and the same shared connections.
+3. If they use Telegram, they link it themselves from **Settings →
+   People → Link Telegram** — see
    [Linking your Telegram](/eggy/use/telegram/#linking-your-telegram). There
    is no numeric ID to look up by hand.
 
 To remove someone, **Remove** on their row: they are signed out immediately
-and can no longer sign in; their private history stays in the database. If
-someone needs to switch Google accounts, edit their address after
-**Reset binding**, which signs them out until they re-enroll.
+and can no longer sign in, and their username is never reissued. Their
+private history stays in the database until you delete it.
+
+## Migrating an existing deployment
+
+A deployment from before local accounts — Google Sign-In — moves over with
+one command, on the mounted home, with the daemon stopped:
+
+```sh
+# from a shell that can reach the volume, with eggyd stopped
+eggyd --home /data --migrate-local-login --password-account <your-id>
+```
+
+`--password-account` names the account your `EGGY_UI_*` credentials sign in
+after the move. The command preflights the whole candidate config, writes
+`config.yaml.pre-local-login` and `eggy.db.pre-local-login` beside the
+originals, migrates the database, seeds everyone's credential rows, and
+exits without starting Eggy — start the deployment again normally. An
+interrupted run is safe to rerun; it resumes rather than starting over.
+
+To roll back: stop the new binary, restore both paired backups, restore the
+old binary, and start it. Never run the old binary against the migrated
+database. Full details in [Accounts](/eggy/configure/accounts/#migrating-from-google-sign-in).
 
 ## 6. Verify
 
@@ -120,4 +130,4 @@ Check `/healthz`, then `/readyz`. For Telegram, a webhook returning `204`
 means the update entered Eggy's queue; use Railway logs and a real message
 from a listed sender for end-to-end verification. If `config.yaml` ever stops
 loading, [safe mode](/eggy/operate/safe-mode/) still lets an account in with
-Google to repair it.
+the same username and password to repair it.

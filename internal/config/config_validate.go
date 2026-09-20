@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -496,25 +497,42 @@ func (c Config) validateSecrets(s Secrets) error {
 	if c.Tavily.Enabled && c.Tavily.APIKeyEnv != "" {
 		require(c.Tavily.APIKeyEnv, s.TavilyAPIKey)
 	}
-	if c.AccountMode() {
-		require(c.Web.GoogleLogin.ClientSecretEnv, s.GoogleLoginClientSecret)
-		// Sessions and login transactions are sealed with the same key the
-		// grant store uses.
-		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
-		// The password login is the legacy owner's. In account mode every
-		// browser identity is a verified Google subject, and a password that
-		// still worked would be a way into every account at once.
-		if strings.TrimSpace(s.UIPassword) != "" || strings.TrimSpace(s.UIUserEmail) != "" {
-			return errors.New("EGGY_UI_PASSWORD and EGGY_UI_USER_EMAIL cannot be set when accounts are configured; sign in with Google instead")
-		}
-	}
-	if strings.TrimSpace(s.UIUserEmail) != "" || strings.TrimSpace(s.UIPassword) != "" {
-		require("EGGY_UI_USER_EMAIL", s.UIUserEmail)
-		require("EGGY_UI_PASSWORD", s.UIPassword)
-		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
-	}
 	if missing != "" {
 		return fmt.Errorf("required environment variable %s is missing", missing)
+	}
+	return c.validateLoginSecrets(s)
+}
+
+// validateLoginSecrets is the rule for the environment login. With an
+// accounts list the password account is a real person who must be able to
+// sign in, so both variables are required. The legacy owner may run without
+// a web login at all, but never with half of one. A configured secret longer
+// than the request bound could never be typed into the form, so it is
+// reported here rather than discovered as a permanent 401. The alias is
+// reserved: it may not spell another account's ID, or the login form would
+// have two answers for one username.
+func (c Config) validateLoginSecrets(s Secrets) error {
+	alias, password := strings.TrimSpace(s.UIUserEmail), s.UIPassword
+	if c.AccountMode() || alias != "" || strings.TrimSpace(password) != "" {
+		for _, item := range [][2]string{{"EGGY_UI_USER_EMAIL", alias}, {"EGGY_UI_PASSWORD", strings.TrimSpace(password)}, {"EGGY_ENCRYPTION_KEY", s.EncryptionKey}} {
+			if strings.TrimSpace(item[1]) == "" {
+				return fmt.Errorf("required environment variable %s is missing", item[0])
+			}
+		}
+	}
+	if len(password) > 256 {
+		return errors.New("EGGY_UI_PASSWORD is longer than 256 bytes and could never be entered; shorten it")
+	}
+	if !utf8.ValidString(password) {
+		return errors.New("EGGY_UI_PASSWORD is not valid UTF-8")
+	}
+	if alias != "" {
+		bound := c.PasswordAccountID()
+		for _, account := range c.Principals() {
+			if account.ID != bound && strings.EqualFold(account.ID, alias) {
+				return fmt.Errorf("EGGY_UI_USER_EMAIL %q collides with account %q; the alias may only name the password account", alias, account.ID)
+			}
+		}
 	}
 	return nil
 }

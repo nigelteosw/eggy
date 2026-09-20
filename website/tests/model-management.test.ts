@@ -84,7 +84,7 @@ test("the Models section keeps its restart action nearby", () => {
       theme: "dark",
       onThemeChange: () => {},
       onSessionExpired: () => {},
-      onBackToChat: () => {},
+      initialSection: "models",
     }),
   );
 

@@ -30,7 +30,7 @@ func (d *stubDiscovery) DiscoverModels(_ context.Context, provider string) ([]po
 func discoveryRequest(t *testing.T, handler http.Handler, cookie *http.Cookie, query string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/api/config/models/available"+query, nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
@@ -38,7 +38,7 @@ func discoveryRequest(t *testing.T, handler http.Handler, cookie *http.Cookie, q
 
 func TestModelDiscoveryRouteReturnsTheProviderCatalog(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	discovery := &stubDiscovery{
 		providers: []string{"openrouter"},
 		models: []ports.CatalogModel{
@@ -82,7 +82,7 @@ func TestModelDiscoveryRouteReturnsTheProviderCatalog(t *testing.T) {
 
 func TestModelDiscoveryRouteRejectsMissingProviderAndReportsFailures(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.ModelDiscovery = &stubDiscovery{providers: []string{"openrouter"}, err: errors.New("provider authentication failed (HTTP 401)")}
 	handler := NewWebHandler("", config)
 	cookie := webLoginCookie(t, handler)
@@ -100,7 +100,7 @@ func TestModelDiscoveryRouteRejectsMissingProviderAndReportsFailures(t *testing.
 // speaks to a provider using Eggy's own credential.
 func TestModelDiscoveryRouteRequiresASession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.ModelDiscovery = &stubDiscovery{providers: []string{"openrouter"}}
 	handler := NewWebHandler("", config)
 

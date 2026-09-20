@@ -210,8 +210,8 @@ func TestLoadOrCreateConfigRequiresSetupOnlyWhenHeadlessProvisioningIsAbsent(t *
 		t.Fatalf("error = %v, want ErrSetupRequired", err)
 	}
 
-	env := map[string]string{"EGGY_ACCOUNTS": "you:you@example.com"}
-	if _, _, err := LoadOrCreateConfig(filepath.Join(t.TempDir(), "config.yaml"), mapEnv(env)); err == nil || errors.Is(err, ErrSetupRequired) || !strings.Contains(err.Error(), "EGGY_GOOGLE_LOGIN_CLIENT_ID") {
+	env := map[string]string{"EGGY_ACCOUNTS": "you,partner"}
+	if _, _, err := LoadOrCreateConfig(filepath.Join(t.TempDir(), "config.yaml"), mapEnv(env)); err == nil || errors.Is(err, ErrSetupRequired) || !strings.Contains(err.Error(), "EGGY_OWNER_ID") {
 		t.Fatalf("partial headless provisioning error = %v", err)
 	}
 }

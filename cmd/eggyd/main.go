@@ -54,6 +54,8 @@ func main() {
 func run() error {
 	homeDir := flag.String("home", "", "path to Eggy's home directory (default $EGGY_HOME, else /data)")
 	configPath := flag.String("config", "", "path to config.yaml (default <home>/config.yaml)")
+	migrateLogin := flag.Bool("migrate-local-login", false, "with eggyd stopped: back up the home, move it from Google Sign-In to local accounts, and exit")
+	passwordAccount := flag.String("password-account", "", "with --migrate-local-login: the account EGGY_UI_USER_EMAIL and EGGY_UI_PASSWORD sign in")
 	flag.Parse()
 	// The home directory is resolved before anything else, because
 	// config.yaml and .env are themselves artifacts inside it.
@@ -67,6 +69,11 @@ func run() error {
 	getenv, err := config.DotEnv(envFilePath(layout), os.Getenv)
 	if err != nil {
 		return fmt.Errorf("load .env: %w", err)
+	}
+	if *migrateLogin {
+		// The cutover prints only its status and backup paths; no secret
+		// passes through it, so it does not need the redacting logger.
+		return migrateLocalLogin(context.Background(), layout, *configPath, *passwordAccount, getenv, os.Stdout, migrationHooks{})
 	}
 	// The logger opens before the config loads, so that a config that fails to
 	// load is itself logged and redacted. Only the secrets with fixed variable
@@ -153,7 +160,7 @@ func newSetupMode(homePath, configPath, publicBaseURL string, getenv func(string
 	}
 	mode.Validate = func(input config.SetupInput) (map[string]bool, error) {
 		variables := map[string]bool{"EGGY_ENCRYPTION_KEY": strings.TrimSpace(getenv("EGGY_ENCRYPTION_KEY")) != ""}
-		for _, name := range []string{strings.TrimSpace(input.LoginClientSecretEnv), strings.TrimSpace(input.ProviderAPIKeyEnv)} {
+		for _, name := range []string{"EGGY_UI_USER_EMAIL", "EGGY_UI_PASSWORD", strings.TrimSpace(input.ProviderAPIKeyEnv)} {
 			if name != "" {
 				variables[name] = strings.TrimSpace(getenv(name)) != ""
 			}
@@ -271,11 +278,11 @@ func serveSafeMode(ctx context.Context, address string, layout home.Layout, conf
 		Repaired: func() { once.Do(func() { close(repaired) }) },
 		Web:      recovery,
 	})
-	if !recovery.AccountMode && (secrets.UIUserEmail == "" || secrets.UIPassword == "" || secrets.EncryptionKey == "") {
-		// Worth saying plainly: without a web credential the repair page
-		// renders but cannot be signed into, and the config has to be fixed
-		// some other way.
-		logger.Warn("safe mode cannot be signed into: set EGGY_UI_USER_EMAIL, EGGY_UI_PASSWORD, and EGGY_ENCRYPTION_KEY")
+	if recovery.Auth == nil {
+		// Worth saying plainly: without an identity to check against the
+		// repair page renders but cannot be signed into, and the config has
+		// to be fixed some other way.
+		logger.Warn("safe mode cannot be signed into: config.yaml must still declare its accounts and EGGY_UI_USER_EMAIL, EGGY_UI_PASSWORD, and EGGY_ENCRYPTION_KEY must be set")
 	}
 	// Ready reports the startup failure, so /readyz is unhealthy for the whole
 	// time safe mode is up while /healthz stays 200: the process is alive, and

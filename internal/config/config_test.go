@@ -40,8 +40,7 @@ func TestLoadConfigResolvesWebUICredentialsAndRequiresEncryptionKeyWhenSet(t *te
 }
 
 func TestLoadConfigAcceptsExample(t *testing.T) {
-	env := testSecrets()
-	env["EGGY_GOOGLE_LOGIN_CLIENT_SECRET"] = "login-secret"
+	env := accountSecrets()
 	cfg, secrets, err := LoadConfig(filepath.Join("..", "..", "config.example.yaml"), mapEnv(env))
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)

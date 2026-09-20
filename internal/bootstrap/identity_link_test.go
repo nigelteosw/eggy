@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,15 +27,11 @@ discord:
   enabled: true
 accounts:
   - id: nigel
-    google_email: nigel@example.com
   - id: partner
-    google_email: partner@example.com
     telegram_user_id: 77
     discord_user_id: "77"
 web:
-  google_login:
-    client_id: client
-    client_secret_env: LOGIN_SECRET
+  password_account_id: nigel
 agent:
   default_model: model
 providers:
@@ -137,6 +134,15 @@ func TestIdentityLinkTelegramConsumeReleasesClaimOnConfigWriteFailure(t *testing
 	coordinator, configPath := newTestLinkCoordinator(t, now)
 	code, hash := pairingCode(3)
 	if err := coordinator.store.CreateIdentityLink(context.Background(), "nigel", TelegramConnection, hash, now.Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// nigel is bound to the environment login; move the binding first so
+	// the removal is refused for the right reason only.
+	if err := config.ConvertToAccounts(configPath, config.ConvertInput{}); err == nil {
+		t.Fatal("conversion of an accounts deployment must fail")
+	}
+	body, _ := os.ReadFile(configPath)
+	if err := os.WriteFile(configPath, []byte(strings.Replace(string(body), "password_account_id: nigel", "password_account_id: partner", 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := config.RemoveAccount(configPath, "nigel"); err != nil {

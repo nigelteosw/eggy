@@ -63,7 +63,7 @@ func agentCall(t *testing.T, handler http.Handler, cookie *http.Cookie, method, 
 		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	if cookie != nil {
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -93,7 +93,7 @@ func TestWebAgentReportsWhatTheComposerCanOffer(t *testing.T) {
 		model:   "thinker",
 		effort:  "medium",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeStrict}
 	handler := NewWebHandler("", webConfig)
@@ -124,7 +124,7 @@ func TestWebAgentModelWriteAnswersWithTheResultingState(t *testing.T) {
 		model:   "thinker",
 		effort:  "high",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeStrict}
 	handler := NewWebHandler("", webConfig)
@@ -159,7 +159,7 @@ func TestWebAgentEffortRejectsALevelTheModelDoesNotSupport(t *testing.T) {
 		efforts: map[string][]string{"thinker": {"low", "high"}},
 		model:   "thinker",
 	}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Agent = agent
 	webConfig.ApprovalMode = &fakeApprovalMode{mode: ports.ModeNormal}
 	handler := NewWebHandler("", webConfig)
@@ -183,7 +183,7 @@ func TestWebAgentEffortRejectsALevelTheModelDoesNotSupport(t *testing.T) {
 // Model selection changes what every subsequent turn runs on and costs, so it
 // is owner-only like every other write in this panel.
 func TestWebAgentRoutesRequireASession(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
 	webConfig.Agent = &fakeAgentSwitch{aliases: []string{"fast"}, model: "fast"}
 	handler := NewWebHandler("", webConfig)
 	for _, route := range []struct{ method, path, body string }{
@@ -200,7 +200,7 @@ func TestWebAgentRoutesRequireASession(t *testing.T) {
 // With no model backend wired the composer must be told so, rather than being
 // handed an empty list it would draw as "no models configured".
 func TestWebAgentWithoutARuntimeIsAbsentRatherThanEmpty(t *testing.T) {
-	webConfig := testWebConfig(time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC))
 	handler := NewWebHandler("", webConfig)
 	cookie := webLoginCookie(t, handler)
 	if response := agentCall(t, handler, cookie, http.MethodGet, "/api/agent", ""); response.Code != http.StatusNotFound {

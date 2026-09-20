@@ -461,17 +461,16 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})
-	googleLogin, loginSealer, err := newGoogleLogin(config, secrets, options)
+	passwordAccountID, environmentAlias, environmentHash, err := loginConfig(config, secrets)
 	if err != nil {
 		return nil, err
 	}
 	webConfig := web.WebUIConfig{
-		UserEmail: secrets.UIUserEmail, Password: secrets.UIPassword,
-		SigningKey: []byte(secrets.EncryptionKey), Now: options.Now,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database, OwnerID: config.Owner.ID,
-		AccountMode: config.AccountMode(), Sessions: database, Accounts: app.accounts,
-		InitializeAccount: func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
-		GoogleLogin:       googleLogin, Identities: database, LoginSealer: loginSealer,
+		Now:     options.Now,
+		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database,
+		Auth: database, Sessions: database, Accounts: app.accounts,
+		PasswordAccountID: passwordAccountID, EnvironmentAlias: environmentAlias, EnvironmentPasswordHash: environmentHash,
+		InitializeAccount:   func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
 		PublicBaseURL:       config.Server.PublicBaseURL,
 		MCP:                 mcpAdministration.webView(),
 		Tools:               registry,

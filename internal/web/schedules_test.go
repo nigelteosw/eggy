@@ -28,7 +28,7 @@ func (f *fakeScheduleDirectory) Remove(_ context.Context, id string) error {
 func scheduleTestHandler(t *testing.T, directory ScheduleDirectory) (http.Handler, *http.Cookie) {
 	t.Helper()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Schedules = directory
 	handler := NewWebHandler("", webConfig)
 	return handler, webLoginCookie(t, handler)
@@ -45,7 +45,7 @@ func TestWebSchedulesListReadsAsATimeline(t *testing.T) {
 	handler, cookie := scheduleTestHandler(t, directory)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/schedules", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -78,7 +78,7 @@ func TestWebScheduleDeleteCancelsIt(t *testing.T) {
 	handler, cookie := scheduleTestHandler(t, directory)
 
 	request := httptest.NewRequest(http.MethodDelete, "/api/schedules/sched-1", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -109,7 +109,7 @@ func TestWebScheduleRoutesRequireSession(t *testing.T) {
 func TestWebSchedulesWithoutASchedulerListsNothing(t *testing.T) {
 	handler, cookie := scheduleTestHandler(t, nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/schedules", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

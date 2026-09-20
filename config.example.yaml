@@ -14,31 +14,27 @@ data_dir: "/data"
 # Who may use this Eggy. One shape or the other, never both:
 #
 #   telegram:
-#     owner_id: 123456789        # a single owner, password login on the web
+#     owner_id: 123456789        # a single owner
 #
-# or an explicit account list, each person signing in with their own Google
-# account and holding private conversations, memory, schedules and traces.
-# Every account can change every setting; there are no roles.
+# or an explicit account list, each person holding private conversations,
+# memory, schedules and traces. Every account can change every setting;
+# there are no roles. The id is the username on the web login form and is
+# immutable; a removed id is never reissued.
 accounts:
   - id: nigel
-    google_email: nigel@example.com
     # Optional: the numeric Telegram user that speaks for this account. Never
-    # a username. Leave it out for a web-only person.
+    # a username. Leave it out for a web-only person. /web in that chat
+    # mints a single-use browser login link for this account.
     telegram_user_id: 123456789
     # Optional: the Discord user that speaks for this account, bound by that
     # person linking their own Discord from Settings. Never a username.
     discord_user_id: "123456789012345678"
   - id: partner
-    google_email: partner@example.com
 web:
-  # The Web application OAuth client people sign in with. Register its
-  # redirect URI as <public_base_url>/auth/google/callback. The secret is
-  # read from the named environment variable, never written here. This is a
-  # different client from google.client_id below, which is a Desktop client
-  # for Eggy's own Workspace grant.
-  google_login:
-    client_id: "web-login.apps.googleusercontent.com"
-    client_secret_env: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"
+  # Which account signs in with the operator's EGGY_UI_USER_EMAIL /
+  # EGGY_UI_PASSWORD. Every other account sets a local password from the
+  # People card; those live in the SQLite database, never here.
+  password_account_id: nigel
 agent:
   # Telegram: /model changes the active alias; /model default restores this one.
   # /model effort <low|medium|high|max> sets reasoning effort for aliases that support it.

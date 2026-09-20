@@ -29,14 +29,14 @@ func restartEnv(key string) string {
 // have refused.
 func TestRestartRouteRebuildsTheDaemon(t *testing.T) {
 	restarter := &fakeRestarter{}
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Restarter = restarter
 	webConfig.Getenv = restartEnv
 	handler := NewWebHandler(writeConfigFile(t, validConfig()), webConfig)
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/restart", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -53,17 +53,18 @@ func TestRestartRouteRebuildsTheDaemon(t *testing.T) {
 func TestRestartRouteRefusesAConfigThatWouldNotLoad(t *testing.T) {
 	restarter := &fakeRestarter{}
 	path := writeConfigFile(t, validConfig())
-	if err := os.WriteFile(path, []byte("agent:\n  default_model: missing\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Restarter = restarter
 	webConfig.Getenv = restartEnv
 	handler := NewWebHandler(path, webConfig)
 	cookie := webLoginCookie(t, handler)
+	// Broken on disk after the login: a host edit the panel never accepted.
+	if err := os.WriteFile(path, []byte("agent:\n  default_model: missing\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/restart", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -82,7 +83,7 @@ func TestRestartRouteRefusesAConfigThatWouldNotLoad(t *testing.T) {
 // disruptive of them.
 func TestRestartRouteRequiresASession(t *testing.T) {
 	restarter := &fakeRestarter{}
-	webConfig := testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	webConfig.Restarter = restarter
 	handler := NewWebHandler(writeConfigFile(t, validConfig()), webConfig)
 

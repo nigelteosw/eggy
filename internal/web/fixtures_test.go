@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/plugins/auth/session"
 )
 
 // validConfig is the config.yaml the web tests write when they need a
@@ -60,4 +61,11 @@ func asOwner() context.Context {
 // the context, as requireWebSession would have left it.
 func ownerRequest(method, target string, body io.Reader) *http.Request {
 	return httptest.NewRequest(method, target, body).WithContext(asOwner())
+}
+
+// attachSession adds the session cookie and the CSRF header it implies, as
+// the panel's own script does on every request.
+func attachSession(request *http.Request, cookie *http.Cookie) {
+	request.AddCookie(cookie)
+	request.Header.Set(csrfHeader, csrfToken(session.HashToken(cookie.Value)))
 }

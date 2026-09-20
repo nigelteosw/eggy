@@ -18,19 +18,19 @@ var (
 
 // SetupInput contains only ordinary configuration and the names of
 // environment variables holding credentials. Secret values never cross the
-// setup HTTP boundary or enter config.yaml.
+// setup HTTP boundary or enter config.yaml: the first account is bound to
+// the EGGY_UI_USER_EMAIL / EGGY_UI_PASSWORD credentials the operator has
+// already set, and setup only checks that they are present.
 type SetupInput struct {
-	AccountID            string `json:"account_id"`
-	GoogleEmail          string `json:"google_email"`
-	PublicBaseURL        string `json:"public_base_url"`
-	LoginClientID        string `json:"login_client_id"`
-	LoginClientSecretEnv string `json:"login_client_secret_env"`
-	ProviderName         string `json:"provider_name"`
-	ProviderBaseURL      string `json:"provider_base_url"`
-	ProviderAPIKeyEnv    string `json:"provider_api_key_env"`
-	ModelAlias           string `json:"model_alias"`
-	ModelID              string `json:"model_id"`
-	TelegramEnabled      bool   `json:"telegram_enabled"`
+	AccountID         string `json:"account_id"`
+	TelegramUserID    int64  `json:"telegram_user_id,omitempty"`
+	PublicBaseURL     string `json:"public_base_url"`
+	ProviderName      string `json:"provider_name"`
+	ProviderBaseURL   string `json:"provider_base_url"`
+	ProviderAPIKeyEnv string `json:"provider_api_key_env"`
+	ModelAlias        string `json:"model_alias"`
+	ModelID           string `json:"model_id"`
+	TelegramEnabled   bool   `json:"telegram_enabled"`
 }
 
 // ValidateSetup builds and validates the exact candidate CompleteSetup will
@@ -54,13 +54,10 @@ func ValidateSetup(homePath string, input SetupInput, getenv func(string) string
 		DataDir:  homePath,
 		Telegram: telegram,
 		Accounts: []AccountConfig{{
-			ID:          strings.TrimSpace(input.AccountID),
-			GoogleEmail: normalizeEmail(input.GoogleEmail),
+			ID:             strings.TrimSpace(input.AccountID),
+			TelegramUserID: input.TelegramUserID,
 		}},
-		Web: WebConfig{GoogleLogin: GoogleLoginConfig{
-			ClientID:        strings.TrimSpace(input.LoginClientID),
-			ClientSecretEnv: strings.TrimSpace(input.LoginClientSecretEnv),
-		}},
+		Web:   WebConfig{PasswordAccountID: strings.TrimSpace(input.AccountID)},
 		Agent: AgentConfig{DefaultModel: strings.TrimSpace(input.ModelAlias), Timezone: "Asia/Singapore"},
 		Providers: map[string]ProviderConfig{
 			strings.TrimSpace(input.ProviderName): {
@@ -95,7 +92,6 @@ func ValidateSetup(homePath string, input SetupInput, getenv func(string) string
 	for name, provider := range cfg.Providers {
 		secrets.ProviderAPIKeys[name] = getenv(provider.APIKeyEnv)
 	}
-	secrets.GoogleLoginClientSecret = getenv(cfg.Web.GoogleLogin.ClientSecretEnv)
 	if err := cfg.validateSecrets(secrets); err != nil {
 		return Config{}, err
 	}

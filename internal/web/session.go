@@ -1,7 +1,7 @@
-// Account-mode sessions: opaque tokens the store knows by hash, revocable
-// one at a time or per account, with a CSRF check on every mutating route.
-// The legacy password login in login.go keeps its signed cookie; nothing
-// here is reachable until a deployment configures accounts.
+// Account sessions: opaque tokens the store knows by hash, revocable one at
+// a time or per account, with a CSRF check on every mutating route. Every
+// way in -- password, environment credentials, a Telegram /web link -- ends
+// in one of these; there is no other cookie.
 package web
 
 import (
@@ -19,31 +19,32 @@ import (
 )
 
 // SessionStore is what the web layer needs from the database for account
-// sessions and in-flight logins. Every method deals in hashes; the raw token
-// exists only in the browser and in the request that presents it.
+// sessions. Every method deals in hashes; the raw token exists only in the
+// browser and in the request that presents it. Sessions are created through
+// ports.AccountAuthStore, never here: creation is conditional on a
+// credential generation, and this interface has no way to say which.
 type SessionStore interface {
-	CreateSession(ctx context.Context, hash, accountID string, expiresAt time.Time) error
 	SessionAccount(ctx context.Context, hash string, now time.Time) (string, error)
 	RevokeSession(ctx context.Context, hash string) error
 	RevokeAccountSessions(ctx context.Context, accountID string) error
 	ActiveSessions(ctx context.Context, accountID string, now time.Time) (int, error)
-	CreateLoginTransaction(ctx context.Context, stateHash, browserHash, nonce, sealedVerifier string, expiresAt time.Time) error
-	ConsumeLoginTransaction(ctx context.Context, stateHash, browserHash string, now time.Time) (nonce, sealedVerifier string, err error)
 }
 
 // AccountDirectory is the configured account list as the web layer sees it:
-// resolve an ID to its record (a removed account resolves to nothing) and
-// enumerate for the accounts card.
+// resolve an ID to its record (a removed account resolves to nothing),
+// enumerate for the People card, and say which account the environment
+// credentials belong to and whether Telegram is a channel, all as the
+// config is now.
 type AccountDirectory interface {
 	Account(id string) (AccountRecord, bool)
-	AccountForEmail(email string) (AccountRecord, bool)
 	Accounts() []AccountRecord
+	PasswordAccountID() string
+	TelegramEnabled() bool
 }
 
 // AccountRecord is one configured account, provider-neutral.
 type AccountRecord struct {
 	ID             string
-	Email          string
 	TelegramUserID int64
 	DiscordUserID  string
 }
@@ -89,7 +90,7 @@ func resolveAccountSession(webConfig WebUIConfig, r *http.Request, now time.Time
 		return accountSession{}, errors.New("not authenticated")
 	}
 	account, ok := webConfig.Accounts.Account(accountID)
-	if !ok {
+	if !ok || !accountAuthPresent(r.Context(), webConfig, accountID) {
 		_ = revokeAccountSessions(r.Context(), webConfig, accountID)
 		return accountSession{}, errors.New("not authenticated")
 	}
@@ -97,19 +98,13 @@ func resolveAccountSession(webConfig WebUIConfig, r *http.Request, now time.Time
 }
 
 // sessionRevalidator is the check an open stream runs on each keepalive: is
-// the session that opened it still live? In legacy mode the signed cookie is
-// re-verified for expiry; in account mode the row is looked up again, which
-// is what makes logout and account removal reach an open tab.
+// the session that opened it still live? The row is looked up again, which
+// is what makes logout, a password reset, and account removal reach an open
+// tab.
 func sessionRevalidator(webConfig WebUIConfig, now func() time.Time) func(*http.Request) bool {
-	if webConfig.AccountMode {
-		return func(r *http.Request) bool {
-			_, err := resolveAccountSession(webConfig, r, now())
-			return err == nil
-		}
-	}
 	return func(r *http.Request) bool {
-		cookie, err := r.Cookie(webSessionCookie)
-		return err == nil && session.VerifySession(webConfig.SigningKey, cookie.Value, now())
+		_, err := resolveAccountSession(webConfig, r, now())
+		return err == nil
 	}
 }
 
@@ -188,23 +183,15 @@ func requireAccountSession(webConfig WebUIConfig, now func() time.Time, next htt
 	}
 }
 
-// issueAccountSession creates a session for accountID and sets its cookie.
-// It is what the Google Sign-In callback calls once an identity has been
-// verified and bound; nothing else mints sessions in account mode.
-func issueAccountSession(webConfig WebUIConfig, w http.ResponseWriter, r *http.Request, accountID string, now time.Time) error {
-	raw, hash, err := session.NewToken()
-	if err != nil {
-		return err
-	}
-	expiresAt := now.Add(webSessionTTL)
-	if err := webConfig.Sessions.CreateSession(r.Context(), hash, accountID, expiresAt); err != nil {
-		return err
-	}
+// setAccountSessionCookie is the one cookie format. Callers set it only
+// after the session row has committed: a cookie for a session that failed
+// to persist would be a token nothing can resolve, and one set before the
+// commit could outlive a rollback.
+func setAccountSessionCookie(w http.ResponseWriter, raw string, expires time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name: webSessionCookie, Value: raw,
-		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, Expires: expiresAt,
+		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, Expires: expires,
 	})
-	return nil
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
@@ -238,9 +225,9 @@ func handleAccountLogout(webConfig WebUIConfig) http.HandlerFunc {
 	}
 }
 
-// handleAccountSession answers GET /api/session in account mode: who is
-// signed in and the CSRF token their mutating requests must carry. No token
-// of any other kind is in the response.
+// handleAccountSession answers GET /api/session: who is signed in and the
+// CSRF token their mutating requests must carry. No token of any other kind
+// is in the response.
 func handleAccountSession(w http.ResponseWriter, r *http.Request) {
 	current, ok := sessionFromContext(r.Context())
 	if !ok {
@@ -251,8 +238,8 @@ func handleAccountSession(w http.ResponseWriter, r *http.Request) {
 		"state": webSuccess,
 		"title": "Session is valid.",
 		"account": map[string]any{
-			"id":    current.account.ID,
-			"email": current.account.Email,
+			"id":       current.account.ID,
+			"username": current.account.ID,
 		},
 		"csrf": csrfToken(current.hash),
 	})

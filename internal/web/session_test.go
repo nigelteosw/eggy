@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,21 +17,20 @@ import (
 
 // fakeAccounts is a mutable account list, so a test can remove someone
 // between requests.
-type fakeAccounts struct{ list map[string]AccountRecord }
+type fakeAccounts struct {
+	list            map[string]AccountRecord
+	passwordAccount string
+	telegram        bool
+}
 
 func (f *fakeAccounts) Account(id string) (AccountRecord, bool) {
 	record, ok := f.list[id]
 	return record, ok
 }
 
-func (f *fakeAccounts) AccountForEmail(email string) (AccountRecord, bool) {
-	for _, record := range f.list {
-		if record.Email == email {
-			return record, true
-		}
-	}
-	return AccountRecord{}, false
-}
+func (f *fakeAccounts) PasswordAccountID() string { return f.passwordAccount }
+
+func (f *fakeAccounts) TelegramEnabled() bool { return f.telegram }
 
 func (f *fakeAccounts) Accounts() []AccountRecord {
 	records := make([]AccountRecord, 0, len(f.list))
@@ -48,16 +48,59 @@ func accountWebConfig(t *testing.T, now time.Time) (WebUIConfig, *sqlitestore.St
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	accounts := &fakeAccounts{list: map[string]AccountRecord{
-		"nigel":   {ID: "nigel", Email: "nigel@example.com"},
-		"partner": {ID: "partner", Email: "partner@example.com"},
-	}}
+		"nigel":   {ID: "nigel", TelegramUserID: 42},
+		"partner": {ID: "partner"},
+	}, passwordAccount: "nigel", telegram: true}
+	for id := range accounts.list {
+		if err := database.RegisterAccountAuth(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cfg := WebUIConfig{
-		AccountMode: true, Sessions: database, Accounts: accounts,
+		Auth: database, Sessions: database, Accounts: accounts,
+		PasswordAccountID: "nigel", EnvironmentAlias: "owner@example.com", EnvironmentPasswordHash: environmentHash(t, "hunter2"),
 		PublicBaseURL: "https://eggy.example",
 		Now:           func() time.Time { return now },
 		Threads:       newTestMemoryStore(t), Memory: newTestMemoryStore(t),
 	}
 	return cfg, database, accounts
+}
+
+// environmentHash caches the prehashed environment password per value: the
+// KDF costs tens of milliseconds, and the fixtures ask for the same one.
+func environmentHash(t *testing.T, password string) string {
+	t.Helper()
+	hashMu.Lock()
+	defer hashMu.Unlock()
+	if encoded, ok := hashCache[password]; ok {
+		return encoded
+	}
+	encoded, err := session.HashEnvironmentPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashCache[password] = encoded
+	return encoded
+}
+
+var (
+	hashMu    sync.Mutex
+	hashCache = map[string]string{}
+)
+
+// localPassword stores a local password for the account, as the People
+// card would, and returns the encoding for the caller's assertions.
+func localPassword(t *testing.T, database *sqlitestore.Store, accountID, password string) string {
+	t.Helper()
+	encoded := environmentHash(t, password)
+	record, err := database.AccountAuth(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetAccountPassword(context.Background(), accountID, encoded, record.Generation); err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 // signIn mints a session the way the Google callback will, and returns the
@@ -68,7 +111,11 @@ func signIn(t *testing.T, handler http.Handler, database *sqlitestore.Store, acc
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.CreateSession(context.Background(), hash, accountID, now.Add(webSessionTTL)); err != nil {
+	record, err := database.AccountAuth(context.Background(), accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateAuthenticatedSession(context.Background(), hash, accountID, record.Generation, now.Add(webSessionTTL)); err != nil {
 		t.Fatal(err)
 	}
 	cookie := &http.Cookie{Name: webSessionCookie, Value: raw}
@@ -80,7 +127,7 @@ func signIn(t *testing.T, handler http.Handler, database *sqlitestore.Store, acc
 		t.Fatalf("session status=%d body=%s", response.Code, response.Body.String())
 	}
 	var body struct {
-		Account struct{ ID, Email string }
+		Account struct{ ID, Username string }
 		CSRF    string `json:"csrf"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
@@ -95,26 +142,27 @@ func signIn(t *testing.T, handler http.Handler, database *sqlitestore.Store, acc
 	return cookie, body.CSRF
 }
 
-func TestAccountModeRejectsPasswordLinkAndLegacyCookies(t *testing.T) {
+func TestLegacyLinksAndCookiesAreNotSessions(t *testing.T) {
 	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
 	cfg, _, _ := accountWebConfig(t, now)
-	cfg.SigningKey = []byte("legacy-key")
 	handler := NewWebHandler("", cfg)
 
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"a","password":"b"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"a","password":"b"}`)))
 	if login.Code != http.StatusUnauthorized || len(login.Result().Cookies()) != 0 {
-		t.Fatalf("password login status=%d cookies=%d", login.Code, len(login.Result().Cookies()))
+		t.Fatalf("unknown login status=%d cookies=%d", login.Code, len(login.Result().Cookies()))
 	}
+	// The retired ?token= link form never authenticates: /auth/link is a
+	// static page and the token only ever travels in the fragment.
 	link := httptest.NewRecorder()
 	handler.ServeHTTP(link, httptest.NewRequest(http.MethodGet, "/auth/link?token=x", nil))
-	if link.Code != http.StatusNotFound && link.Code != http.StatusUnauthorized {
-		t.Fatalf("login link status=%d", link.Code)
+	if len(link.Result().Cookies()) != 0 {
+		t.Fatalf("legacy link issued a cookie")
 	}
 	// An expiry-only signed cookie from the legacy scheme is not a session.
 	legacy := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
-	request.AddCookie(&http.Cookie{Name: webSessionCookie, Value: session.SignSession(cfg.SigningKey, now.Add(time.Hour))})
+	request.AddCookie(&http.Cookie{Name: webSessionCookie, Value: session.SignSession([]byte("legacy-key"), now.Add(time.Hour))})
 	handler.ServeHTTP(legacy, request)
 	if legacy.Code != http.StatusUnauthorized {
 		t.Fatalf("legacy cookie status=%d", legacy.Code)
@@ -175,13 +223,14 @@ func TestAccountSessionExpiresRevokesAndFollowsAccountRemoval(t *testing.T) {
 	}
 }
 
-func TestAccountModeCookieFlags(t *testing.T) {
+func TestAccountSessionCookieFlags(t *testing.T) {
 	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
 	cfg, _, _ := accountWebConfig(t, now)
+	handler := NewWebHandler("", cfg)
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/auth/google/callback", nil)
-	if err := issueAccountSession(cfg, response, request, "nigel", now); err != nil {
-		t.Fatal(err)
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	cookies := response.Result().Cookies()
 	if len(cookies) != 1 {

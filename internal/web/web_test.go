@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,21 +16,36 @@ import (
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/plugins/auth/session"
 	"github.com/nigelteosw/eggy/plugins/channels/webchat"
+	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
 )
 
-func testWebConfig(now time.Time) WebUIConfig {
+// testWebConfig is the single-owner fixture: account "42", bound to the
+// environment login owner@example.com / hunter2, with its credential row in
+// a fresh database.
+func testWebConfig(t *testing.T, now time.Time) WebUIConfig {
+	t.Helper()
+	database, err := sqlitestore.Open(filepath.Join(t.TempDir(), "eggy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	if err := database.RegisterAccountAuth(context.Background(), "42"); err != nil {
+		t.Fatal(err)
+	}
 	return WebUIConfig{
-		UserEmail: "owner@example.com", Password: "hunter2",
-		SigningKey: []byte("test-signing-key"),
-		Now:        func() time.Time { return now },
+		Auth: database, Sessions: database,
+		Accounts:          &fakeAccounts{list: map[string]AccountRecord{"42": {ID: "42", TelegramUserID: 42}}, passwordAccount: "42", telegram: true},
+		PasswordAccountID: "42", EnvironmentAlias: "owner@example.com", EnvironmentPasswordHash: environmentHash(t, "hunter2"),
+		PublicBaseURL: "https://eggy.example",
+		Now:           func() time.Time { return now },
 	}
 }
 
 func TestWebLoginSucceedsAndSetsSessionCookie(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 
-	body := strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)
+	body := strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/login", body)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -43,16 +57,16 @@ func TestWebLoginSucceedsAndSetsSessionCookie(t *testing.T) {
 	if len(cookies) != 1 || cookies[0].Name != "eggy_session" || cookies[0].Value == "" {
 		t.Fatalf("cookies=%#v", cookies)
 	}
-	if !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode {
+	if !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie=%#v", cookies[0])
 	}
 }
 
 func TestWebLoginRejectsWrongPassword(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 
-	body := strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`)
+	body := strings.NewReader(`{"username":"owner@example.com","password":"wrong"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/login", body)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -67,11 +81,11 @@ func TestWebLoginRejectsWrongPassword(t *testing.T) {
 
 func TestWebLoginRejectsWhenNotConfigured(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
-	config.UserEmail, config.Password = "", ""
+	config := testWebConfig(t, now)
+	config.Auth = nil
 	handler := NewWebHandler("", config)
 
-	body := strings.NewReader(`{"email":"anyone@example.com","password":"anything"}`)
+	body := strings.NewReader(`{"username":"anyone@example.com","password":"anything"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/login", body)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -83,7 +97,7 @@ func TestWebLoginRejectsWhenNotConfigured(t *testing.T) {
 
 func TestWebSessionRequiresValidCookie(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 
 	unauthed := httptest.NewRecorder()
 	handler.ServeHTTP(unauthed, httptest.NewRequest(http.MethodGet, "/api/session", nil))
@@ -92,12 +106,12 @@ func TestWebSessionRequiresValidCookie(t *testing.T) {
 	}
 
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
 	cookie := login.Result().Cookies()[0]
 
 	authed := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	handler.ServeHTTP(authed, request)
 	if authed.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", authed.Code, authed.Body.String())
@@ -106,10 +120,17 @@ func TestWebSessionRequiresValidCookie(t *testing.T) {
 
 func TestWebLogoutClearsSessionCookie(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
+	cookie := webLoginCookie(t, handler)
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/logout", nil))
+	request := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	attachSession(request, cookie)
+	request.Header.Set(csrfHeader, csrfToken(session.HashToken(cookie.Value)))
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("logout status=%d body=%s", response.Code, response.Body.String())
+	}
 	cookies := response.Result().Cookies()
 	if len(cookies) != 1 || cookies[0].MaxAge >= 0 {
 		t.Fatalf("expected a clearing cookie (negative MaxAge), got %#v", cookies)
@@ -118,9 +139,9 @@ func TestWebLogoutClearsSessionCookie(t *testing.T) {
 
 func TestWebLoginThrottlesRepeatedFailures(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 	badLogin := func() *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"wrong"}`))
 		request.RemoteAddr = "9.9.9.9:12345"
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
@@ -152,11 +173,11 @@ func TestWebLoginThrottlesRepeatedFailures(t *testing.T) {
 // proxies Eggy sits behind so the real client can be read off X-Forwarded-For.
 func TestWebLoginThrottleKeysPerClientBehindTrustedProxy(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.TrustedProxyHops = 1
 	handler := NewWebHandler("", config)
 	badLogin := func(forwardedFor string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"wrong"}`))
 		request.RemoteAddr = "10.0.0.1:443"
 		request.Header.Set("X-Forwarded-For", forwardedFor)
 		response := httptest.NewRecorder()
@@ -178,9 +199,9 @@ func TestWebLoginThrottleKeysPerClientBehindTrustedProxy(t *testing.T) {
 // attempt, so the header is ignored entirely when no proxy is configured.
 func TestWebLoginThrottleIgnoresForwardedForWithoutTrustedProxy(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 	badLogin := func(forwardedFor string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"wrong"}`))
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"wrong"}`))
 		request.RemoteAddr = "9.9.9.9:12345"
 		request.Header.Set("X-Forwarded-For", forwardedFor)
 		response := httptest.NewRecorder()
@@ -236,7 +257,7 @@ func writeConfigFile(t *testing.T, body string) string {
 func webLoginCookie(t *testing.T, handler http.Handler) *http.Cookie {
 	t.Helper()
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
 	cookies := response.Result().Cookies()
 	if len(cookies) != 1 {
 		t.Fatalf("expected exactly one cookie, got %d", len(cookies))
@@ -248,12 +269,12 @@ func TestWebConfigRoutesRoundTripThroughCommandService(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	setBody := strings.NewReader(`{"name":"deepseek","adapter":"openai_compatible","base_url":"https://api.deepseek.com","api_key_env":"DEEPSEEK_API_KEY"}`)
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/providers", setBody)
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusOK {
@@ -261,7 +282,7 @@ func TestWebConfigRoutesRoundTripThroughCommandService(t *testing.T) {
 	}
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/providers", nil)
-	getRequest.AddCookie(cookie)
+	attachSession(getRequest, cookie)
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, getRequest)
 	if getResponse.Code != http.StatusOK {
@@ -286,11 +307,11 @@ func TestWebConfigRoutesRejectInvalidInputLikeCLIAndTelegram(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/providers", strings.NewReader(`{"name":"deepseek"}`))
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusBadRequest {
@@ -303,11 +324,11 @@ func TestWebModelRouteRemovesANonDefaultAlias(t *testing.T) {
 	if err := config.SetModelAlias(path, config.ModelAliasInput{Alias: "deepseek-fast", Provider: "deepseek", Model: "deepseek-v4-flash"}); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewWebHandler(path, testWebConfig(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	handler := NewWebHandler(path, testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodDelete, "/api/config/models/deepseek-fast", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -324,7 +345,7 @@ func TestWebModelRouteRemovesANonDefaultAlias(t *testing.T) {
 
 func TestWebConfigRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 	for _, path := range []string{"/api/config/providers", "/api/config/models", "/api/config/mcp", "/api/config/google", "/api/config/heartbeat"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
@@ -338,12 +359,12 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	addBody := strings.NewReader(`{"name":"railway","url":"https://mcp.railway.com","auth":"oauth","enabled":"true"}`)
 	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", addBody)
-	addRequest.AddCookie(cookie)
+	attachSession(addRequest, cookie)
 	addResponse := httptest.NewRecorder()
 	handler.ServeHTTP(addResponse, addRequest)
 	if addResponse.Code != http.StatusOK {
@@ -351,7 +372,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	}
 
 	listRequest := httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil)
-	listRequest.AddCookie(cookie)
+	attachSession(listRequest, cookie)
 	listResponse := httptest.NewRecorder()
 	handler.ServeHTTP(listResponse, listRequest)
 	if listResponse.Code != http.StatusOK {
@@ -372,7 +393,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	}
 
 	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/config/mcp/railway", nil)
-	removeRequest.AddCookie(cookie)
+	attachSession(removeRequest, cookie)
 	removeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(removeResponse, removeRequest)
 	if removeResponse.Code != http.StatusOK {
@@ -380,7 +401,7 @@ func TestWebMCPRoutesAddEditRemoveRoundTrip(t *testing.T) {
 	}
 
 	afterRemoveRequest := httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil)
-	afterRemoveRequest.AddCookie(cookie)
+	attachSession(afterRemoveRequest, cookie)
 	afterRemoveResponse := httptest.NewRecorder()
 	handler.ServeHTTP(afterRemoveResponse, afterRemoveRequest)
 	var afterRemove webResult
@@ -396,11 +417,11 @@ func TestWebMCPRoutesRejectInvalidInput(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	addRequest := httptest.NewRequest(http.MethodPost, "/api/config/mcp", strings.NewReader(`{"name":"railway","url":"http://mcp.railway.com","auth":"oauth","enabled":"true"}`))
-	addRequest.AddCookie(cookie)
+	attachSession(addRequest, cookie)
 	addResponse := httptest.NewRecorder()
 	handler.ServeHTTP(addResponse, addRequest)
 	if addResponse.Code != http.StatusBadRequest {
@@ -408,7 +429,7 @@ func TestWebMCPRoutesRejectInvalidInput(t *testing.T) {
 	}
 
 	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/config/mcp/does-not-exist", nil)
-	removeRequest.AddCookie(cookie)
+	attachSession(removeRequest, cookie)
 	removeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(removeResponse, removeRequest)
 	if removeResponse.Code != http.StatusBadRequest {
@@ -418,7 +439,7 @@ func TestWebMCPRoutesRejectInvalidInput(t *testing.T) {
 
 func TestWebMCPRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil))
@@ -435,9 +456,9 @@ func TestWebMCPRoutesRequireSession(t *testing.T) {
 
 func TestWebResponseBodyIsRenderJSONShape(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", testWebConfig(now))
+	handler := NewWebHandler("", testWebConfig(t, now))
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"email":"owner@example.com","password":"hunter2"}`)))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"hunter2"}`)))
 	var decoded map[string]any
 	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
@@ -449,7 +470,7 @@ func TestWebResponseBodyIsRenderJSONShape(t *testing.T) {
 
 func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.ChatHub = webchat.NewHub()
 	memory := newTestMemoryStore(t)
 	config.Memory, config.Threads = memory, memory
@@ -458,12 +479,11 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 		enqueued = true
 		return nil
 	}
-	config.OwnerID = "owner-42"
 	handler := NewWebHandler("", config)
 	cookie := webLoginCookie(t, handler)
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/chat/threads", nil)
-	createRequest.AddCookie(cookie)
+	attachSession(createRequest, cookie)
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, createRequest)
 	if createResponse.Code != http.StatusCreated {
@@ -477,7 +497,7 @@ func TestWebHandlerMountsChatRoutes(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/chat/threads/"+created.ID+"/send", strings.NewReader(`{"text":"hi"}`))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 
@@ -497,7 +517,7 @@ func TestWebHandlerDoesNotExposeTheRemovedFileAPI(t *testing.T) {
 
 func TestWebHandlerChatRoutesRequireSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	config := testWebConfig(now)
+	config := testWebConfig(t, now)
 	config.ChatHub = webchat.NewHub()
 	config.Memory = newTestMemoryStore(t)
 	config.Enqueue = func(context.Context, events.Event) error { return nil }
@@ -537,7 +557,7 @@ func (f *fakeMCPLogin) BeginLogin(_ context.Context, server string) (string, err
 func TestWebMCPLoginRedirectsAndRequiresSession(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	runtime := &fakeMCPLogin{url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc"}
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.MCP = runtime
 	handler := NewWebHandler(writeConfigFile(t, validConfig()), webConfig)
 
@@ -566,7 +586,7 @@ func TestWebMCPLoginRedirectsAndRequiresSession(t *testing.T) {
 // panics on a nil runtime.
 func TestWebMCPLoginIsAbsentWithoutAManager(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(writeConfigFile(t, validConfig()), testWebConfig(now))
+	handler := NewWebHandler(writeConfigFile(t, validConfig()), testWebConfig(t, now))
 	request := httptest.NewRequest(http.MethodGet, "/auth/mcp/calendar", nil)
 	request.AddCookie(webLoginCookie(t, handler))
 	response := httptest.NewRecorder()
@@ -582,12 +602,12 @@ func TestWebMCPLoginIsAbsentWithoutAManager(t *testing.T) {
 func TestWebGoogleSectionRoundTrips(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	setBody := strings.NewReader(`{"enabled":"true","client_id":"x.apps.googleusercontent.com","client_secret_env":"GOOGLE_CLIENT_SECRET","products":"calendar,gmail"}`)
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/google", setBody)
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusOK {
@@ -595,7 +615,7 @@ func TestWebGoogleSectionRoundTrips(t *testing.T) {
 	}
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/google", nil)
-	getRequest.AddCookie(cookie)
+	attachSession(getRequest, cookie)
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, getRequest)
 	var decoded webResult
@@ -619,7 +639,7 @@ func TestWebGoogleSectionRoundTrips(t *testing.T) {
 func TestWebGoogleApprovalsRoundTripAllThreeStates(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.GoogleActions = map[string]GoogleProductActions{
 		"gmail":    {Actions: []string{"search", "get", "send", "reply"}, Mutations: []string{"send", "reply"}},
 		"calendar": {Actions: []string{"list", "create", "delete"}, Mutations: []string{"create", "delete"}},
@@ -630,7 +650,7 @@ func TestWebGoogleApprovalsRoundTripAllThreeStates(t *testing.T) {
 	post := func(body string) *httptest.ResponseRecorder {
 		t.Helper()
 		request := httptest.NewRequest(http.MethodPost, "/api/config/google", strings.NewReader(body))
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		return response
@@ -638,7 +658,7 @@ func TestWebGoogleApprovalsRoundTripAllThreeStates(t *testing.T) {
 	read := func() map[string]string {
 		t.Helper()
 		request := httptest.NewRequest(http.MethodGet, "/api/config/google", nil)
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		var decoded webResult
@@ -692,7 +712,7 @@ func TestWebGoogleApprovalsRoundTripAllThreeStates(t *testing.T) {
 func TestWebGoogleApprovalsRejectUnknownActions(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.GoogleActions = map[string]GoogleProductActions{
 		"gmail": {Actions: []string{"search", "send"}, Mutations: []string{"send"}},
 	}
@@ -706,7 +726,7 @@ func TestWebGoogleApprovalsRejectUnknownActions(t *testing.T) {
 	for _, entry := range []string{"gmail.snd", "gmail", "telegram.send"} {
 		body := `{"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"gmail","require_approval_mode":"custom","require_approval":"` + entry + `"}`
 		request := httptest.NewRequest(http.MethodPost, "/api/config/google", strings.NewReader(body))
-		request.AddCookie(cookie)
+		attachSession(request, cookie)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusBadRequest {
@@ -727,12 +747,12 @@ func TestWebGoogleApprovalsRejectUnknownActions(t *testing.T) {
 func TestWebGoogleSectionRejectsAnUnknownProduct(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	body := strings.NewReader(`{"enabled":"true","client_id":"x.apps.googleusercontent.com","products":"gmial"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/config/google", body)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -747,11 +767,11 @@ func TestWebGoogleSectionRejectsAnUnknownProduct(t *testing.T) {
 func TestWebHeartbeatSectionRoundTripsAndSaysRestartIsNeeded(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/heartbeat", strings.NewReader(`{"interval":"3h","instruction":"watch the deploy"}`))
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusOK {
@@ -766,7 +786,7 @@ func TestWebHeartbeatSectionRoundTripsAndSaysRestartIsNeeded(t *testing.T) {
 	}
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/heartbeat", nil)
-	getRequest.AddCookie(cookie)
+	attachSession(getRequest, cookie)
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, getRequest)
 	var decoded webResult
@@ -783,11 +803,11 @@ func TestWebHeartbeatSectionRoundTripsAndSaysRestartIsNeeded(t *testing.T) {
 func TestWebHeartbeatSectionReportsOffWhenUnset(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/config/heartbeat", nil)
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	var decoded webResult
@@ -802,11 +822,11 @@ func TestWebHeartbeatSectionReportsOffWhenUnset(t *testing.T) {
 func TestWebHeartbeatSectionRejectsAnUnparseableInterval(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config/heartbeat", strings.NewReader(`{"interval":"every 3 hours"}`))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -819,11 +839,11 @@ func TestWebHeartbeatSectionRejectsAnUnparseableInterval(t *testing.T) {
 func TestWebAppearanceSectionRoundTrips(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 	cookie := webLoginCookie(t, handler)
 
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/appearance", strings.NewReader(`{"theme":"light"}`))
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusOK {
@@ -831,7 +851,7 @@ func TestWebAppearanceSectionRoundTrips(t *testing.T) {
 	}
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/appearance", nil)
-	getRequest.AddCookie(cookie)
+	attachSession(getRequest, cookie)
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, getRequest)
 	var decoded webResult
@@ -849,7 +869,7 @@ func TestWebAppearanceSectionRoundTrips(t *testing.T) {
 func TestModeProbeCarriesTheConfiguredTheme(t *testing.T) {
 	path := writeConfigFile(t, validConfig()+"appearance:\n  theme: light\n")
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
@@ -874,7 +894,7 @@ func TestModeProbeCarriesTheConfiguredTheme(t *testing.T) {
 // hide the one screen that could fix it.
 func TestModeProbeFallsBackToDarkWhenConfigIsUnreadable(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(filepath.Join(t.TempDir(), "absent.yaml"), testWebConfig(now))
+	handler := NewWebHandler(filepath.Join(t.TempDir(), "absent.yaml"), testWebConfig(t, now))
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
@@ -890,13 +910,13 @@ func TestModeProbeFallsBackToDarkWhenConfigIsUnreadable(t *testing.T) {
 func TestWebRawConfigRoundTripsInNormalMode(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Getenv = testGetenv
 	handler := NewWebHandler(path, webConfig)
 	cookie := webLoginCookie(t, handler)
 
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/config/raw", nil)
-	getRequest.AddCookie(cookie)
+	attachSession(getRequest, cookie)
 	getResponse := httptest.NewRecorder()
 	handler.ServeHTTP(getResponse, getRequest)
 	if getResponse.Code != http.StatusOK {
@@ -907,7 +927,7 @@ func TestWebRawConfigRoundTripsInNormalMode(t *testing.T) {
 	}
 
 	setRequest := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader(getResponse.Body.String()))
-	setRequest.AddCookie(cookie)
+	attachSession(setRequest, cookie)
 	setResponse := httptest.NewRecorder()
 	handler.ServeHTTP(setResponse, setRequest)
 	if setResponse.Code != http.StatusOK {
@@ -921,13 +941,13 @@ func TestWebRawConfigRejectionLeavesTheFileAlone(t *testing.T) {
 	original := validConfig()
 	path := writeConfigFile(t, original)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	webConfig := testWebConfig(now)
+	webConfig := testWebConfig(t, now)
 	webConfig.Getenv = testGetenv
 	handler := NewWebHandler(path, webConfig)
 	cookie := webLoginCookie(t, handler)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/config/raw", strings.NewReader("agent: [not a mapping]\n"))
-	request.AddCookie(cookie)
+	attachSession(request, cookie)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -947,7 +967,7 @@ func TestWebRawConfigRejectionLeavesTheFileAlone(t *testing.T) {
 func TestWebRawConfigRequiresASession(t *testing.T) {
 	path := writeConfigFile(t, validConfig())
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	handler := NewWebHandler(path, testWebConfig(now))
+	handler := NewWebHandler(path, testWebConfig(t, now))
 
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/api/config/raw", nil),
@@ -970,55 +990,4 @@ func testGetenv(name string) string {
 		"TELEGRAM_WEBHOOK_SECRET": "secret",
 		"GITHUB_TOKEN":            "gh",
 	}[name]
-}
-
-// The /web link is the panel's second door, so it is worth checking it opens
-// exactly once and only for a token this deployment signed.
-func TestLoginLinkSignsInOnceAndOnlyOnce(t *testing.T) {
-	key := []byte("signing-key")
-	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", WebUIConfig{SigningKey: key, Now: func() time.Time { return now }})
-	token := session.SignLoginLink(key, now.Add(webLoginLinkTTL))
-
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/" {
-		t.Fatalf("status=%d location=%q", response.Code, response.Header().Get("Location"))
-	}
-	cookie := response.Result().Cookies()
-	if len(cookie) != 1 || cookie[0].Name != webSessionCookie || !session.VerifySession(key, cookie[0].Value, now) {
-		t.Fatalf("cookies=%v", cookie)
-	}
-
-	replay := httptest.NewRecorder()
-	handler.ServeHTTP(replay, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
-	if replay.Code != http.StatusUnauthorized || len(replay.Result().Cookies()) != 0 {
-		t.Fatalf("replayed link status=%d cookies=%v", replay.Code, replay.Result().Cookies())
-	}
-
-	forged := httptest.NewRecorder()
-	forgedToken := session.SignLoginLink([]byte("another-key"), now.Add(webLoginLinkTTL))
-	handler.ServeHTTP(forged, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(forgedToken), nil))
-	if forged.Code != http.StatusUnauthorized || len(forged.Result().Cookies()) != 0 {
-		t.Fatalf("forged link status=%d cookies=%v", forged.Code, forged.Result().Cookies())
-	}
-}
-
-func TestLoginLinkOpensAnAuthenticatedSession(t *testing.T) {
-	key := []byte("signing-key")
-	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
-	handler := NewWebHandler("", WebUIConfig{SigningKey: key, Now: func() time.Time { return now }})
-	response := httptest.NewRecorder()
-	token := session.SignLoginLink(key, now.Add(webLoginLinkTTL))
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/link?token="+url.QueryEscape(token), nil))
-
-	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
-	for _, cookie := range response.Result().Cookies() {
-		request.AddCookie(cookie)
-	}
-	probe := httptest.NewRecorder()
-	handler.ServeHTTP(probe, request)
-	if probe.Code != http.StatusOK {
-		t.Fatalf("session status=%d body=%s", probe.Code, probe.Body.String())
-	}
 }

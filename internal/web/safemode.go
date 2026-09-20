@@ -26,9 +26,10 @@ import (
 // The only state it can change is config.yaml, and only through a body that
 // LoadConfig has already accepted.
 
-// SafeMode is everything the safe-mode surface needs. Web carries the owner's
-// login credential and cookie signing key, which come from the environment and
-// so are available even when no config loaded.
+// SafeMode is everything the safe-mode surface needs. Web carries the same
+// login authorities the running panel uses -- the credential store, the
+// session rows, and the accounts the broken document still declares -- or
+// none of them, when even those could not be established.
 type SafeMode struct {
 	ConfigPath string
 	// Failure is why startup failed. It is shown to the authenticated owner
@@ -68,24 +69,19 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 	// Safe mode reports the default theme rather than the configured one: the
 	// config that would name it is the config that failed to load.
 	mux.HandleFunc("GET /api/mode", writeMode(modeSafe, nil, loginKind(mode.Web)))
-	// In account mode there is no password to fall back to: recovery is
-	// reachable only through a verified Google identity against the account
-	// list the broken config still declares, and the session database. When
+	// Recovery uses exactly the normal login: the same credential records
+	// and sessions in the existing database, against the accounts the
+	// broken config still declares. There is no fallback password. When
 	// even that could not be established, nothing here can be signed into
 	// and config.yaml has to be repaired on the host -- the routes below say
 	// so rather than pretending a login exists.
 	var guard func(http.HandlerFunc) http.Handler
-	switch {
-	case mode.Web.AccountMode && mode.Web.GoogleLogin != nil:
+	if loginAvailable(mode.Web) {
 		guard = func(next http.HandlerFunc) http.Handler { return requireAccountSession(mode.Web, now, next) }
-		mux.HandleFunc("POST /api/login", func(w http.ResponseWriter, _ *http.Request) {
-			writeWebError(w, http.StatusUnauthorized, "sign in with Google")
-		})
+		mux.HandleFunc("POST /api/login", handlePasswordLogin("", mode.Web, throttle, newVerifyLimiter(), dummyPasswordHash(), now))
 		mux.Handle("POST /api/logout", guard(handleAccountLogout(mode.Web)))
 		mux.Handle("GET /api/session", guard(handleAccountSession))
-		mux.HandleFunc("GET /auth/google/start", handleGoogleStart(mode.Web, now))
-		mux.HandleFunc("GET /auth/google/callback", handleGoogleCallback(mode.Web, now))
-	case mode.Web.AccountMode:
+	} else {
 		unrecoverable := func(w http.ResponseWriter, _ *http.Request) {
 			writeWebError(w, http.StatusUnauthorized, "Eggy is in safe mode and cannot identify anyone: repair config.yaml on the host")
 		}
@@ -93,10 +89,6 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 		mux.HandleFunc("POST /api/login", unrecoverable)
 		mux.HandleFunc("POST /api/logout", unrecoverable)
 		mux.HandleFunc("GET /api/session", unrecoverable)
-	default:
-		guard = func(next http.HandlerFunc) http.Handler { return requireWebSession(mode.Web, now, next) }
-		mux.HandleFunc("POST /api/login", handleWebLogin(mode.Web, throttle, now))
-		mux.HandleFunc("POST /api/logout", handleWebLogout())
 	}
 	mux.Handle("GET /api/safemode", guard(func(w http.ResponseWriter, _ *http.Request) {
 		writeWebResult(w, webResult{

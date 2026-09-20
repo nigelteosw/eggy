@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,29 +13,32 @@ import (
 )
 
 // accountTestConfig is appTestConfig converted to accounts: two people, one
-// of them the historical owner, and the login client accounts require.
+// of them the historical owner and bound to the environment login.
 func accountTestConfig(dataDir string) config.Config {
 	cfg := appTestConfig(dataDir)
 	cfg.Owner = config.OwnerConfig{}
 	cfg.Telegram = config.TelegramConfig{}
 	cfg.Accounts = []config.AccountConfig{
-		{ID: "nigel", GoogleEmail: "nigel@example.com", TelegramUserID: 42},
-		{ID: "partner", GoogleEmail: "partner@example.com"},
+		{ID: "nigel", TelegramUserID: 42},
+		{ID: "partner"},
 	}
-	cfg.Web.GoogleLogin = config.GoogleLoginConfig{ClientID: "web-client", ClientSecretEnv: "EGGY_GOOGLE_LOGIN_CLIENT_SECRET"}
+	cfg.Web.PasswordAccountID = "nigel"
 	cfg.MigrationOwnerID = "nigel"
 	return cfg
 }
 
 func accountTestSecrets() config.Secrets {
 	secrets := appTestSecrets("provider-secret")
-	secrets.GoogleLoginClientSecret = "login-secret"
+	secrets.UIUserEmail = "owner@example.com"
+	secrets.UIPassword = "operator-password"
 	secrets.EncryptionKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	return secrets
 }
 
-func TestAccountModeMountsGoogleSignInAndLegacyModeDoesNot(t *testing.T) {
-	probe := func(t *testing.T, cfg config.Config, secrets config.Secrets) int {
+// Both shapes mount the same login: the accounts list and the legacy
+// owner each answer the password route, and neither has a Google route.
+func TestBothConfigShapesMountTheSameLogin(t *testing.T) {
+	probe := func(t *testing.T, cfg config.Config, secrets config.Secrets, path string) int {
 		t.Helper()
 		app, err := NewApp(cfg, secrets, AppOptions{})
 		if err != nil {
@@ -42,14 +46,21 @@ func TestAccountModeMountsGoogleSignInAndLegacyModeDoesNot(t *testing.T) {
 		}
 		defer app.database.Close()
 		response := httptest.NewRecorder()
-		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/start", nil))
+		app.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"username":"owner@example.com","password":"operator-password"}`)))
 		return response.Code
 	}
-	if code := probe(t, accountTestConfig(t.TempDir()), accountTestSecrets()); code != http.StatusFound {
-		t.Fatalf("account mode start status=%d", code)
-	}
-	if code := probe(t, appTestConfig(t.TempDir()), appTestSecrets("provider-secret")); code != http.StatusNotFound {
-		t.Fatalf("legacy mode start status=%d", code)
+	legacySecrets := appTestSecrets("provider-secret")
+	legacySecrets.UIUserEmail, legacySecrets.UIPassword = "owner@example.com", "operator-password"
+	for name, tc := range map[string]struct {
+		cfg     config.Config
+		secrets config.Secrets
+	}{"accounts": {accountTestConfig(t.TempDir()), accountTestSecrets()}, "legacy": {appTestConfig(t.TempDir()), legacySecrets}} {
+		if code := probe(t, tc.cfg, tc.secrets, "/api/login"); code != http.StatusOK {
+			t.Fatalf("%s login status=%d", name, code)
+		}
+		if code := probe(t, tc.cfg, tc.secrets, "/auth/google/start"); code != http.StatusNotFound && code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s google start status=%d", name, code)
+		}
 	}
 }
 

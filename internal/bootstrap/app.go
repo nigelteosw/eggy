@@ -70,6 +70,7 @@ const maxToolStepsPerTurn = 500
 type App struct {
 	config      config.Config
 	store       ports.StateStore
+	runtime     *services.AgentRuntime
 	context     ports.ContextStore
 	channel     ports.Channel
 	chatHub     *webchat.Hub
@@ -258,6 +259,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
+	app.runtime = agentRuntime
 	// One kernel-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for

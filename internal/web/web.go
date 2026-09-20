@@ -328,6 +328,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/agent", guard(newAgentHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/model", guard(newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/effort", guard(newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/thinking", guard(newAgentThinkingHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Watch)))
 	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Watch)))
 	if webConfig.Traces != nil {

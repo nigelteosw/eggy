@@ -462,6 +462,7 @@ export type AgentSelection = {
   model: string;
   efforts: string[];
   effort: string;
+  show_thinking?: boolean;
   approval_mode?: string;
 };
 
@@ -486,6 +487,13 @@ export function setAgentModel(model: string): Promise<AgentSelection> {
 
 export function setAgentEffort(effort: string): Promise<AgentSelection> {
   return postAgent("/api/agent/effort", { effort });
+}
+
+// Whether the model's reasoning is delivered as a separate message. Like the
+// model and effort it is the signed-in person's own setting, effective in
+// their Telegram chat and web threads alike.
+export function setAgentThinking(show: boolean): Promise<AgentSelection> {
+  return request<AgentSelection>("/api/agent/thinking", { method: "POST", body: JSON.stringify({ show }) });
 }
 
 // Restarting rebuilds the daemon around config.yaml as it now stands, which

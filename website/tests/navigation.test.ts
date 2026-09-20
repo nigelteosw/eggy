@@ -31,15 +31,18 @@ test("settings navigation groups configuration by user intent", () => {
   const labels = [...nav.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
 
   expect(labels).toEqual([
+    "Model &amp; approvals",
+    "Automation",
+    "Pending approvals",
+    "People",
     "Models",
     "Connections",
     "Capabilities",
-    "Automation",
-    "Permissions",
-    "Accounts",
     "Appearance",
     "Advanced",
   ]);
+  const groups = [...nav.matchAll(/<optgroup label="([^"]+)"/g)].map((match) => match[1]);
+  expect(groups).toEqual(["My settings", "People", "Shared deployment"]);
 });
 
 import { AppNavigation } from "../src/App";

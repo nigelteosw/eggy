@@ -18,6 +18,8 @@ type AgentSwitch interface {
 	ReasoningEfforts(alias string) []string
 	ReasoningEffort(ctx context.Context) (string, error)
 	SelectReasoningEffort(ctx context.Context, effort string) error
+	ShowThinking(ctx context.Context) (bool, error)
+	SetShowThinking(ctx context.Context, show bool) error
 }
 
 // agentSelection is what the composer renders: every alias it may offer, the
@@ -26,11 +28,12 @@ type AgentSwitch interface {
 // accepts is a level another rejects -- offering the union would put a
 // rejection behind a control the panel drew as available.
 type agentSelection struct {
-	Models   []string `json:"models"`
-	Model    string   `json:"model"`
-	Efforts  []string `json:"efforts"`
-	Effort   string   `json:"effort"`
-	Approval string   `json:"approval_mode,omitempty"`
+	Models       []string `json:"models"`
+	Model        string   `json:"model"`
+	Efforts      []string `json:"efforts"`
+	Effort       string   `json:"effort"`
+	ShowThinking bool     `json:"show_thinking"`
+	Approval     string   `json:"approval_mode,omitempty"`
 }
 
 // newAgentHandler answers the composer's one read. It folds in the approval
@@ -87,6 +90,31 @@ func newAgentEffortHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.Hand
 	}
 }
 
+// newAgentThinkingHandler sets whether the model's reasoning is delivered as
+// a separate message, the panel's half of /model thinking. Like every
+// setting here it is the calling account's own; the body names no account
+// and a body that tries to is refused by the strict decoder.
+func newAgentThinkingHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		var input struct {
+			Show bool `json:"show"`
+		}
+		if err := decodeAuthBody(r, &input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if err := agent.SetShowThinking(r.Context(), input.Show); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
 // respondAgentSelection answers every route here with the whole selection, so
 // the composer re-renders from the runtime rather than from what it assumed a
 // write did. It is one shape for all three because the composer replaces its
@@ -127,7 +155,11 @@ func readAgentSelection(ctx context.Context, agent AgentSwitch) (agentSelection,
 	if efforts == nil {
 		efforts = []string{}
 	}
-	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort}, nil
+	show, err := agent.ShowThinking(ctx)
+	if err != nil {
+		return agentSelection{}, err
+	}
+	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show}, nil
 }
 
 func writeJSON(w http.ResponseWriter, body any) {

@@ -132,3 +132,44 @@ func TestAgentRuntimeRecordsConcurrentUsageAndResets(t *testing.T) {
 		t.Fatalf("usage after reset=%#v", after)
 	}
 }
+
+// Every runtime setting is the calling account's own: one person's model,
+// effort, or thinking choice is never another's default, and a person who
+// arrives later starts from the deployment default, not from whoever set
+// theirs first.
+func TestPersonalModelSelectionDoesNotChangeAnotherAccount(t *testing.T) {
+	store := newStateStore(t)
+	runtime := NewAgentRuntime(store, "shared-default", []string{"shared-default", "other"}, nil)
+	a := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "a"})
+	b := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "b"})
+	if err := runtime.SelectModel(a, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := runtime.SelectedModel(b); err != nil || got != "shared-default" {
+		t.Fatalf("second user's model=%q err=%v", got, err)
+	}
+	if err := runtime.SetShowThinking(a, false); err != nil {
+		t.Fatal(err)
+	}
+	if show, err := runtime.ShowThinking(b); err != nil || !show {
+		t.Fatalf("second user's thinking=%v err=%v", show, err)
+	}
+	if show, err := runtime.ShowThinking(a); err != nil || show {
+		t.Fatalf("first user's thinking=%v err=%v", show, err)
+	}
+	c := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "c"})
+	if got, err := runtime.SelectedModel(c); err != nil || got != "shared-default" {
+		t.Fatalf("new user's model=%q err=%v", got, err)
+	}
+	if show, err := runtime.ShowThinking(c); err != nil || !show {
+		t.Fatalf("new user's thinking=%v err=%v", show, err)
+	}
+	// Resetting to the default writes the empty alias and follows the
+	// configured default from then on.
+	if err := runtime.SelectModel(a, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := runtime.SelectedModel(a); err != nil || got != "shared-default" {
+		t.Fatalf("reset model=%q err=%v", got, err)
+	}
+}

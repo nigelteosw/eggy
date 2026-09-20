@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -121,5 +122,66 @@ func TestApprovalModeAndModelPreferencesArePerAccount(t *testing.T) {
 	}
 	if mode, _ := app.approvals.Mode(nigel); mode != ports.ModeStrict {
 		t.Fatalf("nigel's mode = %q after partner chose auto", mode)
+	}
+}
+
+// Personal runtime settings belong to the account, not to the session: they
+// survive a password reset and a fresh sign-in, a newly created person
+// starts from the deployment defaults, and none of it touches the shared
+// provider configuration.
+func TestPersonalSettingsFollowTheAccountAndLeaveSharedConfigAlone(t *testing.T) {
+	app, err := NewApp(accountTestConfig(t.TempDir()), accountTestSecrets(), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.database.Close()
+	ctx := context.Background()
+	nigel := ports.WithPrincipal(ctx, ports.Principal{AccountID: "nigel"})
+	partner := ports.WithPrincipal(ctx, ports.Principal{AccountID: "partner"})
+	before := app.config.Providers
+
+	if err := app.runtime.SetShowThinking(nigel, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.approvals.SetMode(nigel, ports.ModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(partner); !show {
+		t.Fatal("partner lost thinking because nigel hid theirs")
+	}
+	if mode, _ := app.approvals.Mode(partner); mode != ports.ModeNormal {
+		t.Fatalf("partner's mode=%q after nigel chose auto", mode)
+	}
+	// A password reset and revocation change credentials and sessions,
+	// not preferences.
+	record, err := app.database.AccountAuth(ctx, "nigel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.database.SetAccountPassword(ctx, "nigel", "encoded", record.Generation); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.database.RevokeAccountAuth(ctx, "nigel"); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(nigel); show {
+		t.Fatal("nigel's thinking preference was lost by a credential change")
+	}
+	if mode, _ := app.approvals.Mode(nigel); mode != ports.ModeAuto {
+		t.Fatalf("nigel's mode=%q after a credential change", mode)
+	}
+	// A new person inherits nothing.
+	third := ports.WithPrincipal(ctx, ports.Principal{AccountID: "third"})
+	if err := initializeAccountState(app.database.State(), nil, "third"); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := app.runtime.ShowThinking(third); !show {
+		t.Fatal("a new account inherited hidden thinking")
+	}
+	if mode, _ := app.approvals.Mode(third); mode != ports.ModeNormal {
+		t.Fatalf("a new account inherited mode %q", mode)
+	}
+	if fmt.Sprint(app.config.Providers) != fmt.Sprint(before) {
+		t.Fatal("personal settings changed the shared provider configuration")
 	}
 }

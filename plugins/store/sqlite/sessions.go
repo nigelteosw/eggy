@@ -151,6 +151,9 @@ func (s *Store) pruneAuth(ctx context.Context, now time.Time) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, stamp); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM login_transactions WHERE expires_at <= ?`, stamp)
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM login_transactions WHERE expires_at <= ?`, stamp); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM web_login_links WHERE expires_at <= ?`, now.UnixMilli())
 	return err
 }

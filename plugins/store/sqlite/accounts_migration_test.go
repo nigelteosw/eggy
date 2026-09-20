@@ -81,7 +81,7 @@ func writeVersion6Database(t *testing.T) string {
 
 func TestMigrateAccountsAssignsEveryLegacyRecordToTheNamedAccount(t *testing.T) {
 	path := writeVersion6Database(t)
-	store, err := Open(path)
+	store, err := openThroughLocalLoginCutover(t, path)
 	if err != nil {
 		t.Fatalf("opening a version-6 home: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestMigrateAccountsAssignsEveryLegacyRecordToTheNamedAccount(t *testing.T) 
 }
 
 func TestMigrateAccountsInvalidatesPendingApprovalsOnConversion(t *testing.T) {
-	store, err := Open(writeVersion6Database(t))
+	store, err := openThroughLocalLoginCutover(t, writeVersion6Database(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestMigrateAccountsInvalidatesPendingApprovalsOnConversion(t *testing.T) {
 }
 
 func TestMigrateAccountsIsIdempotentAndFollowsARename(t *testing.T) {
-	store, err := Open(writeVersion6Database(t))
+	store, err := openThroughLocalLoginCutover(t, writeVersion6Database(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,4 +255,27 @@ func TestOlderBinaryRefusesTheUpgradedDatabase(t *testing.T) {
 	if version != strconv.Itoa(MachineStateVersion) {
 		t.Fatalf("fresh database stamped %q, want 8 so an older binary refuses it", version)
 	}
+}
+
+// openThroughLocalLoginCutover does what the offline migration command does
+// to a pre-local-auth database before the daemon may open it: runs the
+// versioned auth migration and marks the cutover complete.
+func openThroughLocalLoginCutover(t *testing.T, path string) (*Store, error) {
+	t.Helper()
+	store, err := OpenForLocalAuthMigration(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := store.MigrateLocalAuth(context.Background()); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if err := store.RecordLocalLoginCutover(context.Background(), LocalLoginCutover{Phase: CutoverComplete}); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	if err := store.Close(); err != nil {
+		return nil, err
+	}
+	return Open(path)
 }

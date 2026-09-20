@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -163,8 +164,12 @@ func TestOpenMigratesPendingTelegramPairingsIntoIdentityLinks(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for range 2 {
-		store, err = Open(path)
+	for i := range 2 {
+		if i == 0 {
+			store, err = openThroughLocalLoginCutover(t, path)
+		} else {
+			store, err = Open(path)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,8 +193,10 @@ func TestOpenMigratesPendingTelegramPairingsIntoIdentityLinks(t *testing.T) {
 		if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE name = 'telegram_pairings'`).Scan(new(string)); err != sql.ErrNoRows {
 			t.Fatalf("old table still present: %v", err)
 		}
-		if account, err := store.SessionAccount(context.Background(), "session-hash", now); err != nil || account != "nigel" {
-			t.Fatalf("session lost across migration: account=%q err=%v", account, err)
+		// Sessions issued under the retired login mechanism do not survive
+		// the local login cutover; that is the one intended sign-out.
+		if _, err := store.SessionAccount(context.Background(), "session-hash", now); !errors.Is(err, ErrSessionNotFound) {
+			t.Fatalf("pre-cutover session survived: %v", err)
 		}
 		if err := store.Close(); err != nil {
 			t.Fatal(err)

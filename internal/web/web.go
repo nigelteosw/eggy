@@ -134,10 +134,6 @@ type WebUIConfig struct {
 const (
 	webSessionCookie = "eggy_session"
 	webSessionTTL    = 12 * time.Hour
-	// webLoginLinkTTL bounds how long a /web link is worth stealing. It is
-	// minutes rather than hours because the link travels through a chat
-	// transcript, which is a place credentials linger.
-	webLoginLinkTTL = 5 * time.Minute
 )
 
 type webResult struct {

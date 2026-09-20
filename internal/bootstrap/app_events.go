@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/kernel/events"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -63,6 +64,14 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		source := strings.TrimSpace(event.Source)
 		if source == "" {
 			source = "telegram"
+		}
+		// A verified Telegram sender may ask /web for a browser login.
+		// The mark needs all three: an explicit Telegram source, an
+		// explicit Telegram destination, and the sender the webhook
+		// verified. The empty-source default above is a delivery fallback,
+		// not evidence of where anything came from.
+		if event.Source == "telegram" && event.Destination.Kind == destination.Telegram && event.SenderID != "" {
+			ctx = commands.WithWebLoginSender(ctx, event.SenderID)
 		}
 		return a.turnService.OwnerMessage(destination.With(ctx, event.Destination), ports.Message{
 			Role: ports.RoleUser, Content: message.Prompt(), Parts: message.Parts,

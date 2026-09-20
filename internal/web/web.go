@@ -353,6 +353,14 @@ func webUIHandler() http.Handler {
 	fileServer := http.FileServer(http.FS(webui.Assets()))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && isApplicationRoute(r.URL.Path) {
+			if r.URL.Path == "/auth/link" {
+				// The login token rides in this page's fragment. The
+				// fragment never reaches the server, but the page must not
+				// be cached with it in a history entry, nor leak its URL
+				// as a referrer to anything the shell loads.
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Referrer-Policy", "no-referrer")
+			}
 			request := r.Clone(r.Context())
 			request.URL.Path = "/"
 			fileServer.ServeHTTP(w, request)

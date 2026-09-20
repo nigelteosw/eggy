@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
@@ -97,3 +98,53 @@ func RecoveryWeb(layout home.Layout, configPath string, getenv func(string) stri
 		PublicBaseURL: identity.Config.Server.PublicBaseURL,
 	}, func() { _ = database.Close() }, nil
 }
+
+// webLoginLinkMinter is the /web command's link factory. It runs only for a
+// context bootstrap marked with a verified Telegram sender, and mints only
+// when the config as it is now still maps that exact sender to the acting
+// account with Telegram on: an input queued before a sender was reassigned
+// finds the mapping gone and mints nothing, as neither the old owner nor
+// the newly linked person. The token is generated before the lock and
+// stored inside it, against the account's current credential generation.
+func (a *App) webLoginLinkMinter(database *sqlitestore.Store, configPath string) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, senderID string) (string, error) {
+		principal, err := ports.PrincipalFromContext(ctx)
+		if err != nil {
+			return "", err
+		}
+		raw, hash, err := session.NewToken()
+		if err != nil {
+			return "", err
+		}
+		now := a.now()
+		mint := func(cfg config.Config, account config.AccountConfig) error {
+			if !cfg.TelegramEnabled() || account.TelegramUserID == 0 || config.TelegramIDText(account.TelegramUserID) != senderID {
+				return errors.New("this chat is not mapped to your account any more")
+			}
+			record, err := database.AccountAuth(ctx, account.ID)
+			if err != nil || record.Retired {
+				return errors.New("your account cannot sign in to the web panel")
+			}
+			return database.CreateWebLoginLink(ctx, hash, ports.WebLoginLink{
+				AccountID: account.ID, SenderID: senderID, Generation: record.Generation,
+				ExpiresAt: now.Add(webLoginLinkTTL),
+			}, now)
+		}
+		if configPath == "" {
+			account, ok := a.config.Account(principal.AccountID)
+			if !ok {
+				return "", errors.New("account is not configured")
+			}
+			if err := mint(a.config, account); err != nil {
+				return "", err
+			}
+		} else if err := config.WithAccount(configPath, principal.AccountID, mint); err != nil {
+			return "", err
+		}
+		return strings.TrimRight(a.config.Server.PublicBaseURL, "/") + "/auth/link#token=" + raw, nil
+	}
+}
+
+// webLoginLinkTTL bounds how long a /web link is worth stealing: minutes
+// rather than hours, because it travels through a chat transcript.
+const webLoginLinkTTL = 5 * time.Minute

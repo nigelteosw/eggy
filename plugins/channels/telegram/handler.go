@@ -208,6 +208,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The owner is the resolved account, never the sender's number as
 		// text: the dispatcher validates it against configured accounts.
 		event.Owner = accountID
+		// Only a message typed in the verified private chat carries its
+		// sender as metadata. A selection callback does not, even when the
+		// selected text is a command: pressing a button is not typing.
+		if incoming.Message != nil {
+			event.SenderID = strconv.FormatInt(sender, 10)
+		}
 	}
 	if err != nil {
 		if incoming.Callback != nil && strings.HasPrefix(incoming.Callback.Data, "select:") {

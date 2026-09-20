@@ -38,6 +38,14 @@ type Event struct {
 	// Source or from message content.
 	Destination destination.Destination `json:"destination"`
 	Payload     json.RawMessage         `json:"payload"`
+	// SenderID is the provider-neutral text of the authenticated sender a
+	// direct message came from, filled only by an ingress that verified it
+	// (the Telegram webhook, after its private-chat and allowlist checks).
+	// It is metadata about how the event arrived, never prompt text, and
+	// it is what lets a command mint a browser login for that sender and
+	// nobody else. Empty everywhere else: a selection callback, a web
+	// thread, a schedule.
+	SenderID string `json:"sender_id,omitempty"`
 }
 
 type Message struct {

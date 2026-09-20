@@ -10,7 +10,11 @@ Eggy is designed for one owner and repositories the owner already trusts. It red
 
 Every request and turn acts as one account, resolved at a trusted ingress and never from anything the caller sends: a verified browser session, a verified numeric Telegram sender in a private chat, or a schedule's stored owner. Private records — conversations, memory, watch list, schedules, traces, approvals — are keyed by account in the database and on disk, and every read and write fails closed without one. A cross-account request answers as if the record did not exist. Ownership is checked before the approval mode is consulted, so `auto` never bypasses it, and an approval is answered and consumed only by the account that asked. See [Accounts](/eggy/configure/accounts/).
 
-With accounts configured, web chat requires Google Sign-In (OpenID Connect with PKCE and a nonce, verified server-side; no login token is kept), issues an opaque HTTP-only session whose hash alone is stored, and checks a per-session CSRF header plus same-origin on every mutating route. A single-owner deployment keeps the configured email and password with a signed HTTP-only session, and throttles login failures. Telegram accepts only configured numeric senders, in private chats.
+With accounts configured, web chat requires a local username and password. Passwords are stored only as PBKDF2-HMAC-SHA256 hashes (600,000 iterations, a per-password salt) in `eggy.db` — never in YAML, logs, traces, or durable conversation context — and the raw value is never echoed in an error. One account, named by `web.password_account_id`, instead signs in with the `EGGY_UI_USER_EMAIL` / `EGGY_UI_PASSWORD` environment credentials: rotating that password is an environment change plus a restart, and that account never also carries a local password, so there are never two password authorities for one person. Every successful login issues an opaque HTTP-only session whose hash alone is stored, checked with a per-session CSRF header plus same-origin on every mutating route. Login attempts are throttled, and password verification is bounded so a flood of attempts cannot become a denial of service.
+
+A `/web` link minted from a mapped private Telegram chat is a second way in, not a second mechanism: the token is random and stored hashed, works once, and is redeemed only by an explicit browser confirmation POST — previews, prefetches, and an already signed-in browser consume nothing. Telegram accepts only configured numeric senders, in private chats.
+
+Removing an account revokes its sessions, links, and streams at once, and its username is never reissued: the retained credential row refuses a new account with that ID even if cleanup failed midway. Resetting a password or revoking sessions does the same for one person without removing them.
 
 Eggy's Google connection is its own Workspace user, verified against `google.expected_email` before a grant is stored. Eggy holds no grant on any person's Google account. Anything Eggy can reach through its own account is shared by everyone who uses it.
 
@@ -18,7 +22,7 @@ Eggy's Google connection is its own Workspace user, verified against `google.exp
 
 Secret values come from environment variables or `.env`, not YAML. Provider credentials remain inside adapters. Logger setup receives the loaded secret set and redacts it from output.
 
-MCP OAuth and Google records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`, which also signs web UI session cookies. One sealing implementation covers every provider record (`plugins/auth/authfile`), and session signing lives beside it in `plugins/auth/session`.
+MCP OAuth and Google records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`. Web sessions and `/web` links are random tokens whose SHA-256 hashes alone are stored in SQLite — a database read yields nothing that can be presented as a cookie — and the one-time setup page signs its short-lived cookie with a random key generated for that boot. One sealing implementation covers every provider record (`plugins/auth/authfile`), and password hashing lives beside it in `plugins/auth/session`.
 
 Owner authentication and outbound authorization are deliberately separate. `plugins/auth/session` answers who may talk to Eggy; the OAuth grants under `plugins/tools/` answer what Eggy may do on the owner's behalf.
 

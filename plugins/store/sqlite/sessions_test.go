@@ -54,48 +54,6 @@ func TestSessionsResolveExpireAndRevoke(t *testing.T) {
 	}
 }
 
-func TestLoginTransactionsAreSingleUseBrowserBoundAndExpire(t *testing.T) {
-	db := newTestStore(t, 0)
-	ctx := context.Background()
-	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
-	if err := db.CreateLoginTransaction(ctx, "state-1", "browser-1", "nonce-1", "sealed-verifier", now.Add(5*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := db.ConsumeLoginTransaction(ctx, "state-1", "browser-2", now); !errors.Is(err, ErrLoginTransactionNotFound) {
-		t.Fatalf("different browser err=%v", err)
-	}
-	nonce, verifier, err := db.ConsumeLoginTransaction(ctx, "state-1", "browser-1", now)
-	if err != nil || nonce != "nonce-1" || verifier != "sealed-verifier" {
-		t.Fatalf("nonce=%q verifier=%q err=%v", nonce, verifier, err)
-	}
-	if _, _, err := db.ConsumeLoginTransaction(ctx, "state-1", "browser-1", now); !errors.Is(err, ErrLoginTransactionNotFound) {
-		t.Fatalf("replay err=%v", err)
-	}
-	if err := db.CreateLoginTransaction(ctx, "state-2", "browser-1", "n", "v", now.Add(5*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := db.ConsumeLoginTransaction(ctx, "state-2", "browser-1", now.Add(6*time.Minute)); !errors.Is(err, ErrLoginTransactionNotFound) {
-		t.Fatalf("expired err=%v", err)
-	}
-	// Expired rows are pruned by the next auth operation, not a loop: a
-	// transaction that expired long ago is gone once anything else is
-	// written.
-	long := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	if err := db.CreateLoginTransaction(ctx, "state-old", "browser-1", "n", "v", long); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.CreateLoginTransaction(ctx, "state-3", "browser-1", "n", "v", time.Now().Add(10*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	var remaining int
-	if err := db.db.QueryRow(`SELECT COUNT(*) FROM login_transactions`).Scan(&remaining); err != nil {
-		t.Fatal(err)
-	}
-	if remaining != 1 {
-		t.Fatalf("remaining transactions = %d, expected only the live one", remaining)
-	}
-}
-
 func TestRawSessionTokensNeverReachTheDatabase(t *testing.T) {
 	db := newTestStore(t, 0)
 	// The store only ever sees a hash. This guards the contract at the

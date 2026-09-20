@@ -206,8 +206,14 @@ func (s *Store) MigrateLocalAuth(ctx context.Context) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM login_transactions`); err != nil && !strings.Contains(err.Error(), "no such table") {
-		return err
+	// The retired inbound login tables go away entirely: the identities and
+	// login transactions they held have no reader any more, and the migration
+	// is the one place with the version stamp to make dropping them a single
+	// transaction with the auth schema it replaces them with.
+	for _, drop := range []string{`DROP TABLE IF EXISTS login_transactions`, `DROP TABLE IF EXISTS identities`} {
+		if _, err := tx.ExecContext(ctx, drop); err != nil && !strings.Contains(err.Error(), "no such table") {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, machineStateVersionKey, strconv.Itoa(localAuthVersion)); err != nil {
 		return err

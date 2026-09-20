@@ -86,7 +86,7 @@ Unknown commands return the same command reference. Ordinary text continues to t
 
 `/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and always names the approval mode in force.
 
-`/web` replies with a link to the [web panel](/eggy/use/web-chat/) that signs you in on the way through, so opening the panel on a phone does not mean typing the panel password into one. The link is a credential: it works once, expires five minutes after it is sent, and gives whoever opens it first a twelve-hour session. It needs `server.public_base_url` and `EGGY_ENCRYPTION_KEY` to be set; without the key Eggy sends the plain address and you sign in by hand.
+`/web` replies with a link to the [web panel](/eggy/use/web-chat/) that signs you in on the way through, so opening the panel on a phone does not mean typing a password into one. The link is a credential bound to the account your Telegram chat maps to: it works once, expires five minutes after it is sent, and the browser must press **Continue** before it takes effect — that click signs you in for twelve hours and replaces whatever account was signed in before. Do not forward it: whoever uses it first is signed in as you. It is minted only from your own mapped private Telegram chat; a group chat, another chat surface, or a schedule text cannot produce one, and without `server.public_base_url` Eggy sends the plain address and you sign in by hand.
 
 `/mode` sets how much the [approval gate](/eggy/use/approvals/) asks:
 

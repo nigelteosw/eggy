@@ -26,8 +26,9 @@ import (
 var webLinkPattern = regexp.MustCompile(`https://eggy\.example/auth/link#token=([A-Za-z0-9_-]{43})`)
 
 // newWebLinkApp boots an App with Telegram and Discord configured, every
-// outbound call faked, and the application log captured.
-func newWebLinkApp(t *testing.T) (app *App, configPath string, sends func() []string, logs *bytes.Buffer, transport *fakeDiscord) {
+// outbound call faked, and the application log captured. modelBodies returns
+// the JSON body of every call that reached the shared model provider.
+func newWebLinkApp(t *testing.T) (app *App, configPath string, sends func() []string, logs *bytes.Buffer, transport *fakeDiscord, modelBodies func() []string) {
 	t.Helper()
 	dir := t.TempDir()
 	configPath = filepath.Join(dir, "config.yaml")
@@ -45,6 +46,7 @@ func newWebLinkApp(t *testing.T) (app *App, configPath string, sends func() []st
 	}
 	var mu sync.Mutex
 	var telegramSends []string
+	var modelSends []string
 	client := &http.Client{Transport: appRoundTrip(func(request *http.Request) (*http.Response, error) {
 		switch {
 		case strings.Contains(request.URL.Path, "getMe"):
@@ -58,6 +60,10 @@ func newWebLinkApp(t *testing.T) (app *App, configPath string, sends func() []st
 		case strings.Contains(request.URL.Path, "setMyCommands"), strings.Contains(request.URL.Path, "sendChatAction"):
 			return appJSON(200, `{"ok":true,"result":{}}`), nil
 		case request.URL.Host == "model.test":
+			body, _ := io.ReadAll(request.Body)
+			mu.Lock()
+			modelSends = append(modelSends, string(body))
+			mu.Unlock()
 			return appJSON(200, `{"choices":[{"message":{"role":"assistant","content":"noted"}}]}`), nil
 		}
 		return appJSON(404, `{}`), nil
@@ -79,7 +85,12 @@ func newWebLinkApp(t *testing.T) (app *App, configPath string, sends func() []st
 		defer mu.Unlock()
 		return append([]string(nil), telegramSends...)
 	}
-	return app, configPath, sends, logs, transport
+	modelBodies = func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), modelSends...)
+	}
+	return app, configPath, sends, logs, transport, modelBodies
 }
 
 func postTelegram(app *App, updateID int, sender int64, text string) int {
@@ -118,7 +129,7 @@ func countLinks(t *testing.T, app *App) int {
 }
 
 func TestTelegramWebMintsALinkOnlyFromTheVerifiedPrivateChat(t *testing.T) {
-	app, configPath, sends, logs, transport := newWebLinkApp(t)
+	app, configPath, sends, logs, transport, _ := newWebLinkApp(t)
 	ctx := context.Background()
 
 	// 1. partner (sender 77) asks /web in the private chat.

@@ -19,12 +19,10 @@ list and the settings sidebar collapsing into their own controls.
 
 ## Enable login
 
-With [accounts](/eggy/configure/accounts/) configured, the login page shows
-**Sign in with Google** and nothing else; the variables below are not used and
-must not be set. The navigation shows who is signed in with a sign-out control,
-and every person sees only their own chats, traces, schedules and approvals.
-
-For a single-owner deployment, set all three variables:
+The login page takes a username and password. The account named by
+`web.password_account_id` signs in with the environment credentials —
+`EGGY_UI_USER_EMAIL` (the username) and `EGGY_UI_PASSWORD` — and every other
+person signs in with the local password set for them on the People card:
 
 ```dotenv
 EGGY_UI_USER_EMAIL=owner@example.com
@@ -32,16 +30,17 @@ EGGY_UI_PASSWORD=use-a-password-manager
 EGGY_ENCRYPTION_KEY=base64-encoded-32-byte-key
 ```
 
-Sessions use a signed, HTTP-only cookie with a 12-hour lifetime. Failed logins
-are throttled by client address. Set `server.trusted_proxy_hops: 1` behind
-Railway so Eggy uses the address observed by the proxy; leave it at `0` when
-exposed directly.
+Sessions are opaque tokens in an HTTP-only cookie with a 12-hour lifetime;
+only their hashes are stored. Failed logins are throttled by client address.
+Set `server.trusted_proxy_hops: 1` behind Railway so Eggy uses the address
+observed by the proxy; leave it at `0` when exposed directly. The navigation
+shows who is signed in with a sign-out control, and every person sees only
+their own chats, traces, schedules and approvals.
 
 From Telegram, `/web` sends a one-tap sign-in link so opening the panel on a
-phone does not mean typing the panel password into one. The link works once and
-expires five minutes after it is sent. With accounts configured, `/web` sends
-the panel address only: there is no bearer link, and the person signs in with
-Google there.
+phone does not mean typing a password into one. The link works once, expires
+five minutes after it is sent, and takes effect only after the browser's
+**Continue** click. See [Telegram](/eggy/use/telegram/#direct-commands).
 
 ## Conversations
 
@@ -65,17 +64,21 @@ Images are a Telegram-only input; the web composer is text.
 
 ## Settings
 
-The panel is organized into seven sections.
+The panel is organized into nine sections under three headings, so a change
+says whose it is before it is made. Everyone can reach all of them; there are
+no roles.
 
-| Section | Contents |
-| --- | --- |
-| **Models** | Providers, and the aliases that route to them — including browsing a provider's live catalog to fill an alias in |
-| **Connections** | MCP servers and Google Workspace, with their OAuth flows |
-| **Capabilities** | The merged tool catalog, read-only |
-| **Automation** | Schedules, the heartbeat, and the watch list |
-| **Permissions** | The approval mode, and every approval waiting on you |
-| **Appearance** | Panel theme, stored in `config.yaml` so it follows you across devices |
-| **Advanced** | Tracing settings, raw `config.yaml`, and Restart |
+| Area | Section | Contents |
+| --- | --- | --- |
+| **My settings** | Model & approvals | Your model, reasoning effort, thinking visibility, and approval mode — yours alone, across both Telegram and the web |
+| | Automation | Your schedules and watch list |
+| | Pending approvals | Actions waiting on you |
+| **People** | People | The trusted-user list: who can use this Eggy, how each signs in, and which Google account Eggy itself is |
+| **Shared deployment** | Models | Providers, and the aliases that route to them — including browsing a provider's live catalog |
+| | Connections | MCP servers, Google Workspace, and chat bots |
+| | Capabilities | The merged tool catalog, read-only |
+| | Appearance | Panel theme, stored in `config.yaml` so it follows you across devices |
+| | Advanced | Heartbeat, tracing, raw `config.yaml`, and Restart |
 
 Changes to configuration are written to `config.yaml`. Restart `eggyd` to
 reconstruct adapters and apply them: the **Restart** button does this without a

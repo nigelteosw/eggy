@@ -109,20 +109,20 @@ func TestPasswordLoginRefusals(t *testing.T) {
 		body string
 		code int
 	}{
-		"environment alias":          {`{"username":"OWNER@example.com","password":"hunter2"}`, http.StatusOK},
-		"environment account by id":  {`{"username":"nigel","password":"hunter2"}`, http.StatusOK},
-		"legacy email field":         {`{"email":"owner@example.com","password":"hunter2"}`, http.StatusOK},
-		"conflicting username/email": {`{"username":"nigel","email":"owner@example.com","password":"hunter2"}`, http.StatusBadRequest},
-		"local password":             {`{"username":"partner","password":"partner-password-long"}`, http.StatusOK},
-		"local password for env":     {`{"username":"nigel","password":"partner-password-long"}`, http.StatusUnauthorized},
-		"env password for local":     {`{"username":"partner","password":"hunter2"}`, http.StatusUnauthorized},
-		"unknown user":               {`{"username":"stranger","password":"partner-password-long"}`, http.StatusUnauthorized},
-		"case-changed id":            {`{"username":"Partner","password":"partner-password-long"}`, http.StatusUnauthorized},
-		"empty password":             {`{"username":"partner","password":""}`, http.StatusBadRequest},
-		"overlong password":          {`{"username":"partner","password":"` + strings.Repeat("x", 257) + `"}`, http.StatusBadRequest},
-		"unknown field":              {`{"username":"partner","password":"partner-password-long","remember":true}`, http.StatusBadRequest},
-		"oversized body":             {`{"username":"partner","password":"x","pad":"` + strings.Repeat("y", authBodyLimit) + `"}`, http.StatusBadRequest},
-		"not json":                   {`username=partner`, http.StatusBadRequest},
+		"environment alias":         {`{"username":"OWNER@example.com","password":"hunter2"}`, http.StatusOK},
+		"environment account by id": {`{"username":"nigel","password":"hunter2"}`, http.StatusOK},
+		"retired email field":       {`{"email":"owner@example.com","password":"hunter2"}`, http.StatusBadRequest},
+		"email beside username":     {`{"username":"nigel","email":"owner@example.com","password":"hunter2"}`, http.StatusBadRequest},
+		"local password":            {`{"username":"partner","password":"partner-password-long"}`, http.StatusOK},
+		"local password for env":    {`{"username":"nigel","password":"partner-password-long"}`, http.StatusUnauthorized},
+		"env password for local":    {`{"username":"partner","password":"hunter2"}`, http.StatusUnauthorized},
+		"unknown user":              {`{"username":"stranger","password":"partner-password-long"}`, http.StatusUnauthorized},
+		"case-changed id":           {`{"username":"Partner","password":"partner-password-long"}`, http.StatusUnauthorized},
+		"empty password":            {`{"username":"partner","password":""}`, http.StatusBadRequest},
+		"overlong password":         {`{"username":"partner","password":"` + strings.Repeat("x", 257) + `"}`, http.StatusBadRequest},
+		"unknown field":             {`{"username":"partner","password":"partner-password-long","remember":true}`, http.StatusBadRequest},
+		"oversized body":            {`{"username":"partner","password":"x","pad":"` + strings.Repeat("y", authBodyLimit) + `"}`, http.StatusBadRequest},
+		"not json":                  {`username=partner`, http.StatusBadRequest},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

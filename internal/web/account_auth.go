@@ -122,20 +122,10 @@ func handlePasswordLogin(configPath string, webConfig WebUIConfig, throttle *ses
 		var credentials struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
-			// Email is the pre-cutover field name, accepted only while the
-			// frontend commit lands and refused beside username.
-			Email string `json:"email,omitempty"`
 		}
 		if err := decodeAuthBody(r, &credentials); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
-		}
-		if credentials.Email != "" {
-			if credentials.Username != "" {
-				writeWebError(w, http.StatusBadRequest, "invalid request body")
-				return
-			}
-			credentials.Username = credentials.Email
 		}
 		username := strings.TrimSpace(credentials.Username)
 		if username == "" || credentials.Password == "" || len(credentials.Password) > session.MaxPasswordBytes {

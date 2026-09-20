@@ -14,8 +14,8 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `data_dir` | Durable artifact root |
 | `owner` | Canonical single-owner identity (legacy shape) |
 | `telegram` | Optional numeric Telegram owner (legacy shape) |
-| `accounts` | The people who may use this Eggy, each with a Google address and optional Telegram and Discord identities |
-| `web` | The Google sign-in client for accounts |
+| `accounts` | The people who may use this Eggy, each with optional Telegram and Discord identities |
+| `web` | Which account the `EGGY_UI_*` environment credentials sign in |
 | `agent` | Default model alias and timezone |
 | `providers` | Model adapter connections and catalog discovery |
 | `models` | Owner-facing model aliases and their reasoning efforts |

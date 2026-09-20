@@ -58,12 +58,16 @@ EGGY_ENCRYPTION_KEY=base64-encoded-32-byte-key
 
 Without those three there is nobody it can let in. Set them before you need them.
 
-With [accounts](/eggy/configure/accounts/) configured there is no password and
-none is read: safe mode offers **Sign in with Google** against the account list,
-the sign-in client and the public base URL it can still read from the broken
-file, using the existing session database. If even that cannot be established,
-safe mode answers only the health probes and `config.yaml` has to be repaired on
-the host.
+The login is exactly the panel's normal one, against the same credential store
+and session rows: the account named by `web.password_account_id` signs in
+with the username and password above (the account ID works as the username
+too), and any other [account](/eggy/configure/accounts/) signs in with its
+local password — as long as the account list can still be read from the
+broken file and the session database opens. `/web` links cannot be minted
+(the Telegram runtime is not running), but an unexpired session from before
+the crash still works. If even the identity or the database cannot be
+established, safe mode answers only the health probes and `config.yaml` has
+to be repaired on the host.
 
 ## Common ways to land here
 

@@ -17,7 +17,7 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | `accounts/<id>/memories/MEMORY.md` | That account's curated durable memory |
 | `accounts/<id>/memories/WATCH.md` | That account's heartbeat watch list |
 | `memories.migrated/` | The pre-accounts documents, kept as rollback after a migration |
-| `eggy.db` | Every machine-managed record: conversation and thread memory, traces, runtime selections, usage, approvals, schedules, and encrypted OAuth grants |
+| `eggy.db` | Every machine-managed record: conversation and thread memory, traces, runtime selections, usage, approvals, schedules, encrypted OAuth grants, account credentials, browser sessions, and web sign-in links |
 | `skills/` | Reviewed procedural Markdown skills |
 | `runs/` | Bounded read-only repository checkouts |
 | `logs/` | `gateway.log` and `errors.log` with secret redaction |
@@ -29,6 +29,17 @@ Machine-managed records are all in `eggy.db`, which is what "SQLite for everythi
 Records written before accounts existed carry no account until a boot names one: the single owner on a legacy deployment, or `migration_owner_id` on one converted to accounts. The mapping is recorded and a conflicting retry is refused; the pre-accounts `memories/` directory is copied under that account, verified, and archived as `memories.migrated/`. A build from before accounts refuses the upgraded database.
 
 To roll back to a build from before the consolidation, stop the daemon, rename the `.migrated` artifacts back to their original names, and start the older binary. It reads those files and ignores the tables, so nothing has to be exported. Anything written since the migration lives only in `eggy.db` and will not be there.
+
+Two record families in `eggy.db` are worth naming because their authority is
+narrow. **Credentials and sessions** — password hashes, the generation that
+invalidates them, browser sessions, and `/web` sign-in links — answer *who may
+sign in*; account *membership* is the `accounts:` list in `config.yaml`, and a
+row without a list entry is nobody. **Per-account settings** — the selected
+model, reasoning effort, thinking visibility, approval mode, watch list, and
+schedules — are the calling account's own rows, effective immediately across
+both Telegram and the web, and a new account starts from the deployment
+defaults rather than anyone's preferences. Provider keys, model aliases, and
+the sealed connection grants are shared records, not per-account ones.
 
 ## Conversation memory
 

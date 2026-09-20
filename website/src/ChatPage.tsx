@@ -34,6 +34,30 @@ function useSelectionAnchor(container: React.RefObject<HTMLElement | null>) {
   const [anchor, setAnchor] = useState<SelectionAnchor | null>(null);
 
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let selecting = false;
+
+    function hide() {
+      clearTimeout(timer);
+      setAnchor(null);
+    }
+
+    function schedule() {
+      hide();
+      if (!selecting) timer = setTimeout(update, 150);
+    }
+
+    function pointerDown() {
+      selecting = true;
+      hide();
+    }
+
+    function pointerUp() {
+      if (!selecting) return;
+      selecting = false;
+      schedule();
+    }
+
     function update() {
       const selection = document.getSelection();
       const host = container.current;
@@ -63,15 +87,19 @@ function useSelectionAnchor(container: React.RefObject<HTMLElement | null>) {
         left: Math.max(0, first.left - hostRect.left + host.scrollLeft),
       });
     }
-    // selectionchange fires while the mouse is still dragging; settle on
-    // mouseup/keyup so the button does not chase the cursor.
-    document.addEventListener("mouseup", update);
-    document.addEventListener("keyup", update);
-    document.addEventListener("selectionchange", update);
+    // Read geometry only after the selection settles, never mid-drag.
+    document.addEventListener("pointerdown", pointerDown);
+    document.addEventListener("pointerup", pointerUp);
+    document.addEventListener("pointercancel", pointerUp);
+    document.addEventListener("keyup", schedule);
+    document.addEventListener("selectionchange", schedule);
     return () => {
-      document.removeEventListener("mouseup", update);
-      document.removeEventListener("keyup", update);
-      document.removeEventListener("selectionchange", update);
+      clearTimeout(timer);
+      document.removeEventListener("pointerdown", pointerDown);
+      document.removeEventListener("pointerup", pointerUp);
+      document.removeEventListener("pointercancel", pointerUp);
+      document.removeEventListener("keyup", schedule);
+      document.removeEventListener("selectionchange", schedule);
     };
   }, [container]);
 
@@ -272,6 +300,7 @@ export function ChatPage({
           <button
             type="button"
             // mousedown would collapse the selection before click fires.
+            onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setQuote({ text: selection.text, ownMessage: selection.ownMessage });
@@ -280,7 +309,7 @@ export function ChatPage({
             }}
             style={{ top: selection.top, left: selection.left }}
             className={cn(
-              "absolute z-10 flex -translate-y-[calc(100%+8px)] animate-fade-in-up items-center gap-2 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background shadow-lg",
+              "absolute z-10 flex -translate-y-[calc(100%+8px)] items-center gap-2 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background shadow-lg",
               "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
             )}
           >

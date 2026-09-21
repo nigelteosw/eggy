@@ -41,7 +41,7 @@ For a persistent hosted instance, continue to [Deploy on Railway](/eggy/get-star
 
 ## What Eggy can do
 
-- Hold direct conversations in web chat and Telegram, including images sent to Telegram.
+- Hold direct conversations in web chat and Telegram, including images and PDF files sent to Telegram, when the active model can read them.
 - Take a correction mid-task: a message sent while a turn is running [steers it](/eggy/use/long-turns/) instead of queueing behind it.
 - Switch among configured model aliases, and browse a provider's live catalog to add one.
 - Remember successful conversation turns in an embedded SQLite database, and curate durable memory in Markdown you can read and edit.

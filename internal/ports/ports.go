@@ -29,7 +29,14 @@ const (
 
 type ContentType string
 
-const ContentTypeImage ContentType = "image"
+const (
+	ContentTypeImage ContentType = "image"
+	// ContentTypeDocument is a file the model reads whole -- a PDF today.
+	// It is a distinct kind, not an image with a different media type,
+	// because providers publish file and image support separately and a
+	// model may take one without the other.
+	ContentTypeDocument ContentType = "document"
+)
 
 // ContentPart carries non-text input without teaching the kernel which chat
 // surface supplied it or which provider wire format will consume it.
@@ -37,6 +44,9 @@ type ContentPart struct {
 	Type      ContentType `json:"type"`
 	MediaType string      `json:"media_type"`
 	Data      []byte      `json:"data"`
+	// Filename is the name the document arrived with; empty for an image.
+	// Providers show it to the model and the durable record names it.
+	Filename string `json:"filename,omitempty"`
 }
 
 type Message struct {
@@ -216,6 +226,10 @@ type CatalogModel struct {
 	// A caller that would refuse an image must treat nil as unknown and send
 	// it anyway rather than read silence as a refusal.
 	SupportsImages *bool `json:"supports_images,omitempty"`
+	// SupportsFiles is the same answer for document input (PDF), published
+	// separately by the provider because a model may take one and not the
+	// other. Nil means unknown, exactly as for SupportsImages.
+	SupportsFiles *bool `json:"supports_files,omitempty"`
 }
 
 // CatalogReasoning is what a provider says about a model's reasoning: the

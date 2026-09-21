@@ -89,8 +89,8 @@ func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
 		},
 	}
 	catalog := catalogModel{models: []ports.CatalogModel{
-		{ID: "vendor/vision", SupportsImages: &images},
-		{ID: "vendor/text", SupportsImages: &textOnly},
+		{ID: "vendor/vision", SupportsImages: &images, SupportsFiles: &textOnly},
+		{ID: "vendor/text", SupportsImages: &textOnly, SupportsFiles: &textOnly},
 		{ID: "vendor/silent"},
 	}}
 	discovery := newModelDiscovery(cfg, map[string]ports.Model{"openrouter": catalog, "plain": catalog, "optedout": catalog})
@@ -105,9 +105,17 @@ func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
 		"missing":  {false, false},
 	}
 	for alias, want := range cases {
-		supported, known := discovery.SupportsImages(context.Background(), alias)
+		supported, known := discovery.SupportsPart(context.Background(), alias, ports.ContentTypeImage)
 		if supported != want.supported || known != want.known {
-			t.Fatalf("SupportsImages(%q)=%v,%v want %v,%v", alias, supported, known, want.supported, want.known)
+			t.Fatalf("SupportsPart(%q, image)=%v,%v want %v,%v", alias, supported, known, want.supported, want.known)
 		}
+	}
+	// Files are answered from their own field: the vision model sees images
+	// and is still a known "no" for a PDF.
+	if supported, known := discovery.SupportsPart(context.Background(), "vision", ports.ContentTypeDocument); supported || !known {
+		t.Fatalf("SupportsPart(vision, document)=%v,%v want false,true", supported, known)
+	}
+	if _, known := discovery.SupportsPart(context.Background(), "silent", ports.ContentTypeDocument); known {
+		t.Fatal("a model with no architecture must leave file support unknown")
 	}
 }

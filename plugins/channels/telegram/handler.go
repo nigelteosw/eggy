@@ -26,8 +26,10 @@ type CallbackAcknowledger interface {
 	AnswerCallback(ctx context.Context, callbackQueryID string) error
 }
 
-type ImageDownloader interface {
-	DownloadImage(ctx context.Context, fileID string, declaredSize int64, declaredMediaType string) (ports.ContentPart, error)
+// FileDownloader fetches a Telegram photo or document as a content part.
+// *Client implements it.
+type FileDownloader interface {
+	DownloadFile(ctx context.Context, fileID string, declaredSize int64, declaredMediaType, filename string) (ports.ContentPart, error)
 }
 
 // Replier tells a verified sender why their message was dropped. It is
@@ -64,7 +66,7 @@ type WebhookHandler struct {
 	// keeps the callback query ID, a Telegram-only concept, out of the
 	// events the rest of Eggy handles. May be nil (fake-adapter mode).
 	acknowledger     CallbackAcknowledger
-	downloader       ImageDownloader
+	downloader       FileDownloader
 	resolveSelection func(context.Context, string) (string, bool)
 	pairing          PairingConsumer
 	replier          Replier
@@ -89,7 +91,7 @@ func (h *WebhookHandler) WithSelectionResolver(resolve func(context.Context, str
 	return h
 }
 
-func (h *WebhookHandler) WithImageDownloader(downloader ImageDownloader) *WebhookHandler {
+func (h *WebhookHandler) WithFileDownloader(downloader FileDownloader) *WebhookHandler {
 	h.downloader = downloader
 	return h
 }
@@ -310,32 +312,39 @@ func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message)
 		return events.Message{Text: message.Text, Quote: message.quote()}, nil
 	}
 	if h.downloader == nil {
-		return events.Message{}, errors.New("Telegram image download is unavailable")
+		return events.Message{}, errors.New("Telegram file download is unavailable")
 	}
-	fileID, size, mediaType := "", int64(0), ""
+	fileID, size, mediaType, filename := "", int64(0), "", ""
 	if len(message.Photo) > 0 {
 		photo := message.Photo[len(message.Photo)-1]
 		fileID, size, mediaType = photo.FileID, photo.FileSize, "image/jpeg"
 	} else {
-		fileID, size = message.Document.FileID, message.Document.FileSize
-		mediaType = documentImageType(message.Document.MediaType, message.Document.FileName)
+		fileID, size, filename = message.Document.FileID, message.Document.FileSize, message.Document.FileName
+		mediaType = documentMediaType(message.Document.MediaType, message.Document.FileName)
 		if mediaType == "" {
-			return events.Message{}, errors.New("Telegram document is not a supported image")
+			return events.Message{}, errors.New("Telegram document is not a supported image or PDF")
 		}
 	}
-	part, err := h.downloader.DownloadImage(ctx, fileID, size, mediaType)
+	part, err := h.downloader.DownloadFile(ctx, fileID, size, mediaType, filename)
 	if err != nil {
-		return events.Message{}, fmt.Errorf("download Telegram image: %w", err)
+		return events.Message{}, fmt.Errorf("download Telegram file: %w", err)
 	}
 	text := message.Caption
 	if strings.TrimSpace(text) == "" {
 		text = "Describe this image."
+		if part.Type == ports.ContentTypeDocument {
+			text = "Read this file."
+		}
 	}
 	return events.Message{Text: text, Parts: []ports.ContentPart{part}, Quote: message.quote()}, nil
 }
 
-func documentImageType(mediaType, fileName string) string {
-	if normalized, ok := canonicalImageType(mediaType); ok {
+// documentMediaType is what a Telegram document claims to be: its declared
+// type when it is one Eggy reads, its extension when it declares nothing,
+// and nothing when it declares something else. The download sniffs the
+// bytes and holds them to this answer.
+func documentMediaType(mediaType, fileName string) string {
+	if normalized, _, ok := canonicalMediaType(mediaType); ok {
 		return normalized
 	}
 	if strings.TrimSpace(mediaType) != "" {
@@ -350,6 +359,8 @@ func documentImageType(mediaType, fileName string) string {
 		return "image/webp"
 	case ".gif":
 		return "image/gif"
+	case ".pdf":
+		return "application/pdf"
 	default:
 		return ""
 	}

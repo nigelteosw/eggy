@@ -35,8 +35,8 @@ func TestClientDownloadImage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	part, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(
-		context.Background(), "file-1", int64(len(png)), "image/png",
+	part, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadFile(
+		context.Background(), "file-1", int64(len(png)), "image/png", "",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -46,6 +46,27 @@ func TestClientDownloadImage(t *testing.T) {
 	}
 	if len(paths) != 2 || paths[0] != "/bottoken/getFile" || paths[1] != "/file/bottoken/photos/list.png" {
 		t.Fatalf("paths=%v", paths)
+	}
+}
+
+// A PDF comes back as a document part carrying the name it was sent under,
+// held to the same size cap and byte sniff as an image.
+func TestClientDownloadFileReturnsAPDFAsADocument(t *testing.T) {
+	pdf := append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte{0}, 32)...)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getFile") {
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"documents/list.pdf","file_size":41}}`)
+			return
+		}
+		_, _ = w.Write(pdf)
+	}))
+	defer server.Close()
+	part, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadFile(context.Background(), "file-1", int64(len(pdf)), "application/pdf", "reading list.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if part.Type != ports.ContentTypeDocument || part.MediaType != "application/pdf" || part.Filename != "reading list.pdf" || !bytes.Equal(part.Data, pdf) {
+		t.Fatalf("part=%#v", part)
 	}
 }
 
@@ -72,10 +93,11 @@ func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 		wantNoRequest bool
 	}{
 		{name: "negative declared size", declaredSize: -1, declaredType: "image/png", wantNoRequest: true},
-		{name: "declared too large", declaredSize: maxImageBytes + 1, declaredType: "image/png", wantNoRequest: true},
-		{name: "unsupported declared type", declaredSize: 4, declaredType: "application/pdf", wantNoRequest: true},
+		{name: "declared too large", declaredSize: maxFileBytes + 1, declaredType: "image/png", wantNoRequest: true},
+		{name: "unsupported declared type", declaredSize: 4, declaredType: "application/zip", wantNoRequest: true},
+		{name: "declared PDF but downloaded PNG", declaredSize: 0, declaredType: "application/pdf", body: append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...)},
 		{name: "downloaded text", declaredSize: 4, declaredType: "image/png", body: []byte("text")},
-		{name: "streamed too large", declaredSize: 0, declaredType: "image/png", body: bytes.Repeat([]byte{0}, int(maxImageBytes+1))},
+		{name: "streamed too large", declaredSize: 0, declaredType: "image/png", body: bytes.Repeat([]byte{0}, int(maxFileBytes+1))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,11 +111,11 @@ func TestClientDownloadImageRejectsInvalidInputAndContent(t *testing.T) {
 				_, _ = w.Write(tc.body)
 			}))
 			defer server.Close()
-			_, err := NewClient(server.URL, "top-secret-token", FixedChat("42"), server.Client()).DownloadImage(
-				context.Background(), "file-1", tc.declaredSize, tc.declaredType,
+			_, err := NewClient(server.URL, "top-secret-token", FixedChat("42"), server.Client()).DownloadFile(
+				context.Background(), "file-1", tc.declaredSize, tc.declaredType, "",
 			)
 			if err == nil {
-				t.Fatal("DownloadImage succeeded")
+				t.Fatal("DownloadFile succeeded")
 			}
 			if tc.wantNoRequest && requests != 0 {
 				t.Fatalf("requests=%d, want none", requests)
@@ -112,9 +134,9 @@ func TestClientDownloadImageRejectsNegativeResolvedSize(t *testing.T) {
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/list.png","file_size":-1}}`)
 	}))
 	defer server.Close()
-	_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadFile(context.Background(), "file-1", 0, "image/png", "")
 	if err == nil {
-		t.Fatal("DownloadImage accepted a negative resolved size")
+		t.Fatal("DownloadFile accepted a negative resolved size")
 	}
 	if requests != 1 {
 		t.Fatalf("requests=%d, want getFile only", requests)
@@ -137,9 +159,9 @@ func TestClientDownloadImageDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer source.Close()
 
-	_, err := NewClient(source.URL, "top-secret-token", FixedChat("42"), source.Client()).DownloadImage(context.Background(), "file-1", 0, "image/png")
+	_, err := NewClient(source.URL, "top-secret-token", FixedChat("42"), source.Client()).DownloadFile(context.Background(), "file-1", 0, "image/png", "")
 	if err == nil {
-		t.Fatal("DownloadImage followed a redirect")
+		t.Fatal("DownloadFile followed a redirect")
 	}
 	if redirected {
 		t.Fatal("redirect target was contacted")
@@ -163,7 +185,7 @@ func TestClientDownloadImageHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadImage(ctx, "file-1", 0, "image/png")
+		_, err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DownloadFile(ctx, "file-1", 0, "image/png", "")
 		done <- err
 	}()
 	<-started

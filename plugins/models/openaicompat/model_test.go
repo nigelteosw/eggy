@@ -419,7 +419,7 @@ func TestListModelsReadsCatalogAsAnAuthenticatedGET(t *testing.T) {
 // from being read as text-only.
 func TestListModelsParsesImageModalityOnlyWhenReported(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusOK, `{"data":[{"id":"vendor/vision","architecture":{"input_modalities":["text","image"]}},{"id":"vendor/text-only","architecture":{"input_modalities":["text"]}},{"id":"vendor/silent"}]}`), nil
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"vendor/vision","architecture":{"input_modalities":["text","image","file"]}},{"id":"vendor/text-only","architecture":{"input_modalities":["text"]}},{"id":"vendor/silent"}]}`), nil
 	})}
 	models, err := New("https://openrouter.ai/api/v1", "key", client).ListModels(context.Background())
 	if err != nil {
@@ -436,6 +436,57 @@ func TestListModelsParsesImageModalityOnlyWhenReported(t *testing.T) {
 	}
 	if models[2].SupportsImages != nil {
 		t.Fatalf("a model with no architecture must leave support unknown: %#v", models[2].SupportsImages)
+	}
+	if models[0].SupportsFiles == nil || !*models[0].SupportsFiles || models[1].SupportsFiles == nil || *models[1].SupportsFiles || models[2].SupportsFiles != nil {
+		t.Fatalf("file support must follow the \"file\" modality: %v %v %v", models[0].SupportsFiles, models[1].SupportsFiles, models[2].SupportsFiles)
+	}
+}
+
+// A document goes on the wire as a file part named for the model, and on
+// OpenRouter the file parser is pinned to the model's own reading: the
+// default engine is a paid OCR pass, which a model that takes files does
+// not need. A plain Chat Completions provider gets the part and nothing else.
+func TestModelSendsDocumentsAsFileParts(t *testing.T) {
+	for _, tc := range []struct {
+		name, baseURL string
+		wantPlugins   string
+	}{
+		{name: "openrouter", baseURL: "https://openrouter.ai/api/v1", wantPlugins: `[{"id":"file-parser","pdf":{"engine":"native"}}]`},
+		{name: "plain", baseURL: "https://api.example/v1", wantPlugins: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body []byte
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				body, _ = io.ReadAll(request.Body)
+				return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"read"}}]}`), nil
+			})}
+			_, err := New(tc.baseURL, "key", client).Generate(context.Background(), ports.ModelRequest{
+				Model: "openai/gpt-5.6-luna",
+				Messages: []ports.Message{{
+					Role: ports.RoleUser, Content: "summarise this",
+					Parts: []ports.ContentPart{{Type: ports.ContentTypeDocument, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte("%PDF-")}},
+				}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request struct {
+				Messages []struct {
+					Content json.RawMessage `json:"content"`
+				} `json:"messages"`
+				Plugins json.RawMessage `json:"plugins"`
+			}
+			if err := json.Unmarshal(body, &request); err != nil {
+				t.Fatal(err)
+			}
+			want := `[{"type":"text","text":"summarise this"},{"type":"file","file":{"filename":"list.pdf","file_data":"data:application/pdf;base64,JVBERi0="}}]`
+			if string(request.Messages[0].Content) != want {
+				t.Fatalf("content=%s want=%s", request.Messages[0].Content, want)
+			}
+			if string(request.Plugins) != tc.wantPlugins {
+				t.Fatalf("plugins=%s want=%s", request.Plugins, tc.wantPlugins)
+			}
+		})
 	}
 }
 

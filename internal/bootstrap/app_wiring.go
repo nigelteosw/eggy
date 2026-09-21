@@ -288,12 +288,13 @@ func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *mode
 	return discovery
 }
 
-// SupportsImages reports whether the model behind alias accepts image input.
-// known is false whenever the provider does not report modalities at all -- it
-// did not opt into discovery, cannot list, the model is absent from its
-// catalog, or the entry carries no architecture block. A caller sends the
-// image on unknown rather than reading silence as a refusal.
-func (d *modelDiscovery) SupportsImages(ctx context.Context, alias string) (supported, known bool) {
+// SupportsPart reports whether the model behind alias accepts input of one
+// content kind: image, or document (PDF). known is false whenever the
+// provider does not report modalities at all -- it did not opt into
+// discovery, cannot list, the model is absent from its catalog, or the entry
+// carries no architecture block. A caller sends the part on unknown rather
+// than reading silence as a refusal.
+func (d *modelDiscovery) SupportsPart(ctx context.Context, alias string, kind ports.ContentType) (supported, known bool) {
 	target, ok := d.aliases[alias]
 	if !ok || !target.reportsModalities {
 		return false, false
@@ -303,8 +304,15 @@ func (d *modelDiscovery) SupportsImages(ctx context.Context, alias string) (supp
 		return false, false
 	}
 	for _, model := range models {
-		if model.ID == target.model && model.SupportsImages != nil {
-			return *model.SupportsImages, true
+		if model.ID != target.model {
+			continue
+		}
+		answer := model.SupportsImages
+		if kind == ports.ContentTypeDocument {
+			answer = model.SupportsFiles
+		}
+		if answer != nil {
+			return *answer, true
 		}
 	}
 	return false, false

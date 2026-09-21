@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -136,11 +137,12 @@ type Options struct {
 	Now      func() time.Time
 	Location *time.Location
 	Timezone string
-	// ImageSupport reports whether the model behind an alias accepts image
-	// input, and whether that answer is known. Nil means no provider reports
-	// modalities, and every image turn proceeds. Only a known "no" blocks one:
-	// an unknown model is sent the image rather than refused on a guess.
-	ImageSupport func(ctx context.Context, alias string) (supported, known bool)
+	// PartSupport reports whether the model behind an alias accepts input of
+	// one content kind (image, document), and whether that answer is known.
+	// Nil means no provider reports modalities, and every such turn proceeds.
+	// Only a known "no" blocks one: an unknown model is sent the part rather
+	// than refused on a guess.
+	PartSupport func(ctx context.Context, alias string, kind ports.ContentType) (supported, known bool)
 }
 
 // Service runs turns. One instance serves every surface: Telegram and web are
@@ -373,13 +375,15 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	if err != nil {
 		return err
 	}
-	// An image handed to a model that has said it takes text only is dropped
-	// silently by some providers, which answer as if the image had never been
-	// sent. Refusing here, before the model call, is the only point at which
-	// the owner can be told the difference.
-	if len(input.Parts) > 0 && s.ImageSupport != nil {
-		if supported, known := s.ImageSupport(ctx, alias); known && !supported {
-			return s.Channel.Deliver(ctx, fmt.Sprintf("The current model (%s) does not accept images. Send the image's content as text, or switch models with /model.", alias))
+	// An image or file handed to a model that has said it does not take that
+	// kind is dropped silently by some providers, which answer as if it had
+	// never been sent. Refusing here, before the model call, is the only
+	// point at which the owner can be told the difference.
+	if s.PartSupport != nil {
+		for _, kind := range partKinds(input.Parts) {
+			if supported, known := s.PartSupport(ctx, alias, kind); known && !supported {
+				return s.Channel.Deliver(ctx, fmt.Sprintf("The current model (%s) does not accept %s. Send the content as text, or switch models with /model.", alias, partNoun(kind)))
+			}
 		}
 	}
 	effort, err := s.Runtime.ReasoningEffort(ctx)
@@ -549,17 +553,50 @@ func mergeSteered(messages []ports.Message) ports.Message {
 	return merged
 }
 
-const imageAttachmentMarker = "[image attached]"
+// partKinds lists each content kind present in parts once, in first-seen
+// order, so a message with three photos asks the model-support question once.
+func partKinds(parts []ports.ContentPart) []ports.ContentType {
+	var kinds []ports.ContentType
+	for _, part := range parts {
+		if !slices.Contains(kinds, part.Type) {
+			kinds = append(kinds, part.Type)
+		}
+	}
+	return kinds
+}
 
+func partNoun(kind ports.ContentType) string {
+	switch kind {
+	case ports.ContentTypeDocument:
+		return "files"
+	default:
+		return "images"
+	}
+}
+
+// durableMessageText is what the conversation record keeps of a message
+// that carried parts: the bytes never persist, so the record names what was
+// attached. The surface's placeholder prompts are dropped because they were
+// never the owner's words.
 func durableMessageText(message ports.Message) string {
 	text := strings.TrimSpace(message.Content)
 	if len(message.Parts) == 0 {
 		return text
 	}
-	if text == "" || text == "Describe this image." {
-		return imageAttachmentMarker
+	if text == "Describe this image." || text == "Read this file." {
+		text = ""
 	}
-	return text + "\n" + imageAttachmentMarker
+	for _, part := range message.Parts {
+		marker := "[image attached]"
+		if part.Type == ports.ContentTypeDocument {
+			marker = "[file attached: " + part.Filename + "]"
+		}
+		if text != "" {
+			text += "\n"
+		}
+		text += marker
+	}
+	return text
 }
 
 // Active reports whether a turn is currently executing.

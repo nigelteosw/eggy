@@ -696,7 +696,7 @@ func TestImageTurnIsRefusedWhenTheModelCannotSeeImages(t *testing.T) {
 		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
-		ImageSupport: func(context.Context, string) (bool, bool) { return false, true },
+		PartSupport: func(context.Context, string, ports.ContentType) (bool, bool) { return false, true },
 	})
 	err := service.OwnerMessage(context.Background(), ports.Message{
 		Content: "Describe this image.",
@@ -713,13 +713,43 @@ func TestImageTurnIsRefusedWhenTheModelCannotSeeImages(t *testing.T) {
 	}
 }
 
+// A file is gated by its own answer, not the image one: a model may see
+// images and still not take PDFs, and the refusal names files.
+func TestDocumentTurnIsRefusedWhenTheModelCannotReadFiles(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: "should not run"}
+	var asked []ports.ContentType
+	service := New(Options{
+		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		PartSupport: func(_ context.Context, _ string, kind ports.ContentType) (bool, bool) {
+			asked = append(asked, kind)
+			return kind == ports.ContentTypeImage, true
+		},
+	})
+	err := service.OwnerMessage(context.Background(), ports.Message{
+		Content: "Read this file.",
+		Parts:   []ports.ContentPart{{Type: ports.ContentTypeDocument, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte{1}}},
+	}, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 || asked[0] != ports.ContentTypeDocument || len(loop.inputs) != 0 {
+		t.Fatalf("asked=%v inputs=%#v", asked, loop.inputs)
+	}
+	if len(channel.delivered) != 1 || !strings.Contains(channel.delivered[0], "does not accept files") {
+		t.Fatalf("delivered=%#v", channel.delivered)
+	}
+}
+
 // Support that is absent, unknown, or confirmed all fall through to the model
 // call. Only a positive "no" blocks, so a provider that does not report
 // modalities keeps working exactly as before.
 func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
-	cases := map[string]func(context.Context, string) (bool, bool){
-		"supported": func(context.Context, string) (bool, bool) { return true, true },
-		"unknown":   func(context.Context, string) (bool, bool) { return false, false },
+	cases := map[string]func(context.Context, string, ports.ContentType) (bool, bool){
+		"supported": func(context.Context, string, ports.ContentType) (bool, bool) { return true, true },
+		"unknown":   func(context.Context, string, ports.ContentType) (bool, bool) { return false, false },
 		"unwired":   nil,
 	}
 	for name, support := range cases {
@@ -730,7 +760,7 @@ func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
 				Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
 				Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 				Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
-				ImageSupport: support,
+				PartSupport: support,
 			})
 			err := service.OwnerMessage(context.Background(), ports.Message{
 				Content: "Describe this image.",

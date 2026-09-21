@@ -109,7 +109,7 @@ func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink 
 		handler.WithPairingConsumer(w.pairing)
 	}
 	if w.client != nil {
-		handler.WithImageDownloader(w.client).WithReplier(w.client)
+		handler.WithFileDownloader(w.client).WithReplier(w.client)
 	}
 	if w.selector != nil {
 		handler.WithSelectionResolver(w.selector.Resolve)

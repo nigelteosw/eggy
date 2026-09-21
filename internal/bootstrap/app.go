@@ -452,8 +452,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Traces:    tracer,
 		// The one discovery built above also answers whether the active model
 		// can see images, so the panel and the turn path cannot disagree.
-		ImageSupport: discovery.SupportsImages,
-		Manifest:     manifest, Logger: app.logger, Now: app.now,
+		PartSupport: discovery.SupportsPart,
+		Manifest:    manifest, Logger: app.logger, Now: app.now,
 		// The owner's timezone, not the scheduler's quiet-hours one: this is
 		// what renders the turn's trusted temporal context.
 		Location: location, Timezone: timezone,

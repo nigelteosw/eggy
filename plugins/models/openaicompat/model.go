@@ -53,6 +53,8 @@ type requestBody struct {
 	// Provider is OpenRouter's routing preference, forwarded as the bytes the
 	// alias was configured with.
 	Provider json.RawMessage `json:"provider,omitempty"`
+	// Plugins is OpenRouter's file-parser setting, sent only with a document.
+	Plugins json.RawMessage `json:"plugins,omitempty"`
 }
 
 type reasoningOptions struct {
@@ -99,11 +101,25 @@ type providerContentPart struct {
 	Type     string            `json:"type"`
 	Text     string            `json:"text,omitempty"`
 	ImageURL *providerImageURL `json:"image_url,omitempty"`
+	File     *providerFile     `json:"file,omitempty"`
 }
 
 type providerImageURL struct {
 	URL string `json:"url"`
 }
+
+// providerFile is the Chat Completions file part: a name the model sees and
+// the bytes as a data URL, the same spelling OpenAI and OpenRouter accept.
+type providerFile struct {
+	Filename string `json:"filename"`
+	FileData string `json:"file_data"`
+}
+
+// filePlugins is OpenRouter's file-parser setting. Its default engine is a
+// paid OCR pass over every page; "native" hands the PDF to the model itself,
+// which is what a model the catalog lists as taking files is for, and what
+// the turn gate has already checked before a document reaches this adapter.
+var filePlugins = json.RawMessage(`[{"id":"file-parser","pdf":{"engine":"native"}}]`)
 
 type providerTool struct {
 	Type     string `json:"type"`
@@ -176,6 +192,9 @@ func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (req
 			return requestBody{}, nil, err
 		}
 		body.Messages = append(body.Messages, translated)
+		if m.openRouter && body.Plugins == nil && slices.ContainsFunc(message.Parts, isDocument) {
+			body.Plugins = filePlugins
+		}
 	}
 	for _, tool := range input.Tools {
 		translated := providerTool{Type: "function"}
@@ -184,6 +203,8 @@ func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (req
 	}
 	return body, headers, nil
 }
+
+func isDocument(part ports.ContentPart) bool { return part.Type == ports.ContentTypeDocument }
 
 // translateMessage spells one port message the way the wire takes it. Text
 // stays a string; a message carrying parts becomes a content array, since
@@ -196,18 +217,24 @@ func (m *Model) translateMessage(message ports.Message) (providerRequestMessage,
 	if len(message.Parts) > 0 {
 		content := []providerContentPart{{Type: "text", Text: message.Content}}
 		for _, part := range message.Parts {
-			if part.Type != ports.ContentTypeImage {
-				return providerRequestMessage{}, fmt.Errorf("unsupported message content type %q", part.Type)
-			}
 			if strings.TrimSpace(part.MediaType) == "" {
-				return providerRequestMessage{}, errors.New("image content is missing a media type")
+				return providerRequestMessage{}, fmt.Errorf("%s content is missing a media type", part.Type)
 			}
 			if len(part.Data) == 0 {
-				return providerRequestMessage{}, errors.New("image content is empty")
+				return providerRequestMessage{}, fmt.Errorf("%s content is empty", part.Type)
 			}
-			content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{
-				URL: "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data),
-			}})
+			dataURL := "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data)
+			switch part.Type {
+			case ports.ContentTypeImage:
+				content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{URL: dataURL}})
+			case ports.ContentTypeDocument:
+				if strings.TrimSpace(part.Filename) == "" {
+					return providerRequestMessage{}, errors.New("document content is missing a filename")
+				}
+				content = append(content, providerContentPart{Type: "file", File: &providerFile{Filename: part.Filename, FileData: dataURL}})
+			default:
+				return providerRequestMessage{}, fmt.Errorf("unsupported message content type %q", part.Type)
+			}
 		}
 		translated.Content = content
 	}
@@ -339,7 +366,8 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 		}
 		if entry.Architecture != nil {
 			supportsImages := slices.Contains(entry.Architecture.InputModalities, "image")
-			model.SupportsImages = &supportsImages
+			supportsFiles := slices.Contains(entry.Architecture.InputModalities, "file")
+			model.SupportsImages, model.SupportsFiles = &supportsImages, &supportsFiles
 		}
 		models = append(models, model)
 	}

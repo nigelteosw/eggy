@@ -136,6 +136,11 @@ type Options struct {
 	Now      func() time.Time
 	Location *time.Location
 	Timezone string
+	// ImageSupport reports whether the model behind an alias accepts image
+	// input, and whether that answer is known. Nil means no provider reports
+	// modalities, and every image turn proceeds. Only a known "no" blocks one:
+	// an unknown model is sent the image rather than refused on a guess.
+	ImageSupport func(ctx context.Context, alias string) (supported, known bool)
 }
 
 // Service runs turns. One instance serves every surface: Telegram and web are
@@ -367,6 +372,15 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	alias, err := s.Runtime.SelectedModel(ctx)
 	if err != nil {
 		return err
+	}
+	// An image handed to a model that has said it takes text only is dropped
+	// silently by some providers, which answer as if the image had never been
+	// sent. Refusing here, before the model call, is the only point at which
+	// the owner can be told the difference.
+	if len(input.Parts) > 0 && s.ImageSupport != nil {
+		if supported, known := s.ImageSupport(ctx, alias); known && !supported {
+			return s.Channel.Deliver(ctx, fmt.Sprintf("The current model (%s) does not accept images. Send the image's content as text, or switch models with /model.", alias))
+		}
 	}
 	effort, err := s.Runtime.ReasoningEffort(ctx)
 	if err != nil {

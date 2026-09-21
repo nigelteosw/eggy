@@ -413,6 +413,32 @@ func TestListModelsReadsCatalogAsAnAuthenticatedGET(t *testing.T) {
 	}
 }
 
+// OpenRouter reports what a model accepts as input. An entry that carries the
+// architecture block states the answer either way; an entry that omits it has
+// no answer, which is what keeps a provider that does not report modalities
+// from being read as text-only.
+func TestListModelsParsesImageModalityOnlyWhenReported(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"vendor/vision","architecture":{"input_modalities":["text","image"]}},{"id":"vendor/text-only","architecture":{"input_modalities":["text"]}},{"id":"vendor/silent"}]}`), nil
+	})}
+	models, err := New("https://openrouter.ai/api/v1", "key", client).ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("models=%#v", models)
+	}
+	if models[0].SupportsImages == nil || !*models[0].SupportsImages {
+		t.Fatalf("a model listing image input must report support: %#v", models[0].SupportsImages)
+	}
+	if models[1].SupportsImages == nil || *models[1].SupportsImages {
+		t.Fatalf("a model listing text only must report false: %#v", models[1].SupportsImages)
+	}
+	if models[2].SupportsImages != nil {
+		t.Fatalf("a model with no architecture must leave support unknown: %#v", models[2].SupportsImages)
+	}
+}
+
 func TestListModelsReportsAuthenticationFailure(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusUnauthorized, `{"error":"bad key"}`), nil

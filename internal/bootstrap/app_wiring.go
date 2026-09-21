@@ -250,10 +250,26 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 // because a provider with no catalog is a normal, working provider.
 type modelDiscovery struct {
 	providers map[string]ports.ModelCatalog
+	// aliases maps a configured model alias to the provider and model ID it
+	// names, so image support can be answered for the alias a turn resolved
+	// without the kernel ever seeing startup config.
+	aliases map[string]modelAliasTarget
+}
+
+type modelAliasTarget struct {
+	provider, model string
+	// reportsModalities is true only for a provider that publishes input
+	// modalities. On this wire format that is OpenRouter alone, so the turn
+	// path must not spend a catalog request asking anyone else -- a provider
+	// that reports nothing would only ever answer "unknown" anyway.
+	reportsModalities bool
 }
 
 func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *modelDiscovery {
-	discovery := &modelDiscovery{providers: map[string]ports.ModelCatalog{}}
+	discovery := &modelDiscovery{
+		providers: map[string]ports.ModelCatalog{},
+		aliases:   make(map[string]modelAliasTarget, len(cfg.ModelAliases)),
+	}
 	for name, provider := range cfg.Providers {
 		if !provider.DiscoversModels() {
 			continue
@@ -262,7 +278,36 @@ func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *mode
 			discovery.providers[name] = listable
 		}
 	}
+	for alias, configured := range cfg.ModelAliases {
+		discovery.aliases[alias] = modelAliasTarget{
+			provider:          configured.Provider,
+			model:             configured.Model,
+			reportsModalities: cfg.Providers[configured.Provider].IsOpenRouter(),
+		}
+	}
 	return discovery
+}
+
+// SupportsImages reports whether the model behind alias accepts image input.
+// known is false whenever the provider does not report modalities at all -- it
+// did not opt into discovery, cannot list, the model is absent from its
+// catalog, or the entry carries no architecture block. A caller sends the
+// image on unknown rather than reading silence as a refusal.
+func (d *modelDiscovery) SupportsImages(ctx context.Context, alias string) (supported, known bool) {
+	target, ok := d.aliases[alias]
+	if !ok || !target.reportsModalities {
+		return false, false
+	}
+	models, err := d.DiscoverModels(ctx, target.provider)
+	if err != nil {
+		return false, false
+	}
+	for _, model := range models {
+		if model.ID == target.model && model.SupportsImages != nil {
+			return *model.SupportsImages, true
+		}
+	}
+	return false, false
 }
 
 func (d *modelDiscovery) DiscoverableProviders() []string {

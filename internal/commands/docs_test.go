@@ -69,3 +69,61 @@ func TestEveryAdvertisedCommandDispatches(t *testing.T) {
 		}
 	}
 }
+
+func TestTopicHelpHasSyntaxExampleAndNextStep(t *testing.T) {
+	service := New(Options{})
+	topics := map[string][]string{
+		"model":  {"/model providers", "/model available", "/model add", "/model effort", "/model thinking", "personal", "shared"},
+		"mcp":    {"/mcp add", "/mcp login", "shared", "unavailable"},
+		"google": {"/google set", "/google login", "expected_email", "shared", "unavailable"},
+		"mode":   {"/mode", "strict", "normal", "auto", "personal", "memory", "MCP"},
+	}
+	for topic, fragments := range topics {
+		output := run(t, service, "/help "+topic)
+		for _, fragment := range append(fragments, "Example:", "Next:") {
+			if !strings.Contains(output, fragment) {
+				t.Errorf("%s help lacks %q: %s", topic, fragment, output)
+			}
+		}
+	}
+	for _, fragment := range []string{"Conversation", "Personal settings", "Shared administration", "durable memory", "current conversation", "/help model"} {
+		if output := run(t, service, "/help"); !strings.Contains(output, fragment) {
+			t.Errorf("overview lacks %q: %s", fragment, output)
+		}
+	}
+	if output := run(t, service, "/not-a-command"); len(output) > 100 || !strings.Contains(output, "/help") {
+		t.Fatalf("unknown command reply=%s", output)
+	}
+	if output := run(t, service, "/help model extra"); !strings.Contains(output, "Usage: /help") {
+		t.Fatalf("surplus help args=%s", output)
+	}
+}
+
+func TestNoArgumentCommandsRejectSurplusBeforeSideEffects(t *testing.T) {
+	restarter := &fakeRestarter{}
+	turns := &fakeTurns{}
+	service := New(Options{Restarter: restarter, Turns: turns})
+	for _, command := range []string{"restart", "clear", "stop", "status", "web"} {
+		output := run(t, service, "/"+command+" surplus")
+		if output != "Usage: /"+command {
+			t.Errorf("/%s: %s", command, output)
+		}
+	}
+	if restarter.restarts != 0 || turns.stopped {
+		t.Fatal("invalid command had side effects")
+	}
+}
+
+func TestKnownSubcommandsRejectSurplusArguments(t *testing.T) {
+	service := New(Options{AgentRuntime: &fakeModels{selected: "fast"}})
+	for _, command := range []string{"/mcp list extra", "/google status extra", "/google logout extra", "/model providers extra", "/mode normal extra"} {
+		output := run(t, service, command)
+		if strings.HasPrefix(command, "/mode ") {
+			if output != "Usage: /mode [strict|normal|auto]" {
+				t.Errorf("%s: %s", command, output)
+			}
+		} else if output != "Usage: "+strings.TrimSuffix(command, " extra") {
+			t.Errorf("%s: %s", command, output)
+		}
+	}
+}

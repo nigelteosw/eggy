@@ -35,6 +35,33 @@ func TestLoopSelectsAliasAndAccumulatesUsage(t *testing.T) {
 	}
 }
 
+// This is the small multi-step harness regression: the model must be able to
+// use one lookup result to choose the next lookup, then produce the owner-facing
+// answer without replaying either tool call.
+func TestLoopCompletesMultiStepLookupWithExpectedCallCounts(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "1", Name: "lookup", Arguments: json.RawMessage(`{"key":"project"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "2", Name: "lookup", Arguments: json.RawMessage(`{"key":"deploy-42"}`)}}}},
+		{Message: ports.Message{Role: ports.RoleAssistant, Content: "Deploy 42 is healthy."}},
+	}}
+	tool := &scriptedTool{name: "lookup", replies: []string{
+		`{"latest_deploy":"deploy-42"}`,
+		`{"status":"healthy"}`,
+	}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, StaticTools{tool}, ContextPolicy{})
+
+	result, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "Check the latest deploy"}, nil, RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Message.Content != "Deploy 42 is healthy." {
+		t.Fatalf("answer=%q", result.Message.Content)
+	}
+	if tool.calls != 2 || len(model.requests) != 3 {
+		t.Fatalf("tool calls=%d model calls=%d", tool.calls, len(model.requests))
+	}
+}
+
 func TestLoopCarriesImagePartsOnTheOwnerMessage(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Role: ports.RoleAssistant, Content: "seen"}}}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, nil, ContextPolicy{})

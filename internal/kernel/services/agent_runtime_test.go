@@ -173,3 +173,23 @@ func TestPersonalModelSelectionDoesNotChangeAnotherAccount(t *testing.T) {
 		t.Fatalf("reset model=%q err=%v", got, err)
 	}
 }
+
+func TestAgentRuntimeResetsEffortEvenOnAModelWithoutEfforts(t *testing.T) {
+	runtime := NewAgentRuntime(newStateStore(t), "reasoner", []string{"reasoner", "plain"}, map[string][]string{"reasoner": {"high"}})
+	ctx := ports.WithPrincipal(t.Context(), ports.Principal{AccountID: "alice"})
+	if err := runtime.SelectReasoningEffort(ctx, "high"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.SelectModel(ctx, "plain"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.SelectReasoningEffort(ctx, ""); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if err := runtime.SelectModel(ctx, "reasoner"); err != nil {
+		t.Fatal(err)
+	}
+	if effort, err := runtime.ReasoningEffort(ctx); err != nil || effort != "" {
+		t.Fatalf("effort=%q err=%v", effort, err)
+	}
+}

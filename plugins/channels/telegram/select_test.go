@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 func TestSelectorDeliversModelAuthoredOptionsAndResolvesOnce(t *testing.T) {
@@ -27,7 +29,7 @@ func TestSelectorDeliversModelAuthoredOptionsAndResolvesOnce(t *testing.T) {
 	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
 	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient), func() time.Time { return now }, 10*time.Minute)
 
-	result, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{
+	result, err := selector.Tool().Execute(selectionContext("alice"), json.RawMessage(`{
 		"prompt":"Which deployment?",
 		"options":[
 			{"label":"Production","value":"production"},
@@ -62,10 +64,10 @@ func TestSelectorDeliversModelAuthoredOptionsAndResolvesOnce(t *testing.T) {
 	if len(firstCallback) > 64 || len(secondCallback) > 64 {
 		t.Fatalf("callback exceeds Telegram limit: %q %q", firstCallback, secondCallback)
 	}
-	if value, ok := selector.Resolve(secondCallback); !ok || value != "staging" {
+	if value, ok := selector.Resolve(selectionContext("alice"), secondCallback); !ok || value != "staging" {
 		t.Fatalf("resolved value=%q ok=%v", value, ok)
 	}
-	if value, ok := selector.Resolve(secondCallback); ok || value != "" {
+	if value, ok := selector.Resolve(selectionContext("alice"), secondCallback); ok || value != "" {
 		t.Fatalf("duplicate resolved value=%q ok=%v", value, ok)
 	}
 }
@@ -83,15 +85,15 @@ func TestSelectorRejectsInvalidOrOverlappingQuestions(t *testing.T) {
 		`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}],"extra":true}`,
 	}
 	for _, raw := range cases {
-		if _, err := selector.Tool().Execute(context.Background(), json.RawMessage(raw)); err == nil {
+		if _, err := selector.Tool().Execute(selectionContext("alice"), json.RawMessage(raw)); err == nil {
 			t.Fatalf("accepted invalid input: %s", raw)
 		}
 	}
 
-	if _, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{"prompt":"First","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
+	if _, err := selector.Tool().Execute(selectionContext("alice"), json.RawMessage(`{"prompt":"First","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{"prompt":"Second","options":[{"label":"C","value":"c"},{"label":"D","value":"d"}]}`)); err == nil {
+	if _, err := selector.Tool().Execute(selectionContext("alice"), json.RawMessage(`{"prompt":"Second","options":[{"label":"C","value":"c"},{"label":"D","value":"d"}]}`)); err == nil {
 		t.Fatal("accepted a second active selection")
 	}
 }
@@ -101,14 +103,14 @@ func TestSelectorExpiresPendingQuestion(t *testing.T) {
 	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
 	})}), func() time.Time { return now }, time.Minute)
-	if _, err := selector.Tool().Execute(context.Background(), json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
+	if _, err := selector.Tool().Execute(selectionContext("alice"), json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
 		t.Fatal(err)
 	}
 	selector.mu.Lock()
-	callback := "select:" + selector.pending.id + ":0"
+	callback := "select:" + selector.pending[selectionScope{"alice", "telegram"}].id + ":0"
 	selector.mu.Unlock()
 	now = now.Add(2 * time.Minute)
-	if value, ok := selector.Resolve(callback); ok || value != "" {
+	if value, ok := selector.Resolve(selectionContext("alice"), callback); ok || value != "" {
 		t.Fatalf("expired selection resolved value=%q ok=%v", value, ok)
 	}
 }
@@ -118,5 +120,78 @@ func TestSelectorRefusesCallsFromWebChat(t *testing.T) {
 	ctx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "thread-1"})
 	if _, err := selector.Tool().Execute(ctx, json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err == nil {
 		t.Fatal("web chat was allowed to send a Telegram selection")
+	}
+}
+
+func selectionContext(account string) context.Context {
+	return ports.WithPrincipal(context.Background(), ports.Principal{AccountID: account})
+}
+
+func TestSelectorAllowsIndependentAccounts(t *testing.T) {
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
+	})}), time.Now, time.Minute)
+	for _, account := range []string{"alice", "bob"} {
+		if _, err := selector.Tool().Execute(selectionContext(account), json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)); err != nil {
+			t.Fatalf("%s could not ask an independent question: %v", account, err)
+		}
+	}
+}
+
+func TestSelectorOwnershipBoundsAndCleanup(t *testing.T) {
+	now := time.Now()
+	failDelivery := false
+	selector := NewSelector(NewClient("https://api.telegram.test", "token", FixedChat("99"), &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		if failDelivery {
+			return nil, fmt.Errorf("delivery failed")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{}}`))}, nil
+	})}), func() time.Time { return now }, time.Minute)
+	raw := json.RawMessage(`{"prompt":"Pick","options":[{"label":"A","value":"a"},{"label":"B","value":"b"}]}`)
+	if _, err := selector.Tool().Execute(context.Background(), raw); err == nil {
+		t.Fatal("missing principal accepted")
+	}
+	for _, account := range []string{"alice", "bob"} {
+		if _, err := selector.Tool().Execute(selectionContext(account), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	callback := "select:" + selector.pending[selectionScope{"alice", "telegram"}].id + ":0"
+	for _, ctx := range []context.Context{context.Background(), selectionContext("bob"), destination.With(selectionContext("alice"), destination.Destination{Kind: destination.Web, ThreadID: "web"})} {
+		if _, ok := selector.Resolve(ctx, callback); ok {
+			t.Fatal("foreign selection accepted")
+		}
+	}
+	for _, invalid := range []string{"select:stale:0", strings.TrimSuffix(callback, ":0") + ":-1", strings.TrimSuffix(callback, ":0") + ":9", "select:bad:not-a-number"} {
+		if _, ok := selector.Resolve(selectionContext("alice"), invalid); ok {
+			t.Fatal("invalid selection accepted")
+		}
+	}
+	if value, ok := selector.Resolve(selectionContext("alice"), callback); !ok || value != "a" {
+		t.Fatal("foreign callback consumed alice's selection")
+	}
+	if _, ok := selector.Resolve(selectionContext("alice"), callback); ok {
+		t.Fatal("repeated selection accepted")
+	}
+	bobCallback := "select:" + selector.pending[selectionScope{"bob", "telegram"}].id + ":1"
+	if value, ok := selector.Resolve(selectionContext("bob"), bobCallback); !ok || value != "b" {
+		t.Fatal("bob's selection lost")
+	}
+	failDelivery = true
+	if _, err := selector.Tool().Execute(selectionContext("alice"), raw); err == nil || len(selector.pending) != 0 {
+		t.Fatal("failed delivery was retained")
+	}
+	failDelivery = false
+	for i := 0; i < maxPendingSelections; i++ {
+		if _, err := selector.Tool().Execute(selectionContext(fmt.Sprint(i)), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := selector.Tool().Execute(selectionContext("overflow"), raw); err == nil {
+		t.Fatal("unbounded selections")
+	}
+	now = now.Add(time.Minute)
+	if _, err := selector.Tool().Execute(selectionContext("overflow"), raw); err != nil || len(selector.pending) != 1 {
+		t.Fatalf("expired entries not reclaimed: %d, %v", len(selector.pending), err)
 	}
 }

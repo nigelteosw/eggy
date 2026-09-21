@@ -58,7 +58,7 @@ type WebhookHandler struct {
 	// events the rest of Eggy handles. May be nil (fake-adapter mode).
 	acknowledger     CallbackAcknowledger
 	downloader       ImageDownloader
-	resolveSelection func(string) (string, bool)
+	resolveSelection func(context.Context, string) (string, bool)
 	pairing          PairingConsumer
 }
 
@@ -71,7 +71,7 @@ func NewWebhookHandler(resolve SenderResolver, secret string, sink EventSink, ac
 	return &WebhookHandler{resolve: resolve, secret: secret, sink: sink, acknowledger: acknowledger}
 }
 
-func (h *WebhookHandler) WithSelectionResolver(resolve func(string) (string, bool)) *WebhookHandler {
+func (h *WebhookHandler) WithSelectionResolver(resolve func(context.Context, string) (string, bool)) *WebhookHandler {
 	h.resolveSelection = resolve
 	return h
 }
@@ -203,7 +203,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// button, and must not stop the decision itself from being handled.
 		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID)
 	}
-	event, err := h.normalize(r.Context(), incoming)
+	verified := ports.WithPrincipal(r.Context(), ports.Principal{AccountID: accountID})
+	verified = destination.With(verified, destination.Destination{Kind: destination.Telegram})
+	event, err := h.normalize(verified, incoming)
 	if err == nil {
 		// The owner is the resolved account, never the sender's number as
 		// text: the dispatcher validates it against configured accounts.
@@ -260,8 +262,9 @@ func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events
 			if h.resolveSelection == nil {
 				return events.Event{}, fmt.Errorf("invalid selection callback")
 			}
-			value, ok := h.resolveSelection(incoming.Callback.Data)
-			if !ok {
+			value, ok := h.resolveSelection(ctx, incoming.Callback.Data)
+			if !ok || strings.HasPrefix(strings.TrimSpace(value), "/") {
+				// A model-authored choice is never authority to run a direct command.
 				return events.Event{}, fmt.Errorf("invalid or expired selection callback")
 			}
 			payload, _ := json.Marshal(events.Message{Text: value})

@@ -37,6 +37,9 @@ func (s *CommandService) googleCommand(ctx context.Context, args []string) (stri
 	if len(args) > 0 {
 		action = args[0]
 	}
+	if (action == "status" || action == "logout") && len(args) > 1 {
+		return "Usage: /google " + action, true, nil
+	}
 	// Configuration is reachable before the capability exists -- that is the
 	// point of having it here. Everything else needs a running adapter, which
 	// only a restart after a config write can produce.

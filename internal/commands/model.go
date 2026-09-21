@@ -32,13 +32,29 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		if err != nil {
 			return "", true, err
 		}
-		return fmt.Sprintf("**Active model:** %s\n**Available:** %s", selected, strings.Join(s.ModelAliases, ", ")), true, nil
+		effort, err := s.AgentRuntime.ReasoningEffort(ctx)
+		if err != nil {
+			return "", true, err
+		}
+		if effort == "" {
+			effort = "default (provider decides)"
+		}
+		return fmt.Sprintf("**Active model:** %s\n**Effort:** %s\n**Available:** %s\nSettings: /model effort, /model thinking", selected, effort, strings.Join(s.ModelAliases, ", ")), true, nil
+	}
+	// A multiword settings form is unambiguous even if "settings" is an alias.
+	if args[0] == "settings" && len(args) > 1 {
+		return s.modelSetting(ctx, args[1:])
 	}
 	// A subcommand only wins when no configured alias answers to that name, so
 	// adding these words cannot make an existing alias unselectable.
 	if _, taken := s.aliasSet[args[0]]; !taken {
 		switch args[0] {
+		case "effort", "thinking", "settings":
+			return s.modelSetting(ctx, args)
 		case "providers":
+			if len(args) != 1 {
+				return "Usage: /model providers", true, nil
+			}
 			return s.modelProviders(), true, nil
 		case "available":
 			return s.modelAvailable(ctx, args[1:]), true, nil
@@ -47,7 +63,7 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		}
 	}
 	if len(args) != 1 {
-		return "Usage: /model <alias> | /model providers | /model available <provider> [filter] | /model add <alias> <provider> <model>", true, nil
+		return modelUsage, true, nil
 	}
 	alias := args[0]
 	if alias == "default" {
@@ -60,6 +76,54 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		alias = s.DefaultModel
 	}
 	return "Model set to " + alias + ".", true, nil
+}
+
+// modelSetting delegates validation and persistence to the same runtime as web.
+func (s *CommandService) modelSetting(ctx context.Context, args []string) (string, bool, error) {
+	if len(args) == 0 || len(args) > 2 || (args[0] != "effort" && args[0] != "thinking") {
+		return modelUsage, true, nil
+	}
+	if args[0] == "thinking" {
+		if len(args) == 2 {
+			if args[1] != "on" && args[1] != "off" {
+				return "Usage: /model thinking [on|off]", true, nil
+			}
+			if err := s.AgentRuntime.SetShowThinking(ctx, args[1] == "on"); err != nil {
+				return "", true, err
+			}
+		}
+		show, err := s.AgentRuntime.ShowThinking(ctx)
+		if err != nil {
+			return "", true, err
+		}
+		value := "off"
+		if show {
+			value = "on"
+		}
+		return "Thinking visibility: " + value + ". Shows provider-supplied reasoning; does not enable reasoning.", true, nil
+	}
+	if len(args) == 2 {
+		effort := args[1]
+		if effort == "default" {
+			effort = ""
+		}
+		if err := s.AgentRuntime.SelectReasoningEffort(ctx, effort); err != nil {
+			return "Could not set effort: " + err.Error(), true, nil
+		}
+	}
+	selected, err := s.AgentRuntime.SelectedModel(ctx)
+	if err != nil {
+		return "", true, err
+	}
+	effort, err := s.AgentRuntime.ReasoningEffort(ctx)
+	if err != nil {
+		return "", true, err
+	}
+	if effort == "" {
+		effort = "default (provider decides)"
+	}
+	choices := append([]string{"default"}, s.AgentRuntime.ReasoningEfforts(selected)...)
+	return fmt.Sprintf("Effort for %s: %s.\nChoices: %s\nUse /model settings effort <value>.", selected, effort, strings.Join(choices, ", ")), true, nil
 }
 
 // modelProviders names the providers a catalog can be asked for. It reports

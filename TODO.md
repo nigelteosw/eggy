@@ -4,24 +4,74 @@ Unfinished work only; delete items when they land. Durable rules and settled
 decisions live in `AGENTS.md`; current behavior belongs in `README.md` and the
 docs site.
 
-Reviewed against the checkout on 2026-09-06. Findings below are from source
-inspection, not production measurements. S/M/L indicate relative effort, not
-delivery promises. Line budgets are estimates to refine before implementation.
+Commands and Telegram reviewed against the checkout on 2026-09-21; the
+remaining performance backlog was last reviewed on 2026-09-06. Findings below
+are from source inspection, not production measurements. S/M/L indicate
+relative effort, not delivery promises. Line budgets are estimates to refine
+before implementation.
 
-## P1 — Establish a small harness regression set (S, alongside fixes)
+## P2 — Make status actionable and bounded (S–M)
 
-Extend existing Go fakes and integration tests rather than add an evaluation
-framework. Cover multi-step lookup, steering across compaction, approval,
-rejection and expiry, MCP reconnect, provider failure, and unprompted turns
-attempting forbidden tools. Assert outcomes and underlying call counts.
+`CommandService.status` already reports model, mode, pending approval summaries,
+and MCP readiness. Extend it rather than create a parallel diagnostics command.
 
-For an owner-authorized live sample, use existing traces to compare task success,
-model calls, prompt/cached tokens, tool failures, and elapsed time. Keep private
-trace bodies and credentials out of fixtures. Do not claim production improvement
-without a comparable baseline.
+- Add effective reasoning settings and a compact shared Google connection state
+  using existing runtime reads. Show shared identity and a recovery command when
+  authorization needs attention; omit unconfigured integration sections.
+- Bound approval summaries and integration detail, with remaining counts and a
+  `/web` pointer for full inspection. Treat expired pending entries consistently
+  with the approval authority; do not add command-side state mutation.
+- Tests: missing integration, failed status read, many approvals, expiry, stable
+  ordering, account isolation, and consistent mode wording across web and chat.
 
-Deletion budget: 0 production lines initially, 0 config keys/tools/record
-types/loops; reuse existing tests and traces.
+Deletion budget: extend existing status; ~40–80 net production lines, 0 config
+keys/tools/record types/loops.
+
+## P2 — Finish Telegram onboarding and web handoff (S–M)
+
+The webhook already consumes `/start <pairing-token>` for an unlinked private
+sender, and `/web` already issues a single-use account-bound sign-in link.
+Build on those paths.
+
+- Add a useful bare `/start` for linked users: brief introduction, `/help`, and
+  `/web`. After successful pairing, send a clear success message and next step;
+  currently the pairing branch returns HTTP 204 without a chat reply.
+- Keep unlinked users outside the harness except for token redemption. Verify
+  consumed/expired tokens, repeated updates, already-linked users opening a
+  pairing link, and conflicting identity bindings have deterministic outcomes.
+- Ensure delivery failure after successful pairing cannot repeat the mutation.
+  Reuse the pairing authority and update-deduplication machinery.
+- Keep `/web` explicit and sender-verified. Do not mint login links from generic
+  selection callbacks or put them into model context, durable memory, or logs.
+- Correct Google setup guidance for the required `expected_email`: reuse the
+  existing config mutation authority or direct users to the panel's identity
+  setting, rather than leave `/google set` looking like a complete setup path.
+
+Deletion budget: extend existing start/pairing/help paths; ~40–90 net production
+lines, 0 config keys/tools/new durable record types/loops.
+
+## P2 — Improve Telegram feedback and delivery resilience (M)
+
+Typing indicators, message splitting, HTML fallback, image input, quoted replies,
+approval buttons, and transient choices already exist. Improve their edges.
+
+- Give expired or already-used selection buttons an actionable response instead
+  of only clearing the spinner. Remove obsolete keyboards where existing message
+  editing supports it; preserve ownership checks before revealing details.
+- Respond clearly to unsupported attachments. The current normalizer rejects
+  non-image documents and does not represent voice input; avoid silent empty
+  turns. Distinguish permanent unsupported input from retryable download failure
+  so webhook redelivery does not create repeated notices or model calls.
+- Extend the Telegram API error decoder to retain structured rate-limit details.
+  Verify current official Bot API behavior at implementation time, then add
+  bounded, cancellation-aware waits for explicit retryable rejections. Do not
+  blindly replay sends after ambiguous transport failures that may have delivered.
+- Test formatting/splitting around long help, Unicode, code blocks and buttons,
+  plus cancellation and API rejection using the existing fake HTTP server.
+
+Deletion budget: replace generic error decoding and silent callback handling;
+~80–150 net production lines, 0 config keys/tools/durable record types/background
+loops. Reuse the current client and turn lifecycle.
 
 ## P2 — Measure remaining prompt and provider costs (S–M)
 
@@ -63,8 +113,6 @@ artificially optional.
 
 Deletion budget: move existing construction under existing conditions; neutral
 or fewer production lines, 0 config keys/tools/record types/loops.
-
-
 ## Later — Capabilities requiring demonstrated demand
 
 Choose these after correctness work, based on owner use rather than feature parity.
@@ -93,11 +141,13 @@ Deletion budget: replace stale prose, 0 runtime additions.
 
 ## Delivery order and verification
 
-1. Build the harness regression set around the landed context-preservation
-   work. This is the biggest remaining correctness win.
-2. Measure prompt/provider costs and bound optional initialization and skills.
-   Let results determine performance work.
-3. Select at most one demand-backed capability from the later list.
+1. Improve bounded status, onboarding, and delivery feedback in separate changes.
+   Add relevant cases to the harness regression set as each lands.
+2. Continue the existing prompt/provider and optional-initialization backlog.
+3. Choose voice input only after dictation demand justifies its adapter cost.
+   Keep schedules, watch lists, traces, and larger configuration edits reachable
+   through existing tools and `/web`; add direct chat commands only for a concrete
+   repeated workflow, not to mirror every panel page.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet test race build`. Run `make smoke` when Docker is available;

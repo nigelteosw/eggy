@@ -90,6 +90,11 @@ func (r *AgentRuntime) ReasoningEffort(ctx context.Context) (string, error) {
 // SelectReasoningEffort sets the reasoning effort for the currently selected
 // model, rejecting levels that model doesn't support.
 func (r *AgentRuntime) SelectReasoningEffort(ctx context.Context, effort string) error {
+	// Empty restores provider defaults, including after switching to a model
+	// that cannot use the previously stored effort.
+	if effort == "" {
+		return r.update(ctx, func(state *ports.State) { state.Agent.ReasoningEffort = "" })
+	}
 	alias, err := r.SelectedModel(ctx)
 	if err != nil {
 		return err

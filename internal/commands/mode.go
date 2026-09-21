@@ -48,7 +48,7 @@ func ModeMessage(mode ports.ApprovalMode) string {
 	case ports.ModeAuto:
 		return "Auto mode. Nothing asks — tool calls that change things now run unapproved."
 	default:
-		return "Normal mode. Reading runs freely; anything that writes asks first."
+		return "Normal mode. Native writes ask first, except your private memory. Reads run freely; MCP follows each server’s approval policy."
 	}
 }
 

@@ -40,6 +40,9 @@ type MCPStatus struct {
 const restartNotice = "Restart Eggy to apply — send /restart."
 
 func (s *CommandService) mcpCommand(ctx context.Context, args []string) (string, bool, error) {
+	if len(args) > 1 && args[0] == "list" {
+		return "Usage: /mcp list", true, nil
+	}
 	if s.ConfigPath == "" {
 		return "MCP configuration is unavailable.", true, nil
 	}

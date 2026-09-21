@@ -185,3 +185,55 @@ func TestPersonalSettingsFollowTheAccountAndLeaveSharedConfigAlone(t *testing.T)
 		t.Fatal("personal settings changed the shared provider configuration")
 	}
 }
+
+func TestChatAndWebSharePersonalModelSettings(t *testing.T) {
+	cfg := accountTestConfig(t.TempDir())
+	model := cfg.ModelAliases["deepseek-pro"]
+	model.ReasoningEfforts = []string{"low", "high"}
+	cfg.ModelAliases["deepseek-pro"] = model
+	app, err := NewApp(cfg, accountTestSecrets(), AppOptions{FakeAdapters: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.database.Close()
+	ctx := ports.WithPrincipal(t.Context(), ports.Principal{AccountID: "nigel"})
+	for _, command := range []string{"/model effort high", "/model thinking off"} {
+		if _, handled, err := app.ExecuteCommand(ctx, command); err != nil || !handled {
+			t.Fatalf("%s: %v", command, err)
+		}
+	}
+	cookie := loginThrough(t, app, "owner@example.com", "operator-password")
+	if cookie == nil {
+		t.Fatal("login failed")
+	}
+	_, csrf := sessionOf(t, app, cookie)
+	response := apiCall(t, app, cookie, "", http.MethodGet, "/api/agent", "")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"effort":"high"`) || !strings.Contains(response.Body.String(), `"show_thinking":false`) {
+		t.Fatalf("web did not see chat settings: %d %s", response.Code, response.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/agent/effort", strings.NewReader("effort=low"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("X-Eggy-CSRF", csrf)
+	request.AddCookie(cookie)
+	response = httptest.NewRecorder()
+	app.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("web effort: %d %s", response.Code, response.Body.String())
+	}
+	output, _, err := app.ExecuteCommand(ctx, "/model effort")
+	if err != nil || !strings.Contains(output, "deepseek-pro: low.") {
+		t.Fatalf("chat did not see web effort: %s %v", output, err)
+	}
+	response = apiCall(t, app, cookie, csrf, http.MethodPost, "/api/agent/thinking", `{"show":true}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("web thinking: %d %s", response.Code, response.Body.String())
+	}
+	output, _, err = app.ExecuteCommand(ctx, "/model thinking")
+	if err != nil || !strings.Contains(output, "visibility: on") {
+		t.Fatalf("chat did not see web thinking: %s %v", output, err)
+	}
+	partner := ports.WithPrincipal(t.Context(), ports.Principal{AccountID: "partner"})
+	if effort, err := app.runtime.ReasoningEffort(partner); err != nil || effort != "" {
+		t.Fatalf("partner effort changed: %s %v", effort, err)
+	}
+}

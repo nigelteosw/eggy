@@ -20,6 +20,12 @@ func (f *fakeTurns) Stop(context.Context) bool {
 
 type fakeModels struct{ selected string }
 
+func (*fakeModels) ReasoningEfforts(string) []string                    { return nil }
+func (*fakeModels) ReasoningEffort(context.Context) (string, error)     { return "", nil }
+func (*fakeModels) SelectReasoningEffort(context.Context, string) error { return nil }
+func (*fakeModels) ShowThinking(context.Context) (bool, error)          { return true, nil }
+func (*fakeModels) SetShowThinking(context.Context, bool) error         { return nil }
+
 func (f *fakeModels) SelectedModel(context.Context) (string, error) { return f.selected, nil }
 func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 	f.selected = alias

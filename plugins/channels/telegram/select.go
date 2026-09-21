@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	defaultSelectionTTL = 10 * time.Minute
-	maxSelectionPrompt  = 1000
-	maxSelectionLabel   = 40
-	maxSelectionValue   = 500
+	defaultSelectionTTL  = 10 * time.Minute
+	maxSelectionPrompt   = 1000
+	maxSelectionLabel    = 40
+	maxSelectionValue    = 500
+	maxPendingSelections = 128
 )
 
 type SelectOption struct {
@@ -37,7 +38,21 @@ type pendingSelection struct {
 	options   []SelectOption
 }
 
-// Selector owns Telegram's transient, single-question selection state. It is
+type selectionScope struct{ account, conversation string }
+
+func selectionOwner(ctx context.Context) (selectionScope, error) {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return selectionScope{}, err
+	}
+	d := destination.FromContext(ctx)
+	if d.Kind != destination.Telegram {
+		return selectionScope{}, errors.New("telegram_select is only available in a Telegram conversation")
+	}
+	return selectionScope{p.AccountID, d.ConversationID()}, nil
+}
+
+// Selector owns Telegram's bounded, transient per-conversation selections. It is
 // adapter-local because inline keyboards and callback data are Telegram
 // affordances, not kernel concepts.
 type Selector struct {
@@ -46,7 +61,7 @@ type Selector struct {
 	ttl    time.Duration
 
 	mu      sync.Mutex
-	pending *pendingSelection
+	pending map[selectionScope]*pendingSelection
 }
 
 func NewSelector(client *Client, now func() time.Time, ttl time.Duration) *Selector {
@@ -56,7 +71,7 @@ func NewSelector(client *Client, now func() time.Time, ttl time.Duration) *Selec
 	if ttl <= 0 {
 		ttl = defaultSelectionTTL
 	}
-	return &Selector{client: client, now: now, ttl: ttl}
+	return &Selector{client: client, now: now, ttl: ttl, pending: make(map[selectionScope]*pendingSelection)}
 }
 
 func (s *Selector) Tool() ports.Tool {
@@ -65,7 +80,11 @@ func (s *Selector) Tool() ports.Tool {
 
 // Resolve returns and consumes a selected value. Expired, malformed, stale,
 // and duplicate callbacks are all rejected.
-func (s *Selector) Resolve(callbackData string) (string, bool) {
+func (s *Selector) Resolve(ctx context.Context, callbackData string) (string, bool) {
+	owner, err := selectionOwner(ctx)
+	if err != nil {
+		return "", false
+	}
 	parts := strings.Split(callbackData, ":")
 	if len(parts) != 3 || parts[0] != "select" {
 		return "", false
@@ -77,16 +96,24 @@ func (s *Selector) Resolve(callbackData string) (string, bool) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pending == nil || s.pending.id != parts[1] || !s.now().Before(s.pending.expiresAt) ||
-		index < 0 || index >= len(s.pending.options) {
-		if s.pending != nil && !s.now().Before(s.pending.expiresAt) {
-			s.pending = nil
-		}
+	s.expire()
+	pending := s.pending[owner]
+	if pending == nil || pending.id != parts[1] || index < 0 || index >= len(pending.options) {
 		return "", false
 	}
-	value := s.pending.options[index].Value
-	s.pending = nil
+	value := pending.options[index].Value
+	delete(s.pending, owner)
 	return value, true
+}
+
+// expire runs under mu; no cleanup worker is needed.
+func (s *Selector) expire() {
+	now := s.now()
+	for owner, pending := range s.pending {
+		if !now.Before(pending.expiresAt) {
+			delete(s.pending, owner)
+		}
+	}
 }
 
 type selectTool struct {
@@ -126,8 +153,9 @@ func (t selectTool) Definition() ports.ToolDefinition {
 }
 
 func (t selectTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-	if destination.FromContext(ctx).Kind != destination.Telegram {
-		return nil, errors.New("telegram_select is only available in a Telegram conversation")
+	owner, err := selectionOwner(ctx)
+	if err != nil {
+		return nil, err
 	}
 	var input struct {
 		Prompt  string         `json:"prompt"`
@@ -151,11 +179,16 @@ func (t selectTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	}
 	now := t.selector.now()
 	t.selector.mu.Lock()
-	if t.selector.pending != nil && now.Before(t.selector.pending.expiresAt) {
+	t.selector.expire()
+	if t.selector.pending[owner] != nil {
 		t.selector.mu.Unlock()
 		return nil, errors.New("a Telegram selection is already awaiting an answer")
 	}
-	t.selector.pending = &pendingSelection{
+	if len(t.selector.pending) >= maxPendingSelections {
+		t.selector.mu.Unlock()
+		return nil, errors.New("too many pending Telegram selections; try again later")
+	}
+	t.selector.pending[owner] = &pendingSelection{
 		id:        id,
 		expiresAt: now.Add(t.selector.ttl),
 		options:   append([]SelectOption(nil), input.Options...),
@@ -164,8 +197,8 @@ func (t selectTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 
 	if err := t.selector.client.DeliverSelection(ctx, input.Prompt, id, input.Options); err != nil {
 		t.selector.mu.Lock()
-		if t.selector.pending != nil && t.selector.pending.id == id {
-			t.selector.pending = nil
+		if pending := t.selector.pending[owner]; pending != nil && pending.id == id {
+			delete(t.selector.pending, owner)
 		}
 		t.selector.mu.Unlock()
 		return nil, err

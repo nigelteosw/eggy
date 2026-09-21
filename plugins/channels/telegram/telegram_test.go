@@ -253,7 +253,11 @@ func TestWebhookRoutesSelectionCallbackAsOwnerMessage(t *testing.T) {
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
 		got = event
 		return nil
-	}, acknowledger).WithSelectionResolver(func(callbackData string) (string, bool) {
+	}, acknowledger).WithSelectionResolver(func(ctx context.Context, callbackData string) (string, bool) {
+		principal, err := ports.PrincipalFromContext(ctx)
+		if err != nil || principal.AccountID != "42" {
+			t.Fatalf("resolver identity=%v err=%v", principal, err)
+		}
 		resolved = append(resolved, callbackData)
 		return "staging", true
 	})
@@ -281,7 +285,7 @@ func TestWebhookRoutesSelectionCallbackAsOwnerMessage(t *testing.T) {
 func TestWebhookRejectsNonOwnerSelectionWithoutConsumingIt(t *testing.T) {
 	called := false
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { return nil }, nil).
-		WithSelectionResolver(func(string) (string, bool) {
+		WithSelectionResolver(func(context.Context, string) (string, bool) {
 			called = true
 			return "staging", true
 		})
@@ -305,7 +309,7 @@ func TestWebhookAcknowledgesConsumedSelectionWithoutEnqueuingAnEvent(t *testing.
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error {
 		enqueued = true
 		return nil
-	}, acknowledger).WithSelectionResolver(func(string) (string, bool) {
+	}, acknowledger).WithSelectionResolver(func(context.Context, string) (string, bool) {
 		return "", false
 	})
 	body := `{"update_id":12,"callback_query":{"id":"duplicate","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`
@@ -484,7 +488,7 @@ func TestWebhookStampsTheVerifiedSenderOnMessagesOnly(t *testing.T) {
 		return "", false
 	}
 	handler := NewWebhookHandler(resolve, "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).
-		WithSelectionResolver(func(string) (string, bool) { return "/web", true })
+		WithSelectionResolver(func(context.Context, string) (string, bool) { return "ordinary selection", true })
 	post := func(body, secret string) int {
 		request := httptest.NewRequest(http.MethodPost, "/webhooks/telegram", strings.NewReader(body))
 		request.Header.Set("X-Telegram-Bot-Api-Secret-Token", secret)
@@ -508,5 +512,22 @@ func TestWebhookStampsTheVerifiedSenderOnMessagesOnly(t *testing.T) {
 	}
 	if code := post(`{"update_id":5,"message":{"message_id":1,"from":{"id":77},"chat":{"id":-100123},"text":"/web"}}`, "secret"); code != http.StatusForbidden || got.SenderID != "" {
 		t.Fatalf("group: status=%d sender=%q", code, got.SenderID)
+	}
+}
+
+func TestWebhookSelectionCannotDispatchCommands(t *testing.T) {
+	for _, value := range []string{"/mode auto", " /restart", "/clear", "/web", "/mcp remove server", "/google logout", "/model add bad provider model"} {
+		t.Run(value, func(t *testing.T) {
+			calls := 0
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { calls++; return nil }, nil).
+				WithSelectionResolver(func(context.Context, string) (string, bool) { return value, true })
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"update_id":10,"callback_query":{"id":"cb","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`))
+			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != http.StatusNoContent || calls != 0 {
+				t.Fatalf("status=%d dispatched=%d", response.Code, calls)
+			}
+		})
 	}
 }

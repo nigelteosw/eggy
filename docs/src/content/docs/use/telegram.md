@@ -1,12 +1,10 @@
 ---
 title: Telegram
-description: Talk to Eggy, control the active conversation, and answer transient choices from one allowlisted Telegram account.
+description: Talk to Eggy, control the active conversation, and answer transient choices from a linked private account.
 eyebrow: Use Eggy
 ---
 
-Telegram is optional. When configured, the adapter accepts updates only from `telegram.owner_id` and maps that account to Eggy's canonical owner.
-
-With [accounts](/eggy/configure/accounts/) configured, each account's
+Telegram is optional. Each [account](/eggy/configure/accounts/)'s
 `telegram_user_id` maps that numeric sender to their account; unmapped senders
 and group chats are refused, and replies, approvals and scheduled output go to
 each person's own private chat. An account without a Telegram ID uses the web
@@ -68,11 +66,14 @@ Eggy's Telegram command surface is intentionally small.
 
 | Command | Behavior |
 | --- | --- |
-| `/help` | List the available commands |
+| `/help [model\|mcp\|google\|mode]` | Show grouped commands or detailed topic help |
 | `/status` | Show the active model and pending approval count |
 | `/stop` | Cancel the turn currently running in this conversation |
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
+| `/model effort [value\|default]` | Show or set your reasoning effort for the active model |
+| `/model thinking [on\|off]` | Show or set delivery of provider-supplied reasoning |
+| `/model settings effort\|thinking …` | Use the unambiguous settings form when an alias is named `effort`, `thinking`, or `settings` |
 | `/model providers` | Name every provider and say which can be browsed |
 | `/model available <provider> [filter]` | List what a provider actually serves |
 | `/model add <alias> <provider> <model> [efforts]` | Write a new alias into `config.yaml` |
@@ -82,7 +83,8 @@ Eggy's Telegram command surface is intentionally small.
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
-Unknown commands return the same command reference. Ordinary text continues to the model.
+Unknown commands return a short `/help` pointer. Malformed known commands show
+their own syntax. Ordinary text continues to the model.
 
 `/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and always names the approval mode in force.
 
@@ -91,7 +93,8 @@ Unknown commands return the same command reference. Ordinary text continues to t
 `/mode` sets how much the [approval gate](/eggy/use/approvals/) asks:
 
 - `/mode strict` — every tool call asks first, reading included.
-- `/mode normal` — reading runs freely; anything that writes asks first. The default.
+- `/mode normal` — native writes ask first except private memory; reads run
+  freely, and MCP follows each server's approval policy. The default.
 - `/mode auto` — nothing asks.
 
 A bare `/mode` reports the current one without changing it. It names the mode rather than cycling to the next: with three of them, a toggle is a way to land in auto without having asked for it.
@@ -134,8 +137,13 @@ Docs, Sheets, and Contacts. See [Google Workspace](/eggy/configure/google-worksp
 
 ## Choosing a model without leaving chat
 
-`/model` alone reports the active alias and the ones available. The three
-subcommands exist so an alias can be written from what a provider actually
+`/model` alone reports the active alias, effective reasoning effort, and the
+aliases available. Effort and thinking visibility are personal settings shared
+with the web panel. Thinking visibility controls whether Eggy delivers reasoning
+content supplied by the provider; it does not change the model's reasoning
+capability.
+
+The discovery subcommands let an alias be written from what a provider actually
 serves, instead of from an ID copied out of a vendor's web page:
 
 ```text
@@ -143,10 +151,15 @@ serves, instead of from an ID copied out of a vendor's web page:
 /model available openrouter sonnet
 /model add sonnet openrouter anthropic/claude-sonnet-4.5 low,medium,high
 /restart
+/model sonnet
+/model effort high
+/model thinking off
 ```
 
 A subcommand only wins when no configured alias answers to that name, so adding
-these words cannot make an existing alias unselectable. `/model add` deliberately
+these words cannot make an existing alias unselectable. Use `/model settings
+effort …` or `/model settings thinking …` when an alias has a settings name.
+`/model add` deliberately
 does not select the new alias: the running daemon still holds the old catalog, so
 selecting it would fail on an alias you can already see in `config.yaml`.
 Listing a model does not enable it — `models` still governs what Eggy will run.
@@ -162,9 +175,13 @@ window without touching durable memory. See
 
 ## Inline selections
 
-The model can call `telegram_select` with a prompt and two to eight labelled options. Tapping an option sends its value back as the owner's next ordinary message.
+The model can call `telegram_select` with a prompt and two to eight labelled
+options. Tapping an option sends its value back as that account's next ordinary
+message in the same conversation.
 
-Selections expire after ten minutes and are removed after use. They are a conversational convenience only: a selection cannot approve a protected action.
+Each account can have its own pending selection. Selections expire after ten
+minutes and are removed after use. Another account cannot consume one, and a
+selection value cannot run a slash command or approve a protected action.
 
 ## Images
 

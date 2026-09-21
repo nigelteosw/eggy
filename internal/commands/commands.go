@@ -22,22 +22,6 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-var telegramCommands = []struct {
-	Name        string
-	Description string
-}{
-	{Name: "help", Description: "Show the available commands"},
-	{Name: "status", Description: "Show brief operational status"},
-	{Name: "stop", Description: "Stop the current turn"},
-	{Name: "clear", Description: "Clear recent conversation history"},
-	{Name: "model", Description: "Show or select the active model; browse and add with providers/available/add"},
-	{Name: "mcp", Description: "List, configure, and authorize MCP servers"},
-	{Name: "web", Description: "Send a one-tap sign-in link to the web panel"},
-	{Name: "google", Description: "Authorize Google Workspace and show its status"},
-	{Name: "mode", Description: "Show or set how much Eggy asks before tool calls: strict, normal or auto"},
-	{Name: "restart", Description: "Reload config.yaml by rebuilding the running daemon"},
-}
-
 type ConversationResetter interface {
 	Reset(ctx context.Context, conversationID string) error
 }
@@ -49,6 +33,11 @@ type TurnStopper interface {
 type AgentSettings interface {
 	SelectedModel(context.Context) (string, error)
 	SelectModel(context.Context, string) error
+	ReasoningEfforts(string) []string
+	ReasoningEffort(context.Context) (string, error)
+	SelectReasoningEffort(context.Context, string) error
+	ShowThinking(context.Context) (bool, error)
+	SetShowThinking(context.Context, bool) error
 }
 
 // ApprovalGate is the runtime switch behind /mode. Reading and writing go
@@ -142,9 +131,14 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		name = name[:at]
 	}
 	args := fields[1:]
+	for _, command := range telegramCommands {
+		if command.Name == name && command.NoArgs && len(args) != 0 {
+			return "Usage: /" + name, true, nil
+		}
+	}
 	switch name {
 	case "help":
-		return HelpText(), true, nil
+		return s.help(args), true, nil
 	case "status":
 		return s.status(ctx)
 	case "stop":
@@ -169,11 +163,14 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	case "google":
 		return s.googleCommand(ctx, args)
 	case "mode":
+		if len(args) > 1 {
+			return modeUsage, true, nil
+		}
 		return s.modeCommand(ctx, strings.Join(args, " "))
 	case "restart":
 		return s.restartCommand()
 	default:
-		return "Unknown command.\n\n" + HelpText(), true, nil
+		return "Unknown command. Send /help for commands.", true, nil
 	}
 }
 
@@ -289,12 +286,4 @@ func Restart(restarter Restarter, configPath string, getenv func(string) string)
 	}
 	restarter.Restart()
 	return RestartMessage, true
-}
-
-func HelpText() string {
-	return "Commands: /help, /status, /stop, /clear, /web, /model [alias], /mcp [add|remove|enable|disable|login|logout], /google [login|logout], /mode [strict|normal|auto], /restart"
-}
-
-func TelegramAutocomplete() []struct{ Name, Description string } {
-	return append([]struct{ Name, Description string }(nil), telegramCommands...)
 }

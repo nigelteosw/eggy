@@ -93,7 +93,22 @@ func TestWebhookNormalizesImageDocument(t *testing.T) {
 	}
 }
 
-func TestWebhookRejectsUnsupportedOrFailedImageDocuments(t *testing.T) {
+type recordingReplier struct {
+	account string
+	text    string
+}
+
+func (r *recordingReplier) Deliver(ctx context.Context, text string) error {
+	principal, _ := ports.PrincipalFromContext(ctx)
+	r.account, r.text = principal.AccountID, text
+	return nil
+}
+
+// A message Eggy cannot turn into a turn is still a delivered update.
+// Telegram retries any non-2xx response and holds every later update behind
+// it, so answering 400 to one PDF silenced the bot for that person until the
+// retries gave up. The update is acknowledged, dropped, and explained.
+func TestWebhookAcknowledgesAndExplainsUnsupportedOrFailedImageDocuments(t *testing.T) {
 	tests := []struct {
 		name        string
 		document    string
@@ -106,15 +121,19 @@ func TestWebhookRejectsUnsupportedOrFailedImageDocuments(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			downloader := &recordingImageDownloader{err: tc.downloadErr}
+			replier := &recordingReplier{}
 			enqueued := false
-			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithImageDownloader(downloader)
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithImageDownloader(downloader).WithReplier(replier)
 			body := `{"update_id":16,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"document":` + tc.document + `}}`
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, req)
-			if response.Code < 400 || enqueued {
+			if response.Code != http.StatusNoContent || enqueued {
 				t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+			}
+			if replier.account != "42" || !strings.Contains(replier.text, "Telegram") {
+				t.Fatalf("reply account=%q text=%q", replier.account, replier.text)
 			}
 		})
 	}
@@ -162,7 +181,7 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
-	if response.Code != http.StatusForbidden {
+	if response.Code != http.StatusNoContent {
 		t.Fatalf("owner status=%d", response.Code)
 	}
 }
@@ -295,7 +314,7 @@ func TestWebhookRejectsNonOwnerSelectionWithoutConsumingIt(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
 
-	if response.Code != http.StatusForbidden {
+	if response.Code != http.StatusNoContent {
 		t.Fatalf("status=%d", response.Code)
 	}
 	if called {
@@ -336,7 +355,7 @@ func TestWebhookDoesNotAcknowledgeARejectedCallback(t *testing.T) {
 	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
-	if response.Code != http.StatusForbidden {
+	if response.Code != http.StatusNoContent {
 		t.Fatalf("status=%d", response.Code)
 	}
 	if len(acknowledger.acked) != 0 {
@@ -403,13 +422,13 @@ func TestWebhookMapsSendersToAccountsAndRefusesGroupsAndStrangers(t *testing.T) 
 		t.Fatalf("mapped sender: status=%d owner=%q", code, got.Owner)
 	}
 	got = events.Event{}
-	if code := post(`{"update_id":2,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"hi"}}`); code != http.StatusForbidden || got.Owner != "" {
+	if code := post(`{"update_id":2,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"hi"}}`); code != http.StatusNoContent || got.Owner != "" {
 		t.Fatalf("stranger: status=%d owner=%q", code, got.Owner)
 	}
-	if code := post(`{"update_id":3,"message":{"message_id":1,"from":{"id":42},"chat":{"id":-100123},"text":"hi"}}`); code != http.StatusForbidden || got.Owner != "" {
+	if code := post(`{"update_id":3,"message":{"message_id":1,"from":{"id":42},"chat":{"id":-100123},"text":"hi"}}`); code != http.StatusNoContent || got.Owner != "" {
 		t.Fatalf("group: status=%d owner=%q", code, got.Owner)
 	}
-	if code := post(`{"update_id":4,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:a1:approve","message":{"message_id":9,"chat":{"id":-100123}}}}`); code != http.StatusForbidden || got.Owner != "" {
+	if code := post(`{"update_id":4,"callback_query":{"id":"cb","from":{"id":42},"data":"approval:a1:approve","message":{"message_id":9,"chat":{"id":-100123}}}}`); code != http.StatusNoContent || got.Owner != "" {
 		t.Fatalf("group callback: status=%d owner=%q", code, got.Owner)
 	}
 }
@@ -441,7 +460,7 @@ func TestWebhookAllowsOnlyExactPrivatePairingForUnmappedSender(t *testing.T) {
 		text string
 	}{{77, "hello"}, {77, "/start"}, {77, "/start a b"}, {-100, "/start other"}} {
 		payload = ""
-		if code := post(attempt.chat, attempt.text); code != http.StatusForbidden || payload != "" {
+		if code := post(attempt.chat, attempt.text); code != http.StatusNoContent || payload != "" {
 			t.Fatalf("attempt=%+v status=%d payload=%q", attempt, code, payload)
 		}
 	}
@@ -507,10 +526,10 @@ func TestWebhookStampsTheVerifiedSenderOnMessagesOnly(t *testing.T) {
 	if code := post(`{"update_id":3,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":"/web"}}`, "wrong"); code != http.StatusUnauthorized || got.SenderID != "" {
 		t.Fatalf("bad secret: status=%d sender=%q", code, got.SenderID)
 	}
-	if code := post(`{"update_id":4,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"/web"}}`, "secret"); code != http.StatusForbidden || got.SenderID != "" {
+	if code := post(`{"update_id":4,"message":{"message_id":1,"from":{"id":5},"chat":{"id":5},"text":"/web"}}`, "secret"); code != http.StatusNoContent || got.SenderID != "" {
 		t.Fatalf("unmapped sender: status=%d sender=%q", code, got.SenderID)
 	}
-	if code := post(`{"update_id":5,"message":{"message_id":1,"from":{"id":77},"chat":{"id":-100123},"text":"/web"}}`, "secret"); code != http.StatusForbidden || got.SenderID != "" {
+	if code := post(`{"update_id":5,"message":{"message_id":1,"from":{"id":77},"chat":{"id":-100123},"text":"/web"}}`, "secret"); code != http.StatusNoContent || got.SenderID != "" {
 		t.Fatalf("group: status=%d sender=%q", code, got.SenderID)
 	}
 }

@@ -30,6 +30,13 @@ type ImageDownloader interface {
 	DownloadImage(ctx context.Context, fileID string, declaredSize int64, declaredMediaType string) (ports.ContentPart, error)
 }
 
+// Replier tells a verified sender why their message was dropped. It is
+// addressed through the principal on the context, like any delivery, and
+// may be nil (fake-adapter mode), in which case the drop is silent.
+type Replier interface {
+	Deliver(ctx context.Context, text string) error
+}
+
 // SenderResolver maps a verified numeric Telegram sender to the account it
 // speaks for. A closure over validated config, wired by bootstrap; an
 // unmapped sender resolves to nothing and is refused.
@@ -60,6 +67,12 @@ type WebhookHandler struct {
 	downloader       ImageDownloader
 	resolveSelection func(context.Context, string) (string, bool)
 	pairing          PairingConsumer
+	replier          Replier
+}
+
+func (h *WebhookHandler) WithReplier(replier Replier) *WebhookHandler {
+	h.replier = replier
+	return h
 }
 
 func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer) *WebhookHandler {
@@ -169,31 +182,32 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Telegram update", http.StatusBadRequest)
 		return
 	}
+	// Everything from here down that Eggy declines is dropped with a 204,
+	// never a 4xx: Telegram retries any non-2xx update and delivers nothing
+	// further until it gives up, so refusing a stranger or a group message
+	// with 403 would let anyone who can find the bot silence it for its
+	// people. The secret check above stays a 401 because that request did
+	// not come from Telegram.
 	sender, chatID, ok := incomingSender(incoming)
 	if !ok {
-		http.Error(w, "unsupported Telegram update", http.StatusBadRequest)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	// Private chats only: in a group the sender and the chat differ, and a
 	// reply would land where other people read it.
 	if chatID != sender {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	accountID, ok := h.resolve(sender)
 	if !ok {
-		if incoming.Message == nil || h.pairing == nil {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		parts := strings.Fields(incoming.Message.Text)
-		if len(parts) != 2 || parts[0] != "/start" || strings.TrimSpace(parts[1]) == "" {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		if err := h.pairing(r.Context(), parts[1], sender); err != nil {
-			http.Error(w, "pairing link is invalid or expired", http.StatusForbidden)
-			return
+		// An unmapped sender is ignored, silently, unless the message is a
+		// pairing link; a failed pairing is ignored the same way.
+		if incoming.Message != nil && h.pairing != nil {
+			parts := strings.Fields(incoming.Message.Text)
+			if len(parts) == 2 && parts[0] == "/start" && strings.TrimSpace(parts[1]) != "" {
+				_ = h.pairing(r.Context(), parts[1], sender)
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -218,11 +232,16 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
-		if incoming.Callback != nil && strings.HasPrefix(incoming.Callback.Data, "select:") {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		// A well-formed update from a verified sender is acknowledged even
+		// when Eggy cannot act on it. Telegram retries any non-2xx response
+		// and delivers nothing further until it gives up, so refusing one
+		// PDF with a 400 silences the bot for everyone behind it. The
+		// sender is told why instead; a failed reply is not worth a retry
+		// of the update that caused it.
+		if incoming.Message != nil && h.replier != nil {
+			_ = h.replier.Deliver(verified, "I couldn't read that message: "+err.Error()+".")
 		}
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if err := h.sink(r.Context(), event); err != nil {

@@ -210,6 +210,12 @@ type CatalogModel struct {
 	// Reasoning is nil for a model that does not reason at all, or whose
 	// provider does not say.
 	Reasoning *CatalogReasoning `json:"reasoning,omitempty"`
+	// SupportsImages reports whether the model accepts image input. It is nil
+	// whenever the provider does not publish input modalities at all, which
+	// is the difference between "this model is text-only" and "nobody said".
+	// A caller that would refuse an image must treat nil as unknown and send
+	// it anyway rather than read silence as a refusal.
+	SupportsImages *bool `json:"supports_images,omitempty"`
 }
 
 // CatalogReasoning is what a provider says about a model's reasoning: the

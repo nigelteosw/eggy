@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -316,6 +317,12 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 				Mandatory        bool     `json:"mandatory"`
 				SupportedEfforts []string `json:"supported_efforts"`
 			} `json:"reasoning"`
+			// Architecture is OpenRouter's modality block. A nil pointer here
+			// means the provider said nothing about input, not that the model
+			// takes text only.
+			Architecture *struct {
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
@@ -329,6 +336,10 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 		model := ports.CatalogModel{ID: entry.ID, Name: entry.Name, ContextLength: entry.ContextLength}
 		if entry.Reasoning != nil {
 			model.Reasoning = &ports.CatalogReasoning{Mandatory: entry.Reasoning.Mandatory, Efforts: entry.Reasoning.SupportedEfforts}
+		}
+		if entry.Architecture != nil {
+			supportsImages := slices.Contains(entry.Architecture.InputModalities, "image")
+			model.SupportsImages = &supportsImages
 		}
 		models = append(models, model)
 	}

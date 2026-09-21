@@ -14,6 +14,13 @@ func (listableModel) ListModels(context.Context) ([]ports.CatalogModel, error) {
 	return []ports.CatalogModel{{ID: "openai/gpt-5"}}, nil
 }
 
+type catalogModel struct {
+	staticModel
+	models []ports.CatalogModel
+}
+
+func (c catalogModel) ListModels(context.Context) ([]ports.CatalogModel, error) { return c.models, nil }
+
 // Two things make a provider browsable and both are required: it opted in, and
 // its adapter can actually list. A provider failing either is simply absent,
 // which is the panel's "cannot be browsed" rather than an error.
@@ -53,5 +60,54 @@ func TestModelDiscoveryHonoursTheOptOutAndTheAdapterCapability(t *testing.T) {
 	}
 	if _, err := discovery.DiscoverModels(context.Background(), "nocatalog"); err == nil {
 		t.Fatal("an adapter that cannot list must not be listable")
+	}
+}
+
+// Image support is known only when the provider both opted into discovery and
+// said so for the exact model the alias names. Everything else -- an opted-out
+// provider, a model the catalog does not carry, an entry with no architecture,
+// or an alias that does not exist -- is unknown, and the turn sends the image
+// anyway rather than blocking on a guess.
+func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
+	images, textOnly, off := true, false, false
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1"},
+			// A provider that is not OpenRouter never publishes modalities, so
+			// even a catalog entry claiming them must stay unknown: the turn
+			// path must not spend a request to ask.
+			"plain":    {Adapter: "openai_compatible", BaseURL: "https://api.example/v1"},
+			"optedout": {Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", DiscoverModels: &off},
+		},
+		ModelAliases: map[string]config.ModelAliasConfig{
+			"vision":   {Provider: "openrouter", Model: "vendor/vision"},
+			"text":     {Provider: "openrouter", Model: "vendor/text"},
+			"silent":   {Provider: "openrouter", Model: "vendor/silent"},
+			"absent":   {Provider: "openrouter", Model: "vendor/absent"},
+			"unlisted": {Provider: "optedout", Model: "vendor/vision"},
+			"proxied":  {Provider: "plain", Model: "vendor/vision"},
+		},
+	}
+	catalog := catalogModel{models: []ports.CatalogModel{
+		{ID: "vendor/vision", SupportsImages: &images},
+		{ID: "vendor/text", SupportsImages: &textOnly},
+		{ID: "vendor/silent"},
+	}}
+	discovery := newModelDiscovery(cfg, map[string]ports.Model{"openrouter": catalog, "plain": catalog, "optedout": catalog})
+
+	cases := map[string]struct{ supported, known bool }{
+		"vision":   {true, true},
+		"text":     {false, true},
+		"silent":   {false, false},
+		"absent":   {false, false},
+		"unlisted": {false, false},
+		"proxied":  {false, false},
+		"missing":  {false, false},
+	}
+	for alias, want := range cases {
+		supported, known := discovery.SupportsImages(context.Background(), alias)
+		if supported != want.supported || known != want.known {
+			t.Fatalf("SupportsImages(%q)=%v,%v want %v,%v", alias, supported, known, want.supported, want.known)
+		}
 	}
 }

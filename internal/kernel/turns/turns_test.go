@@ -684,3 +684,67 @@ func TestHeartbeatWithHistoryStaysReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// A model that has said it cannot take image input must never be handed one:
+// the provider that silently substitutes a placeholder turns a vision failure
+// into an answer the owner cannot tell apart from a model that never looked.
+// The turn says so on the surface instead of calling the model.
+func TestImageTurnIsRefusedWhenTheModelCannotSeeImages(t *testing.T) {
+	channel := &fakeChannel{}
+	loop := &fakeLoop{reply: "should not run"}
+	service := New(Options{
+		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		ImageSupport: func(context.Context, string) (bool, bool) { return false, true },
+	})
+	err := service.OwnerMessage(context.Background(), ports.Message{
+		Content: "Describe this image.",
+		Parts:   []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte{1}}},
+	}, "telegram")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loop.inputs) != 0 {
+		t.Fatalf("the model must not be called: %#v", loop.inputs)
+	}
+	if len(channel.delivered) != 1 || !strings.Contains(channel.delivered[0], "does not accept images") {
+		t.Fatalf("delivered=%#v", channel.delivered)
+	}
+}
+
+// Support that is absent, unknown, or confirmed all fall through to the model
+// call. Only a positive "no" blocks, so a provider that does not report
+// modalities keeps working exactly as before.
+func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
+	cases := map[string]func(context.Context, string) (bool, bool){
+		"supported": func(context.Context, string) (bool, bool) { return true, true },
+		"unknown":   func(context.Context, string) (bool, bool) { return false, false },
+		"unwired":   nil,
+	}
+	for name, support := range cases {
+		t.Run(name, func(t *testing.T) {
+			channel := &fakeChannel{}
+			loop := &fakeLoop{reply: "looked at it"}
+			service := New(Options{
+				Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+				Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+				Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+				ImageSupport: support,
+			})
+			err := service.OwnerMessage(context.Background(), ports.Message{
+				Content: "Describe this image.",
+				Parts:   []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte{1}}},
+			}, "telegram")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(loop.inputs) != 1 {
+				t.Fatalf("the model must be called once: %#v", loop.inputs)
+			}
+			if len(channel.delivered) != 1 || channel.delivered[0] != "looked at it" {
+				t.Fatalf("delivered=%#v", channel.delivered)
+			}
+		})
+	}
+}

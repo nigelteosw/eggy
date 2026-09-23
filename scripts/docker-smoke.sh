@@ -41,12 +41,9 @@ done
 docker exec "$container" test -s /data/config.yaml
 docker exec "$container" sh -c 'test "$(stat -c %a /data/config.yaml)" = 600'
 docker exec "$container" sh -c 'grep -Eq "^data_dir:[[:space:]]*/data$" /data/config.yaml'
-# SOUL.md is shared; the private documents live under the owner's account
-# (accounts/<id>/memories), created on first boot.
-for context_file in SOUL.md accounts/42/memories/USER.md accounts/42/memories/MEMORY.md; do
-  docker exec "$container" test -s "/data/$context_file"
-  docker exec "$container" sh -c "test \"\$(stat -c %a /data/$context_file)\" = 600"
-done
+# Context documents are written on first edit, never on boot: an unwritten
+# SOUL.md, USER.md or MEMORY.md loads as its built-in default.
+docker exec "$container" sh -c '! test -e /data/SOUL.md'
 docker exec "$container" sh -c '! grep -R -F "smoke-provider-secret" /data/config.yaml /data/SOUL.md /data/accounts'
 # A bot token in the environment is a redaction target like every other
 # credential, and with fake adapters no Discord gateway is ever opened.

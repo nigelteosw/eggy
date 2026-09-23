@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,9 @@ const (
 	// the whole anti-repetition mechanism. Still bounded, for the reason the
 	// other two are.
 	DefaultWatchMaxBytes = 6 << 10
+	// SOUL.md rides in every turn's prompt for every account, so it is bounded
+	// like the rest, though it changes rarely enough to afford the room.
+	DefaultSoulMaxBytes = 4 << 10
 )
 
 // Paths locates the context documents. SOUL.md is one shared file at the top
@@ -110,24 +114,11 @@ func (s *Store) Load(ctx context.Context) (ports.AgentContext, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	soul, err := s.loadDocument(s.paths.Soul, initialSoul)
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
-	user, err := s.loadDocument(filepath.Join(dir, "USER.md"), initialUser)
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
-	memory, err := s.loadDocument(filepath.Join(dir, "MEMORY.md"), initialMemory)
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
-	watch, err := s.loadDocument(filepath.Join(dir, "WATCH.md"), initialWatch)
-	if err != nil {
-		return ports.AgentContext{}, err
-	}
 	return ports.AgentContext{
-		Soul: soul, User: user, Memory: memory, Watch: watch,
+		Soul:         s.loadDocument(s.paths.Soul, initialSoul),
+		User:         s.loadDocument(filepath.Join(dir, "USER.md"), initialUser),
+		Memory:       s.loadDocument(filepath.Join(dir, "MEMORY.md"), initialMemory),
+		Watch:        s.loadDocument(filepath.Join(dir, "WATCH.md"), initialWatch),
 		UserMaxBytes: s.userMaxBytes, MemoryMaxBytes: s.memoryMaxBytes, WatchMaxBytes: s.watchMaxBytes,
 	}, nil
 }
@@ -172,7 +163,8 @@ func (s *Store) RemoveEntry(ctx context.Context, document ports.ContextDocument,
 
 // ReplaceDocument overwrites document with content. Unlike the entry methods
 // it does not preserve the existing header, because the caller supplied a
-// whole document.
+// whole document. Blank content is how a document is reset: the next load
+// reads the built-in default in its place.
 //
 // The budget is enforced the same way rewrite enforces it, including the
 // shrinking-edit escape hatch: a write that leaves the document no larger
@@ -210,6 +202,10 @@ func (s *Store) rewrite(ctx context.Context, document ports.ContextDocument, edi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// SOUL.md is prose, not a list: entry edits would flatten its headings.
+	if document == ports.ContextSoul {
+		return errors.New("SOUL.md is edited as a whole document, not by entry")
+	}
 	path, initial, maxBytes, err := s.writableDocument(ctx, document)
 	if err != nil {
 		return err
@@ -241,6 +237,13 @@ func (s *Store) rewrite(ctx context.Context, document ports.ContextDocument, edi
 func (s *Store) writableDocument(ctx context.Context, document ports.ContextDocument) (path, initial string, maxBytes int64, err error) {
 	var name string
 	switch document {
+	case ports.ContextSoul:
+		// Shared by every account, so it needs no principal's directory --
+		// but a write still needs a principal, like every other write.
+		if _, err := ports.PrincipalFromContext(ctx); err != nil {
+			return "", "", 0, err
+		}
+		return s.paths.Soul, initialSoul, DefaultSoulMaxBytes, nil
 	case ports.ContextUser:
 		name, initial, maxBytes = "USER.md", initialUser, s.userMaxBytes
 	case ports.ContextMemory:
@@ -248,7 +251,7 @@ func (s *Store) writableDocument(ctx context.Context, document ports.ContextDocu
 	case ports.ContextWatch:
 		name, initial, maxBytes = "WATCH.md", initialWatch, s.watchMaxBytes
 	default:
-		return "", "", 0, fmt.Errorf("context document %q is read-only", document)
+		return "", "", 0, fmt.Errorf("unknown context document %q", document)
 	}
 	dir, err := s.privateDir(ctx)
 	if err != nil {
@@ -334,26 +337,38 @@ func normalizeEntry(text string) (string, error) {
 	return entry, nil
 }
 
-func (s *Store) loadDocument(path, initial string) (string, error) {
+// loadDocument is the lenient read a turn depends on. Whatever state the
+// owner's file is in -- missing, emptied, unreadable -- the turn gets a
+// usable document: the built-in default stands in, and an unreadable file is
+// logged rather than failing every turn until someone notices.
+func (s *Store) loadDocument(path, initial string) string {
 	var content string
 	err := filelock.With(path, func() error {
 		var err error
 		content, err = s.loadDocumentUnlocked(path, initial)
 		return err
 	})
-	return content, err
+	if err != nil {
+		slog.Warn("context document unreadable; using the built-in default", "document", filepath.Base(path), "error", err)
+		return initial
+	}
+	return content
 }
 
+// loadDocumentUnlocked reads path, returning initial for a file that does not
+// exist or holds nothing but whitespace. The default is never written back:
+// the file exists only once someone writes it, so an improved default reaches
+// every owner who never changed theirs, and deleting the file is a reset.
 func (s *Store) loadDocumentUnlocked(path, initial string) (string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := atomicfile.Write(path, []byte(initial), 0o600); err != nil {
-			return "", err
-		}
 		return initial, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", filepath.Base(path), err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return initial, nil
 	}
 	return string(data), nil
 }

@@ -17,8 +17,9 @@ type AgentContext struct {
 	Watch string `json:"watch"`
 	// UserMaxBytes, MemoryMaxBytes, and WatchMaxBytes are the write budgets
 	// ContextStore enforces on the agent-writable documents, used to render an
-	// in-context usage indicator. Zero suppresses the indicator. Soul has no
-	// budget: it is owner-editable and never agent-written.
+	// in-context usage indicator. Zero suppresses the indicator. Soul is
+	// bounded too, but carries no indicator: it is rewritten whole, rarely,
+	// and only when the owner asks.
 	UserMaxBytes   int64 `json:"user_max_bytes,omitempty"`
 	MemoryMaxBytes int64 `json:"memory_max_bytes,omitempty"`
 	WatchMaxBytes  int64 `json:"watch_max_bytes,omitempty"`
@@ -61,8 +62,10 @@ func WatchListIsEmpty(content string) bool {
 	return true
 }
 
-// ContextStore holds the agent's durable context documents. Only User and
-// Memory are writable; Soul is owner-editable and load-only.
+// ContextStore holds the agent's durable context documents. Load never fails
+// on a document's content: a missing, blank, or unreadable document loads as
+// its built-in default. Soul is prose and is only ever written whole, through
+// ReplaceDocument; the entry methods refuse it.
 //
 // Entries are plain lines, addressed by a substring of their text rather than
 // by any structural key, so the agent never has to model the file's layout.

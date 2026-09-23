@@ -29,14 +29,18 @@ func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
 	if loaded.UserMaxBytes != DefaultUserMaxBytes || loaded.MemoryMaxBytes != DefaultMemoryMaxBytes {
 		t.Fatalf("budgets user=%d memory=%d", loaded.UserMaxBytes, loaded.MemoryMaxBytes)
 	}
-	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md"} {
-		info, err := os.Stat(filepath.Join(dir, name))
-		if err != nil || info.Mode().Perm() != 0o600 {
-			t.Fatalf("%s mode=%v err=%v", name, info.Mode().Perm(), err)
+	// Defaults are applied on read, never copied into the owner's files: a
+	// load creates nothing.
+	for _, name := range []string{"SOUL.md", "USER.md", "MEMORY.md", "WATCH.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("load created %s: %v", name, err)
 		}
 	}
 	if err := store.AddEntry(ctx, ports.ContextUser, "Prefers concise answers"); err != nil {
 		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "USER.md")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("USER.md info=%v err=%v", info, err)
 	}
 	if err := store.AddEntry(ctx, ports.ContextMemory, "Eggy is trusted"); err != nil {
 		t.Fatal(err)
@@ -182,22 +186,22 @@ func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 	}
 }
 
-func TestContextStoreSoulIsOwnerEditableOnly(t *testing.T) {
+func TestContextStoreSoulIsWrittenWholeNeverByEntry(t *testing.T) {
 	store, dir := testStore(t)
 	ctx := as("owner")
 	if err := store.AddEntry(ctx, ports.ContextSoul, "check something"); err == nil {
-		t.Fatal("expected soul to reject an add")
+		t.Fatal("expected soul to reject an entry edit")
 	}
-	if _, err := store.Load(ctx); err != nil {
-		t.Fatal(err)
-	}
-	soul := "# Eggy Soul\n\nCustom identity the owner wrote.\n"
-	if err := os.WriteFile(filepath.Join(dir, "SOUL.md"), []byte(soul), 0o600); err != nil {
+	soul := "# Eggy Soul\n\n## Voice\n\nCustom identity the owner wrote.\n"
+	if err := store.ReplaceDocument(ctx, ports.ContextSoul, soul); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := store.Load(ctx)
 	if err != nil || loaded.Soul != soul {
 		t.Fatalf("soul=%q err=%v", loaded.Soul, err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "SOUL.md")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("SOUL.md info=%v err=%v", info, err)
 	}
 }
 
@@ -358,14 +362,69 @@ func TestWatchDocumentAcceptsEntryEdits(t *testing.T) {
 	}
 }
 
-// Soul stays load-only through every write path, ReplaceDocument included.
-func TestReplaceDocumentRefusesSoul(t *testing.T) {
-	store, _ := testStore(t)
-	err := store.ReplaceDocument(as("owner"), ports.ContextSoul, "rewritten")
-	if err == nil {
-		t.Fatal("ReplaceDocument on soul succeeded")
+// A missing, emptied, or unreadable SOUL.md is the built-in soul, so no
+// state of the owner's file can fail a turn or leave Eggy with no identity.
+func TestSoulFallsBackToTheBuiltInDefault(t *testing.T) {
+	for name, prepare := range map[string]func(t *testing.T, path string){
+		"missing": func(*testing.T, string) {},
+		"empty": func(t *testing.T, path string) {
+			if err := os.WriteFile(path, []byte(" \n\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		// A directory where the file should be cannot be read as one.
+		"unreadable": func(t *testing.T, path string) {
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, dir := testStore(t)
+			prepare(t, filepath.Join(dir, "SOUL.md"))
+			loaded, err := store.Load(as("owner"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if loaded.Soul != initialSoul {
+				t.Fatalf("soul=%q", loaded.Soul)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "read-only") {
+}
+
+// Resetting is writing nothing: the next load is the built-in soul again.
+func TestReplacingSoulWithNothingRestoresTheDefault(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := as("owner")
+	if err := store.ReplaceDocument(ctx, ports.ContextSoul, "# Custom\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceDocument(ctx, ports.ContextSoul, ""); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil || loaded.Soul != initialSoul {
+		t.Fatalf("soul=%q err=%v", loaded.Soul, err)
+	}
+}
+
+// Reads are lenient; writes are not. An unreadable file is reported rather
+// than overwritten with whatever the write would have produced.
+func TestAWriteToAnUnreadableDocumentFails(t *testing.T) {
+	store, dir := testStore(t)
+	if err := os.Mkdir(filepath.Join(dir, "SOUL.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceDocument(as("owner"), ports.ContextSoul, "# New\n"); err == nil {
+		t.Fatal("write over an unreadable soul succeeded")
+	}
+}
+
+func TestReplaceDocumentRefusesAnOverBudgetSoul(t *testing.T) {
+	store, _ := testStore(t)
+	err := store.ReplaceDocument(as("owner"), ports.ContextSoul, strings.Repeat("x", DefaultSoulMaxBytes+1))
+	if err == nil || !strings.Contains(err.Error(), "full") {
 		t.Fatalf("err=%v", err)
 	}
 }

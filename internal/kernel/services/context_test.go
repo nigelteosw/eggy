@@ -76,7 +76,7 @@ func TestMemoryToolRejectsSecretsAndUnwritableFiles(t *testing.T) {
 	if _, err := tool.Execute(ctx, json.RawMessage(`{"action":"add","file":"memory","text":"token: secret-value"}`)); err == nil {
 		t.Fatal("expected secret rejection")
 	}
-	for _, file := range []string{"soul", "heartbeat", "nonsense"} {
+	for _, file := range []string{"heartbeat", "nonsense"} {
 		raw := json.RawMessage(`{"action":"add","file":"` + file + `","text":"identity"}`)
 		if _, err := tool.Execute(ctx, raw); err == nil || !strings.Contains(err.Error(), "file must be") {
 			t.Fatalf("file=%q err=%v", file, err)
@@ -179,9 +179,32 @@ func TestMemoryToolWritesTheWatchList(t *testing.T) {
 	}
 }
 
-func TestMemoryToolRejectsAnUnknownFile(t *testing.T) {
-	tool, _ := memoryToolFor(t, nil)
-	if _, err := tool.Execute(ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"}), json.RawMessage(`{"action":"add","file":"soul","text":"nope"}`)); err == nil {
-		t.Fatal("writing soul succeeded")
+// SOUL.md is prose: the agent rewrites it whole, with replace and no
+// old_text, and never edits it by entry.
+func TestMemoryToolRewritesSoulWhole(t *testing.T) {
+	tool, store := memoryToolFor(t, []string{"secret-value"})
+	ctx := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "42"})
+
+	soul := "# Eggy Soul\n\n## Voice\n\nTerse. No exclamation marks."
+	raw, _ := json.Marshal(map[string]string{"action": "replace", "file": "soul", "text": soul})
+	if _, err := tool.Execute(ctx, raw); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	loaded, err := store.Load(ctx)
+	if err != nil || loaded.Soul != soul+"\n" {
+		t.Fatalf("soul=%q err=%v", loaded.Soul, err)
+	}
+	for _, call := range []string{
+		`{"action":"add","file":"soul","text":"be terse"}`,
+		`{"action":"remove","file":"soul","old_text":"Terse"}`,
+		`{"action":"replace","file":"soul","old_text":"Terse","text":"Chatty"}`,
+		`{"action":"replace","file":"soul","text":"token: secret-value"}`,
+	} {
+		if _, err := tool.Execute(ctx, json.RawMessage(call)); err == nil {
+			t.Fatalf("%s succeeded", call)
+		}
+	}
+	if loaded, _ := store.Load(ctx); loaded.Soul != soul+"\n" {
+		t.Fatalf("a refused call changed soul: %q", loaded.Soul)
 	}
 }

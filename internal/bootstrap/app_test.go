@@ -1238,3 +1238,22 @@ func TestMCPGateSurvivesCatalogRebuild(t *testing.T) {
 		}
 	}
 }
+
+// Each runtime line describes something configured; nothing unconfigured
+// costs the prompt a byte.
+func TestRuntimeLinesDescribeOnlyWhatIsConfigured(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	lines := strings.Join(runtimeLines(cfg), "\n")
+	for _, want := range []string{"surfaces: telegram, web (https://eggy.test)", "/soul", "/heartbeat"} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("lines %q lack %q", lines, want)
+		}
+	}
+	if strings.Contains(lines, "google") || strings.Contains(lines, "discord") {
+		t.Fatalf("unconfigured capability described: %q", lines)
+	}
+	cfg.Google = config.GoogleConfig{Enabled: true, ExpectedEmail: "eggy@example.com"}
+	if lines := strings.Join(runtimeLines(cfg), "\n"); !strings.Contains(lines, "eggy@example.com is Eggy's own Workspace account") {
+		t.Fatalf("google identity missing: %q", lines)
+	}
+}

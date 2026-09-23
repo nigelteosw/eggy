@@ -416,7 +416,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			break
 		}
 	}
-	manifest := agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository}
+	manifest := agent.CapabilityManifest{Tools: toolNames, SelfRepository: selfRepository, Runtime: runtimeLines(config), Heartbeat: heartbeatLine(config)}
 	mcpAdministration := newMCPAdmin(app.mcp)
 	// One discovery, shared by both surfaces: the panel's browse control and
 	// /model available must not be able to disagree about what a provider

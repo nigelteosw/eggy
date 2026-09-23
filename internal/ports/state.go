@@ -67,6 +67,11 @@ type AgentRuntimeState struct {
 	// as a separate "Thinking:" message. Defaults to false (shown), so
 	// state persisted before this field existed keeps today's behavior.
 	HideThinking bool `json:"hide_thinking,omitempty"`
+	// Heartbeat is this account's own switch for periodic check-ins. Off
+	// until the person turns it on: an unprompted message is something they
+	// should have asked for, and the deployment's heartbeat section only
+	// sets the cadence for those who do.
+	Heartbeat bool `json:"heartbeat,omitempty"`
 }
 
 type StateStore interface {

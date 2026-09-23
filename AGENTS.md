@@ -55,9 +55,10 @@ should only ever add a new package under
 `internal/bootstrap`. It should never require changing `internal/kernel`,
 `internal/ports`, or an existing adapter package.
 
-1. Find the port(s) your provider must satisfy in `internal/ports/ports.go`
+1. Find the port(s) your provider must satisfy in `internal/ports`
    (`Model`, `Channel`, `ContextStore`, `StateStore`, `Scheduler`, `Runner`,
-   `RepositoryCheckout`, `RepositoryReader`, `Tool`, ...).
+   `RepositoryCheckout`, `RepositoryReader`, `Tool`, ...); `ports.go` lists
+   which file holds which contract.
    Do not change the
    interface's method signatures to fit one new provider — every existing
    adapter implements them and would break.

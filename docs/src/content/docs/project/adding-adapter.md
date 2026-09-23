@@ -8,7 +8,7 @@ A new provider should add one package under `plugins/<category>/<provider>/` plu
 
 ## 1. Choose a port
 
-Start in `internal/ports/ports.go`. Reuse the smallest suitable interface, such as `Model`, `Channel`, `ContextStore`, `StateStore`, `Scheduler`, `Runner`, `RepositoryCheckout`, `RepositoryReader`, or `Tool`.
+Start in `internal/ports`, whose `ports.go` lists which file holds which contract. Reuse the smallest suitable interface, such as `Model`, `Channel`, `ContextStore`, `StateStore`, `Scheduler`, `Runner`, `RepositoryCheckout`, `RepositoryReader`, or `Tool`.
 
 Do not change an existing method signature to fit one provider. If the capability is genuinely new, add one narrow provider-neutral interface instead of widening a broad port.
 

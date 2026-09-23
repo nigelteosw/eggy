@@ -33,8 +33,8 @@ import (
 // This file is the composition root: AppOptions/App's shape and NewApp's
 // wiring of every adapter into it, plus the handful of App methods thin
 // enough to be pure delegation. App's actual runtime behavior once
-// constructed -- the event loop, conversation turns, and approvals -- lives
-// in app_events.go.
+// constructed lives in events.go (event dispatch), run.go (the daemon loop
+// and schedule tick), and heartbeat.go (the periodic check-in).
 
 type AppOptions struct {
 	HTTPClient       *http.Client

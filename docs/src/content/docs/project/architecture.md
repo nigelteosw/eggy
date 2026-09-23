@@ -29,7 +29,7 @@ flowchart TB
 ## Package boundaries
 
 - `internal/kernel` owns agent, turn, approval, and service policy.
-- `internal/ports/ports.go` defines narrow provider-neutral interfaces.
+- `internal/ports` defines narrow provider-neutral interfaces, one file per topic; `ports.go` lists which file holds which contract.
 - `internal/kernel/services` is the base service package.
 - `internal/kernel/services/repo` adds read-only repository and workspace inspection and may import the base package; the reverse dependency is forbidden.
 - `internal/config` parses and mutates configuration.

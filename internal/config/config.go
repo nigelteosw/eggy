@@ -555,6 +555,11 @@ func LoadConfig(path string, getenv func(string) string) (Config, Secrets, error
 	if err := decodeKnownYAML(data, &cfg); err != nil {
 		return cfg, Secrets{}, fmt.Errorf("decode config: %w", err)
 	}
+	// An unset data_dir is the home this config lives in, so a config without
+	// one keeps every artifact beside itself rather than in a fixed /data.
+	if cfg.DataDir == "" {
+		cfg.DataDir = filepath.Dir(path)
+	}
 	if err := cfg.applyDefaults(); err != nil {
 		return cfg, Secrets{}, err
 	}

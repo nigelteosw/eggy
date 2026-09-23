@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -405,7 +406,7 @@ func LoadRecoveryIdentity(path string, getenv func(string) string) (RecoveryIden
 	}
 	cfg.normalizeAccounts()
 	if cfg.DataDir == "" {
-		cfg.DataDir = "/data"
+		cfg.DataDir = filepath.Dir(path)
 	}
 	if cfg.Owner.ID == "" && cfg.Telegram.OwnerID != 0 && !cfg.AccountMode() {
 		cfg.Owner.ID = strconv.FormatInt(cfg.Telegram.OwnerID, 10)

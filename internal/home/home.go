@@ -30,8 +30,9 @@ import (
 	"strings"
 )
 
-// DefaultRoot is where a container deployment keeps its persistent volume.
-const DefaultRoot = "/data"
+// DefaultRoot is the home a local run uses when nothing names one. A
+// container names its volume instead: the image sets EGGY_HOME=/data.
+const DefaultRoot = "~/.eggy"
 
 // Layout resolves every artifact path under one home root.
 type Layout struct{ Root string }
@@ -155,7 +156,7 @@ func relocate(from, to string) error {
 // Resolve picks the home root for a process. An explicit --home flag or
 // EGGY_HOME wins; otherwise an EGGY_CONFIG pointing at a config file implies
 // the home that contains it, which keeps existing deployments working; and
-// with neither set the container default applies.
+// with neither set the local default, ~/.eggy, applies.
 func Resolve(flagHome string, getenv func(string) string) Layout {
 	if dir := strings.TrimSpace(flagHome); dir != "" {
 		return At(dir)

@@ -19,7 +19,9 @@ func TestLoadOrCreateConfigGeneratesSafeDefaults(t *testing.T) {
 	if cfg.Telegram.OwnerID != 42 || cfg.Server.PublicBaseURL != "https://eggy.up.railway.app" {
 		t.Fatalf("generated config = %#v", cfg)
 	}
-	if cfg.DataDir != "/data" || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || len(cfg.Repositories) != 0 {
+	// The generated home is where the config was generated, which is /data in
+	// a container only because EGGY_HOME says so there.
+	if cfg.DataDir != filepath.Dir(path) || cfg.Server.TelegramWebhookPath != "/webhooks/telegram" || len(cfg.Repositories) != 0 {
 		t.Fatalf("unsafe generated defaults = %#v", cfg)
 	}
 	provider, model, err := cfg.ActiveModel("deepseek-pro")
@@ -380,5 +382,36 @@ func TestFirstBootGeneratesAWebOnlyConfigFromEGGYOwnerID(t *testing.T) {
 	}
 	if _, _, err := LoadConfig(path, mapEnv(env)); err != nil {
 		t.Fatalf("the generated web-only config must strictly reload: %v", err)
+	}
+}
+
+// A config without data_dir keeps its artifacts beside itself. Defaulting to
+// a fixed /data split a local home across two directories: config.yaml in
+// ~/.eggy, SOUL.md and eggy.db somewhere the owner never looks.
+func TestAnUnsetDataDirIsTheConfigsOwnDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	env := firstBootEnv()
+	if _, _, err := LoadOrCreateConfig(path, mapEnv(env)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "data_dir:") {
+			kept = append(kept, line)
+		}
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := LoadConfig(path, mapEnv(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DataDir != filepath.Dir(path) {
+		t.Fatalf("data_dir=%q, want %q", cfg.DataDir, filepath.Dir(path))
 	}
 }

@@ -112,6 +112,47 @@ Left out of `config.yaml`, the capability does not exist: no client is built,
 no tool is registered, and neither schema reaches a model request. See
 `docs/src/content/docs/configure/web-search.md`.
 
+## Code map
+
+Eggy is ports and adapters: the kernel speaks only to interfaces in
+`internal/ports`, adapters under `plugins/` implement them, and
+`internal/bootstrap` is the one place that wires them together. Every package
+opens with a comment saying what it owns and, for the larger ones, which file
+holds what (`go doc ./internal/web`).
+
+Entry point and wiring
+
+- `cmd/eggyd` — the daemon: startup supervision, first-run setup, safe mode, restart.
+- `internal/bootstrap` — builds adapters from config, registers tools, runs the event loop and heartbeat.
+- `internal/home` — every path in the home directory.
+
+Kernel (provider-neutral)
+
+- `internal/ports` — the interfaces adapters implement, one file per topic.
+- `internal/kernel/agent` — the model-and-tools loop, prompt building, context compaction.
+- `internal/kernel/turns` — what one turn is: owner, scheduled, or heartbeat, and what each may reach.
+- `internal/kernel/services` — dispatcher, tool registry, approval gate and service, conversation, native tools, traces.
+- `internal/kernel/services/repo` — read-only repository and workspace tools.
+- `internal/kernel/approvals`, `events`, `destination` — the approval record, inbound events, and which surface a reply goes to.
+
+Surfaces and administration
+
+- `internal/config` — `config.yaml`: shape, defaults, validation, and every write.
+- `internal/commands` — Telegram's slash commands.
+- `internal/web` — the web panel API, browser chat, sign-in, setup, and safe mode.
+
+Adapters (`plugins/`)
+
+- `channels/telegram`, `channels/discord`, `channels/webchat` — chat surfaces; `channels/channelutil` is what they share.
+- `models/openaicompat` — every Chat Completions-compatible model provider.
+- `tools/google`, `tools/mcp`, `tools/tavily` — optional tool integrations.
+- `store/sqlite` — `eggy.db`, every machine-managed record.
+- `context/markdown`, `skills` — the owner-facing Markdown documents and skills.
+- `repositories/github`, `runner/localprocess` — cloning and reading repositories; bounded child processes.
+- `scheduler/local` — schedules and cron.
+- `auth/session`, `auth/grants`, `auth/connections` — sign-in primitives, sealed OAuth grants, sealed chat credentials.
+- `webui` — the embedded panel assets; `atomicfile`, `filelock` — durable writes and cross-process locks.
+
 ## Development
 
 Eggy requires Go 1.26 and Bun for the embedded web asset build.

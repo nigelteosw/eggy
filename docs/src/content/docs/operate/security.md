@@ -64,6 +64,8 @@ through a candidate the config loader has already accepted.
 
 ## Scheduled turns
 
+`SOUL.md` is shared by every account and any of them can change it — in the panel, or by asking Eggy, which rewrites it whole and says what it changed. It is capped at 4 KB, filtered for credentials on an agent write, and can never grant a capability or override the hard runtime policy. Heartbeats are off for each person until they switch theirs on.
+
 Scheduled agent turns and heartbeat beats are read-only, carry no ambient conversation history unless `heartbeat.include_recent_history` is set, cannot reach MCP, and do not gain authority from instruction text. The `schedule` tool is offered to them with the `list` action alone. Deterministic message schedules do not invoke a model at all.
 
 Only direct owner turns accept steering. A message arriving during an unprompted turn cannot redirect work the owner was not present for.

@@ -24,7 +24,7 @@ cp .env.example .env
 EGGY_CONFIG="$PWD/config.yaml" ./bin/eggyd
 ```
 
-Use `--home` to keep all runtime artifacts in an explicit local directory.
+Use `--home` to keep all runtime artifacts in an explicit local directory. With no `--home`, `EGGY_HOME`, or `EGGY_CONFIG`, the home is `~/.eggy`.
 
 ## Focused development
 

@@ -70,13 +70,14 @@ no roles.
 
 | Area | Section | Contents |
 | --- | --- | --- |
-| **My settings** | Model & approvals | Your model, reasoning effort, thinking visibility, and approval mode — yours alone, across both Telegram and the web |
+| **My settings** | Model & approvals | Your model, reasoning effort, thinking visibility, heartbeat check-ins, and approval mode — yours alone, across both Telegram and the web |
 | | Automation | Your schedules and watch list |
 | | Pending approvals | Actions waiting on you |
 | **People** | People | The trusted-user list: who can use this Eggy, how each signs in, and which Google account Eggy itself is |
 | **Shared deployment** | Models | Providers, and the aliases that route to them — including browsing a provider's live catalog |
 | | Connections | MCP servers, Google Workspace, and chat bots |
 | | Capabilities | The merged tool catalog, read-only |
+| | Soul | `SOUL.md`, Eggy's shared identity, with a reset to the built-in soul |
 | | Appearance | Panel theme, stored in `config.yaml` so it follows you across devices |
 | | Advanced | Heartbeat, tracing, raw `config.yaml`, and Restart |
 

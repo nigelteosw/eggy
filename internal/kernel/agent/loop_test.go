@@ -571,3 +571,27 @@ func (t *signalTool) Execute(context.Context, json.RawMessage) (json.RawMessage,
 	close(t.ran)
 	return t.result, nil
 }
+
+type turnScopedTool struct{ fakeTool }
+
+func (t *turnScopedTool) Definition() ports.ToolDefinition {
+	definition := t.fakeTool.Definition()
+	definition.TurnScoped = true
+	return definition
+}
+
+// A turn-scoped tool reaches only a turn whose allowlist names it: an owner
+// turn, which runs on the full catalog, must not pay for a schema it can only
+// fail on.
+func TestLoopOffersATurnScopedToolOnlyWhenTheAllowlistNamesIt(t *testing.T) {
+	tools := StaticTools{&fakeTool{name: "status"}, &turnScopedTool{fakeTool{name: "heartbeat_respond"}}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: &queuedModel{}, ModelID: "id"}}, tools, ContextPolicy{})
+
+	if names := loop.ToolNames(RunOptions{}); !slices.Equal(names, []string{"status"}) {
+		t.Fatalf("full catalog offered %v", names)
+	}
+	named := loop.ToolNames(RunOptions{AllowedTools: map[string]bool{"status": true, "heartbeat_respond": true}})
+	if !slices.Contains(named, "heartbeat_respond") {
+		t.Fatalf("explicit allowlist offered %v", named)
+	}
+}

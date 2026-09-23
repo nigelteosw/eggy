@@ -16,6 +16,11 @@ type ToolDefinition struct {
 	// forgetting costs an approval prompt, and the opposite mistake costs the
 	// mutation itself.
 	Effect ToolEffect `json:"effect,omitzero"`
+	// TurnScoped offers the tool only to a turn whose allowlist names it. The
+	// full catalog an owner turn runs on leaves it out, so a tool that belongs
+	// to one kind of turn -- heartbeat_respond -- costs every other turn
+	// nothing.
+	TurnScoped bool `json:"turn_scoped,omitempty"`
 }
 
 // ToolEffect classifies what calling a tool does.

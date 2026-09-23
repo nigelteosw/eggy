@@ -67,8 +67,8 @@ type heartbeatRespondTool struct {
 }
 
 // NewHeartbeatTools returns the heartbeat's reply tool. It is registered like
-// any other kernel tool but reaches a turn only through the heartbeat's
-// allowlist, so it costs no prompt bytes on an ordinary turn.
+// any other kernel tool but is TurnScoped, so it reaches a turn only through
+// the heartbeat's allowlist and costs no prompt bytes on an ordinary turn.
 func NewHeartbeatTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool {
 	if guard == nil {
 		guard = NewSecretGuard(nil)
@@ -85,6 +85,7 @@ func (t heartbeatRespondTool) Definition() ports.ToolDefinition {
 		Description: heartbeatRespondDescription,
 		Schema:      heartbeatRespondSchema,
 		Effect:      ports.InternalTool(),
+		TurnScoped:  true,
 	}
 }
 

@@ -423,22 +423,26 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// serves or about which providers opted in.
 	discovery := newModelDiscovery(config, catalog.providers)
 	app.commands = commands.New(commands.Options{
-		ConfigPath:     options.ConfigPath,
-		MCP:            mcpAdministration.commandsView(),
-		Google:         googleAdministration.commandsView(),
-		Turns:          activeTurns,
-		Store:          stateStore,
-		Approvals:      app.approvals,
-		Conversation:   conversation,
-		Restarter:      app,
-		Getenv:         options.Getenv,
-		AgentRuntime:   agentRuntime,
-		DefaultModel:   config.Agent.DefaultModel,
-		ModelAliases:   aliases,
-		ModelDiscovery: discovery,
-		PublicBaseURL:  config.Server.PublicBaseURL,
-		WebLoginLink:   app.webLoginLinkMinter(database, options.ConfigPath),
-		Now:            options.Now,
+		ConfigPath:   options.ConfigPath,
+		MCP:          mcpAdministration.commandsView(),
+		Google:       googleAdministration.commandsView(),
+		Turns:        activeTurns,
+		Store:        stateStore,
+		Approvals:    app.approvals,
+		Conversation: conversation,
+		Restarter:    app,
+		Getenv:       options.Getenv,
+		AgentRuntime: agentRuntime,
+		Soul:         contextStore,
+		// The same cadence the prompt's heartbeat line describes, so /heartbeat
+		// and the agent cannot disagree about when check-ins run.
+		HeartbeatCadence: heartbeatCadence(config),
+		DefaultModel:     config.Agent.DefaultModel,
+		ModelAliases:     aliases,
+		ModelDiscovery:   discovery,
+		PublicBaseURL:    config.Server.PublicBaseURL,
+		WebLoginLink:     app.webLoginLinkMinter(database, options.ConfigPath),
+		Now:              options.Now,
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
@@ -479,7 +483,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		MCP:                 mcpAdministration.webView(),
 		Tools:               registry,
 		Schedules:           app.scheduler,
-		Watch:               contextStore,
+		Documents:           contextStore,
 		Traces:              traceReader,
 		Approvals:           app.approvals,
 		ApprovalMode:        app.approvals,

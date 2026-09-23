@@ -35,10 +35,10 @@ func (f *fakeWatchList) ReplaceDocument(_ context.Context, document ports.Contex
 	return nil
 }
 
-func watchTestHandler(t *testing.T, watch WatchList) (http.Handler, *http.Cookie) {
+func watchTestHandler(t *testing.T, watch ContextDocuments) (http.Handler, *http.Cookie) {
 	t.Helper()
 	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	webConfig.Watch = watch
+	webConfig.Documents = watch
 	handler := NewWebHandler("", webConfig)
 	return handler, webLoginCookie(t, handler)
 }
@@ -143,7 +143,7 @@ func TestWebWatchRoutesAreAbsentWithoutAStore(t *testing.T) {
 // Eggy what to look at.
 func TestWebWatchRoutesRequireASession(t *testing.T) {
 	webConfig := testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	webConfig.Watch = &fakeWatchList{}
+	webConfig.Documents = &fakeWatchList{}
 	handler := NewWebHandler("", webConfig)
 
 	for _, request := range []*http.Request{

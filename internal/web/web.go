@@ -100,9 +100,9 @@ type WebUIConfig struct {
 	// Nil leaves the route answering 404 and the card's browse control absent,
 	// which is also what every provider opting out of discovery produces.
 	ModelDiscovery ModelDiscoverer
-	// Watch is the heartbeat's watch list, the one context document the
-	// panel edits. Nil leaves its routes answering 404 and the card absent.
-	Watch WatchList
+	// Documents are the context documents the panel edits: the watch list and
+	// SOUL.md. Nil leaves their routes answering 404 and the cards absent.
+	Documents ContextDocuments
 	// Traces is the recorded turn log: every model call with the prompt that
 	// produced it, every tool call with its arguments and output. Nil when
 	// tracing is switched off, which leaves the routes unmounted and the
@@ -325,8 +325,11 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/agent/model", guard(newAgentModelHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/effort", guard(newAgentEffortHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/thinking", guard(newAgentThinkingHandler(webConfig.Agent, webConfig.ApprovalMode)))
-	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Watch)))
-	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Watch)))
+	mux.Handle("POST /api/agent/heartbeat", guard(newAgentHeartbeatHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Documents)))
+	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Documents)))
+	mux.Handle("GET /api/context/soul", guard(newSoulGetRoute(webConfig.Documents)))
+	mux.Handle("POST /api/context/soul", guard(newSoulSetRoute(webConfig.Documents)))
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))
 		mux.Handle("GET /api/traces/{id}", guard(newTraceDetailHandler(webConfig.Traces)))

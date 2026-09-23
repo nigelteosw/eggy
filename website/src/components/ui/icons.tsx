@@ -62,6 +62,12 @@ export const WrenchIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const HeartIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 16.2s-6.2-3.7-6.2-8a3.4 3.4 0 0 1 6.2-1.9 3.4 3.4 0 0 1 6.2 1.9c0 4.3-6.2 8-6.2 8Z" />
+  </Icon>
+);
+
 export const ClockIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="10" cy="10" r="7" />

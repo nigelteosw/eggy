@@ -8,6 +8,7 @@ import { GoogleCard } from "./GoogleCard";
 import { DiscordCard } from "./DiscordCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { WatchCard } from "./WatchCard";
+import { SoulCard } from "./SoulCard";
 import { ToolsCard } from "./ToolsCard";
 import { TracingCard } from "./TracingCard";
 import { SchedulesCard } from "./SchedulesCard";
@@ -23,13 +24,14 @@ import {
   CpuIcon,
   FileCodeIcon,
   LogoutIcon,
+  HeartIcon,
   PaletteIcon,
   PlugIcon,
   UsersIcon,
   WrenchIcon,
 } from "./components/ui/icons";
 
-export type SectionId = "personal" | "automation" | "permissions" | "accounts" | "models" | "connections" | "capabilities" | "appearance" | "advanced";
+export type SectionId = "personal" | "automation" | "permissions" | "accounts" | "models" | "connections" | "capabilities" | "soul" | "appearance" | "advanced";
 
 // Settings fall into three areas with different owners. "My settings" is
 // the signed-in person's own runtime state and documents; "People" is the
@@ -63,6 +65,7 @@ export const SECTIONS: Section[] = [
   { id: "models", group: "shared", label: "Models", title: "Shared deployment — changes here affect everyone", description: "Providers, API keys, and the aliases that route to them, used by every person.", icon: <CpuIcon /> },
   { id: "connections", group: "shared", label: "Connections", title: "Shared deployment — changes here affect everyone", description: "External tools, the shared Google Workspace grant, and chat bots.", icon: <PlugIcon /> },
   { id: "capabilities", group: "shared", label: "Capabilities", title: "Shared deployment — capabilities", description: "What Eggy can use during anyone's turn.", icon: <WrenchIcon /> },
+  { id: "soul", group: "shared", label: "Soul", title: "Shared deployment — Eggy's soul", description: "Who Eggy is and how it sounds, for everyone.", icon: <HeartIcon /> },
   { id: "appearance", group: "shared", label: "Appearance", title: "Shared deployment — appearance", description: "How the panel looks, for everyone.", icon: <PaletteIcon /> },
   { id: "advanced", group: "shared", label: "Advanced", title: "Shared deployment — changes here affect everyone", description: "Heartbeat, tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
 ];
@@ -183,6 +186,7 @@ export function ConfigPage({
             </>
           )}
           {active === "capabilities" && <ToolsCard onSessionExpired={onSessionExpired} />}
+          {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>
               <SchedulesCard onSessionExpired={onSessionExpired} />

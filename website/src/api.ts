@@ -463,6 +463,7 @@ export type AgentSelection = {
   efforts: string[];
   effort: string;
   show_thinking?: boolean;
+  heartbeat?: boolean;
   approval_mode?: string;
 };
 
@@ -496,6 +497,12 @@ export function setAgentThinking(show: boolean): Promise<AgentSelection> {
   return request<AgentSelection>("/api/agent/thinking", { method: "POST", body: JSON.stringify({ show }) });
 }
 
+// Whether Eggy checks in on the signed-in person unprompted. Off until they
+// turn it on; the deployment's heartbeat section only sets the cadence.
+export function setAgentHeartbeat(on: boolean): Promise<AgentSelection> {
+  return request<AgentSelection>("/api/agent/heartbeat", { method: "POST", body: JSON.stringify({ on }) });
+}
+
 // Restarting rebuilds the daemon around config.yaml as it now stands, which
 // is what every "restart to take effect" notice in this panel is asking for.
 // A config Eggy could not load comes back as a rejection with the reason and
@@ -519,6 +526,17 @@ export function getWatchList(): Promise<CommandResult> {
 
 export function saveWatchList(content: string): Promise<CommandResult> {
   return request("/api/context/watch", { method: "POST", body: JSON.stringify({ content }) });
+}
+
+// SOUL.md, Eggy's identity, shared by everyone. Read as a turn reads it --
+// the built-in soul when nobody has written one -- and saved whole. Saving
+// nothing resets it to the built-in soul.
+export function getSoul(): Promise<CommandResult> {
+  return request("/api/context/soul");
+}
+
+export function saveSoul(content: string): Promise<CommandResult> {
+  return request("/api/context/soul", { method: "POST", body: JSON.stringify({ content }) });
 }
 
 export function cancelSchedule(id: string): Promise<CommandResult> {

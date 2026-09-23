@@ -38,6 +38,8 @@ type AgentSettings interface {
 	SelectReasoningEffort(context.Context, string) error
 	ShowThinking(context.Context) (bool, error)
 	SetShowThinking(context.Context, bool) error
+	Heartbeat(context.Context) (bool, error)
+	SetHeartbeat(context.Context, bool) error
 }
 
 // ApprovalGate is the runtime switch behind /mode. Reading and writing go
@@ -67,8 +69,14 @@ type Options struct {
 	Turns        TurnStopper
 	Restarter    Restarter
 	AgentRuntime AgentSettings
-	DefaultModel string
-	ModelAliases []string
+	// Soul reads SOUL.md for /soul.
+	Soul SoulReader
+	// HeartbeatCadence describes when beats run, such as "every 3h", or is
+	// empty when the deployment has no runnable heartbeat -- which /heartbeat
+	// on says, rather than implying a switch alone makes Eggy check in.
+	HeartbeatCadence string
+	DefaultModel     string
+	ModelAliases     []string
 	// ModelDiscovery browses a provider's catalog for /model available. Nil
 	// leaves that subcommand saying so, which is what a deployment whose
 	// providers all opted out of discovery gets.
@@ -169,6 +177,10 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.modeCommand(ctx, strings.Join(args, " "))
 	case "restart":
 		return s.restartCommand()
+	case "soul":
+		return s.soulCommand(ctx)
+	case "heartbeat":
+		return s.heartbeatCommand(ctx, args)
 	default:
 		return "Unknown command. Send /help for commands.", true, nil
 	}

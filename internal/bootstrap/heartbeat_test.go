@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -408,18 +409,23 @@ func (s *perAccountContextStore) Load(ctx context.Context) (ports.AgentContext, 
 	return ports.AgentContext{Watch: s.watch[principal.AccountID]}, nil
 }
 
-// A tick beats once per account that both has somewhere to be reached and
-// has something on its watch list, each under its own principal. A web-only
-// account gets no beat: unprompted output goes to Telegram, and nothing is
-// ever delivered to a neighbour's chat in its place.
+// A tick beats once per account that has switched its heartbeat on, can be
+// reached, and has something on its watch list, each under its own principal.
+// The switch is off until the person turns it on. A web-only account gets no
+// beat: unprompted output goes to Telegram, and nothing is ever delivered to a
+// neighbour's chat in its place.
 func TestHeartbeatBeatsPerAccountUnderEachPrincipal(t *testing.T) {
 	cfg := accountTestConfig(t.TempDir())
-	cfg.Accounts = append(cfg.Accounts, config.AccountConfig{ID: "quiet", TelegramUserID: 99})
+	cfg.Accounts = append(cfg.Accounts,
+		config.AccountConfig{ID: "quiet", TelegramUserID: 99},
+		config.AccountConfig{ID: "unswitched", TelegramUserID: 100},
+	)
 	app := &App{config: cfg, context: &perAccountContextStore{watch: map[string]string{
-		"nigel":   "# Eggy Watch\n\n- the oven\n",
-		"partner": "# Eggy Watch\n\n- the deploy\n", // web-only: no Telegram
-		"quiet":   "# Eggy Watch\n",                 // nothing to watch
-	}}}
+		"nigel":      "# Eggy Watch\n\n- the oven\n",
+		"partner":    "# Eggy Watch\n\n- the deploy\n", // web-only: no Telegram
+		"quiet":      "# Eggy Watch\n",                 // nothing to watch
+		"unswitched": "# Eggy Watch\n\n- the mail\n",   // never turned it on
+	}}, store: heartbeatSwitches{"nigel": true, "partner": true, "quiet": true}}
 	beats := app.heartbeatAccounts(context.Background())
 	if len(beats) != 1 {
 		t.Fatalf("beats=%d, want exactly nigel's", len(beats))
@@ -427,5 +433,43 @@ func TestHeartbeatBeatsPerAccountUnderEachPrincipal(t *testing.T) {
 	principal, err := ports.PrincipalFromContext(beats[0])
 	if err != nil || principal.AccountID != "nigel" {
 		t.Fatalf("beat principal=%+v err=%v", principal, err)
+	}
+}
+
+// heartbeatSwitches answers each account's own heartbeat switch.
+type heartbeatSwitches map[string]bool
+
+func (s heartbeatSwitches) Load(ctx context.Context) (ports.State, error) {
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return ports.State{}, err
+	}
+	return ports.State{Agent: ports.AgentRuntimeState{Heartbeat: s[principal.AccountID]}}, nil
+}
+
+func (heartbeatSwitches) Update(context.Context, uint64, func(*ports.State) error) (ports.State, error) {
+	return ports.State{}, errors.New("read-only")
+}
+
+// The heartbeat line exists only when a beat could actually run and reach
+// someone, and says when -- so an owner turn can promise a check-in only when
+// one will happen.
+func TestHeartbeatLineDescribesOnlyARunnableHeartbeat(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	if line := heartbeatLine(cfg); line != "" {
+		t.Fatalf("unconfigured heartbeat described: %q", line)
+	}
+	cfg.Heartbeat = config.HeartbeatConfig{Interval: config.Duration(3 * time.Hour), ActiveHours: config.ActiveHours{Start: "08:00", End: "22:00"}}
+	cfg.Agent.Timezone = "Asia/Singapore"
+	line := heartbeatLine(cfg)
+	for _, want := range []string{"every 3h", "08:00-22:00 Asia/Singapore", "watch list", "memory tool"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("line %q lacks %q", line, want)
+		}
+	}
+	cfg.Telegram = config.TelegramConfig{}
+	cfg.Owner = config.OwnerConfig{ID: "web-only"}
+	if line := heartbeatLine(cfg); line != "" {
+		t.Fatalf("heartbeat with nowhere to deliver described: %q", line)
 	}
 }

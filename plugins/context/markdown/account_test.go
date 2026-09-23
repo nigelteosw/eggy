@@ -43,6 +43,9 @@ func TestPrivateDocumentsAreScopedByAccount(t *testing.T) {
 	if err := store.ReplaceDocument(as("a"), ports.ContextWatch, "# Eggy Watch\n\n- the oven\n"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.ReplaceDocument(as("a"), ports.ContextSoul, "# Shared soul\n"); err != nil {
+		t.Fatal(err)
+	}
 	b, err := store.Load(as("b"))
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +61,7 @@ func TestPrivateDocumentsAreScopedByAccount(t *testing.T) {
 		t.Fatalf("a lost its memory: %#v", a)
 	}
 	// SOUL is one file, shared.
-	if a.Soul != b.Soul {
+	if a.Soul != b.Soul || a.Soul != "# Shared soul\n" {
 		t.Fatal("soul differs between accounts")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "SOUL.md")); err != nil {

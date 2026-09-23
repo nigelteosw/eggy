@@ -159,9 +159,6 @@ func TestBuildInstructionsRendersCapacityIndicatorForUserAndMemoryOnly(t *testin
 	if strings.Contains(soul, "%") {
 		t.Fatalf("soul should carry no capacity indicator: %s", soul)
 	}
-	if !strings.Contains(soul, "read-only") {
-		t.Fatalf("soul should be labelled read-only: %s", soul)
-	}
 	if !strings.Contains(user, "[10% - 10/100 bytes]") {
 		t.Fatalf("user=%s", user)
 	}
@@ -175,5 +172,38 @@ func TestBuildInstructionsOmitsCapacityIndicatorWhenMaxBytesUnknown(t *testing.T
 	messages := BuildInstructions(context, CapabilityManifest{}, TemporalContext{Now: time.Now(), Timezone: "UTC"})
 	if strings.Contains(messages[1].Content, "%") || strings.Contains(messages[4].Content, "%") || strings.Contains(messages[5].Content, "%") {
 		t.Fatalf("unexpected capacity indicator: soul=%s user=%s memory=%s", messages[1].Content, messages[4].Content, messages[5].Content)
+	}
+}
+
+// Runtime lines describe what Eggy is -- where it is reachable, whose Google
+// account it holds -- and each exists only when bootstrap supplied it, so an
+// unconfigured capability costs the prompt nothing.
+func TestCapabilityManifestRendersRuntimeLinesOnlyWhenSupplied(t *testing.T) {
+	bare := renderCapabilityManifest(CapabilityManifest{ActiveModel: "m"})
+	if strings.Contains(bare, "runtime") {
+		t.Fatalf("manifest without runtime lines mentions runtime:\n%s", bare)
+	}
+	full := renderCapabilityManifest(CapabilityManifest{
+		ActiveModel: "m",
+		Runtime:     []string{"surfaces: telegram, web"},
+		Heartbeat:   "heartbeat: every 3h",
+	})
+	if !strings.Contains(full, "runtime:\n- surfaces: telegram, web\n- heartbeat: every 3h") {
+		t.Fatalf("manifest=%s", full)
+	}
+}
+
+// The agent may rewrite SOUL.md, so the policy tells it when and how -- but
+// only on a turn that carries the memory tool.
+func TestSoulPolicyTravelsWithTheMemoryTool(t *testing.T) {
+	if policy := renderRuntimePolicy([]string{"memory"}); !strings.Contains(policy, `file "soul"`) {
+		t.Fatalf("policy=%s", policy)
+	}
+	if policy := renderRuntimePolicy([]string{"status"}); strings.Contains(policy, `file "soul"`) || strings.Contains(policy, "read-only to you") {
+		t.Fatalf("policy=%s", policy)
+	}
+	soul := Instructions(ports.AgentContext{Soul: "S"}, CapabilityManifest{}, TemporalContext{})[1].Message.Content
+	if strings.Contains(soul, "read-only") || !strings.Contains(soul, "cannot override hard policy") {
+		t.Fatalf("soul header=%s", soul)
 	}
 }

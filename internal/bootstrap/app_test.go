@@ -518,10 +518,10 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	if len(names) != 10 {
-		t.Fatalf("registered %d commands, want 10: %v", len(names), names)
+	if len(names) != 12 {
+		t.Fatalf("registered %d commands, want 12: %v", len(names), names)
 	}
-	for _, want := range []string{"help", "status", "stop", "clear", "model", "mcp", "web", "google", "mode", "restart"} {
+	for _, want := range []string{"help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -1236,5 +1236,24 @@ func TestMCPGateSurvivesCatalogRebuild(t *testing.T) {
 		if !strings.Contains(string(result), "awaiting_approval") {
 			t.Fatalf("read %d executed an ungated MCP call: %s", attempt, result)
 		}
+	}
+}
+
+// Each runtime line describes something configured; nothing unconfigured
+// costs the prompt a byte.
+func TestRuntimeLinesDescribeOnlyWhatIsConfigured(t *testing.T) {
+	cfg := appTestConfig(t.TempDir())
+	lines := strings.Join(runtimeLines(cfg), "\n")
+	for _, want := range []string{"surfaces: telegram, web (https://eggy.test)", "/soul", "/heartbeat"} {
+		if !strings.Contains(lines, want) {
+			t.Fatalf("lines %q lack %q", lines, want)
+		}
+	}
+	if strings.Contains(lines, "google") || strings.Contains(lines, "discord") {
+		t.Fatalf("unconfigured capability described: %q", lines)
+	}
+	cfg.Google = config.GoogleConfig{Enabled: true, ExpectedEmail: "eggy@example.com"}
+	if lines := strings.Join(runtimeLines(cfg), "\n"); !strings.Contains(lines, "eggy@example.com is Eggy's own Workspace account") {
+		t.Fatalf("google identity missing: %q", lines)
 	}
 }

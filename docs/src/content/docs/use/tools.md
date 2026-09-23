@@ -21,15 +21,18 @@ Each tool declares its own effect, which is what
 | `status` | read | Bounded operational status: model, approvals, schedules |
 | `current_time` | read | The current time in `agent.timezone` |
 | `recall_conversation` | read | Search bounded historical conversation, up to 10 results, never injected automatically |
-| `memory` | internal | Add, replace, or remove one entry in `MEMORY.md`, `USER.md`, or `WATCH.md` |
+| `memory` | internal | Add, replace, or remove one entry in `MEMORY.md`, `USER.md`, or `WATCH.md`; rewrite `SOUL.md` whole |
 | `skill_read` | read | Load one [skill's](/eggy/use/skills/) full instructions by exact name |
-| `heartbeat_respond` | internal | A beat's own answer: notify or stay silent, when to look again, and its watch-list annotation |
+| `heartbeat_respond` | internal | A beat's own answer: notify or stay silent, when to look again, and its watch-list annotation. Offered only on heartbeat turns |
 | `schedule` | mixed | `list` reads; `create` and `cancel` write |
 
 `memory` and `heartbeat_respond` are the only tools classified *internal*: every
 action writes, but only into documents you already read in the prompt and can
 edit yourself, and nowhere else. `normal` lets them through so you are not
-approving a tap per remembered fact; `strict` still asks.
+approving a tap per remembered fact; `strict` still asks. `SOUL.md` is shared,
+so a soul rewrite is visible to everyone — but every person can already edit it
+in the panel, Eggy rewrites it only when asked and says what it changed, and no
+unprompted turn can reach the tool.
 
 `schedule` is classified per action, so listing what is due runs freely while
 creating or cancelling asks.

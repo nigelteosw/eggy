@@ -20,6 +20,8 @@ type AgentSwitch interface {
 	SelectReasoningEffort(ctx context.Context, effort string) error
 	ShowThinking(ctx context.Context) (bool, error)
 	SetShowThinking(ctx context.Context, show bool) error
+	Heartbeat(ctx context.Context) (bool, error)
+	SetHeartbeat(ctx context.Context, on bool) error
 }
 
 // agentSelection is what the composer renders: every alias it may offer, the
@@ -33,6 +35,7 @@ type agentSelection struct {
 	Efforts      []string `json:"efforts"`
 	Effort       string   `json:"effort"`
 	ShowThinking bool     `json:"show_thinking"`
+	Heartbeat    bool     `json:"heartbeat"`
 	Approval     string   `json:"approval_mode,omitempty"`
 }
 
@@ -115,6 +118,29 @@ func newAgentThinkingHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.Ha
 	}
 }
 
+// newAgentHeartbeatHandler switches the calling account's own check-ins, the
+// panel's half of /heartbeat. Off until the person turns it on.
+func newAgentHeartbeatHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		var input struct {
+			On bool `json:"on"`
+		}
+		if err := decodeAuthBody(r, &input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if err := agent.SetHeartbeat(r.Context(), input.On); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
 // respondAgentSelection answers every route here with the whole selection, so
 // the composer re-renders from the runtime rather than from what it assumed a
 // write did. It is one shape for all three because the composer replaces its
@@ -159,7 +185,11 @@ func readAgentSelection(ctx context.Context, agent AgentSwitch) (agentSelection,
 	if err != nil {
 		return agentSelection{}, err
 	}
-	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show}, nil
+	heartbeat, err := agent.Heartbeat(ctx)
+	if err != nil {
+		return agentSelection{}, err
+	}
+	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show, Heartbeat: heartbeat}, nil
 }
 
 func writeJSON(w http.ResponseWriter, body any) {

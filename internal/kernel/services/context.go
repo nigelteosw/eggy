@@ -67,9 +67,10 @@ const memoryToolDescription = `Curate durable memory across sessions. file "memo
 Actions: "add" appends a new entry (needs text); "replace" rewrites an existing entry (needs old_text and text); "remove" deletes one (needs old_text).
 old_text matches an entry by substring and must identify exactly one. "memory" and "user" are already in your context, so there is no read action.
 A watch entry is a thing to look at, never a thing with its own schedule. Anything that should happen at a particular time is a schedule: use the schedule tool, not this one.
+file "soul" is SOUL.md, your identity, shared by everyone who uses Eggy. It is prose, so the only edit is "replace" with no old_text, and text becomes the whole new document.
 Store only durable, verified facts. Never store credentials, transient chat, or unsupported assumptions.`
 
-var memoryToolSchema = json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["add","replace","remove"]},"file":{"type":"string","enum":["memory","user","watch"]},"text":{"type":"string","minLength":1},"old_text":{"type":"string","minLength":1}},"required":["action","file"],"additionalProperties":false}`)
+var memoryToolSchema = json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["add","replace","remove"]},"file":{"type":"string","enum":["memory","user","watch","soul"]},"text":{"type":"string","minLength":1},"old_text":{"type":"string","minLength":1}},"required":["action","file"],"additionalProperties":false}`)
 
 type memoryTool struct {
 	store ports.ContextStore
@@ -77,8 +78,9 @@ type memoryTool struct {
 }
 
 // NewContextTools returns the agent's durable-memory tool surface: one tool
-// over the two writable documents. SOUL.md is owner-edited identity and is
-// injected into the prompt but never rewritten by the agent.
+// over the context documents. USER.md, MEMORY.md and WATCH.md are edited an
+// entry at a time; SOUL.md is rewritten whole, when the owner asks for a
+// change in how Eggy behaves.
 func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool {
 	if guard == nil {
 		guard = NewSecretGuard(nil)
@@ -88,10 +90,15 @@ func NewContextTools(store ports.ContextStore, guard *SecretGuard) []ports.Tool 
 
 func (t memoryTool) Definition() ports.ToolDefinition {
 	// Every action writes -- add, replace and remove are the whole surface, and
-	// both files are already in context so there is nothing to read -- but every
+	// the files are already in context so there is nothing to read -- but every
 	// write lands in a document the owner reads in the prompt and can edit
 	// directly, and nowhere else. That is ports.InternalTool: normal mode lets
 	// it through and strict still asks.
+	//
+	// SOUL.md is shared, so other accounts see a rewrite -- but every account
+	// can already edit it directly in the panel, the policy has the agent
+	// announce the change, and unprompted turns cannot reach this tool. See
+	// AGENTS.md.
 	return ports.ToolDefinition{Name: "memory", Description: memoryToolDescription, Schema: memoryToolSchema, Effect: ports.InternalTool()}
 }
 
@@ -108,6 +115,9 @@ func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	document, err := writableDocument(input.File)
 	if err != nil {
 		return nil, err
+	}
+	if document == ports.ContextSoul {
+		return t.rewriteSoul(ctx, input.Action, input.OldText, input.Text)
 	}
 	if input.Action != "remove" {
 		if strings.TrimSpace(input.Text) == "" {
@@ -137,6 +147,24 @@ func (t memoryTool) Execute(ctx context.Context, raw json.RawMessage) (json.RawM
 	return json.RawMessage(`{"updated":true}`), nil
 }
 
+// rewriteSoul replaces SOUL.md wholesale. It is the one edit soul takes:
+// entry edits would flatten its headings into a list.
+func (t memoryTool) rewriteSoul(ctx context.Context, action, oldText, text string) (json.RawMessage, error) {
+	if action != "replace" || strings.TrimSpace(oldText) != "" {
+		return nil, errors.New(`soul is rewritten whole: use action "replace" with no old_text, and put the whole new SOUL.md in text`)
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("text is required")
+	}
+	if err := t.guard.Validate("", text); err != nil {
+		return nil, err
+	}
+	if err := t.store.ReplaceDocument(ctx, ports.ContextSoul, text); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(`{"updated":true}`), nil
+}
+
 func writableDocument(file string) (ports.ContextDocument, error) {
 	switch file {
 	case "memory":
@@ -145,7 +173,9 @@ func writableDocument(file string) (ports.ContextDocument, error) {
 		return ports.ContextUser, nil
 	case "watch":
 		return ports.ContextWatch, nil
+	case "soul":
+		return ports.ContextSoul, nil
 	default:
-		return "", errors.New("file must be memory, user, or watch")
+		return "", errors.New("file must be memory, user, watch, or soul")
 	}
 }

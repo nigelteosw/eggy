@@ -70,6 +70,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/status` | Show the active model and pending approval count |
 | `/stop` | Cancel the turn currently running in this conversation |
 | `/clear` | Clear recent conversation history without deleting durable memory |
+| `/soul` | Show Eggy's soul (`SOUL.md`); change it by asking Eggy or in the web panel |
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/model effort [value\|default]` | Show or set your reasoning effort for the active model |
 | `/model thinking [on\|off]` | Show or set delivery of provider-supplied reasoning |
@@ -81,6 +82,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
+| `/heartbeat [on\|off]` | Show or switch your own check-ins; off until you turn it on |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
 Unknown commands return a short `/help` pointer. Malformed known commands show

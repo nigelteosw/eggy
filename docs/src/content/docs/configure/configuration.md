@@ -11,7 +11,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | Section | Purpose |
 | --- | --- |
 | `server` | Listen address, public URL, Telegram webhook path, proxy hop count |
-| `data_dir` | Durable artifact root |
+| `data_dir` | Durable artifact root; unset, the directory holding `config.yaml` |
 | `owner` | Canonical single-owner identity (legacy shape) |
 | `telegram` | Optional numeric Telegram owner (legacy shape) |
 | `accounts` | The people who may use this Eggy, each with optional Telegram and Discord identities |

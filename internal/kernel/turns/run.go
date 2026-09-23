@@ -320,6 +320,11 @@ func turnEvents(onToolCall func(string), trace *services.TraceTurn) func(agent.E
 func (s *Service) capabilityManifest(state ports.State, activeModel string, skills []ports.SkillSummary) agent.CapabilityManifest {
 	manifest := s.Manifest
 	manifest.ActiveModel = activeModel
+	// Check-ins are per account, so only a person who switched them on is
+	// told they happen -- and told to feed the watch list they read.
+	if !state.Agent.Heartbeat {
+		manifest.Heartbeat = ""
+	}
 	manifest.Repositories = make([]string, 0, len(state.Repositories))
 	for name := range state.Repositories {
 		manifest.Repositories = append(manifest.Repositories, name)

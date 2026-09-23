@@ -170,7 +170,7 @@ func initializeConfig(path string, getenv func(string) string) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("stat config: %w", err)
 		}
-		cfg, err := firstBootConfig(getenv)
+		cfg, err := firstBootConfig(filepath.Dir(path), getenv)
 		if err != nil {
 			return fmt.Errorf("generate config: %w", err)
 		}
@@ -242,7 +242,10 @@ func firstBootAccounts(raw string) ([]AccountConfig, error) {
 	return accounts, nil
 }
 
-func firstBootConfig(getenv func(string) string) (Config, error) {
+// firstBootConfig generates a config for the home at homeDir: the directory
+// config.yaml is being written into, which is /data in a container only
+// because the image sets EGGY_HOME there.
+func firstBootConfig(homeDir string, getenv func(string) string) (Config, error) {
 	// EGGY_ACCOUNTS selects the accounts shape: several people, one of whom
 	// signs in with the environment credentials and the rest with local
 	// passwords set later from the People card. Otherwise
@@ -299,7 +302,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 			PublicBaseURL:       publicBaseURL,
 			TelegramWebhookPath: "/webhooks/telegram",
 		},
-		DataDir:  "/data",
+		DataDir:  homeDir,
 		Owner:    OwnerConfig{ID: ownerValue},
 		Telegram: telegram,
 		Accounts: accounts,
@@ -314,7 +317,7 @@ func firstBootConfig(getenv func(string) string) (Config, error) {
 		},
 		Repositories: []RepositoryConfig{},
 		Runner: RunnerConfig{
-			Root:           "/data/runs",
+			Root:           filepath.Join(homeDir, "runs"),
 			Timeout:        Duration(45 * time.Minute),
 			Retention:      Duration(30 * time.Minute),
 			MaxOutputBytes: 1 << 20,

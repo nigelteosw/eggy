@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { clearSession, setAgentThinking } from "../src/api";
+import { clearSession, getSoul, saveSoul, setAgentHeartbeat, setAgentThinking } from "../src/api";
 import { PersonalSettingsCard } from "../src/PersonalSettingsCard";
 import { ConfigPage, GROUPS, SECTIONS } from "../src/ConfigPage";
 
@@ -57,4 +57,29 @@ test("thinking visibility posts the structured body to its own route", async () 
   const selection = await setAgentThinking(false);
   expect(calls).toEqual([{ path: "/api/agent/thinking", method: "POST", body: JSON.stringify({ show: false }) }]);
   expect(selection.show_thinking).toBe(false);
+});
+
+test("the heartbeat switch posts the structured body to its own route", async () => {
+  const calls: { path: string; method: string; body: string }[] = [];
+  globalThis.fetch = (async (input, init) => {
+    calls.push({ path: String(input), method: init?.method ?? "GET", body: String(init?.body ?? "") });
+    return new Response(JSON.stringify({ models: [], model: "", efforts: [], effort: "", heartbeat: true }), { status: 200 });
+  }) as typeof fetch;
+  const selection = await setAgentHeartbeat(true);
+  expect(calls).toEqual([{ path: "/api/agent/heartbeat", method: "POST", body: JSON.stringify({ on: true }) }]);
+  expect(selection.heartbeat).toBe(true);
+});
+
+test("the soul is read and saved whole through its own document route", async () => {
+  const calls: { path: string; method: string; body: string }[] = [];
+  globalThis.fetch = (async (input, init) => {
+    calls.push({ path: String(input), method: init?.method ?? "GET", body: String(init?.body ?? "") });
+    return new Response(JSON.stringify({ state: "success", fields: [{ label: "soul", value: "# Eggy Soul" }] }), { status: 200 });
+  }) as typeof fetch;
+  await getSoul();
+  await saveSoul("# Terse");
+  expect(calls).toEqual([
+    { path: "/api/context/soul", method: "GET", body: "" },
+    { path: "/api/context/soul", method: "POST", body: JSON.stringify({ content: "# Terse" }) },
+  ]);
 });

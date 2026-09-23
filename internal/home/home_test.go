@@ -131,7 +131,7 @@ func TestResolvePrefersFlagThenEnvThenConfigDirectory(t *testing.T) {
 	if got := Resolve("", env(map[string]string{"EGGY_CONFIG": "/srv/eggy/config.yaml"})); got.Root != "/srv/eggy" {
 		t.Fatalf("EGGY_CONFIG ignored: %q", got.Root)
 	}
-	if got := Resolve("", env(nil)); got.Root != DefaultRoot {
+	if got := Resolve("", env(nil)); got.Root != At("~/.eggy").Root {
 		t.Fatalf("default=%q", got.Root)
 	}
 }

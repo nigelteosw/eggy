@@ -125,6 +125,21 @@ func (r *AgentRuntime) SetShowThinking(ctx context.Context, show bool) error {
 	return r.update(ctx, func(state *ports.State) { state.Agent.HideThinking = !show })
 }
 
+// Heartbeat reports whether the acting account has switched its periodic
+// check-ins on. Off by default.
+func (r *AgentRuntime) Heartbeat(ctx context.Context) (bool, error) {
+	state, err := r.store.Load(ctx)
+	if err != nil {
+		return false, err
+	}
+	return state.Agent.Heartbeat, nil
+}
+
+// SetHeartbeat switches the acting account's periodic check-ins on or off.
+func (r *AgentRuntime) SetHeartbeat(ctx context.Context, on bool) error {
+	return r.update(ctx, func(state *ports.State) { state.Agent.Heartbeat = on })
+}
+
 func (r *AgentRuntime) RecordUsage(ctx context.Context, alias string, usage ports.ModelUsage) error {
 	if _, ok := r.aliases[alias]; !ok {
 		return fmt.Errorf("model alias %q is not configured", alias)

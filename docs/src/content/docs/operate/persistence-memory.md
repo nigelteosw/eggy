@@ -4,7 +4,7 @@ description: Understand every durable artifact in Eggy's home and what survives 
 eyebrow: Operate
 ---
 
-Eggy resolves one home directory before loading configuration. An explicit `--home` wins, then `EGGY_HOME`, then the directory containing `EGGY_CONFIG`, and finally `/data`.
+Eggy resolves one home directory before loading configuration. An explicit `--home` wins, then `EGGY_HOME`, then the directory containing `EGGY_CONFIG`, and finally `~/.eggy`. The container image sets `EGGY_HOME=/data`, so a Docker or Railway deployment keeps its volume at `/data`. A `config.yaml` without `data_dir` keeps its artifacts in the directory it lives in.
 
 ## Home layout
 
@@ -12,7 +12,7 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | --- | --- |
 | `config.yaml` | Startup configuration |
 | `.env` | Local secrets |
-| `SOUL.md` | Durable agent identity, shared by every account |
+| `SOUL.md` | Eggy's identity and voice, shared by every account; absent until someone writes it |
 | `accounts/<id>/memories/USER.md` | That account's context |
 | `accounts/<id>/memories/MEMORY.md` | That account's curated durable memory |
 | `accounts/<id>/memories/WATCH.md` | That account's heartbeat watch list |
@@ -23,6 +23,20 @@ Eggy resolves one home directory before loading configuration. An explicit `--ho
 | `logs/` | `gateway.log` and `errors.log` with secret redaction |
 
 Owned subdirectories are secured to mode `0700`; managed files use restrictive permissions.
+
+## Built-in defaults
+
+`SOUL.md`, `USER.md`, `MEMORY.md`, and `WATCH.md` are created on first write, never on boot. Until then — and whenever a file is emptied or cannot be read — Eggy uses a built-in default in its place: its own soul, and an empty document for the rest. The default is never copied into your files, so an improved built-in soul reaches every deployment that has not written its own, and deleting `SOUL.md` (or saving it empty) is how you reset it. An unreadable file is logged and never fails a turn; a write to one is refused rather than overwriting it.
+
+## Soul
+
+`SOUL.md` is who Eggy is: tone, directness, personality. It rides in every turn, capped at 4 KB, and cannot override the hard runtime policy. Three ways change it, all writing the same file:
+
+- **Settings → Soul** in the web panel, with a reset to the built-in soul.
+- **Asking Eggy.** "Be terser" or "stop using exclamation marks" makes Eggy rewrite `SOUL.md` through its `memory` tool and tell you what it changed.
+- **Editing the file** in the home directly.
+
+`/soul` on Telegram shows the current soul. It is shared: a change made by one person changes Eggy for everyone.
 
 Machine-managed records are all in `eggy.db`, which is what "SQLite for everything machine-managed" means in practice: one file to back up, one place a record can be, and one transaction behind a change. A home written before that consolidation also holds `state.json`, `cron/`, and `auth.json`. The first boot of a build that has it imports each one inside a single transaction and then renames the source aside as `state.json.migrated`, `cron.migrated`, and `auth.json.migrated`. The import is recorded, so later boots skip it; an interrupted import is retried whole rather than half-applied, and a source left behind by a crash between the commit and the rename is archived on the next boot instead of imported twice.
 

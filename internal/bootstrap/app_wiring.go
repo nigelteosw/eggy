@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -26,6 +27,31 @@ import (
 // to name: option defaults, the durable stores, and the model catalog. Each
 // takes what it needs and returns what it built, so NewApp reads as a sequence
 // of steps rather than one long straight line.
+
+// runtimeLines describe what Eggy is beyond its tool list, one line per
+// configured capability, for the capability manifest. The heartbeat's line is
+// heartbeatLine, kept apart because it is per account.
+func runtimeLines(cfg config.Config) []string {
+	surfaces := []string{}
+	if cfg.TelegramEnabled() {
+		surfaces = append(surfaces, "telegram")
+	}
+	if cfg.DiscordEnabled() {
+		surfaces = append(surfaces, "discord")
+	}
+	web := "web"
+	if url := strings.TrimSpace(cfg.Server.PublicBaseURL); url != "" {
+		web += " (" + url + ")"
+	}
+	lines := []string{"surfaces: " + strings.Join(append(surfaces, web), ", ")}
+	if cfg.Google.Enabled && cfg.Google.ExpectedEmail != "" {
+		lines = append(lines, "google: "+cfg.Google.ExpectedEmail+" is Eggy's own Workspace account, shared by everyone who uses Eggy; it is not the owner's own mailbox or calendar")
+	}
+	if cfg.TelegramEnabled() {
+		lines = append(lines, "owner commands on telegram: /heartbeat on|off, /soul, /mode, /model, /web, /help")
+	}
+	return lines
+}
 
 func (o *AppOptions) applyDefaults() {
 	if o.HTTPClient == nil {

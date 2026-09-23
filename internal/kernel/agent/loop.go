@@ -293,6 +293,11 @@ func (l *Loop) ToolNames(options RunOptions) []string {
 func (l *Loop) filteredTools(options RunOptions) (map[string]ports.Tool, []ports.ToolDefinition) {
 	tools, defs := l.resolve()
 
+	// Without an allowlist the turn runs on the full catalog, which never
+	// includes a tool scoped to another kind of turn.
+	if options.AllowedTools == nil {
+		defs = slices.DeleteFunc(slices.Clone(defs), func(d ports.ToolDefinition) bool { return d.TurnScoped })
+	}
 	// Apply explicit tool allowlist.
 	if options.AllowedTools != nil {
 		filtered := make([]ports.ToolDefinition, 0, len(defs))

@@ -8,20 +8,20 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// WatchList is the slice of the context store the panel needs: read the watch
-// list, and replace it wholesale.
+// ContextDocuments is the slice of the context store the panel needs: read a
+// document, and replace it wholesale.
 //
 // Wholesale, not entry at a time, because this is the owner editing a document
 // they can see in full -- the same reason ReplaceDocument exists for the
 // heartbeat's own rewrite. The agent's entry-addressed tools stay the right
 // shape for the agent, which edits a list it cannot see.
 //
-// This is the one context document the panel writes. Memory and user are the
-// agent's own record and are written by the turns that learn something; soul
-// is edited outside Eggy. The watch list is different in kind: it is an
-// instruction to Eggy, and until now the only way to give it was to ask the
-// agent to write it down for itself.
-type WatchList interface {
+// The panel writes two documents: the watch list and SOUL.md (soul.go). Memory
+// and user are the agent's own record and are written by the turns that learn
+// something. The watch list and the soul are different in kind: each is an
+// instruction to Eggy, and an owner should not have to ask the agent to write
+// one down for itself.
+type ContextDocuments interface {
 	Load(ctx context.Context) (ports.AgentContext, error)
 	ReplaceDocument(ctx context.Context, document ports.ContextDocument, content string) error
 }
@@ -29,7 +29,7 @@ type WatchList interface {
 // newWatchGetRoute hands back the list as stored, so the textarea the owner
 // edits holds the same bytes the heartbeat reads -- including whatever the
 // last beat annotated onto it.
-func newWatchGetRoute(watch WatchList) http.HandlerFunc {
+func newWatchGetRoute(watch ContextDocuments) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if watch == nil {
 			writeWebError(w, http.StatusNotFound, "no watch list is available")
@@ -52,7 +52,7 @@ func newWatchGetRoute(watch WatchList) http.HandlerFunc {
 // unsetting the interval -- an empty watch list is the skip the daemon
 // already implements, so the acknowledgement says so rather than letting the
 // owner conclude the save failed.
-func newWatchSetRoute(watch WatchList) http.HandlerFunc {
+func newWatchSetRoute(watch ContextDocuments) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if watch == nil {
 			writeWebError(w, http.StatusNotFound, "no watch list is available")

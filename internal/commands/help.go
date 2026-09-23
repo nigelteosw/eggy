@@ -12,11 +12,13 @@ var telegramCommands = []struct {
 	{"status", "Show brief operational status", "Conversation", true},
 	{"stop", "Stop the turn in the current conversation", "Conversation", true},
 	{"clear", "Clear recent history; preserve durable memory", "Conversation", true},
+	{"soul", "Show Eggy's soul and how to change it", "Conversation", true},
 	{"model", "Select your model, effort and thinking; browse shared models", "Personal settings", false},
 	{"mcp", "Configure and authorize shared MCP servers", "Shared administration", false},
 	{"web", "Send a one-tap sign-in link to the web panel", "Conversation", true},
 	{"google", "Configure and authorize shared Google Workspace", "Shared administration", false},
 	{"mode", "Set your approval mode: strict, normal or auto", "Personal settings", false},
+	{"heartbeat", "Turn your check-ins on or off", "Personal settings", false},
 	{"restart", "Reload shared config for everyone", "Shared administration", true},
 }
 

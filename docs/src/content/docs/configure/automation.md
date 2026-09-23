@@ -44,7 +44,7 @@ Cron expressions and one-time times are read in `agent.timezone`.
 ## Heartbeat
 
 Omitted, the heartbeat costs nothing: no ticker, no goroutine, no model call. Set
-an interval to turn it on:
+an interval to give the deployment a cadence:
 
 ```yaml
 heartbeat:
@@ -62,6 +62,20 @@ is not one message per tick. A beat is skipped while another turn is running.
 Without a `telegram` block there is nowhere to deliver unprompted output, so the
 heartbeat stays off and says so once at startup.
 
+### Your switch
+
+The interval is shared; whether Eggy checks in on *you* is yours. Each person's
+heartbeat is **off until they turn it on**, with `/heartbeat on` on Telegram or
+the **Heartbeat check-ins** switch under **Settings → Model & approvals**.
+`/heartbeat off` stops it, and bare `/heartbeat` reports where it stands. The
+switch follows unprompted delivery, which is Telegram today; a future channel
+that can deliver unprompted messages uses the same switch.
+
+Turning it on also tells Eggy, in every turn, that check-ins happen and when.
+So when you mention something you are waiting on — a delivery, a reply, a
+deadline — Eggy adds it to your watch list on its own, and the next beat looks
+at it. You do not have to remember to file things.
+
 ### The watch list
 
 A beat checks `memories/WATCH.md`, the standing list of what you have asked Eggy
@@ -75,11 +89,13 @@ that should happen at a particular time is a schedule.
 
 **An empty watch list skips the beat entirely, with no model call**, and warns
 once so the silence is distinguishable from a bug. An interval alone therefore
-does nothing until something is written down to watch.
+does nothing until someone has switched their heartbeat on and something is on
+their list to watch.
 
 Three surfaces write the list: **Settings → Automation** has a watch-list editor,
 Eggy's own `memory` tool writes to it when you ask it to keep an eye on
-something, and a beat annotates it. The panel seeds the editor on load and writes
+something — or, with your heartbeat on, when you mention something pending —
+and a beat annotates it. The panel seeds the editor on load and writes
 back only on Save, so reopening the page shows whatever the last beat left.
 
 ### Self-pacing

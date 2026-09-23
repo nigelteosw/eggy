@@ -18,13 +18,22 @@ func (f *fakeTurns) Stop(context.Context) bool {
 	return true
 }
 
-type fakeModels struct{ selected string }
+type fakeModels struct {
+	selected  string
+	heartbeat bool
+}
 
 func (*fakeModels) ReasoningEfforts(string) []string                    { return nil }
 func (*fakeModels) ReasoningEffort(context.Context) (string, error)     { return "", nil }
 func (*fakeModels) SelectReasoningEffort(context.Context, string) error { return nil }
 func (*fakeModels) ShowThinking(context.Context) (bool, error)          { return true, nil }
 func (*fakeModels) SetShowThinking(context.Context, bool) error         { return nil }
+
+func (f *fakeModels) Heartbeat(context.Context) (bool, error) { return f.heartbeat, nil }
+func (f *fakeModels) SetHeartbeat(_ context.Context, on bool) error {
+	f.heartbeat = on
+	return nil
+}
 
 func (f *fakeModels) SelectedModel(context.Context) (string, error) { return f.selected, nil }
 func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
@@ -36,12 +45,12 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // administration commands, and they are here because what they reach lives on
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
-func TestOnlyTenTelegramCommandsAreAdvertised(t *testing.T) {
+func TestOnlyTwelveTelegramCommandsAreAdvertised(t *testing.T) {
 	got := TelegramAutocomplete()
-	if len(got) != 10 {
+	if len(got) != 12 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "model", "mcp", "web", "google", "mode", "restart"}
+	want := []string{"help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)
@@ -366,5 +375,43 @@ func TestWebCommandWithoutAMinterSendsTheBareAddress(t *testing.T) {
 	}
 	if strings.Contains(reply, "/auth/link") || !strings.Contains(reply, "https://eggy.test") || !strings.Contains(reply, "username and password") {
 		t.Fatalf("reply=%q", reply)
+	}
+}
+
+type fakeSoul struct{ soul string }
+
+func (f fakeSoul) Load(context.Context) (ports.AgentContext, error) {
+	return ports.AgentContext{Soul: f.soul}, nil
+}
+
+func TestSoulCommandShowsTheSoulAndHowToChangeIt(t *testing.T) {
+	service := New(Options{Soul: fakeSoul{soul: "# Eggy Soul\n\nTerse.\n"}})
+	reply, handled, err := service.Execute(context.Background(), "/soul")
+	if err != nil || !handled || !strings.Contains(reply, "Terse.") || !strings.Contains(reply, "/web") {
+		t.Fatalf("reply=%q handled=%v err=%v", reply, handled, err)
+	}
+}
+
+// The heartbeat is personal and off until its owner turns it on; turning it
+// on in a deployment with no cadence says so rather than implying it runs.
+func TestHeartbeatCommandSwitchesThePersonalHeartbeat(t *testing.T) {
+	models := &fakeModels{}
+	service := New(Options{AgentRuntime: models, HeartbeatCadence: "every 3h"})
+	ctx := context.Background()
+	if reply, _, _ := service.Execute(ctx, "/heartbeat"); !strings.Contains(reply, "off") {
+		t.Fatalf("bare reply=%q", reply)
+	}
+	if reply, _, _ := service.Execute(ctx, "/heartbeat on"); !models.heartbeat || !strings.Contains(reply, "every 3h") {
+		t.Fatalf("on reply=%q heartbeat=%v", reply, models.heartbeat)
+	}
+	if reply, _, _ := service.Execute(ctx, "/heartbeat off"); models.heartbeat || !strings.Contains(reply, "off") {
+		t.Fatalf("off reply=%q heartbeat=%v", reply, models.heartbeat)
+	}
+	if reply, _, _ := service.Execute(ctx, "/heartbeat maybe"); models.heartbeat || !strings.Contains(reply, "Usage") {
+		t.Fatalf("bad argument reply=%q", reply)
+	}
+	unconfigured := New(Options{AgentRuntime: models})
+	if reply, _, _ := unconfigured.Execute(ctx, "/heartbeat on"); !strings.Contains(reply, "no heartbeat") {
+		t.Fatalf("unconfigured reply=%q", reply)
 	}
 }

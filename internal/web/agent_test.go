@@ -23,6 +23,14 @@ type fakeAgentSwitch struct {
 	model        string
 	effort       string
 	hideThinking bool
+	heartbeat    bool
+}
+
+func (f *fakeAgentSwitch) Heartbeat(context.Context) (bool, error) { return f.heartbeat, nil }
+
+func (f *fakeAgentSwitch) SetHeartbeat(_ context.Context, on bool) error {
+	f.heartbeat = on
+	return nil
 }
 
 func (f *fakeAgentSwitch) ShowThinking(context.Context) (bool, error) { return !f.hideThinking, nil }
@@ -220,8 +228,26 @@ func TestWebAgentWithoutARuntimeIsAbsentRatherThanEmpty(t *testing.T) {
 // runtime's per-account state, so a route that let a body name the account
 // would be caught writing the other one's row.
 type scopedAgentSwitch struct {
-	models   map[string]string
-	thinking map[string]bool
+	models    map[string]string
+	thinking  map[string]bool
+	heartbeat map[string]bool
+}
+
+func (s *scopedAgentSwitch) Heartbeat(ctx context.Context) (bool, error) {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return false, err
+	}
+	return s.heartbeat[p.AccountID], nil
+}
+
+func (s *scopedAgentSwitch) SetHeartbeat(ctx context.Context, on bool) error {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	s.heartbeat[p.AccountID] = on
+	return nil
 }
 
 func (s *scopedAgentSwitch) Aliases() []string { return []string{"shared-default", "other"} }
@@ -266,7 +292,7 @@ func (s *scopedAgentSwitch) SetShowThinking(ctx context.Context, show bool) erro
 func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
 	now := time.Now().UTC()
 	cfg, db, _ := accountWebConfig(t, now)
-	agent := &scopedAgentSwitch{models: map[string]string{}, thinking: map[string]bool{}}
+	agent := &scopedAgentSwitch{models: map[string]string{}, thinking: map[string]bool{}, heartbeat: map[string]bool{}}
 	cfg.Agent = agent
 	handler := NewWebHandler("", cfg)
 	nigel, nigelCSRF := signIn(t, handler, db, "nigel", now)
@@ -293,7 +319,13 @@ func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
 	if response := authenticatedJSON(handler, nigel, nigelCSRF, http.MethodPost, "/api/agent/thinking", `{"show":false}`); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"show_thinking":false`) {
 		t.Fatalf("thinking status=%d body=%s", response.Code, response.Body.String())
 	}
-	// partner still sees the defaults.
+	if response := authenticatedJSON(handler, nigel, nigelCSRF, http.MethodPost, "/api/agent/heartbeat", `{"on":true}`); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"heartbeat":true`) {
+		t.Fatalf("heartbeat status=%d body=%s", response.Code, response.Body.String())
+	}
+	// partner still sees the defaults, heartbeat off included.
+	if response := authenticatedJSON(handler, partner, partnerCSRF, http.MethodGet, "/api/agent", ""); !strings.Contains(response.Body.String(), `"heartbeat":false`) {
+		t.Fatalf("partner's heartbeat=%s", response.Body.String())
+	}
 	response = authenticatedJSON(handler, partner, partnerCSRF, http.MethodGet, "/api/agent", "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model":"shared-default"`) || !strings.Contains(response.Body.String(), `"show_thinking":true`) {
 		t.Fatalf("partner's view=%s", response.Body.String())

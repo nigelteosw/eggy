@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/kernel/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -22,6 +23,43 @@ func (a *App) heartbeatInstruction() string {
 		return instruction
 	}
 	return defaultHeartbeatInstruction
+}
+
+// heartbeatCadence says when beats run, such as "every 3h, 08:00-22:00
+// Asia/Singapore". It is empty exactly when heartbeatTicks returns no clock,
+// so neither the prompt nor /heartbeat promises a check-in that cannot run.
+func heartbeatCadence(cfg config.Config) string {
+	interval := cfg.Heartbeat.Interval.Value()
+	if interval <= 0 || !cfg.TelegramEnabled() {
+		return ""
+	}
+	when := "every " + compactDuration(interval)
+	if hours := cfg.Heartbeat.ActiveHours; hours.Configured() {
+		when += ", " + hours.Start + "-" + hours.End + " " + cfg.Agent.Timezone
+	}
+	return when
+}
+
+// heartbeatLine is the runtime line telling an owner turn that check-ins
+// happen, when, and what feeds them. Turns keep it only for an account that
+// switched its heartbeat on.
+func heartbeatLine(cfg config.Config) string {
+	when := heartbeatCadence(cfg)
+	if when == "" {
+		return ""
+	}
+	return "heartbeat: you check in on Telegram " + when + " and speak only when something needs the owner. " +
+		"When the owner mentions something they are waiting on or a deadline, add it to the watch list with the memory tool, without asking; that list is what you check."
+}
+
+// compactDuration drops the zero units time.Duration.String spells out, so
+// three hours reads "3h" rather than "3h0m0s".
+func compactDuration(d time.Duration) string {
+	text := strings.TrimSuffix(d.String(), "0s")
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
 }
 
 // heartbeatTicks is the heartbeat's clock, separated from what a tick does
@@ -193,9 +231,9 @@ func (a *App) watchListIsEmpty(ctx context.Context) bool {
 	return ports.WatchListIsEmpty(agentContext.Watch)
 }
 
-// heartbeatAccounts is who a tick beats for: every account that can be
-// reached on Telegram, where unprompted output goes, and whose watch list
-// holds something. Each gets its own turn under its own principal, with its
+// heartbeatAccounts is who a tick beats for: every account that has switched
+// its heartbeat on, can be reached on Telegram, where unprompted output goes,
+// and whose watch list holds something. Each gets its own turn under its own principal, with its
 // own watch list and preferences; a person with nothing to watch costs no
 // model call, and a web-only person gets no beat because there is nowhere to
 // deliver one.
@@ -206,12 +244,27 @@ func (a *App) heartbeatAccounts(ctx context.Context) []context.Context {
 			continue
 		}
 		accountCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: account.ID})
-		if a.watchListIsEmpty(accountCtx) {
+		if !a.heartbeatSwitchedOn(accountCtx) || a.watchListIsEmpty(accountCtx) {
 			continue
 		}
 		beats = append(beats, accountCtx)
 	}
 	return beats
+}
+
+// heartbeatSwitchedOn reports whether the account has turned its check-ins
+// on. An unreadable state reads as off: a beat nobody asked for is the
+// failure the switch exists to prevent.
+func (a *App) heartbeatSwitchedOn(ctx context.Context) bool {
+	if a.store == nil {
+		return false
+	}
+	state, err := a.store.Load(ctx)
+	if err != nil {
+		slog.Error("heartbeat switch unreadable; not beating", "error", err)
+		return false
+	}
+	return state.Agent.Heartbeat
 }
 
 // withinActiveHours reports whether now falls inside the configured window,
@@ -268,7 +321,7 @@ func (a *App) onHeartbeatTick(ctx context.Context) bool {
 	beats := a.heartbeatAccounts(ctx)
 	if len(beats) == 0 {
 		if a.shouldWarnEmptyWatch() {
-			slog.Warn("heartbeat is configured but no account's WATCH.md names anything; add what Eggy should keep an eye on, or unset heartbeat.interval")
+			slog.Warn("heartbeat is configured but no account has it switched on with anything on its watch list; /heartbeat on turns it on for you")
 		}
 		return false
 	}

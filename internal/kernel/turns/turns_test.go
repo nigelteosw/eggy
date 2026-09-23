@@ -778,3 +778,17 @@ func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
 		})
 	}
 }
+
+// The heartbeat line reaches only a person who switched check-ins on: telling
+// anyone else to feed a watch list nobody reads would be a promise Eggy does
+// not keep.
+func TestCapabilityManifestKeepsTheHeartbeatLineOnlyWhenSwitchedOn(t *testing.T) {
+	service := New(Options{Manifest: agent.CapabilityManifest{Heartbeat: "heartbeat: every 3h"}})
+	if got := service.capabilityManifest(ports.State{}, "m", nil).Heartbeat; got != "" {
+		t.Fatalf("switched-off account got %q", got)
+	}
+	on := ports.State{Agent: ports.AgentRuntimeState{Heartbeat: true}}
+	if got := service.capabilityManifest(on, "m", nil).Heartbeat; got != "heartbeat: every 3h" {
+		t.Fatalf("switched-on account got %q", got)
+	}
+}

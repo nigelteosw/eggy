@@ -77,7 +77,7 @@ func mcpCallbackHandler(manager *mcpadapter.Manager) http.Handler {
 			http.Error(response, "missing MCP authorization response", http.StatusBadRequest)
 			return
 		}
-		if err := manager.CompleteLogin(request.Context(), server, code, state); err != nil {
+		if err := manager.CompleteLogin(request.Context(), server, code, state, request.URL.Query().Get("iss")); err != nil {
 			// Reaching the exchange at all took a state this process issued
 			// minutes ago, so the reason is worth showing: the owner is the
 			// one holding the browser, and "authorization failed" alone has
@@ -122,8 +122,8 @@ func (a *mcpAdmin) BeginLogin(ctx context.Context, server string) (string, error
 	return a.manager.BeginLogin(ctx, server)
 }
 
-func (a *mcpAdmin) CompleteLogin(ctx context.Context, server, code, state string) error {
-	return a.manager.CompleteLogin(ctx, server, code, state)
+func (a *mcpAdmin) CompleteLogin(ctx context.Context, server, code, state, issuer string) error {
+	return a.manager.CompleteLogin(ctx, server, code, state, issuer)
 }
 
 func (a *mcpAdmin) Logout(server string) error { return a.manager.Logout(server) }

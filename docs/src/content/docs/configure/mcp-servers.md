@@ -75,6 +75,8 @@ The callback finishes the login on its own whenever the browser can reach Eggy. 
 
 The bare `code` value works too. Either form is accepted only against a pending login the owner started within the last ten minutes, and the code is spent by the exchange; a second paste of the same one fails. The callback route itself still requires a matching `state`, since it is the one path an unauthenticated caller can reach.
 
+Paste the whole URL when you can. An authorization server that returns its issuer (`iss`, RFC 9207) has the issuer checked against the one the login discovered, and a code from any other server is refused before it reaches a token endpoint. When the server advertises that it sends `iss`, a bare code is refused too, because it has lost the parameter. Each login re-reads the server's authorization metadata, and if the resource has moved to a different authorization server, Eggy registers a new client there rather than reusing the old one.
+
 ## Editing servers without a file
 
 Both the web settings panel and Telegram's `/mcp` command write through the same `internal/config` helpers, under the same lock and validation. HTTP servers can be added, edited, enabled, disabled, and removed from either. stdio servers are file-only: a subprocess command line is not a chat argument or a web form field.

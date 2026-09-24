@@ -34,7 +34,7 @@ func TestOAuthProviderDiscoversRegistersExchangesAndRestores(t *testing.T) {
 	if parsed.String() == "" || query.Get("client_id") != "dynamic-client" || query.Get("state") == "" || query.Get("code_challenge_method") != "S256" || query.Get("resource") != cfg.URL {
 		t.Fatalf("authorization URL=%s", authorizationURL)
 	}
-	if err := provider.CompleteLogin(context.Background(), "authorization-code", query.Get("state")); err != nil {
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", query.Get("state"), ""); err != nil {
 		t.Fatal(err)
 	}
 	if roundTrip.exchangeVerifier == "" || roundTrip.exchangeCode != "authorization-code" {
@@ -54,6 +54,13 @@ func TestOAuthProviderDiscoversRegistersExchangesAndRestores(t *testing.T) {
 type oauthRoundTripper struct {
 	exchangeCode     string
 	exchangeVerifier string
+	// authServer is the authorization server the protected resource names;
+	// empty means https://auth.example. Changing it between logins is how a
+	// test moves the resource to a different issuer.
+	authServer string
+	// issSupported makes the authorization server advertise RFC 9207.
+	issSupported  bool
+	registrations []map[string]any
 }
 
 func (r *oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -62,14 +69,29 @@ func (r *oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		header.Set("Content-Type", "application/json")
 		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
 	}
+	issuer := r.authServer
+	if issuer == "" {
+		issuer = "https://auth.example"
+	}
 	switch request.URL.String() {
 	case "https://resource.example/.well-known/oauth-protected-resource":
-		return response(http.StatusOK, `{"resource":"https://resource.example","authorization_servers":["https://auth.example"]}`)
-	case "https://auth.example/.well-known/oauth-authorization-server":
-		return response(http.StatusOK, `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","registration_endpoint":"https://auth.example/register","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]}`)
-	case "https://auth.example/register":
-		return response(http.StatusCreated, `{"client_id":"dynamic-client","client_secret":"dynamic-secret","redirect_uris":["https://eggy.example/auth/mcp/railway/callback"],"token_endpoint_auth_method":"client_secret_post"}`)
-	case "https://auth.example/token":
+		return response(http.StatusOK, `{"resource":"https://resource.example","authorization_servers":["`+issuer+`"]}`)
+	case issuer + "/.well-known/oauth-authorization-server":
+		iss := ""
+		if r.issSupported {
+			iss = `,"authorization_response_iss_parameter_supported":true`
+		}
+		return response(http.StatusOK, `{"issuer":"`+issuer+`","authorization_endpoint":"`+issuer+`/authorize","token_endpoint":"`+issuer+`/token","registration_endpoint":"`+issuer+`/register","response_types_supported":["code"],"code_challenge_methods_supported":["S256"]`+iss+`}`)
+	case issuer + "/register":
+		var metadata map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&metadata)
+		r.registrations = append(r.registrations, metadata)
+		clientID := "dynamic-client"
+		if issuer != "https://auth.example" {
+			clientID = "dynamic-client-" + strings.TrimPrefix(issuer, "https://")
+		}
+		return response(http.StatusCreated, `{"client_id":"`+clientID+`","client_secret":"dynamic-secret","redirect_uris":["https://eggy.example/auth/mcp/railway/callback"],"token_endpoint_auth_method":"client_secret_post"}`)
+	case issuer + "/token":
 		body, _ := io.ReadAll(request.Body)
 		values, _ := url.ParseQuery(string(body))
 		if values.Get("grant_type") == "refresh_token" {
@@ -82,6 +104,121 @@ func (r *oauthRoundTripper) RoundTrip(request *http.Request) (*http.Response, er
 		encoded, _ := json.Marshal(request.URL.String())
 		return response(http.StatusNotFound, string(encoded))
 	}
+}
+
+// TestCompleteLoginRejectsAnIssuerThatIsNotTheOneLoginStartedWith is RFC 9207's
+// mix-up defence, which the 2026-07-28 MCP authorization spec makes mandatory:
+// a code that came back from any authorization server but the one this login
+// discovered must never reach the token endpoint.
+func TestCompleteLoginRejectsAnIssuerThatIsNotTheOneLoginStartedWith(t *testing.T) {
+	for _, advertised := range []bool{true, false} {
+		store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
+		roundTrip := &oauthRoundTripper{issSupported: advertised}
+		provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}, store, &http.Client{Transport: roundTrip})
+		authorizationURL, err := provider.BeginLogin(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		state := mustQuery(t, authorizationURL).Get("state")
+		if err := provider.CompleteLogin(context.Background(), "authorization-code", state, "https://attacker.example"); err == nil || !strings.Contains(err.Error(), "issuer") {
+			t.Fatalf("advertised=%v: foreign issuer accepted: %v", advertised, err)
+		}
+		if roundTrip.exchangeCode != "" {
+			t.Fatalf("advertised=%v: the code reached the token endpoint", advertised)
+		}
+		if err := provider.CompleteLogin(context.Background(), "authorization-code", state, "https://auth.example"); err != nil {
+			t.Fatalf("advertised=%v: matching issuer rejected: %v", advertised, err)
+		}
+	}
+}
+
+// TestCompleteLoginRequiresTheIssuerWhenTheServerAdvertisesIt: once the
+// authorization server promises iss, a response without it is the one a
+// mix-up attack produces. A bare pasted code loses it, so the message points
+// the owner at pasting the whole redirect instead.
+func TestCompleteLoginRequiresTheIssuerWhenTheServerAdvertisesIt(t *testing.T) {
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
+	roundTrip := &oauthRoundTripper{issSupported: true}
+	provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}, store, &http.Client{Transport: roundTrip})
+	if _, err := provider.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	err := provider.CompleteLogin(context.Background(), "authorization-code", "", "")
+	if err == nil || !strings.Contains(err.Error(), "whole redirect") {
+		t.Fatalf("missing iss accepted or unhelpful: %v", err)
+	}
+	if roundTrip.exchangeCode != "" {
+		t.Fatal("the code reached the token endpoint")
+	}
+}
+
+// TestBeginLoginRegistersAgainWhenTheAuthorizationServerChanges: a client is
+// registered with one issuer and the spec forbids presenting it to another.
+// A resource that moved authorization servers would otherwise replay the old
+// client_id at the new one and fail with invalid_client forever.
+func TestBeginLoginRegistersAgainWhenTheAuthorizationServerChanges(t *testing.T) {
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
+	roundTrip := &oauthRoundTripper{}
+	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback"}
+	provider := newOAuthProvider(cfg, store, &http.Client{Transport: roundTrip})
+	first, err := provider.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", mustQuery(t, first).Get("state"), ""); err != nil {
+		t.Fatal(err)
+	}
+	// Logging in again against the same issuer keeps the registered client.
+	if _, err := provider.BeginLogin(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(roundTrip.registrations) != 1 {
+		t.Fatalf("registrations=%d, want the client reused", len(roundTrip.registrations))
+	}
+
+	roundTrip.authServer = "https://auth2.example"
+	moved, err := provider.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(moved)
+	if parsed.Host != "auth2.example" || parsed.Query().Get("client_id") != "dynamic-client-auth2.example" || len(roundTrip.registrations) != 2 {
+		t.Fatalf("authorization URL=%s registrations=%d", moved, len(roundTrip.registrations))
+	}
+	record, _ := store.Load(cfg.Name, cfg.URL)
+	if record.Issuer != "https://auth2.example" {
+		t.Fatalf("issuer=%q", record.Issuer)
+	}
+}
+
+// TestRegistrationDeclaresItsApplicationType: the 2026-07-28 spec requires it,
+// because an OpenID provider defaults to "web" and then refuses a loopback
+// redirect, which is exactly what a local Eggy registers.
+func TestRegistrationDeclaresItsApplicationType(t *testing.T) {
+	for redirect, want := range map[string]string{
+		"https://eggy.example/auth/mcp/railway/callback":  "web",
+		"http://127.0.0.1:8080/auth/mcp/railway/callback": "native",
+		"http://localhost:8080/auth/mcp/railway/callback": "native",
+	} {
+		store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
+		roundTrip := &oauthRoundTripper{}
+		provider := newOAuthProvider(ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: redirect}, store, &http.Client{Transport: roundTrip})
+		if _, err := provider.BeginLogin(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if len(roundTrip.registrations) != 1 || roundTrip.registrations[0]["application_type"] != want {
+			t.Fatalf("%s: registrations=%v, want application_type %q", redirect, roundTrip.registrations, want)
+		}
+	}
+}
+
+func mustQuery(t *testing.T, rawURL string) url.Values {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed.Query()
 }
 
 func TestOAuthHandlerAuthorizeReturnsLoginRequired(t *testing.T) {
@@ -99,7 +236,7 @@ func TestOAuthProviderRejectsMismatchedState(t *testing.T) {
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := provider.CompleteLogin(context.Background(), "code", "wrong-state"); err == nil {
+	if err := provider.CompleteLogin(context.Background(), "code", "wrong-state", ""); err == nil {
 		t.Fatal("mismatched OAuth state accepted")
 	}
 }
@@ -293,7 +430,7 @@ func TestCompleteLoginAcceptsAPastedRedirectWithoutState(t *testing.T) {
 	if _, err := provider.BeginLogin(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err != nil {
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", "", ""); err != nil {
 		t.Fatalf("pasted code rejected: %v", err)
 	}
 	record, _ := store.Load(cfg.Name, cfg.URL)
@@ -303,7 +440,7 @@ func TestCompleteLoginAcceptsAPastedRedirectWithoutState(t *testing.T) {
 
 	// A second paste has nothing pending behind it: the verifier is spent, and
 	// replaying the code must not reach the token endpoint at all.
-	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err == nil {
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", "", ""); err == nil {
 		t.Fatal("a spent pending session accepted a second code")
 	}
 }
@@ -321,7 +458,7 @@ func TestCompleteLoginRejectsAnExpiredPendingSession(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := provider.CompleteLogin(context.Background(), "authorization-code", ""); err == nil {
+	if err := provider.CompleteLogin(context.Background(), "authorization-code", "", ""); err == nil {
 		t.Fatal("expired pending session accepted")
 	}
 }

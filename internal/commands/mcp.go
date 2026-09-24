@@ -19,7 +19,9 @@ import (
 type MCPRuntime interface {
 	Statuses() []MCPStatus
 	BeginLogin(ctx context.Context, server string) (string, error)
-	CompleteLogin(ctx context.Context, server, code, state string) error
+	// CompleteLogin takes the redirect's RFC 9207 iss parameter as issuer,
+	// empty when the owner pasted a bare code.
+	CompleteLogin(ctx context.Context, server, code, state, issuer string) error
 	Logout(server string) error
 }
 
@@ -117,11 +119,11 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 			"/mcp login " + name + " <paste the whole URL>",
 		}, "\n"), true, nil
 	}
-	code, state, err := parseOAuthRedirect(args[1])
+	code, state, issuer, err := parseOAuthRedirect(args[1])
 	if err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
-	if err := s.MCP.CompleteLogin(ctx, name, code, state); err != nil {
+	if err := s.MCP.CompleteLogin(ctx, name, code, state, issuer); err != nil {
 		return fmt.Sprintf("Could not login MCP server %s: %v", name, err), true, nil
 	}
 	return "Authorized " + name + ". Its tools are available on the next turn.", true, nil

@@ -15,12 +15,19 @@ var (
 )
 
 type OAuthRecord struct {
-	Version                 int       `json:"version"`
-	ServerURL               string    `json:"server_url"`
-	Resource                string    `json:"resource,omitempty"`
-	AuthorizationEndpoint   string    `json:"authorization_endpoint,omitempty"`
-	TokenEndpoint           string    `json:"token_endpoint,omitempty"`
-	RegistrationEndpoint    string    `json:"registration_endpoint,omitempty"`
+	Version               int    `json:"version"`
+	ServerURL             string `json:"server_url"`
+	Resource              string `json:"resource,omitempty"`
+	AuthorizationEndpoint string `json:"authorization_endpoint,omitempty"`
+	TokenEndpoint         string `json:"token_endpoint,omitempty"`
+	RegistrationEndpoint  string `json:"registration_endpoint,omitempty"`
+	// Issuer is the authorization server the client below was registered
+	// with and the pending login was started against. A client is bound to
+	// its issuer, and a code is accepted only from it.
+	Issuer string `json:"issuer,omitempty"`
+	// IssParameterSupported records that the issuer promised RFC 9207's iss
+	// parameter, so a response without one is refused.
+	IssParameterSupported   bool      `json:"iss_parameter_supported,omitempty"`
 	ClientID                string    `json:"client_id,omitempty"`
 	ClientSecret            string    `json:"client_secret,omitempty"`
 	Scopes                  []string  `json:"scopes,omitempty"`

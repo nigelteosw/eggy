@@ -86,7 +86,7 @@ func (s *CommandService) googleLogin(ctx context.Context, args []string) (string
 			"/google login <paste the whole URL>",
 		}, "\n"), true, nil
 	}
-	code, state, err := parseOAuthRedirect(args[0])
+	code, state, _, err := parseOAuthRedirect(args[0])
 	if err != nil {
 		return fmt.Sprintf("Could not finish the Google login: %v", err), true, nil
 	}

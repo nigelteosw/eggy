@@ -18,30 +18,31 @@ import (
 // because both are things an owner plausibly has in hand: the address bar, or
 // the code copied out of it. A redirect carrying an error is reported with the
 // authorization server's own reason rather than as a missing code, which is
-// what a denied consent otherwise looks like from here.
-func parseOAuthRedirect(pasted string) (code, state string, err error) {
+// what a denied consent otherwise looks like from here. issuer is RFC 9207's
+// iss parameter; a bare code has none.
+func parseOAuthRedirect(pasted string) (code, state, issuer string, err error) {
 	pasted = strings.TrimSpace(pasted)
 	if !strings.HasPrefix(pasted, "http://") && !strings.HasPrefix(pasted, "https://") {
-		return pasted, "", nil
+		return pasted, "", "", nil
 	}
 	redirect, parseErr := url.Parse(pasted)
 	if parseErr != nil {
-		return "", "", fmt.Errorf("that does not parse as a URL: %w", parseErr)
+		return "", "", "", fmt.Errorf("that does not parse as a URL: %w", parseErr)
 	}
 	query := redirect.Query()
 	if failure := query.Get("error"); failure != "" {
 		if description := query.Get("error_description"); description != "" {
-			return "", "", fmt.Errorf("authorization was refused: %s (%s)", failure, description)
+			return "", "", "", fmt.Errorf("authorization was refused: %s (%s)", failure, description)
 		}
-		return "", "", fmt.Errorf("authorization was refused: %s", failure)
+		return "", "", "", fmt.Errorf("authorization was refused: %s", failure)
 	}
 	if failure := googleAuthError(query.Get("authError")); failure != "" {
-		return "", "", errors.New("authorization was refused: " + failure)
+		return "", "", "", errors.New("authorization was refused: " + failure)
 	}
 	if query.Get("code") == "" {
-		return "", "", fmt.Errorf("that URL has no code parameter — paste the address the browser landed on after you approved")
+		return "", "", "", fmt.Errorf("that URL has no code parameter — paste the address the browser landed on after you approved")
 	}
-	return query.Get("code"), query.Get("state"), nil
+	return query.Get("code"), query.Get("state"), query.Get("iss"), nil
 }
 
 // googleAuthError reads the reason off Google's own error page.

@@ -22,15 +22,15 @@ type fakeMCPRuntime struct {
 	logoutError error
 }
 
-type completedLogin struct{ server, code, state string }
+type completedLogin struct{ server, code, state, issuer string }
 
 func (f *fakeMCPRuntime) Statuses() []MCPStatus { return f.statuses }
 func (f *fakeMCPRuntime) BeginLogin(_ context.Context, server string) (string, error) {
 	f.loggedIn = append(f.loggedIn, server)
 	return f.loginURL, f.loginErr
 }
-func (f *fakeMCPRuntime) CompleteLogin(_ context.Context, server, code, state string) error {
-	f.completed = append(f.completed, completedLogin{server: server, code: code, state: state})
+func (f *fakeMCPRuntime) CompleteLogin(_ context.Context, server, code, state, issuer string) error {
+	f.completed = append(f.completed, completedLogin{server: server, code: code, state: state, issuer: issuer})
 	return f.completeErr
 }
 func (f *fakeMCPRuntime) Logout(server string) error {
@@ -237,11 +237,14 @@ func TestMCPLoginCompletesFromAPastedRedirect(t *testing.T) {
 	service, _ := mcpService(t, runtime)
 	run(t, service, "/mcp add calendar url=https://mcp.example.com auth=oauth")
 
-	output := run(t, service, "/mcp login calendar http://localhost:1/?state=abc&code=4/xyz&scope=https://www.googleapis.com/auth/calendar")
+	output := run(t, service, "/mcp login calendar http://localhost:1/?state=abc&code=4/xyz&iss=https%3A%2F%2Fauth.example&scope=https://www.googleapis.com/auth/calendar")
 	if !strings.Contains(output, "Authorized calendar") {
 		t.Fatalf("output=%q", output)
 	}
-	if len(runtime.completed) != 1 || runtime.completed[0] != (completedLogin{server: "calendar", code: "4/xyz", state: "abc"}) {
+	// The issuer rides along so the adapter can refuse a code from the wrong
+	// authorization server; dropping it here would fail every login against a
+	// server that promises one.
+	if len(runtime.completed) != 1 || runtime.completed[0] != (completedLogin{server: "calendar", code: "4/xyz", state: "abc", issuer: "https://auth.example"}) {
 		t.Fatalf("completed=%#v", runtime.completed)
 	}
 

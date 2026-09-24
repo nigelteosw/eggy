@@ -507,12 +507,12 @@ func (m *Manager) BeginLogin(ctx context.Context, name string) (string, error) {
 
 // CompleteLogin connects the server as soon as its credentials exist, so a
 // finished OAuth flow makes the server's tools available on the next turn.
-func (m *Manager) CompleteLogin(ctx context.Context, name, code, state string) error {
+func (m *Manager) CompleteLogin(ctx context.Context, name, code, state, issuer string) error {
 	provider, err := m.provider(name)
 	if err != nil {
 		return err
 	}
-	if err := provider.CompleteLogin(ctx, code, state); err != nil {
+	if err := provider.CompleteLogin(ctx, code, state, issuer); err != nil {
 		return err
 	}
 	return m.Reconnect(ctx, name)

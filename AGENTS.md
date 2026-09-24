@@ -152,6 +152,10 @@ should only ever add a new package under
   issued, granted-scope recording, the pending window, the loopback redirect
   matching byte for byte, and per-record associated data binding a grant to the
   server it was issued for.
+  MCP OAuth also keeps the RFC 9207 issuer check (a present `iss` must equal
+  the recorded issuer, and one the server advertises must be present) and
+  re-registers its client when discovery finds a different issuer; the
+  2026-07-28 MCP spec makes both mandatory for clients.
 
 ## Decided — do not re-propose
 

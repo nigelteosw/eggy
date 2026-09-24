@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -56,10 +57,16 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 	if errors.Is(err, ErrOAuthRecordNotFound) {
 		record = OAuthRecord{Version: 1, ServerURL: p.config.URL}
 	}
-	if record.AuthorizationEndpoint == "" || record.TokenEndpoint == "" {
-		if err := p.discover(ctx, &record); err != nil {
-			return "", err
-		}
+	// Discovery runs at every login rather than once, because a client is
+	// bound to the authorization server that registered it: a resource that
+	// moved to another issuer must get a fresh registration, never the old
+	// client_id replayed where it means nothing.
+	previousIssuer, previousTokenEndpoint := record.Issuer, record.TokenEndpoint
+	if err := p.discover(ctx, &record); err != nil {
+		return "", err
+	}
+	if issuerChanged(previousIssuer, previousTokenEndpoint, record) {
+		record.ClientID, record.ClientSecret, record.TokenEndpointAuthMethod = "", "", ""
 	}
 	// A configured client wins over anything stored: it is how the owner
 	// corrects a client registered against the wrong project, and it is the
@@ -89,6 +96,7 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 			RedirectURIs: []string{p.config.RedirectURL}, TokenEndpointAuthMethod: "client_secret_post",
 			GrantTypes: []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"},
 			ClientName: "Eggy", Scope: strings.Join(record.Scopes, " "),
+			ApplicationType: applicationType(p.config.RedirectURL),
 		}, p.client)
 		if err != nil {
 			return "", fmt.Errorf("register MCP OAuth client: %w", err)
@@ -123,7 +131,9 @@ func (p *oauthProvider) BeginLogin(ctx context.Context) (string, error) {
 	return authorizationURL, nil
 }
 
-func (p *oauthProvider) CompleteLogin(ctx context.Context, code, state string) error {
+// CompleteLogin exchanges the code an authorization response carried. issuer
+// is that response's RFC 9207 iss parameter, empty when it had none.
+func (p *oauthProvider) CompleteLogin(ctx context.Context, code, state, issuer string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	record, err := p.store.Load(p.config.Name, p.config.URL)
@@ -144,6 +154,9 @@ func (p *oauthProvider) CompleteLogin(ctx context.Context, code, state string) e
 	}
 	if strings.TrimSpace(code) == "" {
 		return errors.New("MCP OAuth code is required")
+	}
+	if err := checkIssuer(record, issuer); err != nil {
+		return err
 	}
 	config := oauthConfig(record, p.config.RedirectURL)
 	token, err := config.Exchange(oauthHTTPContext(ctx, p.client), code, oauth2.VerifierOption(record.CodeVerifier), oauth2.SetAuthURLParam("resource", record.Resource))
@@ -203,6 +216,8 @@ func (p *oauthProvider) discover(ctx context.Context, record *OAuthRecord) error
 		server = &oauthex.AuthServerMeta{Issuer: issuer, AuthorizationEndpoint: issuer + "/authorize", TokenEndpoint: issuer + "/token", RegistrationEndpoint: issuer + "/register"}
 	}
 	record.Resource = metadata.Resource
+	record.Issuer = server.Issuer
+	record.IssParameterSupported = server.AuthorizationResponseIssParameterSupported
 	record.AuthorizationEndpoint = server.AuthorizationEndpoint
 	record.TokenEndpoint = server.TokenEndpoint
 	record.RegistrationEndpoint = server.RegistrationEndpoint
@@ -272,6 +287,52 @@ func (p *oauthProvider) protectedResourceMetadata(ctx context.Context) (*oauthex
 		last = err
 	}
 	return nil, last
+}
+
+// checkIssuer is RFC 9207's defence against a mix-up attack, where a code
+// minted by one authorization server is presented to another's token
+// endpoint. A present iss must name the issuer this login was started
+// against, whether or not the server advertised it; an issuer that did
+// advertise it must send it. The comparison is exact, as the RFC requires.
+func checkIssuer(record OAuthRecord, issuer string) error {
+	if issuer == "" {
+		if record.IssParameterSupported {
+			return errors.New("MCP OAuth response carried no issuer although the authorization server promises one; paste the whole redirect URL rather than the code alone")
+		}
+		return nil
+	}
+	if issuer != record.Issuer {
+		return fmt.Errorf("MCP OAuth response came from issuer %q, not %q that this login was started against; start the login again", issuer, record.Issuer)
+	}
+	return nil
+}
+
+// issuerChanged reports whether discovery found a different authorization
+// server from the one the stored client was registered with. A record from
+// before issuers were recorded has only its token endpoint to compare.
+func issuerChanged(previousIssuer, previousTokenEndpoint string, record OAuthRecord) bool {
+	if previousIssuer != "" {
+		return previousIssuer != record.Issuer
+	}
+	return previousTokenEndpoint != "" && previousTokenEndpoint != record.TokenEndpoint
+}
+
+// applicationType is the OpenID Connect application_type a registration
+// declares. The 2026-07-28 spec requires it because a provider assumes "web"
+// when it is absent and then refuses the loopback redirect a local Eggy uses.
+func applicationType(redirectURL string) string {
+	parsed, err := url.Parse(redirectURL)
+	if err != nil {
+		return "web"
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return "native"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return "native"
+	}
+	return "web"
 }
 
 func oauthConfig(record OAuthRecord, redirectURL string) *oauth2.Config {

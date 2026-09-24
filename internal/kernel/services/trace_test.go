@@ -158,7 +158,7 @@ func TestTracedModelReplacesImageBytesWithAMarker(t *testing.T) {
 
 	_, err := model.Generate(ctx, ports.ModelRequest{Model: "gpt-x", Messages: []ports.Message{{
 		Role: ports.RoleUser, Content: "inspect",
-		Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("secret pixels")}},
+		Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("secret pixels")}},
 	}}})
 	if err != nil {
 		t.Fatal(err)

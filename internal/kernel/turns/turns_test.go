@@ -3,6 +3,7 @@ package turns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -331,7 +332,7 @@ func TestOwnerImageBypassesCommandsAndPersistsOnlyAMarker(t *testing.T) {
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
-	input := ports.Message{Content: "/status", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+	input := ports.Message{Content: "/status", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}}
 
 	if err := service.OwnerMessage(context.Background(), input, "telegram"); err != nil {
 		t.Fatal(err)
@@ -354,7 +355,7 @@ func TestCaptionlessImagePersistsOnlyAMarker(t *testing.T) {
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: &fakeLoop{reply: "seen"},
 		Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
 	})
-	input := ports.Message{Content: "Describe this image.", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+	input := ports.Message{Content: "Describe this image.", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}}
 
 	if err := service.OwnerMessage(context.Background(), input, "telegram"); err != nil {
 		t.Fatal(err)
@@ -696,11 +697,11 @@ func TestImageTurnIsRefusedWhenTheModelCannotSeeImages(t *testing.T) {
 		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
-		PartSupport: func(context.Context, string, ports.ContentType) (bool, bool) { return false, true },
+		PartSupport: func(context.Context, string, ports.Modality) (bool, bool) { return false, true },
 	})
 	err := service.OwnerMessage(context.Background(), ports.Message{
 		Content: "Describe this image.",
-		Parts:   []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte{1}}},
+		Parts:   []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte{1}}},
 	}, "telegram")
 	if err != nil {
 		t.Fatal(err)
@@ -718,24 +719,24 @@ func TestImageTurnIsRefusedWhenTheModelCannotSeeImages(t *testing.T) {
 func TestDocumentTurnIsRefusedWhenTheModelCannotReadFiles(t *testing.T) {
 	channel := &fakeChannel{}
 	loop := &fakeLoop{reply: "should not run"}
-	var asked []ports.ContentType
+	var asked []ports.Modality
 	service := New(Options{
 		Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
 		Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
 		Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
-		PartSupport: func(_ context.Context, _ string, kind ports.ContentType) (bool, bool) {
+		PartSupport: func(_ context.Context, _ string, kind ports.Modality) (bool, bool) {
 			asked = append(asked, kind)
-			return kind == ports.ContentTypeImage, true
+			return kind == ports.ModalityImage, true
 		},
 	})
 	err := service.OwnerMessage(context.Background(), ports.Message{
 		Content: "Read this file.",
-		Parts:   []ports.ContentPart{{Type: ports.ContentTypeDocument, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte{1}}},
+		Parts:   []ports.ContentPart{{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte{1}}},
 	}, "telegram")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 1 || asked[0] != ports.ContentTypeDocument || len(loop.inputs) != 0 {
+	if len(asked) != 1 || asked[0] != ports.ModalityFile || len(loop.inputs) != 0 {
 		t.Fatalf("asked=%v inputs=%#v", asked, loop.inputs)
 	}
 	if len(channel.delivered) != 1 || !strings.Contains(channel.delivered[0], "does not accept files") {
@@ -743,13 +744,49 @@ func TestDocumentTurnIsRefusedWhenTheModelCannotReadFiles(t *testing.T) {
 	}
 }
 
+// A provider that never says what a model takes -- DeepSeek among them -- is
+// still sent the part, and its refusal is what answers the question. The owner
+// gets the same sentence the known-refusal path gives, not a deserialization
+// error, and the turn itself does not fail.
+func TestPartRejectedByTheProviderIsReportedAsUnsupported(t *testing.T) {
+	cases := []struct {
+		name  string
+		parts []ports.ContentPart
+		want  string
+	}{
+		{"image", []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte{1}}}, "does not accept images"},
+		{"file", []ports.ContentPart{{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "a.pdf", Data: []byte{1}}}, "does not accept files"},
+		{"both", []ports.ContentPart{
+			{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte{1}},
+			{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "a.pdf", Data: []byte{1}},
+		}, "does not accept images or files"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := &fakeChannel{}
+			loop := &fakeLoop{err: fmt.Errorf("%w: provider rejected request (HTTP 400): unknown variant `image_url`", ports.ErrUnsupportedInput)}
+			service := New(Options{
+				Registry: &fakeRegistry{}, Conversation: &fakeConversation{}, Context: fakeContextStore{},
+				Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: loop,
+				Channel: channel, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+			})
+			if err := service.OwnerMessage(context.Background(), ports.Message{Content: "look", Parts: tc.parts}, "telegram"); err != nil {
+				t.Fatalf("the turn failed instead of answering: %v", err)
+			}
+			if len(channel.delivered) != 1 || !strings.Contains(channel.delivered[0], tc.want) {
+				t.Fatalf("delivered=%#v", channel.delivered)
+			}
+		})
+	}
+}
+
 // Support that is absent, unknown, or confirmed all fall through to the model
 // call. Only a positive "no" blocks, so a provider that does not report
 // modalities keeps working exactly as before.
 func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
-	cases := map[string]func(context.Context, string, ports.ContentType) (bool, bool){
-		"supported": func(context.Context, string, ports.ContentType) (bool, bool) { return true, true },
-		"unknown":   func(context.Context, string, ports.ContentType) (bool, bool) { return false, false },
+	cases := map[string]func(context.Context, string, ports.Modality) (bool, bool){
+		"supported": func(context.Context, string, ports.Modality) (bool, bool) { return true, true },
+		"unknown":   func(context.Context, string, ports.Modality) (bool, bool) { return false, false },
 		"unwired":   nil,
 	}
 	for name, support := range cases {
@@ -764,7 +801,7 @@ func TestImageTurnProceedsUnlessTheModelIsKnownToRefuseImages(t *testing.T) {
 			})
 			err := service.OwnerMessage(context.Background(), ports.Message{
 				Content: "Describe this image.",
-				Parts:   []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte{1}}},
+				Parts:   []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte{1}}},
 			}, "telegram")
 			if err != nil {
 				t.Fatal(err)

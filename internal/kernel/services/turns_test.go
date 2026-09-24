@@ -71,7 +71,7 @@ func TestAdmissionCarriesAnImageMessage(t *testing.T) {
 	ctx := activeThread("thread-a")
 	owner := admitTurn(t, turns, ctx, ports.Message{Content: "original"}, true)
 	defer turns.Release(owner.Context)
-	message := ports.Message{Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+	message := ports.Message{Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}}
 	if joined := admitTurn(t, turns, ctx, message, true); joined.Owner {
 		t.Fatal("image follow-up became a competing execution owner")
 	}

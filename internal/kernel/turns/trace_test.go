@@ -100,7 +100,7 @@ func TestTurnOpensATraceTheLoopContextCarries(t *testing.T) {
 
 func TestImageTurnTraceContainsOnlyCaptionAndMarker(t *testing.T) {
 	store := &recordingTraceStore{}
-	input := ports.Message{Content: "read this", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("secret pixels")}}}
+	input := ports.Message{Content: "read this", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("secret pixels")}}}
 
 	if err := newTracedTestService(&fakeLoop{reply: "done"}, &fakeChannel{}, store).OwnerMessage(context.Background(), input, "telegram"); err != nil {
 		t.Fatal(err)

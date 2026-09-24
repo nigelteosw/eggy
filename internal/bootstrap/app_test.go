@@ -278,7 +278,7 @@ func TestImageEventReachesModelButOnlyMarkerReachesDurableHistory(t *testing.T) 
 	}
 	payload, _ := json.Marshal(events.Message{
 		Text:  "read this list",
-		Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("pixels")}},
+		Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("pixels")}},
 	})
 	if err := app.HandleEvent(ownerCtx(), events.Event{ID: "image", Type: events.TypeMessage, Owner: "42", Payload: payload}); err != nil {
 		t.Fatal(err)

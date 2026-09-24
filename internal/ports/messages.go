@@ -13,23 +13,32 @@ const (
 	RoleTool      Role = "tool"
 )
 
-type ContentType string
+// Modality is a kind of input a model can read. The five are the ones
+// providers publish per model (OpenRouter's input_modalities uses exactly
+// these spellings), so a catalog answer and an attached part are compared as
+// the same value. Text is every message's Content and never a ContentPart;
+// audio and video are named so a catalog can report them, though no surface
+// attaches them yet.
+type Modality string
 
 const (
-	ContentTypeImage ContentType = "image"
-	// ContentTypeDocument is a file the model reads whole -- a PDF today.
-	// It is a distinct kind, not an image with a different media type,
-	// because providers publish file and image support separately and a
-	// model may take one without the other.
-	ContentTypeDocument ContentType = "document"
+	ModalityText  Modality = "text"
+	ModalityImage Modality = "image"
+	// ModalityFile is a document the model reads whole -- a PDF today. It is
+	// its own modality, not an image with a different media type, because
+	// providers publish file and image support separately and a model may
+	// take one without the other.
+	ModalityFile  Modality = "file"
+	ModalityAudio Modality = "audio"
+	ModalityVideo Modality = "video"
 )
 
 // ContentPart carries non-text input without teaching the kernel which chat
 // surface supplied it or which provider wire format will consume it.
 type ContentPart struct {
-	Type      ContentType `json:"type"`
-	MediaType string      `json:"media_type"`
-	Data      []byte      `json:"data"`
+	Type      Modality `json:"type"`
+	MediaType string   `json:"media_type"`
+	Data      []byte   `json:"data"`
 	// Filename is the name the document arrived with; empty for an image.
 	// Providers show it to the model and the durable record names it.
 	Filename string `json:"filename,omitempty"`

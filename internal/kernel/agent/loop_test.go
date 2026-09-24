@@ -65,7 +65,7 @@ func TestLoopCompletesMultiStepLookupWithExpectedCallCounts(t *testing.T) {
 func TestLoopCarriesImagePartsOnTheOwnerMessage(t *testing.T) {
 	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Role: ports.RoleAssistant, Content: "seen"}}}}
 	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}}, nil, ContextPolicy{})
-	input := ports.Message{Content: "inspect", Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}}
+	input := ports.Message{Content: "inspect", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}}
 
 	if _, err := loop.Run(context.Background(), "model", "", input, nil, RunOptions{}); err != nil {
 		t.Fatal(err)

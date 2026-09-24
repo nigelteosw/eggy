@@ -332,7 +332,7 @@ func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message)
 	text := message.Caption
 	if strings.TrimSpace(text) == "" {
 		text = "Describe this image."
-		if part.Type == ports.ContentTypeDocument {
+		if part.Type == ports.ModalityFile {
 			text = "Read this file."
 		}
 	}

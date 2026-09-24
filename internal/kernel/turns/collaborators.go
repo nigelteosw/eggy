@@ -116,9 +116,9 @@ type Options struct {
 	Location *time.Location
 	Timezone string
 	// PartSupport reports whether the model behind an alias accepts input of
-	// one content kind (image, document), and whether that answer is known.
+	// one modality, and whether that answer is known.
 	// Nil means no provider reports modalities, and every such turn proceeds.
 	// Only a known "no" blocks one: an unknown model is sent the part rather
 	// than refused on a guess.
-	PartSupport func(ctx context.Context, alias string, kind ports.ContentType) (supported, known bool)
+	PartSupport func(ctx context.Context, alias string, kind ports.Modality) (supported, known bool)
 }

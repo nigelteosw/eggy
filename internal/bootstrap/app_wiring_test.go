@@ -69,7 +69,7 @@ func TestModelDiscoveryHonoursTheOptOutAndTheAdapterCapability(t *testing.T) {
 // or an alias that does not exist -- is unknown, and the turn sends the image
 // anyway rather than blocking on a guess.
 func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
-	images, textOnly, off := true, false, false
+	off := false
 	cfg := config.Config{
 		Providers: map[string]config.ProviderConfig{
 			"openrouter": {Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1"},
@@ -89,8 +89,8 @@ func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
 		},
 	}
 	catalog := catalogModel{models: []ports.CatalogModel{
-		{ID: "vendor/vision", SupportsImages: &images, SupportsFiles: &textOnly},
-		{ID: "vendor/text", SupportsImages: &textOnly, SupportsFiles: &textOnly},
+		{ID: "vendor/vision", InputModalities: []ports.Modality{ports.ModalityText, ports.ModalityImage}},
+		{ID: "vendor/text", InputModalities: []ports.Modality{ports.ModalityText}},
 		{ID: "vendor/silent"},
 	}}
 	discovery := newModelDiscovery(cfg, map[string]ports.Model{"openrouter": catalog, "plain": catalog, "optedout": catalog})
@@ -105,17 +105,17 @@ func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
 		"missing":  {false, false},
 	}
 	for alias, want := range cases {
-		supported, known := discovery.SupportsPart(context.Background(), alias, ports.ContentTypeImage)
+		supported, known := discovery.SupportsPart(context.Background(), alias, ports.ModalityImage)
 		if supported != want.supported || known != want.known {
 			t.Fatalf("SupportsPart(%q, image)=%v,%v want %v,%v", alias, supported, known, want.supported, want.known)
 		}
 	}
 	// Files are answered from their own field: the vision model sees images
 	// and is still a known "no" for a PDF.
-	if supported, known := discovery.SupportsPart(context.Background(), "vision", ports.ContentTypeDocument); supported || !known {
-		t.Fatalf("SupportsPart(vision, document)=%v,%v want false,true", supported, known)
+	if supported, known := discovery.SupportsPart(context.Background(), "vision", ports.ModalityFile); supported || !known {
+		t.Fatalf("SupportsPart(vision, file)=%v,%v want false,true", supported, known)
 	}
-	if _, known := discovery.SupportsPart(context.Background(), "silent", ports.ContentTypeDocument); known {
+	if _, known := discovery.SupportsPart(context.Background(), "silent", ports.ModalityFile); known {
 		t.Fatal("a model with no architecture must leave file support unknown")
 	}
 }

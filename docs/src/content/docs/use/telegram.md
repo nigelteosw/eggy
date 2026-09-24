@@ -189,7 +189,13 @@ selection value cannot run a slash command or approve a protected action.
 
 Send one photo or image file with an optional caption. Eggy accepts JPEG, PNG,
 WebP, and GIF images up to 20 MB and sends the image to the selected model for
-that turn. The selected model must support image input.
+that turn. PDF files are sent the same way.
+
+If the selected model cannot read what you sent, Eggy replies that the current
+model does not accept images (or files) and suggests `/model`. For OpenRouter
+models this is decided before the call, from OpenRouter's own catalog. For
+providers that do not publish what a model accepts, such as DeepSeek, Eggy
+sends the attachment and recognizes the provider's refusal.
 
 Image bytes are not retained in conversation history. To ask about the same
 image in a later turn, attach it again.

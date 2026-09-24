@@ -79,7 +79,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	if s.PartSupport != nil {
 		for _, kind := range partKinds(input.Parts) {
 			if supported, known := s.PartSupport(ctx, alias, kind); known && !supported {
-				return s.Channel.Deliver(ctx, fmt.Sprintf("The current model (%s) does not accept %s. Send the content as text, or switch models with /model.", alias, partNoun(kind)))
+				return s.Channel.Deliver(ctx, unsupportedPartsMessage(alias, []ports.Modality{kind}))
 			}
 		}
 	}
@@ -172,6 +172,16 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 		}
 		return s.Channel.Deliver(ctx, "I ran out of tool-call steps working on that before I could finish. Try a narrower request, or ask me to continue.")
 	}
+	// A provider that never said what the model takes answers by refusing
+	// the attachment itself. That is the same fact the check above reports
+	// ahead of time, so the owner gets the same sentence rather than the
+	// provider's deserialization error.
+	if errors.Is(runErr, ports.ErrUnsupportedInput) && len(input.Parts) > 0 {
+		if usageErr != nil {
+			return usageErr
+		}
+		return s.Channel.Deliver(ctx, unsupportedPartsMessage(alias, partKinds(input.Parts)))
+	}
 	if runErr != nil {
 		return runErr
 	}
@@ -250,10 +260,10 @@ func mergeSteered(messages []ports.Message) ports.Message {
 	return merged
 }
 
-// partKinds lists each content kind present in parts once, in first-seen
+// partKinds lists each modality present in parts once, in first-seen
 // order, so a message with three photos asks the model-support question once.
-func partKinds(parts []ports.ContentPart) []ports.ContentType {
-	var kinds []ports.ContentType
+func partKinds(parts []ports.ContentPart) []ports.Modality {
+	var kinds []ports.Modality
 	for _, part := range parts {
 		if !slices.Contains(kinds, part.Type) {
 			kinds = append(kinds, part.Type)
@@ -262,12 +272,24 @@ func partKinds(parts []ports.ContentPart) []ports.ContentType {
 	return kinds
 }
 
-func partNoun(kind ports.ContentType) string {
-	switch kind {
-	case ports.ContentTypeDocument:
+// unsupportedPartsMessage tells the owner the selected model cannot read what
+// they attached, naming every kind the message carried.
+func unsupportedPartsMessage(alias string, kinds []ports.Modality) string {
+	nouns := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		nouns = append(nouns, partNoun(kind))
+	}
+	return fmt.Sprintf("The current model (%s) does not accept %s. Send the content as text, or switch models with /model.", alias, strings.Join(nouns, " or "))
+}
+
+func partNoun(modality ports.Modality) string {
+	switch modality {
+	case ports.ModalityImage:
+		return "images"
+	case ports.ModalityFile:
 		return "files"
 	default:
-		return "images"
+		return string(modality)
 	}
 }
 
@@ -285,7 +307,7 @@ func durableMessageText(message ports.Message) string {
 	}
 	for _, part := range message.Parts {
 		marker := "[image attached]"
-		if part.Type == ports.ContentTypeDocument {
+		if part.Type == ports.ModalityFile {
 			marker = "[file attached: " + part.Filename + "]"
 		}
 		if text != "" {

@@ -90,7 +90,7 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 		return ports.ContentPart{}, fmt.Errorf("Telegram file media type mismatch: declared %s, detected %s", declaredType, detectedType)
 	}
 	part := ports.ContentPart{Type: kind, MediaType: detectedType, Data: data}
-	if kind == ports.ContentTypeDocument {
+	if kind == ports.ModalityFile {
 		part.Filename = strings.TrimSpace(filename)
 		if part.Filename == "" {
 			part.Filename = "document.pdf"
@@ -100,20 +100,20 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 }
 
 // canonicalMediaType maps a declared or sniffed media type onto the one
-// spelling Eggy sends and the content kind it becomes. Anything else is not
+// spelling Eggy sends and the modality it becomes. Anything else is not
 // something a model is asked to read.
-func canonicalMediaType(mediaType string) (canonical string, kind ports.ContentType, ok bool) {
+func canonicalMediaType(mediaType string) (canonical string, kind ports.Modality, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0])) {
 	case "image/jpeg", "image/jpg":
-		return "image/jpeg", ports.ContentTypeImage, true
+		return "image/jpeg", ports.ModalityImage, true
 	case "image/png":
-		return "image/png", ports.ContentTypeImage, true
+		return "image/png", ports.ModalityImage, true
 	case "image/webp":
-		return "image/webp", ports.ContentTypeImage, true
+		return "image/webp", ports.ModalityImage, true
 	case "image/gif":
-		return "image/gif", ports.ContentTypeImage, true
+		return "image/gif", ports.ModalityImage, true
 	case "application/pdf":
-		return "application/pdf", ports.ContentTypeDocument, true
+		return "application/pdf", ports.ModalityFile, true
 	default:
 		return "", "", false
 	}

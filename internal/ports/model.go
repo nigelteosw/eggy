@@ -3,7 +3,16 @@ package ports
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"slices"
 )
+
+// ErrUnsupportedInput is a model refusing an attached image or file because
+// it cannot read that kind of input. An adapter wraps its provider's own
+// rejection in it, since only the adapter can tell that rejection apart from
+// any other; the turn then tells the owner the model does not take the
+// attachment instead of quoting the provider's error.
+var ErrUnsupportedInput = errors.New("model does not accept this input")
 
 type ModelRequest struct {
 	Model    string           `json:"model"`
@@ -84,16 +93,21 @@ type CatalogModel struct {
 	// Reasoning is nil for a model that does not reason at all, or whose
 	// provider does not say.
 	Reasoning *CatalogReasoning `json:"reasoning,omitempty"`
-	// SupportsImages reports whether the model accepts image input. It is nil
-	// whenever the provider does not publish input modalities at all, which
-	// is the difference between "this model is text-only" and "nobody said".
-	// A caller that would refuse an image must treat nil as unknown and send
-	// it anyway rather than read silence as a refusal.
-	SupportsImages *bool `json:"supports_images,omitempty"`
-	// SupportsFiles is the same answer for document input (PDF), published
-	// separately by the provider because a model may take one and not the
-	// other. Nil means unknown, exactly as for SupportsImages.
-	SupportsFiles *bool `json:"supports_files,omitempty"`
+	// InputModalities is what the provider says the model reads. It is nil
+	// whenever the provider does not publish modalities at all, which is the
+	// difference between "this model is text-only" and "nobody said". Read it
+	// through Accepts rather than directly.
+	InputModalities []Modality `json:"input_modalities,omitempty"`
+}
+
+// Accepts reports whether the model reads input of one modality, and whether
+// that answer is known. A caller that would refuse a part must treat an
+// unknown answer as "send it anyway" rather than read silence as a refusal.
+func (m CatalogModel) Accepts(modality Modality) (supported, known bool) {
+	if m.InputModalities == nil {
+		return false, false
+	}
+	return slices.Contains(m.InputModalities, modality), true
 }
 
 // CatalogReasoning is what a provider says about a model's reasoning: the

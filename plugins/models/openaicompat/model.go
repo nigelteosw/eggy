@@ -154,9 +154,42 @@ func (m *Model) Generate(ctx context.Context, input ports.ModelRequest) (ports.M
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ports.ModelResponse{}, m.providerError(response)
+		err := m.providerError(response)
+		if carriesParts(input.Messages) && rejectsParts(response.StatusCode, err) {
+			return ports.ModelResponse{}, fmt.Errorf("%w: %w", ports.ErrUnsupportedInput, err)
+		}
+		return ports.ModelResponse{}, err
 	}
 	return m.decodeResponse(response.Body)
+}
+
+func carriesParts(messages []ports.Message) bool {
+	return slices.ContainsFunc(messages, func(message ports.Message) bool { return len(message.Parts) > 0 })
+}
+
+// partRejections are the phrases a provider uses when the model it routes to
+// cannot read an image or file part. None of the providers on this wire
+// format publishes a code for it, so the wording is all there is: DeepSeek's
+// schema has no non-text content ("unknown variant `image_url`, expected
+// `text`"), OpenAI says a content type "is only supported by certain models",
+// and OpenRouter finds "no endpoints ... that support image input".
+var partRejections = []string{"unknown variant", "image input", "file input", "modalit", "vision", "multimodal", "only supported by certain models"}
+
+// rejectsParts reports whether a failed request that carried an image or file
+// failed because of it. Only a client error qualifies -- authentication, rate
+// limits, timeouts and outages say nothing about the attachment -- and only
+// one whose detail names the attachment, so a context-length refusal on a
+// request that happened to carry a photo is still reported as itself.
+func rejectsParts(status int, err error) bool {
+	if status < 400 || status >= 500 {
+		return false
+	}
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests:
+		return false
+	}
+	detail := strings.ToLower(err.Error())
+	return slices.ContainsFunc(partRejections, func(phrase string) bool { return strings.Contains(detail, phrase) })
 }
 
 // buildRequest translates a port request into the wire body, plus the headers
@@ -204,7 +237,7 @@ func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (req
 	return body, headers, nil
 }
 
-func isDocument(part ports.ContentPart) bool { return part.Type == ports.ContentTypeDocument }
+func isDocument(part ports.ContentPart) bool { return part.Type == ports.ModalityFile }
 
 // translateMessage spells one port message the way the wire takes it. Text
 // stays a string; a message carrying parts becomes a content array, since
@@ -225,9 +258,9 @@ func (m *Model) translateMessage(message ports.Message) (providerRequestMessage,
 			}
 			dataURL := "data:" + part.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Data)
 			switch part.Type {
-			case ports.ContentTypeImage:
+			case ports.ModalityImage:
 				content = append(content, providerContentPart{Type: "image_url", ImageURL: &providerImageURL{URL: dataURL}})
-			case ports.ContentTypeDocument:
+			case ports.ModalityFile:
 				if strings.TrimSpace(part.Filename) == "" {
 					return providerRequestMessage{}, errors.New("document content is missing a filename")
 				}
@@ -365,9 +398,11 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 			model.Reasoning = &ports.CatalogReasoning{Mandatory: entry.Reasoning.Mandatory, Efforts: entry.Reasoning.SupportedEfforts}
 		}
 		if entry.Architecture != nil {
-			supportsImages := slices.Contains(entry.Architecture.InputModalities, "image")
-			supportsFiles := slices.Contains(entry.Architecture.InputModalities, "file")
-			model.SupportsImages, model.SupportsFiles = &supportsImages, &supportsFiles
+			// Non-nil even when empty: the provider did answer.
+			model.InputModalities = make([]ports.Modality, 0, len(entry.Architecture.InputModalities))
+			for _, modality := range entry.Architecture.InputModalities {
+				model.InputModalities = append(model.InputModalities, ports.Modality(modality))
+			}
 		}
 		models = append(models, model)
 	}

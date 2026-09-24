@@ -41,7 +41,7 @@ func TestClientDownloadImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if part.Type != ports.ContentTypeImage || part.MediaType != "image/png" || !bytes.Equal(part.Data, png) {
+	if part.Type != ports.ModalityImage || part.MediaType != "image/png" || !bytes.Equal(part.Data, png) {
 		t.Fatalf("part=%#v", part)
 	}
 	if len(paths) != 2 || paths[0] != "/bottoken/getFile" || paths[1] != "/file/bottoken/photos/list.png" {
@@ -65,7 +65,7 @@ func TestClientDownloadFileReturnsAPDFAsADocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if part.Type != ports.ContentTypeDocument || part.MediaType != "application/pdf" || part.Filename != "reading list.pdf" || !bytes.Equal(part.Data, pdf) {
+	if part.Type != ports.ModalityFile || part.MediaType != "application/pdf" || part.Filename != "reading list.pdf" || !bytes.Equal(part.Data, pdf) {
 		t.Fatalf("part=%#v", part)
 	}
 }

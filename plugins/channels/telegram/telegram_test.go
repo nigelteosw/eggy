@@ -32,7 +32,7 @@ func (d *recordingFileDownloader) DownloadFile(_ context.Context, fileID string,
 }
 
 func TestWebhookNormalizesPhotoWithCaption(t *testing.T) {
-	part := ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}
+	part := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte("jpeg")}
 	downloader := &recordingFileDownloader{part: part}
 	var got events.Event
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
@@ -61,7 +61,7 @@ func TestWebhookNormalizesPhotoWithCaption(t *testing.T) {
 }
 
 func TestWebhookNormalizesCaptionlessPhoto(t *testing.T) {
-	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/jpeg", Data: []byte("jpeg")}}
+	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte("jpeg")}}
 	var got events.Event
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithFileDownloader(downloader)
 	body := `{"update_id":14,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"photo":[{"file_id":"photo","file_size":100}]}}`
@@ -80,7 +80,7 @@ func TestWebhookNormalizesCaptionlessPhoto(t *testing.T) {
 // A PDF document is downloaded under its own name and, with no caption,
 // asks the model to read it rather than describe it.
 func TestWebhookNormalizesPDFDocument(t *testing.T) {
-	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ContentTypeDocument, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte("%PDF-")}}
+	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte("%PDF-")}}
 	var got events.Event
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithFileDownloader(downloader)
 	body := `{"update_id":15,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"document":{"file_id":"document","file_name":"list.pdf","mime_type":"application/pdf","file_size":400}}}`
@@ -91,13 +91,13 @@ func TestWebhookNormalizesPDFDocument(t *testing.T) {
 
 	var message events.Message
 	_ = json.Unmarshal(got.Payload, &message)
-	if response.Code != http.StatusNoContent || downloader.mediaType != "application/pdf" || downloader.filename != "list.pdf" || message.Text != "Read this file." || len(message.Parts) != 1 || message.Parts[0].Type != ports.ContentTypeDocument {
+	if response.Code != http.StatusNoContent || downloader.mediaType != "application/pdf" || downloader.filename != "list.pdf" || message.Text != "Read this file." || len(message.Parts) != 1 || message.Parts[0].Type != ports.ModalityFile {
 		t.Fatalf("status=%d downloader=%#v message=%#v", response.Code, downloader, message)
 	}
 }
 
 func TestWebhookNormalizesImageDocument(t *testing.T) {
-	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}}
+	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}
 	var got events.Event
 	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error { got = event; return nil }, nil).WithFileDownloader(downloader)
 	body := `{"update_id":15,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"caption":"original","document":{"file_id":"document","file_name":"list.png","mime_type":"image/png","file_size":400}}}`

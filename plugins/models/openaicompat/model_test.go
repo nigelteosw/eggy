@@ -3,6 +3,7 @@ package openaicompat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -61,7 +62,7 @@ func TestModelTranslatesImagePartsToMultipartContent(t *testing.T) {
 		Model: "openai/gpt-5.6-luna",
 		Messages: []ports.Message{{
 			Role: ports.RoleUser, Content: "read this list",
-			Parts: []ports.ContentPart{{Type: ports.ContentTypeImage, MediaType: "image/png", Data: []byte("png")}},
+			Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}},
 		}},
 	})
 	if err != nil {
@@ -428,17 +429,25 @@ func TestListModelsParsesImageModalityOnlyWhenReported(t *testing.T) {
 	if len(models) != 3 {
 		t.Fatalf("models=%#v", models)
 	}
-	if models[0].SupportsImages == nil || !*models[0].SupportsImages {
-		t.Fatalf("a model listing image input must report support: %#v", models[0].SupportsImages)
+	accepts := func(model ports.CatalogModel, modality ports.Modality) string {
+		supported, known := model.Accepts(modality)
+		if !known {
+			return "unknown"
+		}
+		return map[bool]string{true: "yes", false: "no"}[supported]
 	}
-	if models[1].SupportsImages == nil || *models[1].SupportsImages {
-		t.Fatalf("a model listing text only must report false: %#v", models[1].SupportsImages)
+	want := map[string][2]string{
+		"vendor/vision":    {"yes", "yes"},
+		"vendor/text-only": {"no", "no"},
+		// No architecture block means the provider said nothing, not that the
+		// model is text-only.
+		"vendor/silent": {"unknown", "unknown"},
 	}
-	if models[2].SupportsImages != nil {
-		t.Fatalf("a model with no architecture must leave support unknown: %#v", models[2].SupportsImages)
-	}
-	if models[0].SupportsFiles == nil || !*models[0].SupportsFiles || models[1].SupportsFiles == nil || *models[1].SupportsFiles || models[2].SupportsFiles != nil {
-		t.Fatalf("file support must follow the \"file\" modality: %v %v %v", models[0].SupportsFiles, models[1].SupportsFiles, models[2].SupportsFiles)
+	for _, model := range models {
+		got := [2]string{accepts(model, ports.ModalityImage), accepts(model, ports.ModalityFile)}
+		if got != want[model.ID] {
+			t.Fatalf("%s: image,file=%v want %v", model.ID, got, want[model.ID])
+		}
 	}
 }
 
@@ -464,7 +473,7 @@ func TestModelSendsDocumentsAsFileParts(t *testing.T) {
 				Model: "openai/gpt-5.6-luna",
 				Messages: []ports.Message{{
 					Role: ports.RoleUser, Content: "summarise this",
-					Parts: []ports.ContentPart{{Type: ports.ContentTypeDocument, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte("%PDF-")}},
+					Parts: []ports.ContentPart{{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "list.pdf", Data: []byte("%PDF-")}},
 				}},
 			})
 			if err != nil {
@@ -504,4 +513,43 @@ func TestListModelsReportsAuthenticationFailure(t *testing.T) {
 // assertion has to keep finding it.
 func TestModelSatisfiesCatalogPort(t *testing.T) {
 	var _ ports.ModelCatalog = New("https://api.example/v1", "key", nil)
+}
+
+// A provider refusing the image or file itself is told apart from every other
+// rejection, so the turn can say "this model does not take images" rather than
+// quote a deserialization error. Each body is what that provider actually
+// sends when handed a part its model cannot read.
+func TestProviderRejectingAnAttachedPartIsUnsupportedInput(t *testing.T) {
+	image := []ports.Message{{Role: ports.RoleUser, Content: "Describe this image.", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}}}
+	pdf := []ports.Message{{Role: ports.RoleUser, Content: "Read this file.", Parts: []ports.ContentPart{{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "a.pdf", Data: []byte("%PDF")}}}}
+	text := []ports.Message{{Role: ports.RoleUser, Content: "hello"}}
+	cases := []struct {
+		name     string
+		status   int
+		body     string
+		messages []ports.Message
+		want     bool
+	}{
+		{"deepseek image", http.StatusBadRequest, `{"error":{"message":"Failed to deserialize the JSON body into the target type: messages[1]: unknown variant ` + "`image_url`, expected `text`" + ` at line 1 column 912","type":"invalid_request_error"}}`, image, true},
+		{"deepseek file", http.StatusBadRequest, `{"error":{"message":"Failed to deserialize the JSON body into the target type: messages[1]: unknown variant ` + "`file`, expected `text`" + ` at line 1 column 80","type":"invalid_request_error"}}`, pdf, true},
+		{"openai text model", http.StatusBadRequest, `{"error":{"message":"Invalid content type. image_url is only supported by certain models.","type":"invalid_request_error"}}`, image, true},
+		{"openrouter no vision endpoint", http.StatusNotFound, `{"error":{"message":"No endpoints found that support image input","code":404}}`, image, true},
+		{"unrelated rejection with an image", http.StatusBadRequest, `{"error":{"message":"This model's maximum context length is 65536 tokens"}}`, image, false},
+		{"image wording without a part", http.StatusBadRequest, `{"error":{"message":"image_url is only supported by certain models"}}`, text, false},
+		{"rate limit with an image", http.StatusTooManyRequests, `{"error":{"message":"image quota exceeded"}}`, image, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return jsonResponse(tc.status, tc.body), nil
+			})}
+			_, err := New("https://api.example", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "m", Messages: tc.messages})
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if got := errors.Is(err, ports.ErrUnsupportedInput); got != tc.want {
+				t.Fatalf("unsupported=%v, want %v: %v", got, tc.want, err)
+			}
+		})
+	}
 }

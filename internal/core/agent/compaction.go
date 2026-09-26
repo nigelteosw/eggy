@@ -112,6 +112,9 @@ func splitSteps(messages []ports.Message) []step {
 type contextWindow struct {
 	policy    ContextPolicy
 	preserved []ports.Message
+	// preservedChars is counted once: preserved never changes during a
+	// turn, and an attached PDF is costly to count on every fit pass.
+	preservedChars int
 	// steering holds owner messages rescued out of folded-away steps, in
 	// arrival order. They sit right after the checkpoint, which is where they
 	// chronologically belong once the work around them is summarized.
@@ -121,7 +124,7 @@ type contextWindow struct {
 }
 
 func newContextWindow(policy ContextPolicy, preserved []ports.Message) *contextWindow {
-	return &contextWindow{policy: policy, preserved: append([]ports.Message(nil), preserved...)}
+	return &contextWindow{policy: policy, preserved: append([]ports.Message(nil), preserved...), preservedChars: MessageChars(preserved)}
 }
 
 // messages renders the window in the order the model reads it.
@@ -137,7 +140,7 @@ func (w *contextWindow) messages() []ports.Message {
 
 // mandatory is everything fit cannot compact away, excluding the newest step.
 func (w *contextWindow) mandatoryChars() int {
-	total := MessageChars(w.preserved) + MessageChars(w.steering)
+	total := w.preservedChars + MessageChars(w.steering)
 	if w.summary != "" {
 		total += MessageChars([]ports.Message{CheckpointMessage(w.summary)})
 	}
@@ -304,9 +307,9 @@ func TruncateMessage(message ports.Message, limit int) ports.Message {
 }
 
 // MessageChars counts a message window's contribution to the context budget,
-// including tool-call arguments and non-text parts. Images are counted by
-// their encoded size rather than ignored: an input the budget cannot see is
-// an input that evades it.
+// including tool-call arguments and non-text parts. Attachments are counted
+// by what the model is billed for them (see partChars) rather than ignored:
+// an input the budget cannot see is an input that evades it.
 func MessageChars(messages []ports.Message) int {
 	total := 0
 	for _, message := range messages {
@@ -315,7 +318,7 @@ func MessageChars(messages []ports.Message) int {
 			total += utf8.RuneCountInString(string(call.Arguments))
 		}
 		for _, part := range message.Parts {
-			total += len(part.Data)
+			total += partChars(part)
 		}
 	}
 	return total

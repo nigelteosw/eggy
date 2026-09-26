@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -173,13 +175,71 @@ func TestCompactionReportsMandatoryInputThatCannotFit(t *testing.T) {
 	}
 }
 
-// Images count against the budget by their encoded size. An input the budget
-// cannot see is an input that evades it.
-func TestMessageCharsCountsNonTextParts(t *testing.T) {
-	message := ports.Message{Role: ports.RoleUser, Content: "look", Parts: []ports.ContentPart{{Data: make([]byte, 1024)}}}
-	if chars := MessageChars([]ports.Message{message}); chars != 1028 {
-		t.Fatalf("chars=%d, want 1028", chars)
+// Attachments count by what the model is billed for them, not by file size:
+// an image is one page image, and a PDF is one per page.
+func TestMessageCharsCountsAttachmentsByPage(t *testing.T) {
+	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: make([]byte, 500<<10)}
+	message := ports.Message{Role: ports.RoleUser, Content: "look", Parts: []ports.ContentPart{image}}
+	if chars := MessageChars([]ports.Message{message}); chars != 4+pageChars {
+		t.Fatalf("image chars=%d, want %d", chars, 4+pageChars)
 	}
+	pdf := ports.ContentPart{Type: ports.ModalityFile, MediaType: "application/pdf", Data: testPDF(3, 500<<10)}
+	if chars := partChars(pdf); chars != 3*pageChars {
+		t.Fatalf("pdf chars=%d, want %d", chars, 3*pageChars)
+	}
+	unknown := ports.ContentPart{Type: ports.ModalityAudio, Data: make([]byte, 1024)}
+	if chars := partChars(unknown); chars != 1024 {
+		t.Fatalf("unestimated part chars=%d, want its size", chars)
+	}
+}
+
+// PDF 1.5 packs page objects into compressed object streams; pages found
+// there count too, and a document with none found is still counted by size.
+func TestPDFPagesReadsObjectStreams(t *testing.T) {
+	var packed bytes.Buffer
+	writer := zlib.NewWriter(&packed)
+	writer.Write([]byte("<</Type /Pages /Count 2>> <</Type/Page/Parent 1 0 R>> <</Type /Page>>"))
+	writer.Close()
+	data := append([]byte("%PDF-1.7\n4 0 obj <</Type /ObjStm /N 3 /Length 99>>\nstream\r\n"), packed.Bytes()...)
+	data = append(data, "\nendstream endobj <</Type /Page>>"...)
+	if pages := pdfPages(data); pages != 3 {
+		t.Fatalf("pages=%d, want 3", pages)
+	}
+	if pages := pdfPages(make([]byte, 10*assumedPageBytes)); pages != 10 {
+		t.Fatalf("unparseable pages=%d, want 10 from size", pages)
+	}
+	if pages := pdfPages([]byte("%PDF")); pages != 1 {
+		t.Fatalf("tiny pages=%d, want at least 1", pages)
+	}
+}
+
+// A short PDF made large by embedded fonts and images reaches the model: the
+// budget refused a 500 KB, three-page document when it counted bytes.
+func TestLoopSendsALargeShortPDF(t *testing.T) {
+	model := &queuedModel{responses: []ports.ModelResponse{{Message: ports.Message{Role: ports.RoleAssistant, Content: "read it"}}}}
+	loop := NewSelectedLoop(map[string]ModelTarget{"model": {Model: model, ModelID: "id"}},
+		StaticTools{&scriptedTool{name: "lookup"}}, ContextPolicy{})
+	pdf := ports.ContentPart{Type: ports.ModalityFile, MediaType: "application/pdf", Data: testPDF(3, 600<<10)}
+
+	if _, err := loop.Run(context.Background(), "model", "", ports.Message{Content: "summarize", Parts: []ports.ContentPart{pdf}}, nil, RunOptions{}); err != nil {
+		t.Fatalf("err=%v, want the PDF sent", err)
+	}
+	if len(model.requests) != 1 {
+		t.Fatalf("requests=%d, want 1", len(model.requests))
+	}
+}
+
+// testPDF is a PDF with the given page objects, padded to size with the kind
+// of binary a real document carries.
+func testPDF(pages, size int) []byte {
+	data := []byte("%PDF-1.4\n1 0 obj <</Type /Pages /Count " + fmt.Sprint(pages) + ">> endobj\n")
+	for i := 0; i < pages; i++ {
+		data = append(data, "<</Type /Page /Parent 1 0 R>>\n"...)
+	}
+	for len(data) < size {
+		data = append(data, 0xff)
+	}
+	return data
 }
 
 // The tool catalog is part of the request, so it is part of the budget.

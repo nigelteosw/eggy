@@ -33,7 +33,7 @@ const (
 	ModalityVideo Modality = "video"
 )
 
-// ContentPart carries non-text input without teaching the kernel which chat
+// ContentPart carries non-text input without teaching the core which chat
 // surface supplied it or which provider wire format will consume it.
 type ContentPart struct {
 	Type      Modality `json:"type"`
@@ -55,7 +55,7 @@ type Message struct {
 	// back on this message in the next request of the same turn: OpenRouter's
 	// reasoning_details, Anthropic's signed thinking blocks, OpenAI's
 	// encrypted reasoning items. Reasoning models refuse or forget their own
-	// thinking across tool-call rounds without it. The kernel carries it and
+	// thinking across tool-call rounds without it. The core carries it and
 	// never inspects it; it is not the visible text in
 	// ModelResponse.ReasoningContent.
 	ProviderReasoning json.RawMessage `json:"provider_reasoning,omitempty"`

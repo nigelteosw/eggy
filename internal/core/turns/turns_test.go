@@ -18,7 +18,7 @@ import (
 
 // These are the tests that could not exist while this code lived in
 // internal/bootstrap: which turns are unprompted, and what each kind of turn
-// may reach, are now properties of a kernel package with a kernel test.
+// may reach, are now properties of a core package with a core test.
 
 type fakeLoop struct {
 	ctx     context.Context

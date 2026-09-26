@@ -1,7 +1,7 @@
 // Package channelutil holds small behaviors built only on ports.Channel:
 // generic enough that no specific channel adapter should own them, but
 // still adapter-shaped (they know about delivery mechanics like typing
-// indicators and message edits), so they don't belong in kernel either.
+// indicators and message edits), so they don't belong in core either.
 package channelutil
 
 import (

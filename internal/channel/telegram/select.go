@@ -54,7 +54,7 @@ func selectionOwner(ctx context.Context) (selectionScope, error) {
 
 // Selector owns Telegram's bounded, transient per-conversation selections. It is
 // adapter-local because inline keyboards and callback data are Telegram
-// affordances, not kernel concepts.
+// affordances, not core concepts.
 type Selector struct {
 	client *Client
 	now    func() time.Time

@@ -1,5 +1,5 @@
 // Package bootstrap is the composition root: the one place that knows every
-// adapter exists. It builds adapters from config, hands them to kernel
+// adapter exists. It builds adapters from config, hands them to core
 // services as ports, registers tools, and owns the event loop. It composes and
 // nothing else; policy lives in internal/core, config parsing in
 // internal/config, and HTTP routes in internal/panel.

@@ -94,12 +94,12 @@ func Actions() map[string][]string {
 }
 
 // GateAll is the action set for a tool whose every call writes. It matches the
-// kernel's spelling rather than importing it: a plugin depending on a kernel
+// core's spelling rather than importing it: an adapter depending on a core
 // service package would be the wrong direction, and the test that compares the
 // two constants is cheaper than the dependency.
 const GateAll = "*"
 
-// effectFor is what each tool reports as its own classification, so the kernel
+// effectFor is what each tool reports as its own classification, so the core
 // gate can act on it without a table of Google knowledge living anywhere else.
 // A product with no mutating actions is genuinely read-only and says so.
 func effectFor(name string) ports.ToolEffect {

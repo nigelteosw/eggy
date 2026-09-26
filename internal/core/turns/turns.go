@@ -2,7 +2,7 @@
 // persistence, and surface delivery.
 //
 // It exists because that is core agentic behavior rather than wiring. It used
-// to live in internal/bootstrap, the composition root, where no kernel test
+// to live in internal/bootstrap, the composition root, where no core test
 // could guard it -- and where the safety-relevant part (which turns are
 // unprompted, and what those turns may reach) sat next to HTTP clients and
 // adapter selection.

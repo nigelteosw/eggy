@@ -173,5 +173,5 @@ A genuinely new format costs three things:
 3. one case in `bootstrap.newModelAdapter`, which is the only place an adapter
    name becomes a running implementation.
 
-Nothing else changes. Do not import provider types into the kernel or widen the
+Nothing else changes. Do not import provider types into the core or widen the
 shared `Model` port to fit one provider.

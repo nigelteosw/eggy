@@ -39,6 +39,6 @@ Adapter tests should use fake HTTP transports or subprocesses rather than real p
 
 ## Dependency rules
 
-Keep the kernel and ports provider-neutral. Wire only in bootstrap. Keep configuration mutation in `internal/config`, direct command behavior in `internal/commands`, and HTTP behavior in `internal/panel`.
+Keep the core and ports provider-neutral. Wire only in bootstrap. Keep configuration mutation in `internal/config`, direct command behavior in `internal/commands`, and HTTP behavior in `internal/panel`.
 
 Do not introduce a web framework, ORM, dependency-injection framework, agent framework, native plugin runtime, or external database.

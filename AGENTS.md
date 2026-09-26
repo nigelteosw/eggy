@@ -31,7 +31,7 @@ it here — do not restate it in `TODO.md`.
 
 ## Boundaries
 
-- `internal/core/services` is the base kernel-service package;
+- `internal/core/services` is the base core-service package;
   `internal/core/services/repo` holds read-only repository and workspace
   inspection. The dependency is one-way — `repo` may
   import `services`, never the reverse — so anything `repo` needs from the base

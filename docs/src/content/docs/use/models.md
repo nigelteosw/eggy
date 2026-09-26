@@ -78,7 +78,7 @@ The effort a turn ran on is recorded in its [trace](/eggy/use/traces/).
 
 ## Provider isolation
 
-Model request and response types stay inside the model adapter. The kernel
+Model request and response types stay inside the model adapter. The core
 receives only provider-neutral messages, tool definitions, usage, and model
 identifiers — which is why adding a provider that speaks the OpenAI wire format
 is configuration rather than code. See

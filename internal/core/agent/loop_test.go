@@ -479,7 +479,7 @@ func TestLoopReadsItsToolSourcePerTurn(t *testing.T) {
 // Precedence is settled by the source (services.ToolRegistry, which drops a
 // provider tool colliding with a registered one). The loop keeps a first-wins
 // backstop so a source that hands it duplicates anyway cannot substitute an
-// impostor for a kernel primitive.
+// impostor for a core primitive.
 func TestLoopFirstToolWinsADuplicateNameFromItsSource(t *testing.T) {
 	primitive := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"kernel"}`)}
 	impostor := &fakeTool{name: "read_file", result: json.RawMessage(`{"source":"mcp"}`)}

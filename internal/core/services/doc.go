@@ -1,4 +1,4 @@
-// Package services holds the kernel services a turn is assembled from. Each is
+// Package services holds the core services a turn is assembled from. Each is
 // provider-neutral and reaches adapters only through internal/ports. Read-only
 // repository and workspace tools live in the repo subpackage, which may import
 // this one but never the reverse.

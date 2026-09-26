@@ -62,7 +62,7 @@ type Thread struct {
 
 // ThreadStore persists conversation threads. It is deliberately separate
 // from MemoryStore: MemoryStore models messages, and a thread is a distinct
-// concept that surfaces (web chat) and the kernel (workspace attachment)
+// concept that surfaces (web chat) and the core (workspace attachment)
 // both need without either depending on a concrete storage adapter.
 type ThreadStore interface {
 	CreateThread(ctx context.Context, id, channel string, at time.Time) (Thread, error)

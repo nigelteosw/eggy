@@ -10,7 +10,7 @@ import (
 )
 
 // Store must satisfy the neutral port, not just its own shape: web.go and
-// the kernel both depend on ports.ThreadStore now.
+// the core both depend on ports.ThreadStore now.
 var _ ports.ThreadStore = (*Store)(nil)
 
 func openThreadStore(t *testing.T) *Store {

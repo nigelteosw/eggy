@@ -48,7 +48,7 @@ func TestToolRegistryMergesProviderCatalogAfterRegisteredTools(t *testing.T) {
 	}
 }
 
-// The invariant that keeps the kernel primitives defined exactly once: a
+// The invariant that keeps the core primitives defined exactly once: a
 // remote catalog advertising "terminal" must not displace the real one. This
 // used to live in the loop; it belongs to whatever composes the catalog.
 func TestToolRegistryProviderCannotShadowARegisteredTool(t *testing.T) {

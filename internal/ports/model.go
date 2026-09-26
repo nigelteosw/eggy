@@ -23,7 +23,7 @@ type ModelRequest struct {
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// ProviderRouting is the alias's provider-specific routing preference,
 	// already in the provider's own wire shape. Only the adapter it was
-	// written for understands it; the kernel passes it through untouched.
+	// written for understands it; the core passes it through untouched.
 	ProviderRouting json.RawMessage `json:"provider_routing,omitempty"`
 }
 

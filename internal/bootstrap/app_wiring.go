@@ -249,7 +249,7 @@ func buildModelCatalog(config config.Config, secrets config.Secrets, options App
 		target := agent.ModelTarget{Model: model, ModelID: configured.Model}
 		if configured.OpenRouter != nil {
 			// Marshalled once here into OpenRouter's own `provider` object;
-			// the adapter forwards the bytes and the kernel never reads them.
+			// the adapter forwards the bytes and the core never reads them.
 			routing, err := json.Marshal(openRouterRoutingBody(*configured.OpenRouter))
 			if err != nil {
 				return modelCatalog{}, fmt.Errorf("model alias %q openrouter routing: %w", alias, err)
@@ -278,7 +278,7 @@ type modelDiscovery struct {
 	providers map[string]ports.ModelCatalog
 	// aliases maps a configured model alias to the provider and model ID it
 	// names, so image support can be answered for the alias a turn resolved
-	// without the kernel ever seeing startup config.
+	// without the core ever seeing startup config.
 	aliases map[string]modelAliasTarget
 }
 
@@ -436,7 +436,7 @@ func registerGated(registry *services.ToolRegistry, asker *approvalAsker, modes 
 
 // approvalAsker records the approval and then actually asks the owner.
 //
-// Recording and asking are two steps and only the first lived in the kernel:
+// Recording and asking are two steps and only the first lived in the core:
 // ApprovalService writes the pending record, and the channel carries the
 // question with its approve and reject buttons. Joining them here rather than
 // inside the service is what keeps `internal/core` free of a channel, the

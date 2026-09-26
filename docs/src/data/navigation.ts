@@ -59,7 +59,7 @@ export const navigation: readonly DocNavGroup[] = [
     label: "Project",
     items: [
       { title: "Architecture", path: "/project/architecture", description: "Understand the ports-and-adapters modular monolith." },
-      { title: "Adding an adapter", path: "/project/adding-adapter", description: "Extend Eggy without changing its provider-neutral kernel." },
+      { title: "Adding an adapter", path: "/project/adding-adapter", description: "Extend Eggy without changing its provider-neutral core." },
       { title: "Local development", path: "/project/local-development", description: "Set up and run the development environment." },
       { title: "Testing and releases", path: "/project/testing-releases", description: "Run required verification and build artifacts." },
     ],

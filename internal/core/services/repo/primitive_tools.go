@@ -9,7 +9,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// PrimitiveNames lists the kernel-owned primitive tools. Exactly one
+// PrimitiveNames lists the core-owned primitive tools. Exactly one
 // definition of each name may exist across the whole tool surface: an
 // adapter or MCP server extends *around* the primitives with namespaced
 // tools and never redefines one (see docs/adr/0006).
@@ -22,7 +22,7 @@ type WorkspaceResolver interface {
 	Resolve(ctx context.Context) (WorkspaceBinding, error)
 }
 
-// NewPrimitiveTools returns Eggy's single kernel-owned, read-only workspace
+// NewPrimitiveTools returns Eggy's single core-owned, read-only workspace
 // primitive. Shell execution and file mutation are intentionally absent.
 func NewPrimitiveTools(workspaces WorkspaceResolver, reader ports.RepositoryReader) []ports.Tool {
 	resolve := func(ctx context.Context) (WorkspaceBinding, error) {

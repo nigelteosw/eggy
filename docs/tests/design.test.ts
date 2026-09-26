@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 // The two properties the compact sidebar design exists to protect are both one
 // declaration away from silently regressing, and neither is visible to a route
-// or content test. See docs/superpowers/specs/2026-07-31-compact-docs-sidebar-design.md.
+// or content test.
 const stylesheet = readFileSync(
   join(import.meta.dir, "../src/styles/global.css"),
   "utf8",

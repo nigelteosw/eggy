@@ -4,7 +4,7 @@ description: Follow a request through Eggy's ports-and-adapters modular monolith
 eyebrow: Project
 ---
 
-Eggy is a Go 1.26 modular monolith. Packages are separated by dependency direction, not by deployable service: one `eggyd` binary contains the HTTP surface, event loop, kernel services, and selected adapters.
+Eggy is a Go 1.26 modular monolith. Packages are separated by dependency direction, not by deployable service: one `eggyd` binary contains the HTTP surface, event loop, core services, and selected adapters.
 
 ## Request flow
 
@@ -13,7 +13,7 @@ flowchart TB
   Telegram[Telegram] --> Web[internal/panel]
   Browser[Authenticated web UI] --> Web
   Web --> Bootstrap[internal/bootstrap]
-  Bootstrap --> Turns[Kernel turn service]
+  Bootstrap --> Turns[Core turn service]
   Turns --> Loop[Agent loop]
   Loop --> Model[Model port]
   Loop --> Tools[Tool registry]

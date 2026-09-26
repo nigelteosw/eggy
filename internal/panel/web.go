@@ -16,8 +16,7 @@ import (
 
 // WebUIConfig holds what NewWebHandler needs beyond the config file path:
 // the credential store and the environment login binding every session
-// starts from, plus the chat wiring
-// (docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md):
+// starts from, plus the chat wiring:
 // ChatHub/Enqueue/Memory are only read by the /api/chat/* routes and may be
 // left zero-valued in tests that only exercise login/config routes.
 // MCPLoginStarter begins an OAuth authorization for one configured MCP

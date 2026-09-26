@@ -119,7 +119,7 @@ snapshots the catalog once per turn. What is missing is evidence.
   temporal context to change. The whole prompt need not match between turns.
 - Pin reconnect behavior during and between turns. Keep next-turn catalog
   refresh rather than freezing the tool set for a whole chat.
-- Measure kernel and MCP schema bytes separately, skill-index bytes, cache-hit
+- Measure core and MCP schema bytes separately, skill-index bytes, cache-hit
   ratio, and latency by model. Use existing MCP filters before adding discovery
   machinery.
 - Recheck provider docs and validate automatic Claude cache hints against real
@@ -144,6 +144,30 @@ disabled integrations without making mandatory services artificially optional.
 
 Deletion budget: neutral or fewer production lines, 0 config keys/tools/record
 types/loops.
+
+## P3 — One typed contract per panel config section (M)
+
+Left over from the retired cleanup RFC; its write-envelope, watch-predicate,
+and staticcheck findings have landed. Config sections still travel as
+`webResult` display rows that the settings cards decode by position
+(`GoogleCard`, `HeartbeatCard`, `ModelsCard` read `table_rows[0][i]`), so
+reordering headers in Go silently mis-wires a form. The section name is a bare
+string switched on in `internal/panel/config_routes.go`, and `appearance` alone
+skipping the restart is an `if section == "appearance"` there.
+
+- Define a section descriptor in `internal/panel`: name, a typed read, a
+  write, and `appliesWithoutRestart`. Route registration ranges over the
+  table, and both switches go away as sections migrate.
+- Migrate one section per commit — heartbeat, google, models, providers,
+  appearance — each independently revertable; stop when the shape stops paying.
+- Keep `webResult` for chat, traces, approvals, schedules, and tools, which
+  really are lists for display.
+
+Done when adding a config section touches `config.go`, one setter, one
+descriptor, and one card.
+
+Deletion budget: net smaller, ~−190 lines across Go and TypeScript estimated;
+0 config keys/tools/records/loops.
 
 ## Later — Capabilities requiring demonstrated demand
 

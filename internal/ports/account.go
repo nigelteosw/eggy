@@ -14,7 +14,7 @@ var ErrNoPrincipal = errors.New("no account principal on context")
 
 // Principal is who a request or turn is acting as. It is resolved once at a
 // trusted ingress -- a verified browser session, a verified Telegram sender,
-// the stored owner of a schedule -- and carried unchanged through the kernel.
+// the stored owner of a schedule -- and carried unchanged through the core.
 // Nothing downstream may derive it from a JSON body, a URL, a tool argument
 // or message text.
 //

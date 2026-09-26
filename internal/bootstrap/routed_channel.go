@@ -14,8 +14,7 @@ import (
 // stamped on ctx for this turn (see internal/core/destination)
 // and forwarding to exactly one underlying channel -- Telegram, web, or
 // Discord -- rather than fanning every call out to all of them, since each
-// is an independent channel, never a mirror of one conversation. See
-// docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md.
+// is an independent channel, never a mirror of one conversation.
 //
 // It only chooses a channel. Each underlying channel resolves its own
 // target: the Telegram client is bound to the owner chat at construction,

@@ -339,8 +339,7 @@ func TestCommandFailedModelAndApprovalEventsDoNotWriteDurableMemory(t *testing.T
 }
 
 // TestDurableMemoryFailureIsLoggedWithoutBlockingReply covers SQLite now
-// being the single source of truth for the live turn-context window (see
-// docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md): a
+// being the single source of truth for the live turn-context window: a
 // durable-store outage degrades the read (no recent history injected) and
 // is logged on both the read and the two post-turn writes, but a turn
 // still completes and still delivers a reply rather than failing outright.

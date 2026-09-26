@@ -28,7 +28,7 @@ type ScheduleWriter interface {
 
 // NewScheduleTools returns the single tool that creates, reviews, and cancels
 // schedules. newID supplies the schedule's identifier: the scheme belongs to
-// the caller that owns run identity, not to the kernel.
+// the caller that owns run identity, not to the core.
 //
 // The four separate tools this replaced spent four slots of the model's tool
 // budget on one subject, and the model had to know which of schedule_exact and

@@ -34,7 +34,7 @@ var ErrContextTooLarge = errors.New("turn input exceeds the context budget")
 // large piece of work.
 //
 // Every field counts characters, not tokens. Characters are the only thing
-// the kernel can count without a provider tokenizer, so the defaults are
+// the core can count without a provider tokenizer, so the defaults are
 // deliberately conservative rather than exact.
 type ContextPolicy struct {
 	// BudgetChars bounds the characters of loop-generated messages (the

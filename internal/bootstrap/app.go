@@ -260,7 +260,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
 	app.runtime = agentRuntime
-	// One kernel-owned primitive set, built once and registered in the one
+	// One core-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
 	// it to mean something else in.
@@ -298,7 +298,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 			return nil, err
 		}
 	}
-	// Registered after every other kernel tool: the registry rejects
+	// Registered after every other core tool: the registry rejects
 	// duplicates, so an adapter that tries to shadow a primitive fails
 	// bootstrap rather than silently winning. MCP tools are not registered
 	// here at all -- they arrive as a live provider on the same registry (see
@@ -312,7 +312,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(telegramSurface.tools()...); err != nil {
 		return nil, err
 	}
-	// One grant, several products, registered like any other kernel tool.
+	// One grant, several products, registered like any other core tool.
 	// Unlike MCP these are not a live provider: the tool set is decided by
 	// config.products at startup and does not change when a login completes --
 	// only whether a call succeeds does.

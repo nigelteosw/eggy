@@ -74,7 +74,7 @@ Web chat / Telegram
           durable /data home
 ```
 
-The kernel knows only provider-neutral ports. Concrete model, channel, repository, scheduler, memory, and MCP implementations live in adapter packages and are composed at startup.
+The core knows only provider-neutral ports. Concrete model, channel, repository, scheduler, memory, and MCP implementations live in adapter packages and are composed at startup.
 
 ## Deliberate boundaries
 

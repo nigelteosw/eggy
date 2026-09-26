@@ -14,8 +14,7 @@ import (
 // Destination identifies which independent channel -- Telegram's single
 // fixed thread, one web thread, or one Discord DM -- a turn's replies and
 // approval decisions should reach. Each surface is an independent channel
-// into the same agent core, never a mirror of one conversation (see
-// docs/superpowers/specs/2026-07-23-multi-thread-web-chat-design.md): a
+// into the same agent core, never a mirror of one conversation: a
 // Destination is how that routing decision travels through a turn.
 //
 // A destination names a place, never a person. Who is speaking comes from

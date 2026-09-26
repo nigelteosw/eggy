@@ -65,7 +65,7 @@ func (r *ToolRegistry) Register(tool ports.Tool) error {
 // Tools call so a catalog that changes takes effect on the next turn.
 //
 // A provider can never shadow a registered tool: a registered name wins every
-// collision, which is what keeps the kernel primitives (read_file, terminal,
+// collision, which is what keeps the core primitives (read_file, terminal,
 // read_file) defined exactly once no matter what an MCP server
 // advertises. Unlike Register, this reports no error for a collision -- a
 // remote catalog is not under our control, so one badly named remote tool
@@ -159,7 +159,7 @@ func sortedTools(tools map[string]ports.Tool) []ports.Tool {
 	return result
 }
 
-// DecodeToolInput is the strict JSON decode every kernel tool uses on its
+// DecodeToolInput is the strict JSON decode every core tool uses on its
 // arguments: unknown fields and trailing JSON are errors, and an empty body
 // means "{}". It is exported because tools live in more than one package now
 // (see services/repo) and every one of them must reject a malformed call the

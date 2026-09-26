@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // pairingAccountConfig is liveAccountConfig with a second account and

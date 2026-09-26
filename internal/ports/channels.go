@@ -3,12 +3,12 @@ package ports
 import (
 	"context"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
 )
 
 // Channel delivers agent output to one surface. It deliberately carries no
 // chat or thread identifier: the target is the destination stamped on ctx
-// for the turn (see internal/kernel/destination.Destination), so a tool or
+// for the turn (see internal/core/destination.Destination), so a tool or
 // helper constructed once at startup reports into whichever conversation is
 // actually running rather than into a fixed one baked in at construction.
 //
@@ -21,7 +21,7 @@ import (
 // affordances, so they live in the optional TrackableChannel and
 // TypingChannel extensions rather than forcing a surface without them to
 // stub methods it cannot honour. Consumers type-assert for the extension
-// they want and degrade when it is absent -- see plugins/channels/
+// they want and degrade when it is absent -- see internal/channel/
 // channelutil, which does exactly that once so callers don't repeat it.
 type Channel interface {
 	Deliver(ctx context.Context, text string) error

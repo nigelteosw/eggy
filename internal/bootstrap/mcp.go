@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/auth/grants"
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/grants"
-	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
+	mcpadapter "github.com/nigelteosw/eggy/internal/mcp"
+	"github.com/nigelteosw/eggy/internal/panel"
 )
 
 func newMCPManager(ctx context.Context, config config.Config, secrets config.Secrets, options AppOptions, records grants.Records) (*mcpadapter.Manager, error) {
@@ -139,7 +139,7 @@ func (a *mcpAdmin) commandsView() commands.MCPRuntime {
 	return a
 }
 
-func (a *mcpAdmin) webView() web.MCPLoginStarter {
+func (a *mcpAdmin) webView() panel.MCPLoginStarter {
 	if a == nil {
 		return nil
 	}

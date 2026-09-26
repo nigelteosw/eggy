@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/auth/session"
+	"github.com/nigelteosw/eggy/internal/channel/discord"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/auth/session"
-	"github.com/nigelteosw/eggy/plugins/channels/discord"
 )
 
 var webLinkPattern = regexp.MustCompile(`https://eggy\.example/auth/link#token=([A-Za-z0-9_-]{43})`)

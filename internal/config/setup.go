@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/plugins/filelock"
+	"github.com/nigelteosw/eggy/internal/fsutil/filelock"
 )
 
 var (

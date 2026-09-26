@@ -3,10 +3,10 @@ package bootstrap
 import (
 	"log/slog"
 
+	"github.com/nigelteosw/eggy/internal/auth/connections"
+	"github.com/nigelteosw/eggy/internal/auth/grants"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/plugins/auth/connections"
-	"github.com/nigelteosw/eggy/plugins/auth/grants"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // connectionIDs lists every chat connection whose credentials may be

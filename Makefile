@@ -3,7 +3,7 @@ GO ?= go
 .PHONY: fmt vet lint test race build build-web smoke clean
 
 fmt:
-	gofmt -w cmd internal plugins
+	gofmt -w cmd internal
 
 vet:
 	$(GO) vet ./...
@@ -24,7 +24,7 @@ race:
 # placeholder.html lives there. Clearing the bundle by hand keeps that from
 # meaning every superseded hashed asset stays behind and gets embedded.
 build-web:
-	rm -rf plugins/webui/dist/assets plugins/webui/dist/index.html
+	rm -rf internal/panel/webui/dist/assets internal/panel/webui/dist/index.html
 	cd website && bun install && bun run build
 
 build: build-web

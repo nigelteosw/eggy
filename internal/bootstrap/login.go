@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/auth/session"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
+	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/session"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // loginConfig is the environment half of the web login: which account the
@@ -70,29 +70,29 @@ func reconcileAccountAuth(ctx context.Context, database *sqlitestore.Store, cfg 
 // sessions in the existing database -- or, when even that cannot be
 // established, a surface that says so and lets nobody in. The returned
 // closer releases the database.
-func RecoveryWeb(layout home.Layout, configPath string, getenv func(string) string, envSecrets config.Secrets, logger *slog.Logger) (web.WebUIConfig, func(), error) {
+func RecoveryWeb(layout home.Layout, configPath string, getenv func(string) string, envSecrets config.Secrets, logger *slog.Logger) (panel.WebUIConfig, func(), error) {
 	identity, err := config.LoadRecoveryIdentity(configPath, getenv)
 	if err != nil {
 		logger.Warn("safe mode cannot identify anyone; repair config.yaml on the host", "error", err)
-		return web.WebUIConfig{}, func() {}, nil
+		return panel.WebUIConfig{}, func() {}, nil
 	}
 	database, err := sqlitestore.Open(home.At(identity.Config.DataDir).Database())
 	if err != nil {
 		logger.Warn("safe mode cannot open the session database; repair config.yaml on the host", "error", err)
-		return web.WebUIConfig{}, func() {}, nil
+		return panel.WebUIConfig{}, func() {}, nil
 	}
 	if err := reconcileAccountAuth(context.Background(), database, identity.Config); err != nil {
 		_ = database.Close()
 		logger.Warn("safe mode cannot reconcile account credentials; repair config.yaml on the host", "error", err)
-		return web.WebUIConfig{}, func() {}, nil
+		return panel.WebUIConfig{}, func() {}, nil
 	}
 	accountID, alias, hash, err := loginConfig(identity.Config, identity.Secrets)
 	if err != nil {
 		_ = database.Close()
 		logger.Warn("safe mode cannot use the environment login; repair config.yaml on the host", "error", err)
-		return web.WebUIConfig{}, func() {}, nil
+		return panel.WebUIConfig{}, func() {}, nil
 	}
-	return web.WebUIConfig{
+	return panel.WebUIConfig{
 		Auth: database, Sessions: database, Accounts: newAccountDirectory("", getenv, identity.Config),
 		PasswordAccountID: accountID, EnvironmentAlias: alias, EnvironmentPasswordHash: hash,
 		PublicBaseURL: identity.Config.Server.PublicBaseURL,

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/channel/channelutil"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/core/destination"
+	"github.com/nigelteosw/eggy/internal/core/events"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
 
 type fakeChannel struct {

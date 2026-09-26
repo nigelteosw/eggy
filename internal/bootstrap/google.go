@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/auth/grants"
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
+	googleadapter "github.com/nigelteosw/eggy/internal/google"
+	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/grants"
-	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
 
 // defaultGoogleScopes covers the products Eggy exposes, and nothing beyond
@@ -163,12 +163,12 @@ func googleApprovals(cfg config.GoogleConfig) (map[string][]string, error) {
 // from. It is assembled here because bootstrap is the one place allowed to
 // know the adapter exists, and serving it beats letting the panel keep a copy
 // of a list that changes whenever a product gains an action.
-func googleActionCatalog() map[string]web.GoogleProductActions {
-	catalog := map[string]web.GoogleProductActions{}
+func googleActionCatalog() map[string]panel.GoogleProductActions {
+	catalog := map[string]panel.GoogleProductActions{}
 	mutations := googleadapter.Mutations()
 	for tool, actions := range googleadapter.Actions() {
 		product := strings.TrimPrefix(tool, "google_")
-		catalog[product] = web.GoogleProductActions{Actions: actions, Mutations: mutations[tool]}
+		catalog[product] = panel.GoogleProductActions{Actions: actions, Mutations: mutations[tool]}
 	}
 	return catalog
 }
@@ -203,16 +203,16 @@ func (a *googleAdmin) Status() (commands.GoogleStatus, error) {
 
 // Connection is the panel's view of the same status, so the Google card can
 // show whose account the grant is beside the configuration.
-func (a *googleAdmin) Connection() (web.GoogleConnection, error) {
+func (a *googleAdmin) Connection() (panel.GoogleConnection, error) {
 	status, err := a.auth.Status()
 	if err != nil {
-		return web.GoogleConnection{}, err
+		return panel.GoogleConnection{}, err
 	}
-	return web.GoogleConnection{Authorized: status.Authorized, Email: status.Email, ExpectedEmail: status.ExpectedEmail}, nil
+	return panel.GoogleConnection{Authorized: status.Authorized, Email: status.Email, ExpectedEmail: status.ExpectedEmail}, nil
 }
 
 // webView is the nil-safe interface handoff commandsView makes, for the panel.
-func (a *googleAdmin) webView() web.GoogleConnectionReader {
+func (a *googleAdmin) webView() panel.GoogleConnectionReader {
 	if a == nil {
 		return nil
 	}

@@ -110,7 +110,7 @@ types/loops.
 
 ## P2 — Measure remaining prompt and provider costs (S–M)
 
-`plugins/models/openaicompat/model.go` sends OpenRouter `session_id` and
+`internal/llm/openaicompat/model.go` sends OpenRouter `session_id` and
 ephemeral `cache_control` for Anthropic model IDs; `agent/prompt.go` orders
 stable sections first, `services/tools.go` sorts tools, and `agent/loop.go`
 snapshots the catalog once per turn. What is missing is evidence.
@@ -155,6 +155,7 @@ Choose these on owner use, not feature parity.
 | Recall beyond keywords (M) | Capture a real FTS5 miss first. Try query reformulation, then an LLM digest of the hits (what Hermes does), before embeddings. An embedding index inside SQLite is not a fourth durable form but still needs a measured benefit. | 0 additions until a failed case exists. |
 | Memory upkeep nudge (S) | Hermes periodically prompts its agent to update memory; Eggy writes memory only when a turn decides to. A scheduled consolidation pass conflicts with "unprompted turns cannot mutate anything", so what fits is a nudge at the end of an owner turn. Show a missed durable fact first; changing the invariant is a separate decision. | ~20–50 production lines, 0 config keys/tools/records/loops. |
 | Skills as `/name` shortcuts (S) | Pi runs saved Markdown prompts as `/name`; a skill fired by `/brief` makes a recurring request one tap from a phone. Needs a concrete repeated workflow, not a mirror of the panel. Grants no tool and lifts no approval, like `skill_read`. | ~40–80 production lines, 0 config keys/tools/records/loops. |
+| Feature plugins (L) | The owner wants plugins that can be added or removed — a travel manager, a D&D game manager — and `plugins/` is kept free for them. Design first: AGENTS.md declines runtime-loaded plugins and a marketplace, so the likely shapes are a compile-time package enabled by config, or a bundle of skills, Markdown documents, and an MCP server. Either must cost nothing when absent and keep approvals per action. | Estimate in design; state config keys, tools, and records per plugin. |
 | Anthropic Messages adapter (M) | Add for a real direct-provider or wire-feature need; provider neutrality alone is not owner value. Wire through the existing adapter selector. | 1 package/selector case, 0 tools/record types/loops; quantify lines and config in design. |
 
 ## Documentation and operational follow-through (S)

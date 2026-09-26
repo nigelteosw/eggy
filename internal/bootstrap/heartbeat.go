@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 

@@ -4,11 +4,11 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/nigelteosw/eggy/internal/auth/connections"
+	"github.com/nigelteosw/eggy/internal/channel/discord"
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/auth/connections"
-	"github.com/nigelteosw/eggy/plugins/channels/discord"
 )
 
 // discordWiring is everything the Discord surface contributes to an App:
@@ -33,7 +33,7 @@ type discordTransport interface {
 	Close() error
 }
 
-func newDiscordWiring(cfg config.Config, secrets config.Secrets, options AppOptions, accounts web.AccountDirectory, credentials *connections.Store, sink discord.EventSink, links *identityLinkCoordinator) discordWiring {
+func newDiscordWiring(cfg config.Config, secrets config.Secrets, options AppOptions, accounts panel.AccountDirectory, credentials *connections.Store, sink discord.EventSink, links *identityLinkCoordinator) discordWiring {
 	if !cfg.DiscordEnabled() {
 		return discordWiring{}
 	}
@@ -61,7 +61,7 @@ func newDiscordWiring(cfg config.Config, secrets config.Secrets, options AppOpti
 }
 
 // buildDiscordWiring assembles handler and channel over any transport.
-func buildDiscordWiring(cfg config.Config, options AppOptions, accounts web.AccountDirectory, transport discord.Transport, sink discord.EventSink, links *identityLinkCoordinator) discordWiring {
+func buildDiscordWiring(cfg config.Config, options AppOptions, accounts panel.AccountDirectory, transport discord.Transport, sink discord.EventSink, links *identityLinkCoordinator) discordWiring {
 	handler := discord.NewHandler(discordUsers(accounts), sink, transport, options.Now, options.Logger)
 	if links != nil {
 		handler.WithLinkConsumer(links.consumeDiscord)
@@ -72,7 +72,7 @@ func buildDiscordWiring(cfg config.Config, options AppOptions, accounts web.Acco
 
 // discordUsers maps a verified Discord user to its account against the
 // live directory, so an unlink takes effect on the next message.
-func discordUsers(accounts web.AccountDirectory) discord.UserResolver {
+func discordUsers(accounts panel.AccountDirectory) discord.UserResolver {
 	return func(userID string) (string, bool) {
 		if userID == "" {
 			return "", false
@@ -88,7 +88,7 @@ func discordUsers(accounts web.AccountDirectory) discord.UserResolver {
 
 // discordRecipients maps an account to its linked Discord user, live, so
 // delivery into a DM stops the moment the link is removed.
-func discordRecipients(accounts web.AccountDirectory) discord.RecipientResolver {
+func discordRecipients(accounts panel.AccountDirectory) discord.RecipientResolver {
 	return func(accountID string) (string, bool) {
 		account, ok := accounts.Account(accountID)
 		if !ok || account.DiscordUserID == "" {

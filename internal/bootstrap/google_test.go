@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/core/services"
+	googleadapter "github.com/nigelteosw/eggy/internal/google"
 	"github.com/nigelteosw/eggy/internal/ports"
-	googleadapter "github.com/nigelteosw/eggy/plugins/tools/google"
 )
 
 // An owner who never configured approvals at all must still get one: Eggy may

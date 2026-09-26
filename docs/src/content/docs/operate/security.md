@@ -22,9 +22,9 @@ Eggy's Google connection is its own Workspace user, verified against `google.exp
 
 Secret values come from environment variables or `.env`, not YAML. Provider credentials remain inside adapters. Logger setup receives the loaded secret set and redacts it from output.
 
-MCP OAuth and Google records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`. Web sessions and `/web` links are random tokens whose SHA-256 hashes alone are stored in SQLite — a database read yields nothing that can be presented as a cookie — and the one-time setup page signs its short-lived cookie with a random key generated for that boot. One sealing implementation covers every provider record (`plugins/auth/authfile`), and password hashing lives beside it in `plugins/auth/session`.
+MCP OAuth and Google records are sealed with AES-256-GCM under `EGGY_ENCRYPTION_KEY`. Web sessions and `/web` links are random tokens whose SHA-256 hashes alone are stored in SQLite — a database read yields nothing that can be presented as a cookie — and the one-time setup page signs its short-lived cookie with a random key generated for that boot. One sealing implementation covers every provider record (`internal/auth/authfile`), and password hashing lives beside it in `internal/auth/session`.
 
-Owner authentication and outbound authorization are deliberately separate. `plugins/auth/session` answers who may talk to Eggy; the OAuth grants under `plugins/tools/` answer what Eggy may do on the owner's behalf.
+Owner authentication and outbound authorization are deliberately separate. `internal/auth/session` answers who may talk to Eggy; the OAuth grants held by `internal/google` and `internal/mcp` answer what Eggy may do on the owner's behalf.
 
 ## Repository boundary
 

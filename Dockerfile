@@ -11,7 +11,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=web-builder /src/plugins/webui/dist ./plugins/webui/dist
+COPY --from=web-builder /src/internal/panel/webui/dist ./internal/panel/webui/dist
 RUN CGO_ENABLED=0 go test ./... \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eggyd ./cmd/eggyd
 

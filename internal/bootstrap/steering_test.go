@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/core/events"
 )
 
 func TestAppRunQueueAdmissionUsesOneExecutionOwner(t *testing.T) {

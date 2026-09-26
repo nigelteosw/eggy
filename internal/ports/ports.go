@@ -1,7 +1,7 @@
-// Package ports is the provider-neutral contract between the kernel and its
-// adapters. The kernel depends only on these interfaces and types; every
+// Package ports is the provider-neutral contract between the core and its
+// adapters. The core depends only on these interfaces and types; every
 // provider (Telegram, a model API, SQLite, GitHub, ...) implements them in its
-// own plugins/ package and is wired in by internal/bootstrap. Nothing here may
+// own internal/<family>/ package and is wired in by internal/bootstrap. Nothing here may
 // import a provider package.
 //
 // The contract is split by topic:

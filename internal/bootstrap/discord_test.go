@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/channel/discord"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/core/destination"
+	"github.com/nigelteosw/eggy/internal/core/events"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/channels/discord"
 )
 
 // fakeDiscord is the transport the wiring tests run over: DM verdicts and

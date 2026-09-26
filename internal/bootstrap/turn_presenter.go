@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/channel/channelutil"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
 
-// turnPresenter is the surface-side rendering internal/kernel/turns asks for
-// (turns.Presenter). It lives here rather than in the kernel for two reasons:
-// the kernel may not import plugins/, and a typing hint and an edited-in-place
+// turnPresenter is the surface-side rendering internal/core/turns asks for
+// (turns.Presenter). It lives here rather than in the core for two reasons:
+// the core may not import a provider package, and a typing hint and an edited-in-place
 // "Calling X..." message are affordances a channel either has or doesn't --
 // channelutil is exactly the code that degrades gracefully when it doesn't.
 type turnPresenter struct {

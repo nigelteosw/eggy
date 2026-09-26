@@ -11,16 +11,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/auth/grants"
 	"github.com/nigelteosw/eggy/internal/config"
+	contextmarkdown "github.com/nigelteosw/eggy/internal/context/markdown"
+	"github.com/nigelteosw/eggy/internal/core/agent"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/core/services"
 	"github.com/nigelteosw/eggy/internal/home"
-	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/llm/openaicompat"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/auth/grants"
-	contextmarkdown "github.com/nigelteosw/eggy/plugins/context/markdown"
-	"github.com/nigelteosw/eggy/plugins/models/openaicompat"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // This file holds the parts of NewApp's wiring that are self-contained enough
@@ -439,7 +439,7 @@ func registerGated(registry *services.ToolRegistry, asker *approvalAsker, modes 
 // Recording and asking are two steps and only the first lived in the kernel:
 // ApprovalService writes the pending record, and the channel carries the
 // question with its approve and reject buttons. Joining them here rather than
-// inside the service is what keeps `internal/kernel` free of a channel, the
+// inside the service is what keeps `internal/core` free of a channel, the
 // same reason googleAdmin exists.
 //
 // Nothing joined them for a while. The last caller of DeliverApproval went out

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // TelegramConnection is the identity-link connection ID Telegram pairing

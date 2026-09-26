@@ -4,14 +4,14 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
+	"github.com/nigelteosw/eggy/internal/channel/channelutil"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/plugins/channels/channelutil"
 )
 
 // routedChannel implements ports.Channel by reading the destination
-// stamped on ctx for this turn (see internal/kernel/destination)
+// stamped on ctx for this turn (see internal/core/destination)
 // and forwarding to exactly one underlying channel -- Telegram, web, or
 // Discord -- rather than fanning every call out to all of them, since each
 // is an independent channel, never a mirror of one conversation. See

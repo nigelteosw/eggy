@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/commands"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
+	"github.com/nigelteosw/eggy/internal/core/destination"
+	"github.com/nigelteosw/eggy/internal/core/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -19,7 +19,7 @@ import (
 // is the daemon loop (Run) and the schedule tick, and heartbeat.go is the
 // periodic check-in. What happens *inside* a turn -- the tool allowlists, the
 // context it is built from, and the owner/scheduled distinction -- is
-// internal/kernel/turns, which these files only route into. See app.go for
+// internal/core/turns, which these files only route into. See app.go for
 // construction, and turn_presenter.go for the surface-side rendering that
 // package asks for.
 

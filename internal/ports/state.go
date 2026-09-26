@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
 )
 
 var ErrStateVersionConflict = errors.New("state version conflict")

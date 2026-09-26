@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nigelteosw/eggy/internal/kernel/services"
+	"github.com/nigelteosw/eggy/internal/core/services"
 	"github.com/nigelteosw/eggy/internal/ports"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 func TestModelSettingsUseRuntimeValidationAndAccountState(t *testing.T) {

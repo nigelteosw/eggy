@@ -31,16 +31,16 @@ it here — do not restate it in `TODO.md`.
 
 ## Boundaries
 
-- `internal/kernel/services` is the base kernel-service package;
-  `internal/kernel/services/repo` holds read-only repository and workspace
+- `internal/core/services` is the base kernel-service package;
+  `internal/core/services/repo` holds read-only repository and workspace
   inspection. The dependency is one-way — `repo` may
   import `services`, never the reverse — so anything `repo` needs from the base
   package must be exported there (see `services.DecodeToolInput`). Test fakes
   are duplicated across the two rather than shared through an exported
   package: a fake is not API.
-- Keep `internal/kernel` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, YAML, JSON-file persistence, Docker, or Railway packages.
+- Keep `internal/core` and `internal/ports` provider-neutral. They must not import Telegram, DeepSeek, Codex, GitHub, YAML, JSON-file persistence, Docker, or Railway packages.
 - Provider request/response types and credentials stay inside their adapter packages.
-- Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the direct Telegram commands in `internal/commands`, and the HTTP surface in `internal/web`. The dependency direction is one-way — `config` <- `web` <- `bootstrap` — so neither config nor web may import `internal/bootstrap`.
+- Register adapters and tools only through `internal/bootstrap`. Bootstrap is the composition root and nothing else: it wires adapters into services and owns the event loop. Config parsing and mutation belong in `internal/config`, the direct Telegram commands in `internal/commands`, and the HTTP surface in `internal/panel`. The dependency direction is one-way — `config` <- `panel` <- `bootstrap` — so neither config nor panel may import `internal/bootstrap`.
 - Treat configured repositories as trusted, but keep path, environment, timeout, output, and process-group restrictions intact.
 - Never reintroduce repository mutation or shipping through a generic tool or Telegram selection. Any future protected mutation must use an independent approval check.
 - Any protected mutation keeps one `approvals.Action`, one executor, and one payload-bound approval per operation; consolidating tools is fine, consolidating their approvals is not. `services.ApprovalToolCall` is the mechanism's one registered action: a tool named under an MCP server's `require_approval` is wrapped by `services.NewApprovalGatedTool` at the provider boundary in bootstrap, and `services.ApprovalToolExecutor` authorizes and runs it. A server without `require_approval` is still trusted wholesale at configuration time, which is the default. Every native tool is wrapped by `services.NewApprovalGatedToolIf` at registration in `registerGated`, reads included — the mode is durable runtime state that changes without a restart, so which tools carry a gate cannot depend on what it was at boot. What a wrapped call actually does is decided per call by the mode and by `services.RuleFor`, which reads the tool's own `ports.ToolEffect`. The rule is a filter on one mechanism, never a second one: an ungated call runs inline exactly as it would unwrapped. **A tool declares its own effect**, in the file whoever adds an action is already editing; the zero value means it writes, so forgetting to classify costs a prompt rather than an unguarded mutation. `ports.ReadOnlyTool()` and `ports.InternalTool()` are the only two claims that let a call through in `normal`, and `strict` still gates both. `InternalTool()` exists for one tool, `memory`: its writes land in USER.md and MEMORY.md, documents the owner already reads in the prompt and can edit directly, and nowhere else. Asking per remembered fact is the training-to-tap-approve failure the gate exists to avoid, for a write nobody outside Eggy can observe. Nothing that reaches outside Eggy may claim it — "small blast radius" is not the test, "only the owner can observe it" is. `memory` also rewrites SOUL.md, whole, when the owner asks for a change in how Eggy behaves, and that write is the one recorded exception to the test: SOUL.md is shared, so other accounts observe it. It keeps the claim because every account already holds the capability to edit SOUL.md directly in the panel, the policy has the agent announce the change rather than curate it silently, and no unprompted turn can reach the tool. Nothing else extends the exception. MCP is the deliberate exception and leaves `Effect` alone: a remote catalog cannot be classified from here, so an MCP server stays governed by its own `require_approval` and `normal` does not second-guess it — `strict` still gates it. For Google, `google.Mutations()` sits beside the switch statements with `google.Reads()` as its complement, and `google.Actions()` is derived from the two rather than written a third time: an action left out of both is missing from `Actions()`, so the bootstrap test comparing it against the tool schemas fails and whoever added it must say which kind it is before it can ship. `google.require_approval` narrows or widens that through `google.Reclassified`, never through a second gate.
@@ -50,10 +50,18 @@ it here — do not restate it in `TODO.md`.
 
 ## Adding a new adapter (open for extension, closed for modification)
 
+Packages are grouped by capability family, after DeepSeek Harness: a provider
+lives at `internal/<family>/<provider>/` (`internal/llm/openaicompat`,
+`internal/channel/telegram`, `internal/storage/sqlite`), and a capability with
+one provider is its own family (`internal/mcp`, `internal/google`). Contracts
+stay in `internal/ports`; `internal/core` is the provider-neutral agent, turn,
+and service code. There is no `plugins/` directory: the name is reserved for owner-addable
+feature plugins, not adapters.
+
 A new provider (model backend, chat channel, repository host, runner, etc.)
 should only ever add a new package under
-`plugins/<category>/<provider>/` plus a wiring change in
-`internal/bootstrap`. It should never require changing `internal/kernel`,
+`internal/<family>/<provider>/` plus a wiring change in
+`internal/bootstrap`. It should never require changing `internal/core`,
 `internal/ports`, or an existing adapter package.
 
 1. Find the port(s) your provider must satisfy in `internal/ports`
@@ -69,9 +77,9 @@ should only ever add a new package under
    credentials in the signature).
 3. Implement the interface in the new adapter package. Keep that provider's
    wire types, HTTP/CLI calls, and credentials entirely inside the package —
-   `internal/kernel` and `internal/ports` must never import it.
+   `internal/core` and `internal/ports` must never import it.
 4. Wire construction only in `internal/bootstrap` (`app.go`'s `NewApp` for
-   constructing the adapter and handing it to the relevant kernel service
+   constructing the adapter and handing it to the relevant core service
    constructor, or `registry.Register` for a new `Tool`). This is the one
    place allowed to know every adapter exists. New config or secret fields go
    in `internal/config` (`config.go`), not in bootstrap.
@@ -109,7 +117,7 @@ should only ever add a new package under
   channels, threads, group DMs, bots, and webhooks never enter the harness,
   and a Discord destination is delivered to Discord or not at all -- never
   redirected to Telegram. The SDK is confined to
-  `plugins/channels/discord/client.go` behind a fakeable transport.
+  `internal/channel/discord/client.go` behind a fakeable transport.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
   consolidates their approvals.
@@ -117,7 +125,7 @@ should only ever add a new package under
   mutation, or be read as approve/reject. Discord has no decision surface at
   all: an approval raised there is a notice pointing at the web panel.
 - Chat-connection credentials an owner sets from the panel (a Discord bot
-  token today) live sealed in `plugins/auth/connections`, keyed by
+  token today) live sealed in `internal/auth/connections`, keyed by
   connection, never in `config.yaml`. The environment variable is an
   operator override, not a boot requirement.
 - Eggy has no repository commit, push, pull-request, or merge capability. If any
@@ -159,8 +167,8 @@ should only ever add a new package under
 
 ## Decided — do not re-propose
 
-**The two OAuth flows stay separate.** Unifying `plugins/tools/google/oauth.go`
-and `plugins/tools/mcp/oauth.go` behind one parameterized adapter was considered
+**The two OAuth flows stay separate.** Unifying `internal/google/oauth.go`
+and `internal/mcp/oauth.go` behind one parameterized adapter was considered
 and rejected. Shared: state and verifier generation, the pending window check,
 the exchange, token persistence — 50-60 lines. Not shared, and structural, all on
 the MCP side: protected-resource discovery, authorization-server metadata with
@@ -172,7 +180,7 @@ provider that never uses it, adding branches to delete ~50 lines. Revisit only i
 a *third* provider appears on the MCP side of the split.
 
 **Google's authorization and token endpoints stay unexported in
-`plugins/tools/google`.** They are `var` rather than `const` only so tests can
+`internal/google`.** They are `var` rather than `const` only so tests can
 point the exchange at an `httptest` server, and the question of promoting them
 to `Config` or an exported `Endpoints` type is settled: no. An operator-settable
 token host is a credential exfiltration primitive — it redirects the client
@@ -194,7 +202,7 @@ two plugin packages import a third.
 
 **Accounts are ownership, not roles.** A deployment names its people in
 `accounts:`; each signs in with a private username and password (hashes,
-sessions, and single-use `/web` links in `eggy.db` through `plugins/auth/session`
+sessions, and single-use `/web` links in `eggy.db` through `internal/auth/session`
 and the SQLite store; the environment-bound account signs in with
 `EGGY_UI_USER_EMAIL`/`EGGY_UI_PASSWORD`) and owns private conversations,
 memory, watch list, schedules, traces, approvals, and `/mode` and `/model`
@@ -224,8 +232,8 @@ a generation that advances on every reconnect or disconnect, and approvals bind
 to it, so a reconnect cannot execute what was approved against the old identity.
 
 **Owner authentication stays separate from outbound authorization.**
-`plugins/auth/session` answers "who may talk to Eggy"; the OAuth grants under
-`plugins/tools/*` answer "what may Eggy do on the owner's behalf". They point in
+`internal/auth/session` answers "who may talk to Eggy"; the OAuth grants held by
+`internal/google` and `internal/mcp` answer "what may Eggy do on the owner's behalf". They point in
 opposite directions of trust, and one "auth" package owning both is a security
 god-object. Telegram's webhook-secret and owner-allowlist checks are the only
 things that may later join `session`.

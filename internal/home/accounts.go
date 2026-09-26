@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/nigelteosw/eggy/plugins/atomicfile"
+	"github.com/nigelteosw/eggy/internal/fsutil/atomicfile"
 )
 
 // accountIDPattern is the bound an account ID must satisfy before it becomes

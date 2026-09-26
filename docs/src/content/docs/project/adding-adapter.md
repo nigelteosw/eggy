@@ -1,10 +1,10 @@
 ---
 title: Adding an adapter
-description: Extend Eggy with a provider package and one bootstrap wiring change while keeping the kernel closed to provider details.
+description: Extend Eggy with a provider package and one bootstrap wiring change while keeping the core closed to provider details.
 eyebrow: Project
 ---
 
-A new provider should add one package under `plugins/<category>/<provider>/` plus composition-root wiring. It should not require edits to an existing adapter or provider-specific imports in the kernel.
+Packages are grouped by capability family, so a new provider adds one package under `internal/<family>/<provider>/` plus composition-root wiring. It should not require edits to an existing adapter or provider-specific imports in `internal/core`.
 
 ## 1. Choose a port
 
@@ -14,11 +14,11 @@ Do not change an existing method signature to fit one provider. If the capabilit
 
 ## 2. Implement the provider package
 
-Keep wire types, HTTP or CLI calls, error translation, and credentials inside the new plugin package.
+Keep wire types, HTTP or CLI calls, error translation, and credentials inside the new provider package.
 
 ```text
-plugins/
-  models/
+internal/
+  llm/
     yourprovider/
       model.go
       model_test.go

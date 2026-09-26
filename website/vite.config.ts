@@ -7,7 +7,7 @@ export default defineConfig({
     // The output directory holds one tracked file, placeholder.html, which the
     // Go binary embeds and serves when this bundle has not been built. Emptying
     // the directory would delete it on every build.
-    outDir: "../plugins/webui/dist",
+    outDir: "../internal/panel/webui/dist",
     emptyOutDir: false,
   },
 });

@@ -5,7 +5,7 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
-	tavilyadapter "github.com/nigelteosw/eggy/plugins/tools/tavily"
+	tavilyadapter "github.com/nigelteosw/eggy/internal/web/tavily"
 )
 
 // newTavilyTools returns nil when Tavily is not configured, which is what

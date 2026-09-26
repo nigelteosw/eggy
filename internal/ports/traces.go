@@ -20,7 +20,7 @@ const (
 	TraceSpanToolCall TraceSpanKind = "tool_call"
 )
 
-// Trace kinds, matching the three entry points in internal/kernel/turns. They
+// Trace kinds, matching the three entry points in internal/core/turns. They
 // are recorded so the panel can tell a turn the owner is sitting in front of
 // from one that fired while nobody was watching -- which is the first thing
 // worth knowing about a turn that surprised them.

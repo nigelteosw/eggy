@@ -10,7 +10,7 @@ Eggy is a Go 1.26 modular monolith. Packages are separated by dependency directi
 
 ```mermaid
 flowchart TB
-  Telegram[Telegram] --> Web[internal/web]
+  Telegram[Telegram] --> Web[internal/panel]
   Browser[Authenticated web UI] --> Web
   Web --> Bootstrap[internal/bootstrap]
   Bootstrap --> Turns[Kernel turn service]
@@ -24,20 +24,21 @@ flowchart TB
   Stores --> Data[(Eggy home /data)]
 ```
 
-`internal/bootstrap` is the composition root and event-loop owner. It constructs adapters, registers tools, and hands provider-neutral interfaces to kernel services. It composes and nothing else: tool definitions live with the service that owns them, and `App` retains only what a running daemon reads, not the collaborators used to assemble it.
+`internal/bootstrap` is the composition root and event-loop owner. It constructs adapters, registers tools, and hands provider-neutral interfaces to core services. It composes and nothing else: tool definitions live with the service that owns them, and `App` retains only what a running daemon reads, not the collaborators used to assemble it.
 
 ## Package boundaries
 
-- `internal/kernel` owns agent, turn, approval, and service policy.
+- `internal/core` owns agent, turn, approval, and service policy.
 - `internal/ports` defines narrow provider-neutral interfaces, one file per topic; `ports.go` lists which file holds which contract.
-- `internal/kernel/services` is the base service package.
-- `internal/kernel/services/repo` adds read-only repository and workspace inspection and may import the base package; the reverse dependency is forbidden.
+- `internal/core/services` is the base service package.
+- `internal/core/services/repo` adds read-only repository and workspace inspection and may import the base package; the reverse dependency is forbidden.
 - `internal/config` parses and mutates configuration.
 - `internal/commands` owns the direct Telegram command surface.
-- `internal/web` owns HTTP routes and the authenticated web API.
-- `plugins/` contains concrete providers and infrastructure adapters.
+- `internal/panel` owns HTTP routes and the authenticated web API.
+- `internal/<family>/<provider>` holds concrete providers and infrastructure adapters, grouped by capability: `channel/`, `llm/`, `storage/`, `schedule/`, `subprocess/`, `repository/`, `auth/`, `context/`, `fsutil/`, and single-provider families `mcp`, `google`, `web/tavily`, `skills`.
+- There is no `plugins/` directory; the name is reserved for owner-addable feature plugins.
 
-The direction `config ← web ← bootstrap` is one-way. Config and web never import bootstrap.
+The direction `config ← panel ← bootstrap` is one-way. Config and panel never import bootstrap.
 
 ## Runtime composition
 

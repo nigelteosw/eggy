@@ -32,13 +32,13 @@ Put behavior tests beside the package being changed and run the narrow test firs
 
 ```sh
 go test ./internal/commands
-go test ./plugins/tools/mcp
+go test ./internal/mcp
 ```
 
 Adapter tests should use fake HTTP transports or subprocesses rather than real provider credentials.
 
 ## Dependency rules
 
-Keep the kernel and ports provider-neutral. Wire only in bootstrap. Keep configuration mutation in `internal/config`, direct command behavior in `internal/commands`, and HTTP behavior in `internal/web`.
+Keep the kernel and ports provider-neutral. Wire only in bootstrap. Keep configuration mutation in `internal/config`, direct command behavior in `internal/commands`, and HTTP behavior in `internal/panel`.
 
 Do not introduce a web framework, ORM, dependency-injection framework, agent framework, native plugin runtime, or external database.

@@ -11,23 +11,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/channel/webchat"
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/approvals"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/services"
-	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
-	"github.com/nigelteosw/eggy/internal/kernel/turns"
+	"github.com/nigelteosw/eggy/internal/core/agent"
+	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/core/events"
+	"github.com/nigelteosw/eggy/internal/core/services"
+	"github.com/nigelteosw/eggy/internal/core/services/repo"
+	"github.com/nigelteosw/eggy/internal/core/turns"
+	mcpadapter "github.com/nigelteosw/eggy/internal/mcp"
+	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
-	"github.com/nigelteosw/eggy/internal/web"
-	"github.com/nigelteosw/eggy/plugins/channels/webchat"
-	githubadapter "github.com/nigelteosw/eggy/plugins/repositories/github"
-	"github.com/nigelteosw/eggy/plugins/runner/localprocess"
-	schedulerlocal "github.com/nigelteosw/eggy/plugins/scheduler/local"
-	skillsadapter "github.com/nigelteosw/eggy/plugins/skills"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
-	mcpadapter "github.com/nigelteosw/eggy/plugins/tools/mcp"
+	githubadapter "github.com/nigelteosw/eggy/internal/repository/github"
+	schedulerlocal "github.com/nigelteosw/eggy/internal/schedule/local"
+	skillsadapter "github.com/nigelteosw/eggy/internal/skills"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
+	"github.com/nigelteosw/eggy/internal/subprocess/localprocess"
 )
 
 // This file is the composition root: AppOptions/App's shape and NewApp's
@@ -89,7 +89,7 @@ type App struct {
 	mcp         *mcpadapter.Manager
 	database    *sqlitestore.Store
 	discord     discordWiring
-	accounts    web.AccountDirectory
+	accounts    panel.AccountDirectory
 	now         func() time.Time
 	// location is the owner's timezone, resolved once at construction. The
 	// heartbeat's active-hours window is read on the owner's clock, not the
@@ -117,11 +117,11 @@ type App struct {
 	restartOnce sync.Once
 }
 
-func (a *App) accountRecords() []web.AccountRecord {
+func (a *App) accountRecords() []panel.AccountRecord {
 	if a.accounts != nil {
 		return a.accounts.Accounts()
 	}
-	records := make([]web.AccountRecord, 0, len(a.config.Principals()))
+	records := make([]panel.AccountRecord, 0, len(a.config.Principals()))
 	for _, account := range a.config.Principals() {
 		records = append(records, accountRecord(account))
 	}
@@ -253,7 +253,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// decided: deriving it from tracer rather than re-reading the config
 	// means the read side and the write side cannot disagree about whether
 	// this deployment traces.
-	var traceReader web.TraceDirectory
+	var traceReader panel.TraceDirectory
 	if tracer != nil {
 		traceReader = database
 	}
@@ -446,7 +446,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	})
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
-	// itself does lives in internal/kernel/turns.
+	// itself does lives in internal/core/turns.
 	app.turnService = turns.New(turns.Options{
 		Commands: app.commands, Registry: activeTurns, Conversation: conversation,
 		Context: contextStore, Store: stateStore, Runtime: agentRuntime,
@@ -473,7 +473,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	webConfig := web.WebUIConfig{
+	webConfig := panel.WebUIConfig{
 		Now:     options.Now,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database,
 		Auth: database, Sessions: database, Accounts: app.accounts,
@@ -507,8 +507,8 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	webConfig.DiscordLinking = config.DiscordEnabled()
 	webConfig.DiscordRunning = app.discord.running()
 	webConfig.DiscordApplicationID = config.Discord.ApplicationID
-	webHandler := web.NewWebHandler(options.ConfigPath, webConfig)
-	app.httpHandler = web.NewHTTPHandler(web.Routes{
+	webHandler := panel.NewWebHandler(options.ConfigPath, webConfig)
+	app.httpHandler = panel.NewHTTPHandler(panel.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath,
 		Telegram:    telegramSurface.webhook(config, secrets, app.Enqueue),
 		MCPCallback: mcpCallbackHandler(app.mcp),

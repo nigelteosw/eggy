@@ -12,7 +12,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/ports"
-	sqlitestore "github.com/nigelteosw/eggy/plugins/store/sqlite"
+	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
 // The offline cutover from Google Sign-In to local accounts. It runs with
@@ -24,7 +24,7 @@ import (
 // wrote.
 //
 // This file orchestrates; the migrations themselves live in internal/config
-// and plugins/store/sqlite, and nothing here writes YAML or SQL directly.
+// and internal/storage/sqlite, and nothing here writes YAML or SQL directly.
 
 const localLoginBackupSuffix = ".pre-local-login"
 

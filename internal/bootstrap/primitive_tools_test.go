@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/services/repo"
+	"github.com/nigelteosw/eggy/internal/core/agent"
+	"github.com/nigelteosw/eggy/internal/core/services/repo"
 )
 
 // TestPrimitiveToolsHaveExactlyOneDefinition is the guard on the unified,

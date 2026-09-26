@@ -2,7 +2,7 @@ package bootstrap
 
 import (
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/web"
+	"github.com/nigelteosw/eggy/internal/panel"
 )
 
 type accountDirectory struct {
@@ -10,7 +10,7 @@ type accountDirectory struct {
 	initial    config.Config
 }
 
-func newAccountDirectory(configPath string, _ func(string) string, initial config.Config) web.AccountDirectory {
+func newAccountDirectory(configPath string, _ func(string) string, initial config.Config) panel.AccountDirectory {
 	return accountDirectory{configPath: configPath, initial: initial}
 }
 
@@ -28,18 +28,18 @@ func (d accountDirectory) current() (config.Config, bool) {
 	return cfg, true
 }
 
-func accountRecord(account config.AccountConfig) web.AccountRecord {
-	return web.AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
+func accountRecord(account config.AccountConfig) panel.AccountRecord {
+	return panel.AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
 }
 
-func (d accountDirectory) Account(id string) (web.AccountRecord, bool) {
+func (d accountDirectory) Account(id string) (panel.AccountRecord, bool) {
 	cfg, valid := d.current()
 	if !valid {
-		return web.AccountRecord{}, false
+		return panel.AccountRecord{}, false
 	}
 	account, ok := cfg.Account(id)
 	if !ok {
-		return web.AccountRecord{}, false
+		return panel.AccountRecord{}, false
 	}
 	return accountRecord(account), true
 }
@@ -61,13 +61,13 @@ func (d accountDirectory) TelegramEnabled() bool {
 	return valid && cfg.TelegramEnabled()
 }
 
-func (d accountDirectory) Accounts() []web.AccountRecord {
+func (d accountDirectory) Accounts() []panel.AccountRecord {
 	cfg, valid := d.current()
 	if !valid {
 		return nil
 	}
 	accounts := cfg.Principals()
-	records := make([]web.AccountRecord, 0, len(accounts))
+	records := make([]panel.AccountRecord, 0, len(accounts))
 	for _, account := range accounts {
 		records = append(records, accountRecord(account))
 	}

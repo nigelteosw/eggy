@@ -22,10 +22,10 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/kernel/agent"
-	"github.com/nigelteosw/eggy/internal/kernel/destination"
-	"github.com/nigelteosw/eggy/internal/kernel/events"
-	"github.com/nigelteosw/eggy/internal/kernel/turns"
+	"github.com/nigelteosw/eggy/internal/core/agent"
+	"github.com/nigelteosw/eggy/internal/core/destination"
+	"github.com/nigelteosw/eggy/internal/core/events"
+	"github.com/nigelteosw/eggy/internal/core/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 	_ "modernc.org/sqlite"
 )

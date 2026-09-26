@@ -11,7 +11,7 @@ eyebrow: Configure
 That is OpenAI's own API, so OpenAI, DeepSeek, OpenRouter, Groq, and most hosted
 model services are all reachable by adding a provider entry. Adding one of them
 needs no Go code. Provider credentials and wire types stay inside
-`plugins/models/openaicompat`.
+`internal/llm/openaicompat`.
 
 ## Add a provider
 
@@ -168,7 +168,7 @@ a test in `internal/config` pins that OpenAI stays a provider entry.
 
 A genuinely new format costs three things:
 
-1. the package, in `plugins/models/<provider>/`;
+1. the package, in `internal/llm/<provider>/`;
 2. its name in `config.supportedModelAdapters`, so configuration validates;
 3. one case in `bootstrap.newModelAdapter`, which is the only place an adapter
    name becomes a running implementation.

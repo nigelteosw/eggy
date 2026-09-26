@@ -21,7 +21,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/bootstrap"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
-	"github.com/nigelteosw/eggy/internal/web"
+	"github.com/nigelteosw/eggy/internal/panel"
 )
 
 // envFilePath prefers <home>/.env, the layout's own slot for secrets, and
@@ -143,17 +143,17 @@ func setupURL(publicBaseURL, token string) string {
 	return strings.TrimRight(publicBaseURL, "/") + "/#setup=" + token
 }
 
-func newSetupMode(homePath, configPath, publicBaseURL string, getenv func(string) string, now func() time.Time) (web.SetupMode, string, error) {
+func newSetupMode(homePath, configPath, publicBaseURL string, getenv func(string) string, now func() time.Time) (panel.SetupMode, string, error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return web.SetupMode{}, "", fmt.Errorf("generate setup token: %w", err)
+		return panel.SetupMode{}, "", fmt.Errorf("generate setup token: %w", err)
 	}
 	sessionKey := make([]byte, 32)
 	if _, err := rand.Read(sessionKey); err != nil {
-		return web.SetupMode{}, "", fmt.Errorf("generate setup session key: %w", err)
+		return panel.SetupMode{}, "", fmt.Errorf("generate setup session key: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
-	mode := web.SetupMode{
+	mode := panel.SetupMode{
 		ConfigPath: configPath, PublicBaseURL: publicBaseURL,
 		TokenHash: sha256.Sum256([]byte(token)), SessionKey: sessionKey,
 		Expires: now().Add(30 * time.Minute), Now: now,
@@ -186,9 +186,9 @@ func serveSetupMode(ctx context.Context, address string, layout home.Layout, con
 	// This credential intentionally bypasses the persistent application logger.
 	// It is configuration authority until exchanged or expired.
 	_, _ = fmt.Fprintf(os.Stderr, "Eggy setup URL (valid for 30 minutes): %s\n", setupURL(publicBaseURL, token))
-	server := newServer(address, web.NewHTTPHandler(web.Routes{
+	server := newServer(address, panel.NewHTTPHandler(panel.Routes{
 		Ready: func() error { return config.ErrSetupRequired },
-		Web:   web.NewSetupModeHandler(mode),
+		Web:   panel.NewSetupModeHandler(mode),
 	}))
 	listenErrors := make(chan error, 1)
 	go func() {
@@ -273,7 +273,7 @@ func serveSafeMode(ctx context.Context, address string, layout home.Layout, conf
 		return false, err
 	}
 	defer closeRecovery()
-	handler := web.NewSafeModeHandler(web.SafeMode{
+	handler := panel.NewSafeModeHandler(panel.SafeMode{
 		ConfigPath: configPath, Failure: failure, Getenv: getenv,
 		Repaired: func() { once.Do(func() { close(repaired) }) },
 		Web:      recovery,
@@ -288,7 +288,7 @@ func serveSafeMode(ctx context.Context, address string, layout home.Layout, conf
 	// time safe mode is up while /healthz stays 200: the process is alive, and
 	// a platform that reroutes away from a failing health check would take the
 	// repair page down with it.
-	server := newServer(address, web.NewHTTPHandler(web.Routes{
+	server := newServer(address, panel.NewHTTPHandler(panel.Routes{
 		Ready: func() error { return failure },
 		Web:   handler,
 	}))

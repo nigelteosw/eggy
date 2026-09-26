@@ -26,7 +26,7 @@ jobs:
       # gofmt exits 0 with a file list rather than failing, so check the list.
       - name: Check formatting
         run: |
-          unformatted="$(gofmt -l cmd internal plugins)"
+          unformatted="$(gofmt -l cmd internal)"
           if [ -n "$unformatted" ]; then
             echo "These files need gofmt:"
             echo "$unformatted"

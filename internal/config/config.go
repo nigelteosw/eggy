@@ -61,6 +61,7 @@ type Config struct {
 	MCP              MCPConfig                   `yaml:"mcp,omitempty"`
 	Google           GoogleConfig                `yaml:"google,omitempty"`
 	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
+	Finance          FinanceConfig               `yaml:"finance,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`
 	Approvals        ApprovalsConfig             `yaml:"approvals,omitempty"`
@@ -652,6 +653,7 @@ func (c *Config) applyDefaults() error {
 	// those readers from disagreeing: every load path runs applyDefaults, so
 	// nothing downstream has to lowercase a product name again.
 	c.Google.Products = normalizeProducts(c.Google.Products)
+	c.Finance.Currency = normalizeFinanceCurrency(c.Finance.Currency)
 	if c.Tavily.APIKeyEnv == "" {
 		c.Tavily.APIKeyEnv = "TAVILY_API_KEY"
 	}

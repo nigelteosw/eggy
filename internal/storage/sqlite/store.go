@@ -147,7 +147,7 @@ func openDatabase(path string) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 
-	for _, stmt := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`, schema, machineSchema, sessionSchema, identityLinkSchema} {
+	for _, stmt := range []string{`PRAGMA journal_mode=WAL`, `PRAGMA busy_timeout=5000`, schema, machineSchema, sessionSchema, identityLinkSchema, financeSchema} {
 		if _, err := db.Exec(stmt); err != nil {
 			_ = db.Close()
 			return nil, err

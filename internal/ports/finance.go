@@ -11,6 +11,11 @@ import (
 // one on purpose: a caller must not be able to probe which ids exist.
 var ErrFinanceEntryNotFound = errors.New("finance entry not found")
 
+// ErrFinanceInvalid wraps every refusal of a finance request's contents -- an
+// unreadable amount, an unsupported currency, a bad date -- so the panel can
+// answer 400 for what the caller got wrong and 500 for what failed here.
+var ErrFinanceInvalid = errors.New("invalid finance input")
+
 // FinanceEntry is one logged expense. Every entry belongs to the account on
 // the context it was written under; the owner is never a field here, because
 // nothing downstream may name which account a record is for.
@@ -58,6 +63,21 @@ type FinanceDayTotal struct {
 type FinanceTotals struct {
 	ByCategory []FinanceCategoryTotal
 	ByDay      []FinanceDayTotal
+}
+
+// FinanceInput is a new entry as a person or the model states it: every field
+// is text, because "14.50" must be parsed against its currency rather than
+// pass through a float on the way in. Blank Currency, Date and Source take the
+// deployment default, today, and "chat".
+type FinanceInput struct {
+	Amount, Currency, Date, Category, Merchant, Note, Source string
+}
+
+// FinancePatch changes only the fields that are set. A nil field is left alone.
+// Source is deliberately absent: how an entry arrived is history, not a field
+// to edit.
+type FinancePatch struct {
+	Amount, Currency, Date, Category, Merchant, Note *string
 }
 
 // FinanceStore is the persistence the finance plugin needs. Every method acts

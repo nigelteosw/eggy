@@ -18,6 +18,7 @@ import { AdvancedCard } from "./AdvancedCard";
 import { AccountsCard } from "./AccountsCard";
 import { PersonalSettingsCard } from "./PersonalSettingsCard";
 import { RestartCard } from "./RestartCard";
+import { FinanceCard } from "./FinanceCard";
 import {
   CheckShieldIcon,
   ClockIcon,
@@ -75,11 +76,15 @@ export function ConfigPage({
   onThemeChange,
   onSessionExpired,
   initialSection = "personal",
+  features = [],
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onSessionExpired: () => void;
   initialSection?: SectionId;
+  // What this process is running with, so the Finance card can tell a saved
+  // setting that is already live from one that waits for a restart.
+  features?: string[];
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
@@ -185,7 +190,13 @@ export function ConfigPage({
               <DiscordCard onSessionExpired={onSessionExpired} />
             </>
           )}
-          {active === "capabilities" && <ToolsCard onSessionExpired={onSessionExpired} />}
+          {active === "capabilities" && (
+            <>
+              <ToolsCard onSessionExpired={onSessionExpired} />
+              <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
+              <RestartCard onSessionExpired={onSessionExpired} />
+            </>
+          )}
           {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>

@@ -5,6 +5,7 @@ import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginTo
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
+import { FinancePage } from "./FinancePage";
 import { SafeModePage } from "./SafeModePage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
@@ -20,9 +21,14 @@ export function AppNavigation({
   onNavigate,
   account,
   onLogout,
+  features = [],
 }: {
   view: View;
   onNavigate: (view: View) => void;
+  // The optional capabilities this process was started with. A tab is drawn
+  // only for one that exists, so an owner who never enabled finance sees no
+  // Finance link at all rather than an empty page.
+  features?: string[];
   // account is who is signed in, when the deployment has accounts. Shown
   // beside a sign-out control so two people sharing a browser can tell whose
   // panel this is before typing into it.
@@ -38,6 +44,7 @@ export function AppNavigation({
         {(
           [
             ["chat", "Chat"],
+            ...(features.includes("finance") ? ([["finance", "Finance"]] as const) : []),
             ["traces", "Traces"],
             ["config", "Settings"],
           ] as const
@@ -93,6 +100,9 @@ export function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [loginKind, setLoginKind] = useState<Login>("password");
   const [account, setAccount] = useState<Account | undefined>(undefined);
+  // What the server says is switched on. Null until the session answers, so a
+  // bookmarked /finance is not bounced to chat before the page knows.
+  const [features, setFeatures] = useState<string[] | null>(null);
   // A Telegram /web link lands on /auth/link#token=…: the token is taken
   // out of the address bar once, on the first render, and held in memory
   // until the person clicks Continue. A refresh afterwards finds no token
@@ -121,6 +131,16 @@ export function App() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
+
+  // A /finance address with the capability off goes to chat, once the session
+  // has said so. The same goes for a tab that was open when finance was turned
+  // off and the process restarted.
+  useEffect(() => {
+    if (view === "finance" && features !== null && !features.includes("finance")) {
+      window.history.replaceState({}, "", pathForView("chat"));
+      setView("chat");
+    }
+  }, [view, features]);
 
   function navigate(next: View) {
     const path = pathForView(next);
@@ -156,6 +176,7 @@ export function App() {
         checkSession()
           .then((session) => {
             setAccount(session.account);
+            setFeatures(session.features ?? []);
             setStatus("authenticated");
           })
           .catch(() => setStatus("unauthenticated"));
@@ -168,6 +189,7 @@ export function App() {
   function endSession() {
     clearSession();
     setAccount(undefined);
+    setFeatures(null);
     setActiveThreadId(null);
     setActiveThreadTitle("New chat");
     setDraftChatOpen(false);
@@ -193,6 +215,7 @@ export function App() {
           afterWebLoginLink()
             .then((session) => {
               setAccount(session.account);
+              setFeatures(session.features ?? []);
               setStatus("authenticated");
             })
             .catch(() => setStatus("unauthenticated"));
@@ -217,7 +240,10 @@ export function App() {
         login={loginKind}
         onLoggedIn={() => {
           checkSession()
-            .then((session) => setAccount(session.account))
+            .then((session) => {
+              setAccount(session.account);
+              setFeatures(session.features ?? []);
+            })
             .catch(() => {});
           setStatus("authenticated");
         }}
@@ -233,7 +259,7 @@ export function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <AppNavigation view={view} onNavigate={navigate} account={account} onLogout={signOut} />
+      <AppNavigation view={view} onNavigate={navigate} account={account} onLogout={signOut} features={features ?? []} />
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {view === "chat" ? (
           <>
@@ -311,13 +337,21 @@ export function App() {
               </div>
             )}
           </>
+        ) : view === "finance" ? (
+          <div className="min-h-0 min-w-0 flex-1">
+            {features?.includes("finance") ? (
+              <FinancePage onSessionExpired={onSessionExpired} />
+            ) : (
+              <div className="app-canvas flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>
+            )}
+          </div>
         ) : view === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1">
-            <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} />
+            <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} features={features ?? []} />
           </div>
         )}
       </div>

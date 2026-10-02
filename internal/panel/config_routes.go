@@ -191,6 +191,16 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			})
 		case "appearance":
 			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
+		case "finance":
+			// The saved state. What is running comes from the session's
+			// feature list; the card compares the two to say "restart to
+			// apply". The list rides along so the dropdown is built from the
+			// one list the service validates against.
+			result.Fields = []webField{
+				{Label: "enabled", Value: strconv.FormatBool(cfg.Finance.Enabled)},
+				{Label: "currency", Value: cfg.Finance.Currency},
+				{Label: "currencies", Value: strings.Join(config.FinanceCurrencies, ",")},
+			}
 		}
 		writeWebResult(w, result)
 	}
@@ -325,6 +335,13 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 		case "appearance":
 			err = config.SetAppearance(configPath, named["theme"])
 			title = "Saved appearance."
+		case "finance":
+			enabled := named["enabled"] == "true"
+			err = config.SetFinance(configPath, enabled, named["currency"])
+			title = "Saved finance."
+			if !enabled {
+				title = "Finance turned off."
+			}
 		}
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())

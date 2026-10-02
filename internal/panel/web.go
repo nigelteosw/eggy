@@ -107,6 +107,11 @@ type WebUIConfig struct {
 	// tracing is switched off, which leaves the routes unmounted and the
 	// panel's Traces view absent rather than empty.
 	Traces TraceDirectory
+	// Finance is the expense tracker, shared with the model's finance tool, or
+	// nil when finance.enabled is off. Nil leaves its routes unmounted and
+	// keeps "finance" out of the session's feature list, so the panel draws no
+	// Finance tab: an absent capability is absent, not empty.
+	Finance FinanceService
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -261,9 +266,17 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.HandleFunc(method+" /api/login/link", methodNotAllowed)
 	}
 	mux.Handle("POST /api/logout", guard(handleAccountLogout(webConfig)))
-	mux.Handle("GET /api/session", guard(handleAccountSession))
+	// What the running process has switched on, so the panel can show a tab
+	// only for a capability that exists. It rides on the authenticated
+	// session, not on the public mode probe: whether a deployment tracks
+	// spending is not for an anonymous caller to learn.
+	features := []string{}
+	if webConfig.Finance != nil {
+		features = append(features, "finance")
+	}
+	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
 	}
@@ -329,6 +342,13 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Documents)))
 	mux.Handle("GET /api/context/soul", guard(newSoulGetRoute(webConfig.Documents)))
 	mux.Handle("POST /api/context/soul", guard(newSoulSetRoute(webConfig.Documents)))
+	if webConfig.Finance != nil {
+		mux.Handle("GET /api/finance/entries", guard(newFinanceListHandler(webConfig.Finance)))
+		mux.Handle("POST /api/finance/entries", guard(newFinanceCreateHandler(webConfig.Finance)))
+		mux.Handle("PATCH /api/finance/entries/{id}", guard(newFinanceUpdateHandler(webConfig.Finance)))
+		mux.Handle("DELETE /api/finance/entries/{id}", guard(newFinanceDeleteHandler(webConfig.Finance)))
+		mux.Handle("GET /api/finance/summary", guard(newFinanceSummaryHandler(webConfig.Finance)))
+	}
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))
 		mux.Handle("GET /api/traces/{id}", guard(newTraceDetailHandler(webConfig.Traces)))
@@ -370,7 +390,7 @@ func webUIHandler() http.Handler {
 }
 
 func isApplicationRoute(path string) bool {
-	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/" || path == "/auth/link"
+	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/" || path == "/finance" || path == "/finance/" || path == "/auth/link"
 }
 
 func webModelRemoveRoute(configPath string) http.HandlerFunc {

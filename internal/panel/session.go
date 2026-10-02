@@ -228,19 +228,29 @@ func handleAccountLogout(webConfig WebUIConfig) http.HandlerFunc {
 // handleAccountSession answers GET /api/session: who is signed in and the
 // CSRF token their mutating requests must carry. No token of any other kind
 // is in the response.
-func handleAccountSession(w http.ResponseWriter, r *http.Request) {
-	current, ok := sessionFromContext(r.Context())
-	if !ok {
-		writeWebError(w, http.StatusUnauthorized, "not authenticated")
-		return
+//
+// features names the optional capabilities this process was started with, so
+// the panel shows a tab only for one that exists. It is always a list, never
+// null: the page reads it with includes().
+func handleAccountSession(features []string) http.HandlerFunc {
+	if features == nil {
+		features = []string{}
 	}
-	writeJSON(w, map[string]any{
-		"state": webSuccess,
-		"title": "Session is valid.",
-		"account": map[string]any{
-			"id":       current.account.ID,
-			"username": current.account.ID,
-		},
-		"csrf": csrfToken(current.hash),
-	})
+	return func(w http.ResponseWriter, r *http.Request) {
+		current, ok := sessionFromContext(r.Context())
+		if !ok {
+			writeWebError(w, http.StatusUnauthorized, "not authenticated")
+			return
+		}
+		writeJSON(w, map[string]any{
+			"state": webSuccess,
+			"title": "Session is valid.",
+			"account": map[string]any{
+				"id":       current.account.ID,
+				"username": current.account.ID,
+			},
+			"csrf":     csrfToken(current.hash),
+			"features": features,
+		})
+	}
 }

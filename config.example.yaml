@@ -175,6 +175,18 @@ runner:
 #   # others; anything cut is marked truncated so the model knows.
 #   max_output_bytes: 65536
 #   timeout: "30s"
+# Finance: log spending by telling Eggy, or by sending a receipt photo, and
+# see it in a Finance tab in the web panel. Entries are private to each
+# account. It is switched on here or in Settings > Capabilities and takes
+# effect on restart.
+#
+# Leave the section out and none of it exists: no tool is registered, no route
+# is served and there is no tab. Turning it off later keeps every entry.
+# finance:
+#   enabled: true
+#   # What an entry takes when no currency is said. One of USD, EUR, JPY, GBP,
+#   # CNY, AUD, CAD, CHF, HKD, SGD. Entries can still use any of them.
+#   currency: "SGD"
 # How much Eggy asks before it acts. strict asks before every tool call,
 # reading included; normal asks before anything that writes and is the
 # default; auto asks nothing. This is only where a fresh deployment starts --

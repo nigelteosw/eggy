@@ -337,6 +337,15 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(newTavilyTools(config, secrets, options)...); err != nil {
 		return nil, err
 	}
+	// The finance plugin: nil service and no tools unless finance.enabled, so
+	// an owner who does not track spending pays no schema bytes and no route.
+	financeService, financeTools, err := newFinance(config, database, location, options.Now)
+	if err != nil {
+		return nil, err
+	}
+	if err := gate(financeTools...); err != nil {
+		return nil, err
+	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options, opened.auth)
 	if err != nil {
 		return nil, err
@@ -503,6 +512,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	if connectionCredentials != nil {
 		webConfig.Connections = connectionCredentials
+	}
+	// The same nil rule: a nil *finance.Service boxed into the interface would
+	// look enabled to the panel, mount its routes and list the feature.
+	if financeService != nil {
+		webConfig.Finance = financeService
 	}
 	webConfig.DiscordLinking = config.DiscordEnabled()
 	webConfig.DiscordRunning = app.discord.running()

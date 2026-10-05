@@ -19,7 +19,10 @@ export class SessionExpiredError extends Error {}
 // each caller remembering it -- and so a 401 or a logout can drop it in one
 // place before the next person signs in on the same tab.
 export type Account = { id: string; username: string };
-export type Session = { account?: Account; csrf?: string };
+// features names the optional capabilities this process was started with
+// ("finance"), so a tab is drawn only for one that exists. It is always a
+// list, so callers can ask includes() without a null check.
+export type Session = { account?: Account; csrf?: string; features?: string[] };
 
 let session: Session | null = null;
 
@@ -54,7 +57,7 @@ async function request<T = CommandResult>(path: string, init?: RequestInit): Pro
 
 export function checkSession(): Promise<Session> {
   return request<Session & CommandResult>("/api/session").then((result) => {
-    session = { account: result.account, csrf: result.csrf };
+    session = { account: result.account, csrf: result.csrf, features: result.features ?? [] };
     return session;
   });
 }
@@ -336,7 +339,7 @@ export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
   return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see
@@ -637,4 +640,73 @@ export async function listTraces(limit = 50): Promise<TraceSummary[]> {
 
 export function getTrace(id: string): Promise<TraceDetail> {
   return request<TraceDetail>(`/api/traces/${encodeURIComponent(id)}`);
+}
+
+// --- Finance -------------------------------------------------------------------
+//
+// Every amount here is text, formatted by the server in the currency's own
+// minor unit ("14.50", "1200" for JPY). Nothing in the browser adds, compares
+// or converts money: bar lengths arrive as a share the server computed.
+
+export type FinanceEntry = {
+  id: string;
+  date: string;
+  amount: string;
+  currency: string;
+  category: string;
+  merchant: string;
+  note: string;
+  source: string;
+};
+
+export type FinanceEntryList = { entries: FinanceEntry[]; total: number };
+
+export type FinanceSummary = {
+  month: string;
+  from: string;
+  to: string;
+  currencies: string[];
+  default_currency: string;
+  totals: { currency: string; amount: string; count: number }[];
+  by_category: { currency: string; category: string; amount: string; count: number; share: number }[];
+  by_day: { currency: string; day: string; amount: string; share: number }[];
+};
+
+export type FinanceInput = {
+  amount: string;
+  category: string;
+  currency?: string;
+  date?: string;
+  merchant?: string;
+  note?: string;
+};
+
+// A field left out is left alone; one sent empty clears it.
+export type FinancePatch = Partial<FinanceInput>;
+
+// An unset month asks the server for the owner's current one, which is the
+// only clock that knows what "this month" means for them.
+export function getFinanceSummary(month?: string): Promise<FinanceSummary> {
+  return request<FinanceSummary>(`/api/finance/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`);
+}
+
+export function getFinanceEntries(filter: { from?: string; to?: string; category?: string; limit?: number } = {}): Promise<FinanceEntryList> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filter)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const query = params.toString();
+  return request<FinanceEntryList>(`/api/finance/entries${query ? `?${query}` : ""}`);
+}
+
+export function createFinanceEntry(input: FinanceInput): Promise<FinanceEntry> {
+  return request<FinanceEntry>("/api/finance/entries", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateFinanceEntry(id: string, patch: FinancePatch): Promise<FinanceEntry> {
+  return request<FinanceEntry>(`/api/finance/entries/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function deleteFinanceEntry(id: string): Promise<FinanceEntry> {
+  return request<FinanceEntry>(`/api/finance/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

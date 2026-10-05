@@ -169,6 +169,26 @@ descriptor, and one card.
 Deletion budget: net smaller, ~−190 lines across Go and TypeScript estimated;
 0 config keys/tools/records/loops.
 
+## P3 — Finance follow-ups (S–M each)
+
+The finance plugin shipped tracking only. Take these on demonstrated use, one
+at a time, not as a set.
+
+- **A weekly spend digest from a schedule.** Grant the scheduled turn
+  `finance:list` and `finance:summary`, scoped by action the way
+  `schedule:list` already is in `turns.ReadOnlyTools()`. That makes the
+  unprompted-turn allowlist name a plugin's tool, a coupling worth arguing on
+  its own; `log`, `update` and `delete` must stay off it.
+- **A per-account default currency**, if accounts spend mostly in different
+  currencies. It moves from `finance.currency` to per-account state beside
+  `/mode`, and the config key becomes only a fresh account's start.
+- **Budgets per category** with an over-budget notice at log time. Needs one
+  record type; no loop, because the check runs when an entry is logged.
+- **CSV export** from the Finance tab, through the existing list route.
+
+Deletion budget: state it per item when taken up. None may add a tool, since
+the `finance` tool's one schema is already paid on every call while enabled.
+
 ## Later — Capabilities requiring demonstrated demand
 
 Choose these on owner use, not feature parity.

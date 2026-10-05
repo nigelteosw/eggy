@@ -38,17 +38,18 @@ type ToolEffect struct {
 	// ReadOnly marks a tool that changes nothing at all, and is one of the two
 	// claims that let a call through in ModeNormal.
 	ReadOnly bool `json:"read_only,omitempty"`
-	// Internal marks a tool whose writes land only in Eggy's own owner-visible
-	// context documents and nowhere else -- no message sent, no calendar
-	// changed, no job left running after the turn.
+	// Internal marks a tool whose writes land only in records the calling
+	// account owns and can read and correct itself, and nowhere else -- no
+	// message sent, no calendar changed, no job left running after the turn.
 	//
-	// It is the second claim ModeNormal honors, and it exists for exactly one
-	// thing: curating USER.md and MEMORY.md. Remembering a fact is not a
-	// decision an owner wants put to them; asking costs a prompt per remembered
-	// fact, which is the training-to-tap-approve failure the gate exists to
-	// avoid, and the result is a line in a file the owner can already read and
-	// correct. ModeStrict still gates it, so the owner who wants to see every
-	// call still does.
+	// It is the second claim ModeNormal honors, and three tools hold it:
+	// memory (USER.md and MEMORY.md), heartbeat_respond (WATCH.md) and finance
+	// (the account's own finance entries). Remembering a fact or logging a
+	// coffee is not a decision an owner wants put to them; asking costs a
+	// prompt each time, which is the training-to-tap-approve failure the gate
+	// exists to avoid, and the result is a record the owner can already read
+	// and correct. ModeStrict still gates it, so the owner who wants to see
+	// every call still does.
 	//
 	// Nothing that reaches outside Eggy may claim this, whatever the blast
 	// radius: "small" is not the test, "nobody but the owner can observe it" is.

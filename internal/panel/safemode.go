@@ -80,7 +80,7 @@ func NewSafeModeHandler(mode SafeMode) http.Handler {
 		guard = func(next http.HandlerFunc) http.Handler { return requireAccountSession(mode.Web, now, next) }
 		mux.HandleFunc("POST /api/login", handlePasswordLogin("", mode.Web, throttle, newVerifyLimiter(), dummyPasswordHash(), now))
 		mux.Handle("POST /api/logout", guard(handleAccountLogout(mode.Web)))
-		mux.Handle("GET /api/session", guard(handleAccountSession))
+		mux.Handle("GET /api/session", guard(handleAccountSession(nil)))
 	} else {
 		unrecoverable := func(w http.ResponseWriter, _ *http.Request) {
 			writeWebError(w, http.StatusUnauthorized, "Eggy is in safe mode and cannot identify anyone: repair config.yaml on the host")

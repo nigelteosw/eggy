@@ -75,6 +75,13 @@ export const ClockIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const WalletIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.5" y="5" width="15" height="11" rx="2" />
+    <path d="M2.5 8.5h15M13.5 12h2" />
+  </Icon>
+);
+
 export const CheckShieldIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M10 2.5 16 5v4.5c0 3.6-2.4 6.7-6 8-3.6-1.3-6-4.4-6-8V5Z" />

@@ -9,7 +9,6 @@ test("an empty conversation uses one direct title and instruction", () => {
     createElement(ChatPage, {
       threadId: "thread-1",
       title: "Deploy the daemon",
-      sidebarOpen: true,
       onSessionExpired: () => {},
     }),
   );

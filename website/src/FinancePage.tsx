@@ -321,7 +321,9 @@ export function FinanceReport({
   );
 }
 
-export function FinancePage({ onSessionExpired }: { onSessionExpired: () => void }) {
+// embedded is set when the page sits in the Finance dialog, whose own title
+// already names it; the visible heading is then dropped so it is not said twice.
+export function FinancePage({ onSessionExpired, embedded = false }: { onSessionExpired: () => void; embedded?: boolean }) {
   // An empty month asks the server for the owner's current one; after the
   // first answer the switcher steps from the month it reports.
   const [month, setMonth] = useState("");
@@ -386,7 +388,7 @@ export function FinancePage({ onSessionExpired }: { onSessionExpired: () => void
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
       <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7">
         <header className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
+          <h1 className={embedded ? "sr-only" : "text-xl font-semibold tracking-tight"}>Finance</h1>
           {summary && (
             <div className="flex items-center gap-1">
               <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(summary.month, -1))} className={SECONDARY_BUTTON}>

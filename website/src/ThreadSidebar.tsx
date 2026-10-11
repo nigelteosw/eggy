@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { Thread, deleteThread, listThreads, renameThread } from "./api";
-import { PanelIcon, PlusIcon } from "./components/ui/icons";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
+import { AccountMenu } from "./AccountMenu";
+import { ClockIcon, PanelIcon, PlusIcon, WalletIcon } from "./components/ui/icons";
 import { cn, errorMessage } from "./lib/utils";
+import type { View } from "./routing";
 
 const initialThreadMaxAgeMs = 5 * 60 * 1000;
 
@@ -60,15 +62,62 @@ export function canStartNewChat(threads: Thread[], activeThreadId: string | null
   return !active || active.title !== "";
 }
 
-function relativeTime(iso: string): string {
-  const deltaMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.round(deltaMs / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
+const DAY_MS = 24 * 60 * 60 * 1000;
+export const THREAD_GROUPS = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
+export type ThreadGroupLabel = (typeof THREAD_GROUPS)[number];
+
+// Chats are listed under the day they were last written in, newest first, so
+// the rail reads as a timeline rather than a bag of titles. Empty groups are
+// dropped rather than shown as headings with nothing under them.
+export function groupThreads(threads: Thread[], now = new Date()): { label: ThreadGroupLabel; threads: Thread[] }[] {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const buckets = new Map<ThreadGroupLabel, Thread[]>(THREAD_GROUPS.map((label) => [label, []]));
+  const newestFirst = [...threads].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  for (const thread of newestFirst) {
+    const at = Date.parse(thread.updatedAt);
+    const label: ThreadGroupLabel =
+      at >= startOfToday
+        ? "Today"
+        : at >= startOfToday - DAY_MS
+          ? "Yesterday"
+          : at >= startOfToday - 7 * DAY_MS
+            ? "Previous 7 days"
+            : "Older";
+    buckets.get(label)?.push(thread);
+  }
+  return THREAD_GROUPS.map((label) => ({ label, threads: buckets.get(label) ?? [] })).filter((group) => group.threads.length > 0);
+}
+
+// One row in the rail's navigation block. The active row takes the same
+// raised surface as the active chat, so "where am I" reads the same everywhere.
+function NavRow({
+  icon,
+  label,
+  active = false,
+  disabled = false,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
+        active ? "bg-background font-medium shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
+      )}
+    >
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
+      {label}
+    </button>
+  );
 }
 
 export function ThreadSidebar({
@@ -80,6 +129,12 @@ export function ThreadSidebar({
   onCollapse,
   reloadKey,
   draftOpen,
+  view,
+  onNavigate,
+  features,
+  onOpenFinance,
+  account,
+  onLogout,
 }: {
   activeThreadId: string | null;
   onSelect: (threadId: string) => void;
@@ -92,6 +147,16 @@ export function ThreadSidebar({
   onCollapse: () => void;
   reloadKey: number;
   draftOpen: boolean;
+  // The destination on screen, so its navigation row reads as current, and
+  // the handler that moves to another one. Picking a chat or starting one
+  // also asks for the chat view; the selection itself does not navigate, so
+  // a deep link to Settings survives the first load picking a thread.
+  view: View;
+  onNavigate: (view: View) => void;
+  features: string[];
+  onOpenFinance: () => void;
+  account?: Account;
+  onLogout: () => void;
 }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   // menuFor / renamingId are the row-level UI states: at most one row shows
@@ -172,11 +237,18 @@ export function ThreadSidebar({
   }, [renamingId]);
 
   const newChatAvailable = !draftOpen && canStartNewChat(threads, activeThreadId);
+  const groups = groupThreads(threads);
 
   function handleNew() {
     if (!newChatAvailable) return;
     setError(null);
     onStartNew();
+    onNavigate("chat");
+  }
+
+  function pickThread(threadId: string) {
+    onSelect(threadId);
+    onNavigate("chat");
   }
 
   function startRename(thread: Thread) {
@@ -241,7 +313,9 @@ export function ThreadSidebar({
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
       <div className="flex h-14 shrink-0 items-center gap-1 pl-4 pr-2">
-        <span className="flex-1 truncate text-[14.5px] font-semibold tracking-tight">Conversations</span>
+        <span className="flex-1 truncate text-base font-semibold tracking-tight">
+          Eggy<span className="ml-1 text-primary">.</span>
+        </span>
         <button
           type="button"
           onClick={onCollapse}
@@ -253,18 +327,16 @@ export function ThreadSidebar({
         </button>
       </div>
 
-      <div className="px-3 pb-2.5">
-        <button
-          type="button"
-          onClick={handleNew}
+      <nav aria-label="Main navigation" className="flex flex-col gap-0.5 px-2 pb-2">
+        <NavRow
+          icon={<PlusIcon className="h-4 w-4 text-accent-700" />}
+          label="New chat"
           disabled={!newChatAvailable}
-          title={newChatAvailable ? "New chat" : "Write a message to start a new chat"}
-          className="flex h-11 w-full items-center gap-2 rounded-2xl bg-background px-3.5 text-left text-sm font-medium transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40"
-        >
-          <PlusIcon className="h-4 w-4 text-accent-700" />
-          New chat
-        </button>
-      </div>
+          onClick={handleNew}
+        />
+        <NavRow icon={<ClockIcon />} label="Scheduled" active={view === "scheduled"} onClick={() => onNavigate("scheduled")} />
+        {features.includes("finance") && <NavRow icon={<WalletIcon />} label="Finance" onClick={onOpenFinance} />}
+      </nav>
 
       {error && (
         <p className="mx-3 mb-2 rounded-xl bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive" role="alert">
@@ -276,92 +348,95 @@ export function ThreadSidebar({
         {threads.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
         ) : (
-          <div className="flex flex-col gap-1">
-            {threads.map((thread) => {
-              const active = thread.id === activeThreadId;
-              if (thread.id === renamingId) {
+          groups.map((group) => (
+            <section key={group.label} aria-label={group.label} className="flex flex-col gap-0.5">
+              <h2 className="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">{group.label}</h2>
+              {group.threads.map((thread) => {
+                const active = view === "chat" && thread.id === activeThreadId;
+                if (thread.id === renamingId) {
+                  return (
+                    <input
+                      key={thread.id}
+                      ref={renameInput}
+                      value={draftTitle}
+                      maxLength={200}
+                      aria-label="Chat name"
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      onBlur={() => commitRename(thread.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") commitRename(thread.id);
+                        if (event.key === "Escape") setRenamingId(null);
+                      }}
+                      className="h-11 w-full rounded-2xl bg-background px-3 text-sm outline-none ring-2 ring-ring/40"
+                    />
+                  );
+                }
                 return (
-                  <input
-                    key={thread.id}
-                    ref={renameInput}
-                    value={draftTitle}
-                    maxLength={200}
-                    aria-label="Chat name"
-                    onChange={(event) => setDraftTitle(event.target.value)}
-                    onBlur={() => commitRename(thread.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") commitRename(thread.id);
-                      if (event.key === "Escape") setRenamingId(null);
-                    }}
-                    className="h-11 w-full rounded-2xl bg-background px-3 text-sm outline-none ring-2 ring-ring/40"
-                  />
-                );
-              }
-              return (
-                <div key={thread.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(thread.id)}
-                    className={cn(
-                      "w-full rounded-2xl py-2.5 pl-3.5 pr-9 text-left transition-colors",
-                      active ? "bg-background shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
-                    )}
-                  >
-                    <div className={cn("truncate text-sm", active ? "font-medium" : "font-normal")}>
-                      {thread.title || "New chat"}
-                    </div>
-                    <div className="mt-0.5 truncate text-xs tabular-nums text-muted-foreground">
-                      {relativeTime(thread.updatedAt)}
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    aria-label={`Actions for ${thread.title || "New chat"}`}
-                    onClick={(event) => {
-                      // Stop the window-level dismiss listener from closing
-                      // this menu in the same click that opened it.
-                      event.stopPropagation();
-                      setMenuFor((current) => (current === thread.id ? null : thread.id));
-                    }}
-                    className={cn(
-                      "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
-                      menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                    )}
-                  >
-                    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-                      <circle cx="4" cy="10" r="1.5" />
-                      <circle cx="10" cy="10" r="1.5" />
-                      <circle cx="16" cy="10" r="1.5" />
-                    </svg>
-                  </button>
-
-                  {menuFor === thread.id && (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-2xl bg-card py-1 shadow-lift"
+                  <div key={thread.id} className="group relative">
+                    <button
+                      type="button"
+                      onClick={() => pickThread(thread.id)}
+                      aria-current={active ? "true" : undefined}
+                      className={cn(
+                        "flex h-9 w-full items-center rounded-xl pl-2.5 pr-9 text-left text-sm transition-colors",
+                        active ? "bg-background font-medium shadow-subtle" : "font-normal text-foreground/80 hover:bg-neutral-200/60",
+                      )}
                     >
-                      <button
-                        type="button"
-                        onClick={() => startRename(thread)}
-                        className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-neutral-100"
+                      <span className="truncate">{thread.title || "New chat"}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label={`Actions for ${thread.title || "New chat"}`}
+                      onClick={(event) => {
+                        // Stop the window-level dismiss listener from closing
+                        // this menu in the same click that opened it.
+                        event.stopPropagation();
+                        setMenuFor((current) => (current === thread.id ? null : thread.id));
+                      }}
+                      className={cn(
+                        "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
+                        menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                      )}
+                    >
+                      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
+                        <circle cx="4" cy="10" r="1.5" />
+                        <circle cx="10" cy="10" r="1.5" />
+                        <circle cx="16" cy="10" r="1.5" />
+                      </svg>
+                    </button>
+
+                    {menuFor === thread.id && (
+                      <div
+                        onClick={(event) => event.stopPropagation()}
+                        className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-2xl bg-card py-1 shadow-lift"
                       >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(thread)}
-                        className="h-11 w-full px-3 text-left text-sm text-destructive hover:bg-destructive/10"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                        <button
+                          type="button"
+                          onClick={() => startRename(thread)}
+                          className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-neutral-100"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(thread)}
+                          className="h-11 w-full px-3 text-left text-sm text-destructive hover:bg-destructive/10"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+          ))
         )}
+      </div>
+
+      <div className="shrink-0 border-t border-border px-2 py-2">
+        <AccountMenu account={account} onNavigate={onNavigate} onLogout={onLogout} />
       </div>
 
       <button

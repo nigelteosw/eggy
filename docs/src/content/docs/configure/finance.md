@@ -1,12 +1,12 @@
 ---
 title: Finance
-description: Log spending by telling Eggy or sending a receipt photo, and see it in a Finance tab.
+description: Log spending by telling Eggy or sending a receipt photo, and see it in the Finance window.
 eyebrow: Configure
 ---
 
-Enabling finance lets each person log what they spend by telling Eggy ("lunch 14.50") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their spending in a **Finance** tab in the web panel.
+Enabling finance lets each person log what they spend by telling Eggy ("lunch 14.50") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their spending under **Finance** in the web panel's sidebar.
 
-Without this section there is no finance tool, no Finance tab, and nothing about it in any model request.
+Without this section there is no finance tool, no Finance entry, and nothing about it in any model request.
 
 ## Turn it on
 
@@ -50,9 +50,11 @@ Photos work on Telegram. Web chat has no attachments yet, so there you describe 
 
 If a receipt's total, currency or date is unclear, Eggy asks instead of guessing.
 
-## The Finance tab
+## The Finance window
 
-The tab appears only while finance is running. It shows, for one month at a time:
+The Finance entry appears in the sidebar only while finance is running. It opens
+as a window over the page you are on, and closing it returns you there. It shows,
+for one month at a time:
 
 - a total per currency, your default first
 - spending by category, as bars sized against the largest in each currency
@@ -60,7 +62,7 @@ The tab appears only while finance is running. It shows, for one month at a time
 - every entry, which you can edit or delete in place
 - an **Add entry** form, for what you did not tell Eggy
 
-Use the arrows to move between months. A bookmark to `/finance` opens chat instead when finance is off.
+Use the arrows to move between months. A bookmark to `/finance` opens chat instead.
 
 ## Privacy
 
@@ -70,7 +72,7 @@ Eggy's own prompt carries no entries. The model sees them only when it calls the
 
 ## Approvals
 
-`finance` is classified *internal*: every action writes, but only to your own account's entries, which you read and edit in the tab. In `normal` mode it runs without asking, so you are not tapping approve per coffee. In `strict` mode every call is put to you. A heartbeat or schedule cannot call it at all. See [Approvals](/eggy/use/approvals/).
+`finance` is classified *internal*: every action writes, but only to your own account's entries, which you read and edit in the Finance window. In `normal` mode it runs without asking, so you are not tapping approve per coffee. In `strict` mode every call is put to you. A heartbeat or schedule cannot call it at all. See [Approvals](/eggy/use/approvals/).
 
 ## What it does not do
 
@@ -82,8 +84,8 @@ Eggy's own prompt carries no entries. The model sees them only when it calls the
 
 ## Turning it off
 
-Switch it off in the same card and restart. The tab, the routes and the tool disappear. **Your entries stay** in `eggy.db` and come back when you turn it on again.
+Switch it off in the same card and restart. The sidebar entry and the tool disappear. **Your entries stay** in `eggy.db` and come back when you turn it on again.
 
 ## Cost when disabled
 
-Nothing. With the section absent or `enabled: false`, nothing is constructed: no tool schema reaches a model request, no route is served, no tab is drawn and no goroutine runs. The only residue is an empty table in the database.
+Nothing. With the section absent or `enabled: false`, nothing is constructed: no tool schema reaches a model request, no route is served, no sidebar entry is drawn and no goroutine runs. The only residue is an empty table in the database.

@@ -1,7 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AppNavigation } from "../src/App";
 import {
   checkSession,
   clearSession,
@@ -17,39 +16,6 @@ import {
 import { AddEntryForm, FinanceReport } from "../src/FinancePage";
 import { FinanceSettingsView } from "../src/FinanceCard";
 import { daysOfRange, monthLabel, shiftMonth } from "../src/lib/finance";
-import { pathForView, viewForPath } from "../src/routing";
-
-test("the finance view has its own path, with or without a trailing slash", () => {
-  expect(pathForView("finance")).toBe("/finance");
-  expect(viewForPath("/finance")).toBe("finance");
-  expect(viewForPath("/finance/")).toBe("finance");
-  expect(viewForPath("/settings")).toBe("config");
-});
-
-test("the Finance tab appears only when the server reports the feature", () => {
-  const without = renderToStaticMarkup(createElement(AppNavigation, { view: "chat", onNavigate: () => {} }));
-  expect(without).not.toContain("Finance");
-  expect(without).not.toContain('href="/finance"');
-
-  const empty = renderToStaticMarkup(createElement(AppNavigation, { view: "chat", onNavigate: () => {}, features: [] }));
-  expect(empty).not.toContain('href="/finance"');
-
-  const withFinance = renderToStaticMarkup(
-    createElement(AppNavigation, { view: "chat", onNavigate: () => {}, features: ["finance"] }),
-  );
-  expect(withFinance).toContain('href="/finance"');
-  expect(withFinance).toContain("Finance");
-  // The other destinations are still there, and exactly one is current.
-  for (const href of ["/", "/traces", "/settings"]) expect(withFinance).toContain(`href="${href}"`);
-  expect(withFinance.match(/aria-current="page"/g)).toHaveLength(1);
-
-  const onFinance = renderToStaticMarkup(
-    createElement(AppNavigation, { view: "finance", onNavigate: () => {}, features: ["finance"] }),
-  );
-  expect(onFinance.match(/aria-current="page"/g)).toHaveLength(1);
-  expect(onFinance).toMatch(/aria-current="page"[^>]*>Finance</);
-});
-
 test("months shift across year boundaries and read as words", () => {
   expect(shiftMonth("2026-10", -1)).toBe("2026-09");
   expect(shiftMonth("2026-10", 1)).toBe("2026-11");

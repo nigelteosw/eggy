@@ -26,7 +26,7 @@ import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordFo
 import { DiscordCard, describeDiscord } from "../src/DiscordCard";
 import { GoogleIdentity } from "../src/GoogleCard";
 import { ConfigPage } from "../src/ConfigPage";
-import { AppNavigation } from "../src/App";
+import { AccountMenu } from "../src/AccountMenu";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -98,12 +98,12 @@ test("a 401 clears the cached session so the next user starts clean", async () =
   expect(currentSession()).toBeNull();
 });
 
-test("the navigation shows who is signed in with a sign-out control", () => {
+test("the account menu shows who is signed in, with sign-out kept behind it", () => {
   const html = renderToStaticMarkup(
-    createElement(AppNavigation, { view: "chat", onNavigate: () => {}, account: { id: "nigel", username: "nigel" }, onLogout: () => {} }),
+    createElement(AccountMenu, { account: { id: "nigel", username: "nigel" }, onNavigate: () => {}, onLogout: () => {} }),
   );
   expect(html).toContain("nigel");
-  expect(html).toContain("Sign out");
+  expect(html).not.toContain("Sign out");
 });
 
 const row = (overrides: Partial<Parameters<typeof AccountsList>[0]["accounts"][number]> & { id: string }) => ({

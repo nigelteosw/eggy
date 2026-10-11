@@ -6,95 +6,16 @@ import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
 import { FinancePage } from "./FinancePage";
-import { PluginsPage } from "./PluginsPage";
 import { SafeModePage } from "./SafeModePage";
+import { SchedulesPage } from "./SchedulesPage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
+import { Dialog } from "./components/ui/dialog";
 import { PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
-import { cn } from "./lib/utils";
 import { pathForView, viewForPath, type View } from "./routing";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
-
-export function AppNavigation({
-  view,
-  onNavigate,
-  account,
-  onLogout,
-  features = [],
-}: {
-  view: View;
-  onNavigate: (view: View) => void;
-  // The optional capabilities this process was started with. A tab is drawn
-  // only for one that exists, so an owner who never enabled finance sees no
-  // Finance link at all rather than an empty page.
-  features?: string[];
-  // account is who is signed in, when the deployment has accounts. Shown
-  // beside a sign-out control so two people sharing a browser can tell whose
-  // panel this is before typing into it.
-  account?: Account;
-  onLogout?: () => void;
-}) {
-  return (
-    <header className="flex h-14 min-w-0 shrink-0 items-center gap-3 bg-background sm:gap-6 px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-6">
-      <span className="text-base font-semibold tracking-tight">
-        Eggy<span className="ml-1 text-primary">.</span>
-      </span>
-      <nav aria-label="Main navigation" className="flex h-full shrink-0 items-center gap-1">
-        {(
-          [
-            ["chat", "Chat"],
-            ["plugins", "Plugins"],
-            ...(features.includes("finance") ? ([["finance", "Finance"]] as const) : []),
-            ["traces", "Traces"],
-            ["config", "Settings"],
-          ] as const
-        ).map(([destination, label]) => (
-          <a
-            key={destination}
-            href={pathForView(destination)}
-            aria-current={view === destination ? "page" : undefined}
-            onClick={(event) => {
-              if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-                event.preventDefault();
-                onNavigate(destination);
-              }
-            }}
-            className={cn(
-              "flex h-9 items-center rounded-xl px-2.5 text-sm sm:px-3.5 font-medium transition-colors",
-              view === destination
-                ? "bg-accent-100 text-accent-700"
-                : "text-muted-foreground hover:bg-neutral-100 hover:text-foreground",
-            )}
-          >
-            {label}
-          </a>
-        ))}
-      </nav>
-      {account && (
-        <div className="ml-auto flex min-w-0 items-center gap-2.5 text-sm">
-          <span className="hidden truncate text-muted-foreground sm:inline" title={account.username}>
-            {account.username}
-          </span>
-          <div
-            aria-hidden="true"
-            className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700 sm:flex"
-          >
-            {account.username.charAt(0).toUpperCase()}
-          </div>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="shrink-0 whitespace-nowrap rounded-xl px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            Sign out
-          </button>
-        </div>
-      )}
-    </header>
-  );
-}
 
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
@@ -102,8 +23,8 @@ export function App() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [loginKind, setLoginKind] = useState<Login>("password");
   const [account, setAccount] = useState<Account | undefined>(undefined);
-  // What the server says is switched on. Null until the session answers, so a
-  // bookmarked /finance is not bounced to chat before the page knows.
+  // What the server says is switched on. Null until the session answers, so the
+  // rail does not offer Finance before the page knows it exists.
   const [features, setFeatures] = useState<string[] | null>(null);
   // A Telegram /web link lands on /auth/link#token=…: the token is taken
   // out of the address bar once, on the first render, and held in memory
@@ -120,12 +41,14 @@ export function App() {
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
   const [draftChatOpen, setDraftChatOpen] = useState(false);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
-  // Whether the chat rail is showing. It is one flag across both layouts,
-  // remembered per device: below md the rail is an off-canvas overlay (there
-  // is no room for a static column beside the transcript on a phone), and at
-  // md and up it is an inline column that the owner can still close to give
-  // the transcript the whole window. The stored default is open, so a first
-  // visit lands on the list rather than on an empty pane.
+  // Finance opens as a popup over whatever is on screen rather than replacing
+  // it, so the owner returns to the same chat or page when it closes.
+  const [financeOpen, setFinanceOpen] = useState(false);
+  // Whether the rail is showing. It is one flag across both layouts, remembered
+  // per device: below md the rail is an off-canvas overlay (there is no room for
+  // a static column beside the content on a phone), and at md and up it is an
+  // inline column that the owner can close to give the content the whole
+  // window. The stored default is open, so a first visit lands on the list.
   const [sidebarOpen, setSidebarOpen] = useStoredFlag("eggy.chat.sidebar", true);
 
   useEffect(() => {
@@ -134,20 +57,22 @@ export function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // A /finance address with the capability off goes to chat, once the session
-  // has said so. The same goes for a tab that was open when finance was turned
-  // off and the process restarted.
-  useEffect(() => {
-    if (view === "finance" && features !== null && !features.includes("finance")) {
-      window.history.replaceState({}, "", pathForView("chat"));
-      setView("chat");
-    }
-  }, [view, features]);
-
   function navigate(next: View) {
     const path = pathForView(next);
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
     setView(next);
+  }
+
+  // Choosing a destination on a phone also dismisses the rail, which is an
+  // overlay there. At md and up the rail stays as the owner left it.
+  function goTo(next: View) {
+    navigate(next);
+    if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+  }
+
+  function openFinance() {
+    setFinanceOpen(true);
+    if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
   }
 
   useEffect(() => {
@@ -195,6 +120,7 @@ export function App() {
     setActiveThreadId(null);
     setActiveThreadTitle("New chat");
     setDraftChatOpen(false);
+    setFinanceOpen(false);
     setSidebarReloadKey((key) => key + 1);
     setStatus("unauthenticated");
   }
@@ -260,105 +186,112 @@ export function App() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background">
-      <AppNavigation view={view} onNavigate={navigate} account={account} onLogout={signOut} features={features ?? []} />
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+    <div className="relative flex h-dvh overflow-hidden bg-background">
+      {sidebarOpen && (
+        <div
+          className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {/* Closing the rail removes it from the flow at md and up rather than
+          sliding it behind the content, so the content reclaims the width.
+          Below md it stays an overlay. */}
+      <div
+        className={`absolute inset-y-0 left-0 z-30 shadow-lift transition-transform duration-200 ease-out md:static md:shadow-none md:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full md:hidden"
+        }`}
+      >
+        <ThreadSidebar
+          activeThreadId={activeThreadId}
+          onSelect={(id) => {
+            setActiveThreadId(id);
+            setDraftChatOpen(false);
+          }}
+          onStartNew={() => {
+            setActiveThreadId(null);
+            setDraftChatOpen(true);
+          }}
+          onActiveTitleChange={setActiveThreadTitle}
+          onCollapse={() => setSidebarOpen(false)}
+          onDeleted={(id) => {
+            // Only the open chat needs clearing; deleting some other row
+            // should leave the current conversation alone.
+            if (activeThreadId === id) setDraftChatOpen(true);
+            setActiveThreadId((current) => (current === id ? null : current));
+          }}
+          reloadKey={sidebarReloadKey}
+          draftOpen={draftChatOpen}
+          view={view}
+          onNavigate={goTo}
+          features={features ?? []}
+          onOpenFinance={openFinance}
+          account={account}
+          onLogout={signOut}
+        />
+      </div>
+
+      {/* With the rail closed, the reopen control holds its own gutter, so no
+          page has to leave room for it under its heading. */}
+      {!sidebarOpen && (
+        <div className="flex w-14 shrink-0 justify-center pt-1.5">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            aria-label="Open sidebar"
+            title="Open sidebar"
+          >
+            <PanelIcon />
+          </button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 min-w-0 flex-1">
         {view === "chat" ? (
-          <>
-            {/* The reopen control, in the corner the collapse control just left.
-                It is only rendered while the rail is closed, so the two never
-                sit in the same place at the same time. */}
-            {!sidebarOpen && (
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="absolute left-2 top-1.5 z-40 flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                aria-label="Open sidebar"
-                title="Open sidebar"
-              >
-                <PanelIcon />
-              </button>
-            )}
-            {sidebarOpen && (
-              <div
-                className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
-                onClick={() => setSidebarOpen(false)}
-                aria-hidden="true"
-              />
-            )}
-            {/* Closing the rail removes it from the flow at md and up rather
-                than sliding it behind the transcript, so the chat column
-                actually reclaims the width. Below md it stays an overlay. */}
-            <div
-              className={`absolute inset-y-0 left-0 z-30 shadow-lift transition-transform duration-200 ease-out md:static md:shadow-none md:translate-x-0 ${
-                sidebarOpen ? "translate-x-0" : "-translate-x-full md:hidden"
-              }`}
-            >
-              <ThreadSidebar
-                activeThreadId={activeThreadId}
-                onSelect={(id) => {
+          activeThreadId || draftChatOpen ? (
+            <div className="min-w-0 flex-1">
+              <ChatPage
+                threadId={activeThreadId}
+                title={activeThreadTitle}
+                onSessionExpired={onSessionExpired}
+                onMessageResolved={() => setSidebarReloadKey((key) => key + 1)}
+                onThreadCreated={(id) => {
                   setActiveThreadId(id);
                   setDraftChatOpen(false);
-                  // Only the overlay layout needs dismissing on a pick; at md
-                  // and up the rail is a column the owner chose to keep open.
-                  if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
                 }}
-                onStartNew={() => {
-                  setActiveThreadId(null);
-                  setDraftChatOpen(true);
-                }}
-                onActiveTitleChange={setActiveThreadTitle}
-                onCollapse={() => setSidebarOpen(false)}
-                onDeleted={(id) => {
-                  // Only the open chat needs clearing; deleting some other row
-                  // should leave the current conversation alone.
-                  if (activeThreadId === id) setDraftChatOpen(true);
-                  setActiveThreadId((current) => (current === id ? null : current));
-                }}
-                reloadKey={sidebarReloadKey}
-                draftOpen={draftChatOpen}
               />
             </div>
-            {activeThreadId || draftChatOpen ? (
-              <div className="min-w-0 flex-1">
-                <ChatPage
-                  threadId={activeThreadId}
-                  title={activeThreadTitle}
-                  sidebarOpen={sidebarOpen}
-                  onSessionExpired={onSessionExpired}
-                  onMessageResolved={() => setSidebarReloadKey((key) => key + 1)}
-                  onThreadCreated={(id) => {
-                    setActiveThreadId(id);
-                    setDraftChatOpen(false);
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="app-canvas flex flex-1 items-center justify-center px-6 text-center">
-                <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
-              </div>
-            )}
-          </>
-        ) : view === "finance" ? (
+          ) : (
+            <div className="app-canvas flex flex-1 items-center justify-center px-6 text-center">
+              <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
+            </div>
+          )
+        ) : view === "scheduled" ? (
           <div className="min-h-0 min-w-0 flex-1">
-            {features?.includes("finance") ? (
-              <FinancePage onSessionExpired={onSessionExpired} />
-            ) : (
-              <div className="app-canvas flex h-full items-center justify-center text-sm text-muted-foreground">Loading...</div>
-            )}
+            <SchedulesPage onSessionExpired={onSessionExpired} />
           </div>
         ) : view === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
-        ) : view === "plugins" ? (
-          <PluginsPage features={features ?? []} onSessionExpired={onSessionExpired} onNavigate={navigate} />
         ) : (
           <div className="min-h-0 min-w-0 flex-1">
-            <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} />
+            <ConfigPage
+              theme={theme}
+              onThemeChange={setTheme}
+              onSessionExpired={onSessionExpired}
+              features={features ?? []}
+            />
           </div>
         )}
       </div>
+
+      {features?.includes("finance") && (
+        <Dialog open={financeOpen} title="Finance" onClose={() => setFinanceOpen(false)}>
+          <FinancePage embedded onSessionExpired={onSessionExpired} />
+        </Dialog>
+      )}
     </div>
   );
 }

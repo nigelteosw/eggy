@@ -26,7 +26,7 @@ Every tool declares it. Reading a file, searching mail, listing schedules and in
 
 Curating memory is the one write `normal` lets through. USER.md and MEMORY.md are Eggy's own documents: you already read them in the panel, you can edit them yourself, and nothing outside Eggy can see a line Eggy wrote there. Asking you to approve every remembered fact would be a tap per fact, which teaches you to approve without reading — the exact habit the gate exists to prevent. `strict` still asks, so if you want to see every entry before it lands, that is the mode for it.
 
-Logging spending is the other. With [Finance](/eggy/configure/finance/) enabled, `finance` writes only to your own account's entries, which no other account can see and which you read and edit in the Finance tab, so `normal` does not ask before each one. `strict` still does, and a heartbeat or schedule can never reach the tool at all.
+Logging spending is the other. With [Finance](/eggy/configure/finance/) enabled, `finance` writes only to your own account's entries, which no other account can see and which you read and edit in the Finance window, so `normal` does not ask before each one. `strict` still does, and a heartbeat or schedule can never reach the tool at all.
 
 A tool that has not been classified counts as a write. That is deliberate: forgetting costs an approval prompt, while the opposite mistake costs the mutation itself.
 

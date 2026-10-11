@@ -137,14 +137,12 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
 export function ChatPage({
   threadId,
   title,
-  sidebarOpen,
   onSessionExpired,
   onMessageResolved,
   onThreadCreated,
 }: {
   threadId: string | null;
   title: string;
-  sidebarOpen: boolean;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
   onThreadCreated?: (threadId: string) => void;
@@ -290,7 +288,7 @@ export function ChatPage({
 
   return (
     <div className="app-canvas flex h-full flex-col">
-      <header className={cn("flex h-14 shrink-0 items-center bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8", !sidebarOpen && "pl-14 sm:pl-14")}>
+      <header className="flex h-14 shrink-0 items-center bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8">
         <div className="min-w-0">
           <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
         </div>

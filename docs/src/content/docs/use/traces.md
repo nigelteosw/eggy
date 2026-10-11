@@ -8,7 +8,7 @@ The transcript shows what Eggy *said*. A trace shows what it *did* to get there:
 each model call with the exact prompt that produced it, each tool call with its
 arguments and its result, in order, with timings and token counts.
 
-Open **Traces** in the top navigation of the web panel, or go to `/traces`
+Open **Traces** from the account menu at the foot of the web panel's sidebar, or go to `/traces`
 directly. Tracing is on unless you switch it off — see
 [Tracing](/eggy/configure/configuration/#tracing) for the settings and their
 ceilings.

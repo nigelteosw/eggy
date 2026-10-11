@@ -11,7 +11,7 @@ import { WatchCard } from "./WatchCard";
 import { SoulCard } from "./SoulCard";
 import { ToolsCard } from "./ToolsCard";
 import { TracingCard } from "./TracingCard";
-import { SchedulesCard } from "./SchedulesCard";
+import { FinanceCard } from "./FinanceCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
@@ -59,7 +59,7 @@ export const GROUPS: { id: GroupId; heading: string; note: string }[] = [
 
 export const SECTIONS: Section[] = [
   { id: "personal", group: "personal", label: "Model & approvals", title: "My settings — applies to your Telegram and web sessions", description: "Your model, reasoning effort, thinking visibility and approval mode. Yours alone.", icon: <CpuIcon /> },
-  { id: "automation", group: "personal", label: "Automation", title: "My automation — applies to your Telegram and web sessions", description: "Your schedules and your watch list. The heartbeat cadence is shared deployment configuration.", icon: <ClockIcon /> },
+  { id: "automation", group: "personal", label: "Automation", title: "My automation — applies to your Telegram and web sessions", description: "Your watch list. Schedules are on the Scheduled page.", icon: <ClockIcon /> },
   { id: "permissions", group: "personal", label: "Pending approvals", title: "My pending approvals", description: "Actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People — trusted users who can administer this deployment", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", icon: <UsersIcon /> },
   { id: "models", group: "shared", label: "Models", title: "Shared deployment — changes here affect everyone", description: "Providers, API keys, and the aliases that route to them, used by every person.", icon: <CpuIcon /> },
@@ -74,11 +74,15 @@ export function ConfigPage({
   theme,
   onThemeChange,
   onSessionExpired,
+  features = [],
   initialSection = "personal",
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onSessionExpired: () => void;
+  // The optional capabilities this process started with. Finance's settings
+  // card reads whether it is running, so it can say a restart is pending.
+  features?: string[];
   initialSection?: SectionId;
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
@@ -188,13 +192,13 @@ export function ConfigPage({
           {active === "capabilities" && (
             <>
               <ToolsCard onSessionExpired={onSessionExpired} />
+              <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
               <RestartCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>
-              <SchedulesCard onSessionExpired={onSessionExpired} />
               <WatchCard onSessionExpired={onSessionExpired} />
             </>
           )}

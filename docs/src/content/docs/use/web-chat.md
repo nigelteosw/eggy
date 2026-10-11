@@ -5,17 +5,23 @@ eyebrow: Use Eggy
 ---
 
 The embedded web application is an optional owner surface served by `eggyd`
-itself — one binary, no separate front end to deploy. It has three views, chosen
-from the top navigation and addressable directly:
+itself — one binary, no separate front end to deploy. A left sidebar holds your
+conversations and the destinations below. Each view is addressable directly:
 
 | View | Path | What it is |
 | --- | --- | --- |
 | Chat | `/` | Multi-thread conversation with Eggy |
-| Traces | `/traces` | [Every turn as it actually ran](/eggy/use/traces/) |
+| Scheduled | `/scheduled` | The tasks Eggy will run later, which you can cancel |
 | Settings | `/settings` | The only runtime administration panel |
+| Traces | `/traces` | [Every turn as it actually ran](/eggy/use/traces/) |
 
-The layout is responsive: the same three views work on a phone, with the thread
-list and the settings sidebar collapsing into their own controls.
+Scheduled and Settings are in the sidebar. Traces, Settings and sign-out are in
+the account menu at the foot of the sidebar. Optional features such as Finance
+open as a window over the current view.
+
+The layout is responsive: on a phone the sidebar slides over the content and
+closes when you pick a destination, and the settings sidebar collapses into its
+own control.
 
 ## Enable login
 
@@ -34,7 +40,7 @@ Sessions are opaque tokens in an HTTP-only cookie with a 12-hour lifetime;
 only their hashes are stored. Failed logins are throttled by client address.
 Set `server.trusted_proxy_hops: 1` behind Railway so Eggy uses the address
 observed by the proxy; leave it at `0` when exposed directly. The navigation
-shows who is signed in with a sign-out control, and every person sees only
+shows who is signed in and holds the sign-out control, and every person sees only
 their own chats, traces, schedules and approvals.
 
 From Telegram, `/web` sends a one-tap sign-in link so opening the panel on a
@@ -71,7 +77,7 @@ no roles.
 | Area | Section | Contents |
 | --- | --- | --- |
 | **My settings** | Model & approvals | Your model, reasoning effort, thinking visibility, heartbeat check-ins, and approval mode — yours alone, across both Telegram and the web |
-| | Automation | Your schedules and watch list |
+| | Automation | Your watch list. Your schedules are on the Scheduled page |
 | | Pending approvals | Actions waiting on you |
 | **People** | People | The trusted-user list: who can use this Eggy, how each signs in, and which Google account Eggy itself is |
 | **Shared deployment** | Models | Providers, and the aliases that route to them — including browsing a provider's live catalog |

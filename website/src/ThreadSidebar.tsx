@@ -507,10 +507,14 @@ export function ThreadSidebar({
         onKeyDown={resizeWithKeyboard}
         onDoubleClick={resetSidebarWidth}
         className={cn(
-          "group absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px focus-visible:after:bg-primary md:block",
-          // The guide line shows on hover and stays while dragging, when the
-          // pointer has usually left the 12px target.
-          resizing ? "after:bg-primary/50" : "after:bg-transparent hover:after:bg-primary/50",
+          "group absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none md:block",
+          // A grey grip, drawn as a short pill on the edge. It stays hidden until
+          // the pointer has rested on the edge for 0.3s, so the edge is quiet
+          // while the owner is only passing over it. While dragging it shows at
+          // once, since the pointer has usually left the 12px target by then.
+          "after:absolute after:left-1/2 after:top-1/2 after:h-14 after:w-1 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-neutral-400 after:transition-opacity after:duration-150 after:content-['']",
+          resizing ? "after:opacity-100" : "after:opacity-0 hover:after:opacity-100 hover:after:delay-300",
+          "focus-visible:after:opacity-100",
         )}
       >
         {!resizing && (

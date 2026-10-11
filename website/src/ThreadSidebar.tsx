@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
-import { ClockIcon, PanelIcon, PlusIcon, WalletIcon } from "./components/ui/icons";
+import { ClockIcon, PanelIcon, PlugIcon, PlusIcon } from "./components/ui/icons";
+import { runningPlugins } from "./plugins";
+import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
 import type { View } from "./routing";
 
@@ -132,7 +134,7 @@ export function ThreadSidebar({
   view,
   onNavigate,
   features,
-  onOpenFinance,
+  onOpenPlugin,
   account,
   onLogout,
 }: {
@@ -154,7 +156,8 @@ export function ThreadSidebar({
   view: View;
   onNavigate: (view: View) => void;
   features: string[];
-  onOpenFinance: () => void;
+  // Opens a plugin's window by its id, from the Plugins menu.
+  onOpenPlugin: (pluginId: string) => void;
   account?: Account;
   onLogout: () => void;
 }) {
@@ -171,6 +174,27 @@ export function ThreadSidebar({
   const sidebarWidthRef = useRef(sidebarWidth);
   const dragStart = useRef({ x: 0, width: SIDEBAR_DEFAULT_WIDTH });
   const [resizing, setResizing] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const pluginsRoot = useRef<HTMLDivElement | null>(null);
+  const plugins = runningPlugins(features);
+
+  // The Plugins menu dismisses the way the edit-sidebar popover does: a press
+  // anywhere outside it, or Escape, closes it.
+  useEffect(() => {
+    if (!pluginsOpen) return;
+    const onPointer = (event: globalThis.PointerEvent) => {
+      if (!pluginsRoot.current?.contains(event.target as Node)) setPluginsOpen(false);
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setPluginsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pluginsOpen]);
 
   function updateSidebarWidth(width: number) {
     const next = clampSidebarWidth(width);
@@ -313,8 +337,8 @@ export function ThreadSidebar({
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
       <div className="flex h-14 shrink-0 items-center gap-1 pl-4 pr-2">
-        <span className="flex-1 truncate text-base font-semibold tracking-tight">
-          Eggy<span className="ml-1 text-primary">.</span>
+        <span className="flex-1 truncate">
+          <EggyBrand />
         </span>
         <button
           type="button"
@@ -335,7 +359,34 @@ export function ThreadSidebar({
           onClick={handleNew}
         />
         <NavRow icon={<ClockIcon />} label="Scheduled" active={view === "scheduled"} onClick={() => onNavigate("scheduled")} />
-        {features.includes("finance") && <NavRow icon={<WalletIcon />} label="Finance" onClick={onOpenFinance} />}
+        {plugins.length > 0 && (
+          <div ref={pluginsRoot} className="relative">
+            <NavRow icon={<PlugIcon />} label="Plugins" active={pluginsOpen} onClick={() => setPluginsOpen((open) => !open)} />
+            {pluginsOpen && (
+              <div
+                role="menu"
+                aria-label="Plugins"
+                className="absolute left-full top-0 z-30 ml-2 w-48 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift"
+              >
+                {plugins.map((plugin) => (
+                  <button
+                    key={plugin.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setPluginsOpen(false);
+                      onOpenPlugin(plugin.id);
+                    }}
+                    className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-sm text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
+                  >
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{plugin.icon}</span>
+                    {plugin.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {error && (

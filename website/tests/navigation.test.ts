@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AccountMenu } from "../src/AccountMenu";
 import { ConfigPage } from "../src/ConfigPage";
-import { Dialog } from "../src/components/ui/dialog";
+import { runningPlugins } from "../src/plugins";
 import { ThreadSidebar, groupThreads } from "../src/ThreadSidebar";
 import type { Thread } from "../src/api";
 import { pathForView, viewForPath, type View } from "../src/routing";
@@ -74,7 +74,7 @@ function sidebar(props: { view: View; features?: string[] }) {
       view: props.view,
       onNavigate: () => {},
       features: props.features ?? [],
-      onOpenFinance: () => {},
+      onOpenPlugin: () => {},
       onLogout: () => {},
     }),
   );
@@ -96,11 +96,12 @@ test("Scheduled is the current destination only on the Scheduled view", () => {
   expect(sidebar({ view: "chat" })).not.toContain('aria-current="page"');
 });
 
-test("Finance appears in the rail only when the capability is running", () => {
-  expect(sidebar({ view: "chat", features: [] })).not.toContain(">Finance<");
+test("Plugins appear in the rail only when a plugin is running, and Finance sits inside their menu", () => {
+  expect(sidebar({ view: "chat", features: [] })).not.toContain(">Plugins<");
   const enabled = sidebar({ view: "chat", features: ["finance"] });
-  expect(enabled).toContain(">Finance<");
-  // It opens a popup, so it is a button rather than a link to a page.
+  expect(enabled).toContain(">Plugins<");
+  // The menu is closed until opened, so Finance is not in the markup yet.
+  expect(enabled).not.toContain(">Finance<");
   expect(enabled).not.toContain('href="/finance"');
 });
 
@@ -118,18 +119,10 @@ test("the account menu is closed until opened, so the rail shows only the owner'
   expect(html).not.toContain('role="menu"');
 });
 
-test("the finance popup renders nothing while closed and names itself when open", () => {
-  const closed = renderToStaticMarkup(
-    createElement(Dialog, { open: false, title: "Finance", onClose: () => {} }, "body"),
-  );
-  expect(closed).toBe("");
-
-  const open = renderToStaticMarkup(
-    createElement(Dialog, { open: true, title: "Finance", onClose: () => {} }, "body"),
-  );
-  expect(open).toContain('role="dialog"');
-  expect(open).toContain('aria-label="Finance"');
-  expect(open).toContain('aria-label="Close Finance"');
+test("a plugin is listed only while its feature is running", () => {
+  expect(runningPlugins([]).map((plugin) => plugin.id)).toEqual([]);
+  expect(runningPlugins(["finance"]).map((plugin) => plugin.id)).toEqual(["finance"]);
+  expect(runningPlugins(["other"]).map((plugin) => plugin.id)).toEqual([]);
 });
 
 function thread(id: string, updatedAt: string): Thread {

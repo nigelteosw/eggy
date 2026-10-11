@@ -6,6 +6,9 @@ export default {
     extend: {
       fontFamily: {
         sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+        // The wordmark's face. Used where the brand is shown (the sign-in page),
+        // not app-wide, so the rest of the panel keeps the system UI face.
+        brand: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
       },
       colors: {

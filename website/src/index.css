@@ -345,3 +345,91 @@
     background: transparent;
   }
 }
+
+/* The sign-in page's backgrounds, carried over from LexCatalyst. The light
+   gradient drifts behind the form; the near-black panel carries the brand.
+   The dark theme swaps the light gradient for a charcoal one of the same
+   hue rhythm, so the form's tokens stay legible in either theme. */
+@keyframes pearl-hue {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.login-pearl-bg {
+  background: linear-gradient(
+    135deg,
+    hsl(210, 30%, 97%) 0%,
+    hsl(240, 25%, 97%) 25%,
+    hsl(200, 35%, 96%) 50%,
+    hsl(160, 20%, 97%) 75%,
+    hsl(210, 30%, 97%) 100%
+  );
+  background-size: 400% 400%;
+  animation: pearl-hue 18s ease-in-out infinite;
+}
+
+.dark .login-pearl-bg {
+  background: linear-gradient(
+    135deg,
+    hsl(210, 14%, 9%) 0%,
+    hsl(240, 12%, 10%) 25%,
+    hsl(200, 16%, 8%) 50%,
+    hsl(160, 9%, 9%) 75%,
+    hsl(210, 14%, 9%) 100%
+  );
+  background-size: 400% 400%;
+  animation: pearl-hue 18s ease-in-out infinite;
+}
+
+/* Pearlescent black: drifting, faintly iridescent light pools over near-black. */
+.pearl-black {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #0e1013;
+}
+
+.pearl-black::before,
+.pearl-black::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(60px);
+  will-change: transform;
+}
+
+.pearl-black::before {
+  background:
+    radial-gradient(40% 35% at 25% 30%, rgba(150, 175, 255, 0.20), transparent 70%),
+    radial-gradient(35% 40% at 75% 65%, rgba(200, 150, 255, 0.16), transparent 70%),
+    radial-gradient(30% 30% at 60% 20%, rgba(120, 230, 215, 0.13), transparent 70%);
+  animation: pearl-drift-a 24s ease-in-out infinite alternate;
+}
+
+.pearl-black::after {
+  background:
+    radial-gradient(35% 35% at 70% 25%, rgba(255, 190, 215, 0.13), transparent 70%),
+    radial-gradient(40% 35% at 30% 75%, rgba(140, 200, 255, 0.15), transparent 70%);
+  animation: pearl-drift-b 31s ease-in-out infinite alternate;
+}
+
+@keyframes pearl-drift-a {
+  from { transform: translate3d(-6%, -4%, 0) rotate(0deg) scale(1); }
+  to   { transform: translate3d(6%, 5%, 0) rotate(25deg) scale(1.15); }
+}
+
+@keyframes pearl-drift-b {
+  from { transform: translate3d(5%, 4%, 0) rotate(0deg) scale(1.1); }
+  to   { transform: translate3d(-6%, -5%, 0) rotate(-30deg) scale(0.95); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-pearl-bg,
+  .pearl-black::before,
+  .pearl-black::after {
+    animation: none;
+  }
+}

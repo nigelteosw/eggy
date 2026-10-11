@@ -16,8 +16,8 @@ conversations and the destinations below. Each view is addressable directly:
 | Traces | `/traces` | [Every turn as it actually ran](/eggy/use/traces/) |
 
 Scheduled and Settings are in the sidebar. Traces, Settings and sign-out are in
-the account menu at the foot of the sidebar. Optional features such as Finance
-open as a window over the current view.
+the account menu at the foot of the sidebar. Optional features such as Finance are
+under **Plugins** in the sidebar and open to fill the work area beside the sidebar.
 
 The layout is responsive: on a phone the sidebar slides over the content and
 closes when you pick a destination, and the settings sidebar collapses into its

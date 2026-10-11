@@ -5,13 +5,12 @@ import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginTo
 import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
-import { FinancePage } from "./FinancePage";
 import { SafeModePage } from "./SafeModePage";
+import { runningPlugins } from "./plugins";
 import { SchedulesPage } from "./SchedulesPage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
-import { Dialog } from "./components/ui/dialog";
-import { PanelIcon } from "./components/ui/icons";
+import { CloseIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 import { pathForView, viewForPath, type View } from "./routing";
 
@@ -41,9 +40,10 @@ export function App() {
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
   const [draftChatOpen, setDraftChatOpen] = useState(false);
   const [sidebarReloadKey, setSidebarReloadKey] = useState(0);
-  // Finance opens as a popup over whatever is on screen rather than replacing
-  // it, so the owner returns to the same chat or page when it closes.
-  const [financeOpen, setFinanceOpen] = useState(false);
+  // The plugin window open over the current view, by plugin id. A plugin opens
+  // as a popup rather than replacing the view, so the owner returns to the same
+  // chat or page when it closes.
+  const [activePlugin, setActivePlugin] = useState<string | null>(null);
   // Whether the rail is showing. It is one flag across both layouts, remembered
   // per device: below md the rail is an off-canvas overlay (there is no room for
   // a static column beside the content on a phone), and at md and up it is an
@@ -66,12 +66,14 @@ export function App() {
   // Choosing a destination on a phone also dismisses the rail, which is an
   // overlay there. At md and up the rail stays as the owner left it.
   function goTo(next: View) {
+    // Picking a destination leaves any plugin that was filling the work area.
+    setActivePlugin(null);
     navigate(next);
     if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
   }
 
-  function openFinance() {
-    setFinanceOpen(true);
+  function openPlugin(pluginId: string) {
+    setActivePlugin(pluginId);
     if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
   }
 
@@ -120,7 +122,7 @@ export function App() {
     setActiveThreadId(null);
     setActiveThreadTitle("New chat");
     setDraftChatOpen(false);
-    setFinanceOpen(false);
+    setActivePlugin(null);
     setSidebarReloadKey((key) => key + 1);
     setStatus("unauthenticated");
   }
@@ -185,6 +187,10 @@ export function App() {
     return <SafeModePage onSessionExpired={onSessionExpired} />;
   }
 
+  // Only a plugin whose feature is running can be open; a stale id from before
+  // a restart finds nothing and the view underneath shows.
+  const activePluginDef = runningPlugins(features ?? []).find((plugin) => plugin.id === activePlugin);
+
   return (
     <div className="relative flex h-dvh overflow-hidden bg-background">
       {sidebarOpen && (
@@ -225,7 +231,7 @@ export function App() {
           view={view}
           onNavigate={goTo}
           features={features ?? []}
-          onOpenFinance={openFinance}
+          onOpenPlugin={openPlugin}
           account={account}
           onLogout={signOut}
         />
@@ -248,7 +254,27 @@ export function App() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1">
-        {view === "chat" ? (
+        {activePluginDef ? (
+          // A plugin takes the whole work area beside the rail, with its own
+          // header and a close control that returns to the view underneath.
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex h-14 shrink-0 items-center gap-2 bg-background pl-5 pr-2 shadow-[inset_0_-1px_0_hsl(var(--border))]">
+              <h2 className="flex-1 truncate text-[14.5px] font-semibold tracking-tight">{activePluginDef.label}</h2>
+              <button
+                type="button"
+                onClick={() => setActivePlugin(null)}
+                aria-label={`Close ${activePluginDef.label}`}
+                title="Close"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <activePluginDef.Panel onSessionExpired={onSessionExpired} />
+            </div>
+          </div>
+        ) : view === "chat" ? (
           activeThreadId || draftChatOpen ? (
             <div className="min-w-0 flex-1">
               <ChatPage
@@ -287,11 +313,6 @@ export function App() {
         )}
       </div>
 
-      {features?.includes("finance") && (
-        <Dialog open={financeOpen} title="Finance" onClose={() => setFinanceOpen(false)}>
-          <FinancePage embedded onSessionExpired={onSessionExpired} />
-        </Dialog>
-      )}
     </div>
   );
 }

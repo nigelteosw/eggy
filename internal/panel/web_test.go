@@ -981,6 +981,18 @@ func TestWebRawConfigRequiresASession(t *testing.T) {
 	}
 }
 
+func TestPluginsPathServesTheApplicationShell(t *testing.T) {
+	handler := NewWebHandler("", WebUIConfig{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plugins", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET /plugins status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "<title>Eggy</title>") {
+		t.Fatalf("GET /plugins did not serve the application shell: %s", response.Body.String())
+	}
+}
+
 // testGetenv answers the variables validConfig names and nothing else. A stub
 // that answered everything would also answer PORT, which has to parse as one.
 func testGetenv(name string) string {

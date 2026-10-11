@@ -284,6 +284,11 @@ test("the settings card says to restart only when saved and running states diffe
   expect(settings({ enabled: false, savedEnabled: false, running: false })).not.toContain("Restart to apply");
 });
 
+test("the settings card identifies whether Finance is running", () => {
+  expect(settings({ running: true })).toContain("Running");
+  expect(settings({ running: false })).toContain("Not running");
+});
+
 // Flipping the switch is not yet a change to config.yaml, so it cannot yet
 // need a restart.
 test("an unsaved switch does not claim a restart is needed", () => {

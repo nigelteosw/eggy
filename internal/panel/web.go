@@ -390,7 +390,12 @@ func webUIHandler() http.Handler {
 }
 
 func isApplicationRoute(path string) bool {
-	return path == "/settings" || path == "/settings/" || path == "/traces" || path == "/traces/" || path == "/finance" || path == "/finance/" || path == "/auth/link"
+	switch path {
+	case "/settings", "/settings/", "/traces", "/traces/", "/finance", "/finance/", "/plugins", "/plugins/", "/auth/link":
+		return true
+	default:
+		return false
+	}
 }
 
 func webModelRemoveRoute(configPath string) http.HandlerFunc {

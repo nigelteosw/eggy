@@ -38,7 +38,18 @@ export function FinanceSettingsView({
   return (
     <section className="flex flex-col gap-3">
       <CardHeader
-        title="Finance"
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>Finance</span>
+            <span
+              role="status"
+              aria-label="Finance plugin status"
+              className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700"
+            >
+              {running ? "Running" : "Not running"}
+            </span>
+          </span>
+        }
         description="Log spending by telling Eggy, or by sending it a receipt photo, and see it in a Finance tab. Entries are private to each person's account. Turning this off hides the tab and the tool; entries are kept."
       />
       <form

@@ -6,6 +6,7 @@ import { ChatPage } from "./ChatPage";
 import { ConfigPage } from "./ConfigPage";
 import { TracesPage } from "./TracesPage";
 import { FinancePage } from "./FinancePage";
+import { PluginsPage } from "./PluginsPage";
 import { SafeModePage } from "./SafeModePage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
@@ -44,6 +45,7 @@ export function AppNavigation({
         {(
           [
             ["chat", "Chat"],
+            ["plugins", "Plugins"],
             ...(features.includes("finance") ? ([["finance", "Finance"]] as const) : []),
             ["traces", "Traces"],
             ["config", "Settings"],
@@ -349,9 +351,11 @@ export function App() {
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
+        ) : view === "plugins" ? (
+          <PluginsPage features={features ?? []} onSessionExpired={onSessionExpired} onNavigate={navigate} />
         ) : (
           <div className="min-h-0 min-w-0 flex-1">
-            <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} features={features ?? []} />
+            <ConfigPage theme={theme} onThemeChange={setTheme} onSessionExpired={onSessionExpired} />
           </div>
         )}
       </div>

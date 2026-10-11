@@ -7,7 +7,7 @@ import { cn } from "../../lib/utils";
 // on the dark sign-in panel alike. The yolk is the one fixed colour.
 export function EggyBrand({ className }: { className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5 font-brand text-foreground", className)}>
+    <span className={cn("inline-flex items-center gap-2.5 font-brand", className)}>
       <span
         aria-hidden="true"
         className="grid h-[34px] w-[27px] shrink-0 place-items-center rotate-[5deg] rounded-[52%_48%_48%_52%/62%_62%_38%_38%] border-2 border-current"

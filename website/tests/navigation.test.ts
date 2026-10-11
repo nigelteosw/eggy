@@ -6,12 +6,11 @@ import { ConfigPage } from "../src/ConfigPage";
 import { runningPlugins } from "../src/plugins";
 import { ThreadSidebar, groupThreads } from "../src/ThreadSidebar";
 import type { Thread } from "../src/api";
-import { pathForView, viewForPath, type View } from "../src/routing";
+import { isSettingsPath, pathForView, viewForPath, type View } from "../src/routing";
 
 test("maps each destination to its browser path", () => {
   expect(pathForView("chat")).toBe("/");
   expect(pathForView("scheduled")).toBe("/scheduled");
-  expect(pathForView("config")).toBe("/settings");
   expect(pathForView("traces")).toBe("/traces");
 });
 
@@ -19,10 +18,15 @@ test("maps browser paths back to app views", () => {
   expect(viewForPath("/")).toBe("chat");
   expect(viewForPath("/scheduled")).toBe("scheduled");
   expect(viewForPath("/scheduled/")).toBe("scheduled");
-  expect(viewForPath("/settings")).toBe("config");
-  expect(viewForPath("/settings/")).toBe("config");
   expect(viewForPath("/traces")).toBe("traces");
   expect(viewForPath("/unknown-page")).toBe("chat");
+});
+
+test("settings is a popup path over the chat, with or without a trailing slash", () => {
+  expect(isSettingsPath("/settings")).toBe(true);
+  expect(isSettingsPath("/settings/")).toBe(true);
+  expect(isSettingsPath("/")).toBe(false);
+  expect(viewForPath("/settings")).toBe("chat");
 });
 
 test("retired pages fall back to chat rather than an empty screen", () => {
@@ -75,12 +79,13 @@ function sidebar(props: { view: View; features?: string[] }) {
       onNavigate: () => {},
       features: props.features ?? [],
       onOpenPlugin: () => {},
+      onOpenSettings: () => {},
       onLogout: () => {},
     }),
   );
 }
 
-for (const view of ["chat", "scheduled", "traces", "config"] as const) {
+for (const view of ["chat", "scheduled", "traces"] as const) {
   test(`the rail keeps every destination reachable from ${view}`, () => {
     const html = sidebar({ view });
     expect(html).toContain('aria-label="Main navigation"');
@@ -110,6 +115,7 @@ test("the account menu is closed until opened, so the rail shows only the owner'
     createElement(AccountMenu, {
       account: { id: "owner", username: "nigel" },
       onNavigate: () => {},
+      onOpenSettings: () => {},
       onLogout: () => {},
     }),
   );

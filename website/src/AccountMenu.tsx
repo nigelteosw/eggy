@@ -10,10 +10,12 @@ import type { View } from "./routing";
 export function AccountMenu({
   account,
   onNavigate,
+  onOpenSettings,
   onLogout,
 }: {
   account?: Account;
   onNavigate: (view: View) => void;
+  onOpenSettings: () => void;
   onLogout: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -52,7 +54,7 @@ export function AccountMenu({
           <p className="truncate px-3.5 pb-1.5 pt-1 text-xs text-muted-foreground" title={name}>
             {name}
           </p>
-          <MenuItem icon={<SettingsIcon />} label="Settings" onClick={() => choose(() => onNavigate("config"))} />
+          <MenuItem icon={<SettingsIcon />} label="Settings" onClick={() => choose(onOpenSettings)} />
           <MenuItem icon={<TraceIcon />} label="Traces" onClick={() => choose(() => onNavigate("traces"))} />
           <div aria-hidden="true" className="my-1 h-px bg-border" />
           <MenuItem icon={<LogoutIcon />} label="Sign out" onClick={() => choose(onLogout)} />

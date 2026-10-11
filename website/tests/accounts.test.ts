@@ -100,7 +100,7 @@ test("a 401 clears the cached session so the next user starts clean", async () =
 
 test("the account menu shows who is signed in, with sign-out kept behind it", () => {
   const html = renderToStaticMarkup(
-    createElement(AccountMenu, { account: { id: "nigel", username: "nigel" }, onNavigate: () => {}, onLogout: () => {} }),
+    createElement(AccountMenu, { account: { id: "nigel", username: "nigel" }, onNavigate: () => {}, onOpenSettings: () => {}, onLogout: () => {} }),
   );
   expect(html).toContain("nigel");
   expect(html).not.toContain("Sign out");

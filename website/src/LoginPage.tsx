@@ -45,7 +45,7 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
     <div className="login-pearl-bg flex min-h-dvh w-full flex-col overflow-y-auto text-foreground lg:flex-row">
       {/* Brand panel. Above the form on a phone, beside it on a wide screen. */}
       <div className="pearl-black order-2 flex shrink-0 flex-col justify-between gap-12 px-8 py-10 text-white lg:order-none lg:flex-1 lg:px-16 lg:py-14">
-        <EggyBrand />
+        <EggyBrand className="text-white" />
 
         <div className="max-w-xl">
           <h1 className="font-brand text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">

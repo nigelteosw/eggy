@@ -3,7 +3,7 @@ import { applyTheme, checkSession, clearSession, getMode, logout, type Account, 
 import { LoginPage } from "./LoginPage";
 import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "./WebLoginLinkPage";
 import { ChatPage } from "./ChatPage";
-import { ConfigPage } from "./ConfigPage";
+import { SettingsDialog } from "./SettingsDialog";
 import { TracesPage } from "./TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { runningPlugins } from "./plugins";
@@ -12,7 +12,7 @@ import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { CloseIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
-import { pathForView, viewForPath, type View } from "./routing";
+import { isSettingsPath, pathForView, viewForPath, type View } from "./routing";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
@@ -36,6 +36,11 @@ export function App() {
   const [view, setView] = useState<View>(() =>
     viewForPath(typeof window === "undefined" ? "/" : window.location.pathname),
   );
+  // Settings is a popup over the view, addressable at /settings. Opening on that
+  // path shows the popup over the chat behind it.
+  const [settingsOpen, setSettingsOpen] = useState(() =>
+    typeof window !== "undefined" && isSettingsPath(window.location.pathname),
+  );
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
   const [draftChatOpen, setDraftChatOpen] = useState(false);
@@ -49,10 +54,19 @@ export function App() {
   // a static column beside the content on a phone), and at md and up it is an
   // inline column that the owner can close to give the content the whole
   // window. The stored default is open, so a first visit lands on the list.
-  const [sidebarOpen, setSidebarOpen] = useStoredFlag("eggy.chat.sidebar", true);
+  // The first-visit default depends on the screen: open on a desktop, where the
+  // rail sits beside the content, but closed on a phone, where it would cover
+  // the one thing the owner came for. An explicit choice is remembered after that.
+  const [sidebarOpen, setSidebarOpen] = useStoredFlag(
+    "eggy.chat.sidebar",
+    typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches,
+  );
 
   useEffect(() => {
-    const handlePopState = () => setView(viewForPath(window.location.pathname));
+    const handlePopState = () => {
+      setView(viewForPath(window.location.pathname));
+      setSettingsOpen(isSettingsPath(window.location.pathname));
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
@@ -61,6 +75,19 @@ export function App() {
     const path = pathForView(next);
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
     setView(next);
+  }
+
+  // Settings opens over the current view and keeps its address, so the popup
+  // can be shared. Closing it puts back the address of the view underneath.
+  function openSettings() {
+    if (!isSettingsPath(window.location.pathname)) window.history.pushState({}, "", "/settings");
+    setSettingsOpen(true);
+    if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+  }
+
+  function closeSettings() {
+    if (isSettingsPath(window.location.pathname)) window.history.replaceState({}, "", pathForView(view));
+    setSettingsOpen(false);
   }
 
   // Choosing a destination on a phone also dismisses the rail, which is an
@@ -204,8 +231,8 @@ export function App() {
           sliding it behind the content, so the content reclaims the width.
           Below md it stays an overlay. */}
       <div
-        className={`absolute inset-y-0 left-0 z-30 shadow-lift transition-transform duration-200 ease-out md:static md:shadow-none md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full md:hidden"
+        className={`absolute inset-y-0 left-0 z-30 transition-transform duration-200 ease-out md:static md:translate-x-0 ${
+          sidebarOpen ? "translate-x-0 shadow-lift md:shadow-none" : "-translate-x-full md:hidden"
         }`}
       >
         <ThreadSidebar
@@ -232,6 +259,7 @@ export function App() {
           onNavigate={goTo}
           features={features ?? []}
           onOpenPlugin={openPlugin}
+          onOpenSettings={openSettings}
           account={account}
           onLogout={signOut}
         />
@@ -301,17 +329,16 @@ export function App() {
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
-        ) : (
-          <div className="min-h-0 min-w-0 flex-1">
-            <ConfigPage
-              theme={theme}
-              onThemeChange={setTheme}
-              onSessionExpired={onSessionExpired}
-              features={features ?? []}
-            />
-          </div>
-        )}
+        ) : null}
       </div>
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={closeSettings}
+        theme={theme}
+        onThemeChange={setTheme}
+        features={features ?? []}
+        onSessionExpired={onSessionExpired}
+      />
 
     </div>
   );

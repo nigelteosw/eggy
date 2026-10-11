@@ -135,6 +135,7 @@ export function ThreadSidebar({
   onNavigate,
   features,
   onOpenPlugin,
+  onOpenSettings,
   account,
   onLogout,
 }: {
@@ -158,6 +159,7 @@ export function ThreadSidebar({
   features: string[];
   // Opens a plugin's window by its id, from the Plugins menu.
   onOpenPlugin: (pluginId: string) => void;
+  onOpenSettings: () => void;
   account?: Account;
   onLogout: () => void;
 }) {
@@ -366,7 +368,7 @@ export function ThreadSidebar({
               <div
                 role="menu"
                 aria-label="Plugins"
-                className="absolute left-full top-0 z-30 ml-2 w-48 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift"
+                className="mt-1 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
               >
                 {plugins.map((plugin) => (
                   <button
@@ -487,7 +489,7 @@ export function ThreadSidebar({
       </div>
 
       <div className="shrink-0 border-t border-border px-2 py-2">
-        <AccountMenu account={account} onNavigate={onNavigate} onLogout={onLogout} />
+        <AccountMenu account={account} onNavigate={onNavigate} onOpenSettings={onOpenSettings} onLogout={onLogout} />
       </div>
 
       <button

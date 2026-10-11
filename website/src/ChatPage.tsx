@@ -1,13 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, sendChatMessage } from "./api";
+import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage } from "./api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
-import { LockIcon, MenuIcon, ReplyIcon } from "./components/ui/icons";
+import { ArrowDownIcon, ChevronDownIcon, LockIcon, MenuIcon, ReplyIcon } from "./components/ui/icons";
 import { cn, errorMessage } from "./lib/utils";
 
+// The status steps a turn went through, and how long it ran, kept on the reply
+// the turn produced. Live steps are not persisted, so a reloaded chat shows
+// only the reply and any reasoning the backend stored as its own message.
+type Activity = { steps: string[]; seconds: number | null };
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
+
+// The backend delivers a model's reasoning as its own assistant message with
+// this prefix when the owner has thinking shown (see turns.run). The web view
+// draws it as a collapsed thought rather than as a reply.
+const THINKING_PREFIX = "Thinking:\n";
 
 // The reply prefix as events.Message.Prompt builds it on the backend. The
 // optimistic bubble must be the exact string history will later hold, or the
@@ -134,12 +143,151 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   );
 }
 
+// A turn's working-out, drawn as one line that opens onto its steps. While the
+// turn runs the line shows the newest step with the typing dots; once the reply
+// is in it shows the same line over "Thought for Ns" and the steps.
+function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds: number | null; live: boolean }) {
+  const [open, setOpen] = useState(!live);
+  const summary = steps[steps.length - 1] ?? (live ? "Eggy is typing" : "Thought");
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex max-w-full items-center gap-2 rounded-lg py-1 text-left text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {live && (
+          <span className="flex shrink-0 gap-1" aria-hidden="true">
+            <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500" />
+            <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.15s]" />
+            <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.3s]" />
+          </span>
+        )}
+        <span className="truncate">{summary}</span>
+        <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-2xl border border-border px-4 py-3.5 text-[0.8125rem] text-muted-foreground">
+          {seconds !== null && !live && <p className="mb-2 text-xs text-muted-foreground/80">Thought for {seconds}s</p>}
+          <ul className="space-y-2">
+            {steps.map((step, index) => (
+              <li key={`${index}-${step}`} className="leading-5">
+                {step}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A reasoning message, collapsed until the owner opens it.
+function ThoughtBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 rounded-lg py-1 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>Thinking</span>
+        <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-2xl border border-border px-4 py-3.5 text-muted-foreground">
+          <MessageBody text={text.slice(THINKING_PREFIX.length)} isUserBubble={false} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The conversation title, seamless with the page. Clicking it opens a small
+// menu; Rename turns it into an input that saves on Enter or blur.
+function ThreadTitle({ title, renamable, onRename }: { title: string; renamable: boolean; onRename: (next: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [draft, setDraft] = useState(title);
+  // Enter and Escape both end the edit, and the blur that follows must not
+  // save or cancel a second time. The ref is the one place that knows.
+  const editingRef = useRef(false);
+
+  function startEditing() {
+    setMenuOpen(false);
+    setDraft(title);
+    editingRef.current = true;
+    setEditing(true);
+  }
+
+  function finish(save: boolean) {
+    if (!editingRef.current) return;
+    editingRef.current = false;
+    setEditing(false);
+    const next = draft.trim();
+    if (save && next && next !== title) onRename(next);
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        aria-label="Chat name"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={(event) => event.currentTarget.select()}
+        onBlur={() => finish(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") finish(true);
+          if (event.key === "Escape") finish(false);
+        }}
+        className="min-w-0 max-w-full rounded-lg bg-neutral-100 px-2 py-1 text-base font-medium tracking-tight outline-none ring-2 ring-ring/40"
+      />
+    );
+  }
+
+  return (
+    <div className="relative min-w-0">
+      <button
+        type="button"
+        disabled={!renamable}
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        className="flex max-w-full items-center gap-1 rounded-lg px-2 py-1 text-base font-medium tracking-tight transition-colors hover:bg-neutral-100 disabled:hover:bg-transparent"
+      >
+        <span className="truncate">{title}</span>
+        {renamable && <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+      </button>
+      {menuOpen && (
+        <>
+          <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setMenuOpen(false)} />
+          <div role="menu" className="absolute left-0 top-full z-20 mt-1 min-w-[11rem] rounded-xl border border-border bg-background p-1 shadow-lift">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={startEditing}
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100"
+            >
+              Rename
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ChatPage({
   threadId,
   title,
   onSessionExpired,
   onMessageResolved,
   onThreadCreated,
+  onRenamed,
   onOpenSidebar,
 }: {
   threadId: string | null;
@@ -147,6 +295,7 @@ export function ChatPage({
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
   onThreadCreated?: (threadId: string) => void;
+  onRenamed?: (title: string) => void;
   // Passed only while the rail is closed. On a phone the header carries the
   // menu control, so the chat does not leave an empty gutter for it.
   onOpenSidebar?: () => void;
@@ -160,14 +309,24 @@ export function ChatPage({
   // just typed by replacing it wholesale.
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [typing, setTyping] = useState(false);
-  // activity is the turn's current status line ("Calling web_search..."),
-  // drawn in place of the generic typing label. It never enters history;
-  // the reply that ends the turn clears it.
-  const [activity, setActivity] = useState<string | null>(null);
+  // liveSteps is the running turn's status lines ("Calling web_search..."),
+  // shown as the turn's working-out. liveRef mirrors it for the SSE handlers,
+  // which are bound once per thread and would otherwise read a stale copy.
+  const [liveSteps, setLiveSteps] = useState<string[]>([]);
+  const liveRef = useRef<string[]>([]);
+  const turnStartRef = useRef<number | null>(null);
+  // Finished turns' steps, keyed by the reply's index in history. The index
+  // is what survives the history refetch that follows every reply.
+  const [activityByIndex, setActivityByIndex] = useState<Record<number, Activity>>({});
+  const historyCountRef = useRef(0);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  // Whether the transcript is scrolled to its end. New replies follow the end
+  // only while the owner is there; scrolled up, they keep their place.
+  const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
   const [selection, clearSelection] = useSelectionAnchor(transcriptRef);
   const [quote, setQuote] = useState<Quote | null>(null);
   const threadRef = useRef<string | null>(threadId);
@@ -185,6 +344,7 @@ export function ChatPage({
           text: row[1] ?? "",
         }));
         setHistory(fetched);
+        historyCountRef.current = fetched.length;
         // Drop any pending optimistic send the server has now caught up on;
         // keep the rest showing until it does.
         setPending((current) => current.filter((message) => !fetched.some((row) => row.role === "user" && row.text === message.text)));
@@ -204,32 +364,61 @@ export function ChatPage({
     if (!createdFromDraft) setPending([]);
     setApprovals([]);
     setTyping(false);
-    setActivity(null);
+    liveRef.current = [];
+    turnStartRef.current = null;
+    setLiveSteps([]);
+    setActivityByIndex({});
+    historyCountRef.current = 0;
     setQuote(null);
     previousThreadId.current = threadId;
     if (!threadId) return;
     loadHistory();
     const source = new EventSource(`/api/chat/threads/${encodeURIComponent(threadId)}/stream`);
 
+    // Records one status line of the running turn, skipping an immediate repeat.
+    function pushStep(text: string | undefined) {
+      if (!text || liveRef.current[liveRef.current.length - 1] === text) return;
+      liveRef.current = [...liveRef.current, text];
+      setLiveSteps(liveRef.current);
+    }
+
     source.addEventListener("open", () => loadHistory());
 
     source.addEventListener("message", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
+      const text = event.text ?? "";
+      const index = historyCountRef.current;
       setTyping(false);
-      setActivity(null);
-      setHistory((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text: event.text ?? "" }]);
+      // Reasoning arrives before the reply it belongs to, so the turn's steps
+      // are only closed off by the reply itself.
+      if (!text.startsWith(THINKING_PREFIX)) {
+        if (liveRef.current.length > 0) {
+          const seconds = turnStartRef.current === null ? null : Math.round((Date.now() - turnStartRef.current) / 1000);
+          const finished = { steps: liveRef.current, seconds };
+          setActivityByIndex((current) => ({ ...current, [index]: finished }));
+        }
+        liveRef.current = [];
+        turnStartRef.current = null;
+        setLiveSteps([]);
+      }
+      historyCountRef.current = index + 1;
+      setHistory((current) => [...current, { id: event.id ?? `msg-${current.length}`, role: "assistant", text }]);
       // A reply means the turn that recorded our pending send has finished;
       // reconcile now rather than waiting for the next reconnect.
       loadHistory();
       onMessageResolved?.();
     });
 
-    source.addEventListener("typing", () => setTyping(true));
+    source.addEventListener("typing", () => {
+      turnStartRef.current ??= Date.now();
+      setTyping(true);
+    });
 
     source.addEventListener("progress", (raw) => {
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
+      turnStartRef.current ??= Date.now();
       setTyping(true);
-      setActivity(event.text ?? null);
+      pushStep(event.text);
     });
 
     source.addEventListener("edit", (raw) => {
@@ -255,10 +444,41 @@ export function ChatPage({
   }, [threadId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (atBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  function onTranscriptScroll() {
+    const host = transcriptRef.current;
+    if (!host) return;
+    const near = host.scrollHeight - host.scrollTop - host.clientHeight < 96;
+    atBottomRef.current = near;
+    setAtBottom(near);
+  }
+
+  function jumpToBottom() {
+    atBottomRef.current = true;
+    setAtBottom(true);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function rename(next: string) {
+    if (!threadId) return;
+    const previous = title;
+    onRenamed?.(next);
+    renameThread(threadId, next).catch((err) => {
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
+      onRenamed?.(previous);
+      setError(errorMessage(err, "Could not rename chat"));
+    });
+  }
+
   async function handleSend(text: string, quote: Quote | null) {
+    // Sending is the owner asking to see the reply, so it brings them to the end.
+    atBottomRef.current = true;
+    setAtBottom(true);
     setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: withQuote(quote, text) }]);
     try {
       let target = threadRef.current;
@@ -292,7 +512,9 @@ export function ChatPage({
 
   return (
     <div className="app-canvas flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8">
+      {/* No rule or fill: the header sits on the page, and only the title shows a
+          soft highlight when hovered. */}
+      <header className="flex h-14 shrink-0 items-center gap-2 px-4 sm:px-8">
         {onOpenSidebar && (
           <button
             type="button"
@@ -304,11 +526,10 @@ export function ChatPage({
             <MenuIcon />
           </button>
         )}
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
-        </div>
+        <ThreadTitle title={title} renamable={threadId !== null} onRename={rename} />
       </header>
-      <div ref={transcriptRef} className="scrollbar-slim relative flex-1 overflow-y-auto">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div ref={transcriptRef} onScroll={onTranscriptScroll} className="scrollbar-slim relative min-h-0 flex-1 overflow-y-auto">
         {selection && (
           <button
             type="button"
@@ -336,7 +557,7 @@ export function ChatPage({
               <p className="text-sm text-muted-foreground">Start by asking a question or describing a task.</p>
             </div>
           )}
-          {messages.map((message) => {
+          {messages.map((message, index) => {
             const isUser = message.role === "user";
             if (isUser) {
               const { quote: quoted, body } = splitQuote(message.text);
@@ -354,30 +575,22 @@ export function ChatPage({
                 </div>
               );
             }
+            if (message.text.startsWith(THINKING_PREFIX)) {
+              return (
+                <div key={message.id} data-role="assistant" className="animate-fade-in-up">
+                  <ThoughtBlock text={message.text} />
+                </div>
+              );
+            }
+            const activity = activityByIndex[index];
             return (
-              <div key={message.id} data-role="assistant" className="flex animate-fade-in-up gap-3.5">
-                <div
-                  aria-hidden="true"
-                  className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-100 text-xs font-semibold text-accent-700"
-                >
-                  E
-                </div>
-                <div className="min-w-0 flex-1 text-sm">
-                  <MessageBody text={message.text} isUserBubble={false} />
-                </div>
+              <div key={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
+                {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
+                <MessageBody text={message.text} isUserBubble={false} />
               </div>
             );
           })}
-          {typing && (
-            <div className="flex items-center gap-2 pl-[2.6rem] text-xs text-muted-foreground">
-              <span className="flex gap-1">
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500" />
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.15s]" />
-                <span className="h-1.5 w-1.5 animate-blink rounded-full bg-accent-500 [animation-delay:0.3s]" />
-              </span>
-              <span className="truncate">{activity ?? "Eggy is typing"}</span>
-            </div>
-          )}
+          {typing && <ActivityDisclosure steps={liveSteps} seconds={null} live />}
           {approvals.map((approval) => (
             <div
               key={approval.id}
@@ -415,6 +628,22 @@ export function ChatPage({
           )}
           <div ref={bottomRef} />
         </div>
+      </div>
+      {/* The fade lets the transcript dissolve into the composer rather than
+          stopping at a hard edge; the jump control appears once the owner has
+          scrolled away from the latest reply. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background to-transparent" />
+      {!atBottom && (
+        <button
+          type="button"
+          onClick={jumpToBottom}
+          aria-label="Jump to latest"
+          title="Jump to latest"
+          className="absolute bottom-3 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-lift transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <ArrowDownIcon className="h-4 w-4" />
+        </button>
+      )}
       </div>
       <Composer onSend={handleSend} onSessionExpired={onSessionExpired} quote={quote} onClearQuote={() => setQuote(null)} />
     </div>

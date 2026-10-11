@@ -329,6 +329,10 @@ export function App() {
                 title={activeThreadTitle}
                 onSessionExpired={onSessionExpired}
                 onMessageResolved={() => setSidebarReloadKey((key) => key + 1)}
+                onRenamed={(next) => {
+                  setActiveThreadTitle(next);
+                  setSidebarReloadKey((key) => key + 1);
+                }}
                 onThreadCreated={(id) => {
                   setActiveThreadId(id);
                   setDraftChatOpen(false);

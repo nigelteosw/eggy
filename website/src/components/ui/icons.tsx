@@ -118,6 +118,12 @@ export const ChevronDownIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const ArrowDownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 4.5v11M5.5 11 10 15.5 14.5 11" />
+  </Icon>
+);
+
 export const PaperclipIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M16.5 9.5 9.8 16.2a2.5 2.5 0 0 1-3.5-3.5l6.9-6.9a4 4 0 0 1 5.7 5.7l-7.4 7.4" />

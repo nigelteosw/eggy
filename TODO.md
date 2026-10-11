@@ -38,6 +38,40 @@ Deletion budget: ~2,500–4,000 production lines (estimate), 1 config key,
 1 tool plus turn-scoped coding tools, 1 record type, 1 worker while enabled,
 0 new services/databases/loops.
 
+## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
+
+Not started; scoped in conversation 2026-10-12. A fourth `View` in
+`website/src/routing.ts` (`customize`, `/customize`) with a rail entry under
+Scheduled, and a `CustomizePage` with `Skills | Connectors | Plugins` tabs,
+search, sort and an Add menu. Yours only: no Discover tab and no fetch-from-URL
+install, since a marketplace is declined in `AGENTS.md`. Plugins are placed on
+disk by the owner.
+
+Build in this order, test-first, each step landing on its own:
+
+1. **Shell and Skills tab.** `internal/panel/skills.go` routes for list, read,
+   write, delete and enable, through `SkillsService` (today read-only; it gains
+   write, delete and enable over the existing `SkillsStore.Write`/`Delete`, no
+   second path). A disabled skill drops out of the prompt index, so it costs
+   nothing. Rows show name, description and modified time; ⋮ offers view, edit,
+   disable, delete; Add writes a skill.
+2. **Move Connectors in.** `McpCard` leaves Settings and Customize owns MCP,
+   including the OAuth start and failure detail. No backend change: the existing
+   `internal/panel/mcp.go` list and set routes already carry it. One home, not
+   two.
+3. **Skills as directories.** `skills/<name>/SKILL.md` with room for reference
+   files; flat `skills/<name>.md` keeps loading so an existing home does not
+   break.
+4. **Plugins.** A plugin directory holds a manifest (name, version, description,
+   categories), its skills and optional MCP server entries; one toggle enables
+   them as a unit. Settle the manifest shape with the owner before building.
+   No hooks: Eggy has no hook surface and none is added here.
+
+Deletion budget: net-new, roughly 600–900 production lines (estimate) plus the
+SPA, 0 config keys beyond the plugin toggle, 0 tools (`skill_read` stays the
+only one), 1 durable flag per skill and plugin in SQLite, 0 loops. Removing
+`McpCard` from Settings offsets part of it.
+
 ## P2 — Make status actionable and bounded (S–M)
 
 `CommandService.status` (`internal/commands/commands.go`) reports model, mode,

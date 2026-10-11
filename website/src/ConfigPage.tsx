@@ -27,6 +27,7 @@ import {
   HeartIcon,
   PaletteIcon,
   PlugIcon,
+  SearchIcon,
   UsersIcon,
   WrenchIcon,
 } from "./components/ui/icons";
@@ -86,6 +87,7 @@ export function ConfigPage({
   initialSection?: SectionId;
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
+  const [query, setQuery] = useState("");
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
 
   async function handleLogout() {
@@ -131,29 +133,50 @@ export function ConfigPage({
       </div>
 
       <div className="hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex">
-        <div className="shrink-0 px-4 pb-2 pt-4 text-[14.5px] font-semibold tracking-tight">Settings</div>
+        <div className="shrink-0 px-3 pb-2 pt-3">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-background px-2.5 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
+            <SearchIcon className="h-4 w-4 shrink-0" />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search"
+              aria-label="Search settings"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
+            />
+          </label>
+        </div>
+        <div className="shrink-0 px-4 pb-1 pt-3 text-[13px] text-neutral-700">Settings</div>
         <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          {GROUPS.map((group) => (
-            <div key={group.id} className="mb-3">
-              <p className="px-3.5 pb-1 pt-2 text-[11.5px] font-semibold uppercase tracking-wide text-neutral-700" title={group.note}>
-                {group.heading}
-              </p>
-              {SECTIONS.filter((candidate) => candidate.group === group.id).map((candidate) => (
-                <button
-                  key={candidate.id}
-                  type="button"
-                  aria-current={candidate.id === active ? "page" : undefined}
-                  onClick={() => setActive(candidate.id)}
-                  className={cn(
-                    "mb-0.5 block min-h-[42px] w-full rounded-lg px-3.5 py-2.5 text-left text-sm text-foreground transition-colors",
-                    candidate.id === active ? "bg-background font-semibold" : "font-normal hover:bg-background/60",
-                  )}
-                >
-                  {candidate.label}
-                </button>
-              ))}
-            </div>
-          ))}
+          {GROUPS.map((group) => {
+            const matches = SECTIONS.filter((candidate) => candidate.group === group.id && candidate.label.toLowerCase().includes(query.trim().toLowerCase()));
+            if (matches.length === 0) return null;
+            return (
+              <div key={group.id} className="mb-3">
+                <p className="px-3 pb-1 pt-3 text-[13px] text-neutral-700" title={group.note}>
+                  {group.heading}
+                </p>
+                {matches.map((candidate) => (
+                  <button
+                    key={candidate.id}
+                    type="button"
+                    aria-current={candidate.id === active ? "page" : undefined}
+                    onClick={() => setActive(candidate.id)}
+                    className={cn(
+                      "mb-0.5 flex min-h-[36px] w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm text-foreground transition-colors",
+                      candidate.id === active ? "bg-neutral-200/70 font-medium" : "font-normal hover:bg-neutral-200/40",
+                    )}
+                  >
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center text-neutral-700 [&>svg]:h-4 [&>svg]:w-4">{candidate.icon}</span>
+                    {candidate.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {query.trim() !== "" && SECTIONS.every((candidate) => !candidate.label.toLowerCase().includes(query.trim().toLowerCase())) && (
+            <p className="px-3 py-2 text-sm text-neutral-700">No settings match “{query.trim()}”.</p>
+          )}
         </div>
         <div className="shrink-0 px-3 pb-4 pt-2 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
           <button

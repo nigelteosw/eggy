@@ -182,6 +182,13 @@ export const ReplyIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const SearchIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="9" cy="9" r="5.5" />
+    <path d="m13.5 13.5 3.5 3.5" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="m5 5 10 10M15 5 5 15" />

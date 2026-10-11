@@ -15,6 +15,7 @@ import {
 import { CardHeader } from "./components/ui/card-header";
 import { ErrorBanner } from "./components/ui/error-banner";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./components/ui/form";
+import { CloseIcon } from "./components/ui/icons";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
 import { CATEGORY_SUGGESTIONS, dayLabel, daysOfRange, monthLabel, shiftMonth } from "./lib/finance";
@@ -321,9 +322,9 @@ export function FinanceReport({
   );
 }
 
-// embedded is set when the page sits under an extension header that already names it;
-// the visible heading is then dropped so it is not said twice.
-export function FinancePage({ onSessionExpired, embedded = false }: { onSessionExpired: () => void; embedded?: boolean }) {
+// onClose is set when the page is opened as an extension window, which returns
+// to the view underneath. The page draws its own heading, the way Scheduled does.
+export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: () => void; onClose?: () => void }) {
   // An empty month asks the server for the owner's current one; after the
   // first answer the switcher steps from the month it reports.
   const [month, setMonth] = useState("");
@@ -386,11 +387,27 @@ export function FinancePage({ onSessionExpired, embedded = false }: { onSessionE
 
   return (
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7">
-        <header className="flex items-center justify-between gap-3">
-          <h1 className={embedded ? "sr-only" : "text-xl font-semibold tracking-tight"}>Finance</h1>
+      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-10 sm:px-7">
+        <header className="flex flex-col gap-1.5 pb-1">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close Finance"
+                title="Close"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <CloseIcon />
+              </button>
+            )}
+          </div>
+          <p className="max-w-2xl text-sm leading-6 text-neutral-700">
+            Money Eggy has logged for you. Add entries in chat, or send a receipt on Telegram.
+          </p>
           {summary && (
-            <div className="flex items-center gap-1">
+            <div className="mt-3 flex items-center gap-1 self-start">
               <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(summary.month, -1))} className={SECONDARY_BUTTON}>
                 ‹
               </button>

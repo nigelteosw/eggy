@@ -11,7 +11,9 @@ export type ExtensionDef = {
   label: string;
   icon: ReactNode;
   feature: string;
-  Panel: (props: { onSessionExpired: () => void }) => ReactNode;
+  // onClose returns to the view underneath; a panel draws its own heading and
+  // the close control, the way the other pages do.
+  Panel: (props: { onSessionExpired: () => void; onClose: () => void }) => ReactNode;
 };
 
 export const EXTENSIONS: ExtensionDef[] = [
@@ -20,7 +22,7 @@ export const EXTENSIONS: ExtensionDef[] = [
     label: "Finance",
     icon: <WalletIcon className="h-4 w-4" />,
     feature: "finance",
-    Panel: ({ onSessionExpired }) => <FinancePage embedded onSessionExpired={onSessionExpired} />,
+    Panel: ({ onSessionExpired, onClose }) => <FinancePage onClose={onClose} onSessionExpired={onSessionExpired} />,
   },
 ];
 

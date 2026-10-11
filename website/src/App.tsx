@@ -10,7 +10,7 @@ import { runningExtensions } from "./extensions";
 import { SchedulesPage } from "./SchedulesPage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
-import { CloseIcon, MenuIcon, PanelIcon } from "./components/ui/icons";
+import { MenuIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 import { isSettingsPath, pathForView, viewForPath, type View } from "./routing";
 
@@ -302,24 +302,10 @@ export function App() {
         )}
         <div className="flex min-h-0 min-w-0 flex-1">
         {activeExtensionDef ? (
-          // An extension takes the whole work area beside the rail, with its own
-          // header and a close control that returns to the view underneath.
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <div className="flex h-14 shrink-0 items-center gap-2 bg-background pl-5 pr-2 shadow-[inset_0_-1px_0_hsl(var(--border))]">
-              <h2 className="flex-1 truncate text-[14.5px] font-semibold tracking-tight">{activeExtensionDef.label}</h2>
-              <button
-                type="button"
-                onClick={() => setActiveExtension(null)}
-                aria-label={`Close ${activeExtensionDef.label}`}
-                title="Close"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <activeExtensionDef.Panel onSessionExpired={onSessionExpired} />
-            </div>
+          // An extension takes the whole work area beside the rail. It draws its
+          // own heading and close control, so there is no shared top bar.
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <activeExtensionDef.Panel onSessionExpired={onSessionExpired} onClose={() => setActiveExtension(null)} />
           </div>
         ) : view === "chat" ? (
           activeThreadId || draftChatOpen ? (

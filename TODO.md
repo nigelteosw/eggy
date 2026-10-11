@@ -8,6 +8,36 @@ Checked against the checkout on 2026-09-24, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
+## P0 — Agent Runner extension: Eggy codes on allowed repositories (L)
+
+Spec: `docs/superpowers/specs/2026-10-11-agent-runner-design.md` (proposed; not
+yet approved). Eggy's own loop, on a cheap OpenRouter model, edits a local
+checkout of an owner-allowed repository, runs its checks, and a trusted
+publisher pushes a feature branch and opens a PR. No Claude Code, no
+subscription token.
+
+- Extensions page card with `agent_runner.enabled`, like Finance. Each account
+  connects its own GitHub PAT (sealed, account-scoped) and enables cloning per
+  allowed repository, in the panel or in Telegram (`/code repos`).
+- Start from the panel form or `/code <repo> <task>` in a verified private
+  chat only. That ingress creates a 24-hour mandate; push and PR each get their
+  own payload-bound approval. Never merge, approve, force-push, or touch a
+  default/protected branch; reject workflow-file changes.
+- One `agent_runs` table, one worker while enabled, one owner-facing tool plus
+  turn-scoped coding tools. Check results come only from captured exit codes;
+  failed or unrun checks give a draft PR. Reconcile push/PR after a crash
+  without duplicating the PR.
+- v1 runs the shell as Eggy's OS user under `localprocess` in repositories the
+  owner trusts; the gap is documented. Enforced isolation is a later phase,
+  gated on a Railway proof, and is not a prerequisite.
+- Revise the `AGENTS.md` shipping and approval rules in the same change.
+- First step: confirm where per-account repository enablement is stored.
+  Sequence and the eight verification items are in the spec.
+
+Deletion budget: ~2,500–4,000 production lines (estimate), 1 config key,
+1 tool plus turn-scoped coding tools, 1 record type, 1 worker while enabled,
+0 new services/databases/loops.
+
 ## P2 — Make status actionable and bounded (S–M)
 
 `CommandService.status` (`internal/commands/commands.go`) reports model, mode,

@@ -1,403 +1,334 @@
 # Optional Agent Runner plugin
 
-Date: 2026-10-11
+Date: 2026-10-12 (rewrite of the 2026-10-11 draft)
 Status: Proposed specification for user review; no implementation approved or delivered.
 
-## Intent and agreed product behavior
+## Intent
 
-An Eggy user connects their own GitHub personal access token and Claude Code
-subscription token, asks Eggy to work on a repository, and receives a link to a
-feature-branch pull request. Execution happens on the Railway deployment hosting
-Eggy. The initial coding request authorizes implementation, committing to the
-run's branch, pushing that branch, and opening its PR. There is no additional
-publication confirmation. Eggy never approves, merges, enables auto-merge, or
-bypasses protection on a PR.
+An Eggy user asks Eggy to change one of the **repositories the deployment
+allows**. Eggy itself is the coding agent: its own loop, running a cheap
+OpenRouter model, edits a local checkout, runs the project's checks in it, and
+Eggy's trusted publisher pushes a feature branch and opens a pull request. The
+user gets the PR link. Eggy never approves, merges, enables auto-merge, or
+touches a default or protected branch.
 
-Agent Runner is an optional compiled feature plugin. Credentials, runs, logs,
-questions, and workspaces belong to the requesting account. Each user supplies
-both credentials; no deployment-wide or other-account credential fallback is
-allowed. Token entry in private web settings is the agreed first connection flow.
-Both Eggy and Claude Code use Superpowers, with different responsibilities.
+The earlier draft drove Claude Code with each user's subscription token. That is
+dropped: it needed a second credential, a pinned CLI, a Superpowers adaptation
+for a second agent, and an open question about running subscription tokens in a
+hosted service. Using Eggy's own loop and the existing `openai_compatible`
+provider path needs none of it, and keeps spend inside a budget the owner
+controls through OpenRouter.
 
-The remaining choices below are proposed defaults, not additional user decisions.
-The Railway isolation proof is a prerequisite, not an assertion of feasibility.
+Decided with the owner:
 
-## Existing foundation and approach
+- Eggy is the agent; no Claude Code, no subscription token.
+- Only repositories in `config.yaml`'s `repositories:` are eligible. No
+  arbitrary URLs, no forks.
+- It appears on the Plugins page like Finance: one `agent_runner.enabled`
+  switch, a settings card, a panel section.
+- Telegram can also enable and disable cloning of an allowed repository, and
+  start runs, with explicit commands.
+- Cost is bounded by model choice and a per-run cap, not by a subscription.
 
-The inspected checkout already has:
+Everything else below is a proposed default.
 
-- `internal/plugins/finance`: the optional-plugin pattern, with one service and
-  thin panel/tool callers, wired only in bootstrap.
-- `internal/repository/github`: Git clone and read-only GitHub operations using
-  a deployment-wide token. Extend this adapter's capabilities rather than build
-  another GitHub client; keep its existing read-only callers compatible.
-- `internal/core/services/repo/workspace_sessions.go`: conversation-bound
-  read-only checkouts. Coding runs have a separate ownership/lifecycle requirement;
-  reuse checkout primitives, not these read-only thread bindings.
-- `internal/subprocess/localprocess`: argv execution, environment filtering,
-  time/output limits, and process-group termination. Its working-directory check
-  is not filesystem or process isolation.
-- `internal/auth/grants`: sealed records backed by SQLite. The existing
-  `auth/connections` store is keyed by shared connection, not user; it cannot be
-  reused unchanged for private tokens.
-- `internal/core/approvals`, `services/approval_service.go`, and
-  `services/approval_gate.go`: account-owned, payload-bound authorization and
-  execution. Preserve this authority when adding the scoped run authorization.
-- `internal/skills/store.go`: bounded flat Markdown skills, not Claude's plugin
-  loader. Superpowers requires a deliberate Eggy adaptation.
+## Existing foundation
 
-Three approaches were considered:
+- `internal/plugins/finance` is the plugin pattern: one service, a tool and the
+  panel as thin callers, a small panel-side interface, wired only in bootstrap.
+- `config.Repositories` (`name`, `clone_url`, `base_branch`,
+  `protected_branches`) is already the allowlist. `internal/repository/github`
+  clones and reads with a deployment-wide token; `services/repo` holds
+  read-only, conversation-bound checkouts. Coding runs need their own
+  ownership and lifecycle; reuse the clone primitives, not the read-only thread
+  bindings.
+- `internal/subprocess/localprocess` provides argv execution, environment
+  allowlisting, time and output limits and process-group kill. Its working
+  directory check is **not** filesystem isolation (see Isolation).
+- `internal/auth/grants` holds sealed SQLite records. `auth/connections` is
+  keyed by shared connection, not by account, so it cannot hold a personal PAT
+  unchanged.
+- The approval service (`approvals.Action`, one executor and one payload-bound
+  record per operation) stays the only authority for protected mutations.
+- `internal/skills/store.go` loads bounded flat Markdown skills.
 
-| Approach | Consequence | Decision |
-| --- | --- | --- |
-| Run Claude directly as Eggy's OS user | Smallest change, but coding commands can reach Eggy's data and secrets | Reject |
-| Isolate each run inside the existing Railway service | Preserves the agreed deployment and single supervisor | Select, subject to a deployment proof |
-| Separate runner service or external sandbox provider | Stronger infrastructure separation, but changes deployment scope and introduces another service | Fallback proposal only if the selected approach fails; requires a revised spec |
+Whether per-account "which repositories are enabled" belongs in the existing
+per-account state (`initializeAccountState` already seeds repositories per
+account) or in one small table is the first thing the implementation plan
+confirms against the code.
 
 ## User flow
 
-1. Enable `agent_runner.enabled` through the existing configuration authority.
-   Default is false; normal restart semantics apply.
-2. Open Agent Runner from the existing responsive web navigation. Connect a
-   GitHub token and a token generated with `claude setup-token`. Show connection
-   status, verified GitHub identity, and replace/disconnect actions; never return
-   saved token values to the browser.
-3. Select a repository using `owner/repo` or a canonical GitHub HTTPS URL and
-   provide a task. Resolve it to GitHub's immutable repository ID, default/base
-   branch, and base commit; check the user's access before starting.
-4. Eggy uses Superpowers to clarify missing requirements and produce an actionable
-   brief. A sufficiently concrete request can start directly. Material design
-   questions still go to the user; authorization to publish is not permission to
-   invent product requirements.
-5. A trusted ingress binds a run request to the account, conversation, request
-   text, selected repository, and generated feature branch. The UI states:
-   “This task may create commits, push its feature branch, and open a pull request.
-   Eggy will not approve or merge it.” Chat uses an explicit `/code owner/repo
-   <task>` entry point for unambiguous first-version authorization; ordinary chat
-   can prepare the brief and link to a prefilled Start run form. Model output or
-   generic selection replies cannot mint authorization.
-6. Eggy acknowledges the run, keeps normal chat responsive, and displays its
-   progress, questions, test results, cancellation control, and final PR link.
-7. Claude edits and runs checks inside its isolated workspace. Eggy's trusted
-   publisher freezes and validates the result, commits, pushes, and creates the PR.
-   It sends the link to the original verified channel and stores it in run history.
+1. Owner sets `agent_runner.enabled: true` from the Plugins page (settings
+   card, existing config authority, normal restart semantics). Default false.
+2. Each account connects its own GitHub fine-grained PAT in private web
+   settings (Contents and Pull requests read/write, selected repositories).
+   Eggy verifies identity and per-repository access, shows status, and offers
+   replace and disconnect. Saved token values never return to the browser.
+3. The account **enables cloning** for the allowed repositories it wants, in the
+   panel or in Telegram (`/code repos`). Enabling is an explicit per-account
+   switch on a repository the owner already allowed; it clones nothing until a
+   run needs it. Nothing enables a repository on a person's behalf.
+4. The account starts a run: the panel's Start form, or `/code owner/repo <task>`
+   in a verified private Telegram chat. Ordinary chat may prepare a brief and
+   link to a prefilled form but cannot start the run. Model output, tool
+   arguments, repository text and generic selection replies never mint
+   authorization.
+5. The start copy states: "This task may create commits, push its feature
+   branch, and open a pull request. Eggy will not approve or merge it. Your
+   repository's CI may run on the branch."
+6. A coding turn runs in the background. Normal chat stays responsive. Progress,
+   questions, check results, a cancel control and the final PR link appear in
+   the panel and in the originating channel.
+7. The trusted publisher validates the result, pushes the run branch, opens the
+   PR, and the link is stored and delivered.
 
-The explicit chat command and form are proposed ingress choices to make initial
-authorization verifiable without a second confirmation. They do not authorize
-arbitrary shell execution or repository operations outside this plugin.
+## The agent
 
-## Credentials and ownership
+- **One loop.** A run is a turn on Eggy's existing agent loop with a coding
+  tool set and a configured model, executed by the plugin's single worker. No
+  second harness, no delegation, no subagents. This is the "scheduled turn, not
+  a child loop" answer the declined-capabilities section already gives.
+- **Model.** The coding turn uses an ordinary `providers` entry (OpenRouter is
+  `openai_compatible` with the right `base_url`) selected through the existing
+  per-account `/model` choice mechanism. No new adapter.
+- **Coding tools** are `TurnScoped` to the coding turn and absent from owner
+  turns: list/read/search files, edit (exact-replace and create), and a bounded
+  shell. All are confined to the run's workspace directory. Their schemas cost
+  nothing outside a coding turn.
+- **One owner-facing tool, `agent_runner`:** start (requires the trusted
+  binding below), status, list, cancel, answer. Reads declare `ReadOnlyTool()`;
+  everything else stays a mutation. Unprompted turns (heartbeat, schedules)
+  exclude the whole capability.
+- **Superpowers.** Eggy loads a reviewed, namespaced Markdown subset through the
+  existing skill mechanism: `using-superpowers`, `brainstorming`,
+  `writing-plans`, and a trimmed `verification-before-completion`. TDD and
+  executing-plans assume subagents and richer tooling; they are adapted to
+  Eggy's sequential single loop or left out. Pin one reviewed revision,
+  preserve licensing, no marketplace, no auto-update. The skills are exposed
+  only while the plugin is enabled and the account's connection is ready;
+  disabling removes the index and its prompt bytes.
+- **Budget guard.** Each run has a hard cap on model tokens and wall time
+  (constants, not config). Hitting it stops the run as `failed` with the partial
+  work retained, never silently continues.
+- **Questions.** A material ambiguity returns a structured question to the
+  owning account (`waiting_for_user`). Answering resumes the turn from the
+  saved brief and workspace; there are no indefinite sessions. A stale or
+  foreign answer is rejected.
 
-Store both tokens sealed in existing `auth_records`, through an account-aware
-credential service using the existing sealer. Bind ciphertext associated data to
-account ID, plugin name, provider, and credential generation. Derive the account
-only from `ports.Principal`; fail closed without it. Reads and mutations of run
-records, artifacts, questions, logs, and credentials all enforce ownership.
+## Workspace and isolation
 
-GitHub: recommend a fine-grained PAT restricted to selected repositories, with
-Contents read/write and Pull requests read/write. Validate identity/access without
-creating a branch during setup; recheck repository access at run admission and
-publication. Organization approval and token limitations must appear as actionable
-connection errors. First version supports github.com and repositories where the
-user can push a branch; no forks, enterprise hosts, SSH keys, or arbitrary URLs.
+- Each run gets a fresh checkout under the persistent volume, for example
+  `<root>/runs/<run-id>/`, on branch `eggy/<run-id>`. Paths come from server
+  IDs, never user strings. The volume root is never exposed to the agent's
+  tools.
+- Clone and publish are **trusted adapter operations**. The PAT is used only by
+  those, via an ephemeral credential mechanism, and never appears in argv, Git
+  URLs or config, the agent's environment, prompts, traces or logs. Active
+  secret filtering extends to account-held tokens through `Secrets.Values()`'s
+  existing path; no second credential list.
+- The shell tool runs through `localprocess` with a scrubbed environment (no
+  Eggy secrets, no ambient Git config or credential helpers), the working
+  directory pinned to the run workspace, the timeout, output cap and
+  process-group kill it already enforces, and Git hooks disabled.
 
-Claude: pass the stored setup token only to the official Claude Code process as
-`CLAUDE_CODE_OAUTH_TOKEN`. Use an isolated per-run configuration directory. Do not
-use `--bare`, inherit API billing variables, copy local login files, or send this
-token through Eggy's LLM adapter. A user-triggered connection test may consume a
-small amount of subscription usage and must say so. Saved is distinct from tested
-and ready. Expiry/quota failure pauses or fails the run without API-key fallback.
+**What v1 does not protect against, stated plainly.** Everything runs as Eggy's
+OS user. A prompt-injected file in an allowed repository could steer the model
+into reading `/data/eggy.db`, the encryption key or other runs' workspaces. The
+repositories are the owner's own (the existing trust model: configured
+repositories are trusted code), which narrows but does not remove this.
+Mitigations that cost almost nothing and ship in v1: allowlisted repositories
+only, scrubbed env, workspace-pinned tools that reject paths resolving outside
+the workspace (including through symlinks), the shell as the only escape hatch
+and the model told nothing about Eggy's layout.
 
-Replacing or disconnecting either credential advances its generation and
-invalidates queued/active authority using the old generation. Stop active coding
-and refuse subsequent publication. An already-issued remote request may complete;
-reconcile and report it rather than promising rollback. Disconnect removes Eggy's
-copy; provider-side revocation is separate.
+**Phase 2 (separate spec, not blocked on by v1):** an enforced boundary around
+the shell — Linux namespaces or a separate UID with a network egress policy —
+gated on a proof that Railway permits it (unprivileged user namespaces are not
+guaranteed in the container). If that proof fails the plugin stays on the v1
+trust model; it never claims isolation it cannot demonstrate. Until phase 2, the
+Plugins card and docs say "runs commands as Eggy's user in repositories you
+trust."
 
-Extend the existing active-secret filtering/redaction path to include these dynamic
-credentials without introducing a competing static credential list. Tokens must
-not enter prompts, traces, command arguments, Git URLs/config, chat, PR text, or
-plaintext durable files. The Claude process necessarily receives its own token;
-do not promise that an arbitrary command inside that same run cannot observe it.
-Other users' credentials and Eggy's environment must remain inaccessible.
+Limits as constants: one active run deployment-wide, one queued per account,
+30 minutes, 2 GiB working data, 2 MiB persisted redacted output. Admission
+checks free disk before clone. Interrupted or failed workspaces are kept seven
+days; successful ones are removed after confirmed publication. Cleanup runs at
+startup and at admission/completion; there is no new timer.
 
-## Authorization and deliberate policy changes
+## Authorization
 
-This feature explicitly changes the current ban on repository shipping and the
-ban on coding-agent execution. It does not introduce general subagent routing, a
-second Eggy harness, a generic shell tool, or a plugin marketplace.
+This deliberately changes the current ban on repository shipping and AGENTS.md
+must be revised in the implementation, not before.
 
-Initial authorization is a bounded run mandate captured at a trusted ingress.
-Its immutable scope contains account, ingress/request identity, brief digest,
-repository ID and canonical remote, base ref/SHA, generated branch, credential
-generations, permitted operations, and expiry. Proposed validity: 24 hours;
-expiry requires a new explicit user request, not model renewal.
-
-The final diff is unknown at admission. Do not misrepresent the mandate as a
-human review of that diff. Extend the existing approval service to accept this
-specific upfront authorization and derive separate payload-bound records for
-commit, push, and PR creation once their exact payloads exist. Each has its own
-`approvals.Action`, executor, digest, one-use execution claim, and independent
-mandate/ownership/generation validation. Push binds the exact commit and ref;
-PR creation binds repository, head, base, title, and body. No general public
-“approve on behalf of user” API is added.
-
-This is a documented, narrow exception to per-tool prompting, including strict
-mode: an explicit Agent Runner request already authorizes this bounded workflow.
-Normal/strict/auto remain unchanged for all other tools. Even auto cannot create
-a run without ingress authorization or widen a mandate. Do not mark shipping as
-`InternalTool()` or select auto mode for the user. The existing native gate must
-recognize already-authorized runner operations through the same approval service;
-it must not simply unwrap the tool or trust an argument claiming approval.
-
-First-version operations are clone, isolated edits/checks, commit, push the new
-run branch, and open one PR. Deny default/protected branch writes, force-push,
-tags, deletion of remote refs, review approval, merge, and auto-merge. Check
-protection live before push, permit only the server-generated branch, and fail
-closed when the required protection check is unavailable. No heartbeat, schedule, MCP call, repo
-instruction, or Claude subprocess may create a new mandate.
-
-Implementation must revise the relevant AGENTS.md rules together, documenting
-the exception and preserving all other approval rules. This spec does not edit
-those rules ahead of implementation.
-
-## Railway execution and isolation prerequisite
-
-Keep one `eggyd` supervisor and one replica; Claude and build tools are bounded
-child processes, not another application service. The first implementation
-milestone must prove the exact runtime on Railway with non-secret fixtures.
-
-Candidate: an outer Linux namespace sandbox around the entire CLI and all its
-descendants, with a private mount/PID/network view, dropped privileges and
-capabilities, resource limits, and an explicit filesystem allowlist. Bubblewrap
-is a candidate, not a verified Railway capability. Claude's Bash-only sandbox
-and separate home directories are not sufficient isolation for the whole CLI.
-
-The proof must demonstrate:
-
-- Reads/writes cannot reach `/data/eggy.db`, config, owner documents, host process
-  environments, sibling runs, sockets, or the encryption key, including through
-  symlinks, hard links, `/proc`, and inherited file descriptors.
-- Only this run's workspace, scratch home, and approved read-only runtime/skills
-  are mounted. No Docker socket or host-control capability is provided.
-- Network policy denies Eggy's loopback/private service endpoints and metadata
-  services; only required model and approved dependency endpoints are reachable.
-  Redirect/DNS behavior cannot escape that policy. Git credentials never enter
-  the coding sandbox; clone and publication are trusted adapter operations.
-- Descendants cannot escape cancellation; CPU, memory, process count, disk, and
-  wall time limits preserve Eggy's responsiveness.
-- The pinned Claude version accepts subscription auth, loads Superpowers, can
-  edit/run a representative test, and returns machine-readable results.
-
-If these properties cannot be achieved in the Railway service, mark the plugin
-unavailable with a diagnostic. Never fall back to the current localprocess runner,
-weaker shared `/proc`, or unrestricted permission bypass. The spec then requires
-revision for a separate isolation boundary; successful Docker image construction
-alone is not deployment proof. No live Railway proof was performed for this spec.
-
-Proposed initial limits: one active run deployment-wide, at most one queued run
-per account, 30 minutes execution time, 2 GiB working data per run, 2 GiB process
-memory, 2 CPUs, 128 processes, and 2 MiB persisted redacted output. Admission checks
-available resources and disk before clone. Missing enforceable limits fail the
-readiness check. Keep these defaults as constants initially, not new config knobs.
-
-Use the persistent volume for controlled checkout/artifact directories, never
-mount its root inside a run. Machine state remains in SQLite. Git working files
-are execution artifacts; scratch Claude JSON/config/history is temporary and is
-deleted after execution, not a fourth durable state store. Retain interrupted or
-failed workspaces for seven days; clean successful workspaces after confirmed
-publication. Cleanup runs at startup and admission/completion, not in a new timer.
-
-## Superpowers and the coding protocol
-
-Pin and review one Superpowers revision and one Claude Code version in the build;
-record both in each run. Preserve upstream licensing. No runtime marketplace
-installation or automatic skill updates.
-
-Eggy loads an adapted, namespaced Markdown subset through its existing skill
-mechanism: using-superpowers, brainstorming, writing-plans, and
-verification-before-completion. Resolve references to bundled Markdown explicitly;
-do not claim Eggy supports upstream hooks/scripts or Claude-specific tools.
-Expose this subset only when the plugin and the account's connections are ready;
-disabling the plugin removes its skill index and prompt bytes.
-
-Claude receives the reviewed plugin through its native plugin mechanism, mounted
-read-only. Its task uses the sequential executing-plans/TDD/debugging/verification
-workflow. Disable subagent delegation for v1. Eggy prepares and clarifies the
-brief; Claude implements it, rather than repeating the same planning dialogue.
-The task handoff explicitly states which design is approved and which autonomous
-steps the user authorized. Material ambiguities return a structured question to
-Eggy; no fake approvals or indefinite waits on an unattended terminal.
-
-Use the official CLI programmatic mode and bounded structured output, with fixed
-argv and prompts through stdin. Configure explicit tool permissions; do not expose
-Eggy's tools, MCP servers, credentials, or configuration. Repository instructions
-can guide implementation but cannot modify the launcher policy, activate hooks,
-load unreviewed plugins/MCP, change the remote, or gain publication authority.
-CLI settings and plugin precedence must be verified against the pinned release.
-
-Results distinguish completion, question, tests failed, missing toolchain, quota,
-auth, timeout, and cancellation. Tool output is untrusted. A success message from
-Claude alone is not evidence of a valid diff or passing tests.
+- **Run mandate.** Starting a run at a trusted ingress (verified web session,
+  or a verified private Telegram sender through `/code`) creates one bounded
+  mandate binding: account, ingress and request identity, brief digest,
+  repository, base branch and SHA, the generated branch, GitHub credential
+  generation, permitted operations (push that branch, open one PR) and a 24
+  hour expiry. Expiry needs a new explicit request. The mandate is stored as a
+  digest/reference; no bearer token is exposed to the model, and the dispatcher
+  supplies the binding through context.
+- **Two payload-bound approvals, derived from the mandate once the exact
+  payloads exist:** push (exact commit and ref) and PR creation (repository,
+  head, base, title, body). Each has its own `approvals.Action`, executor,
+  digest and one-use claim, and each re-validates mandate, ownership and
+  credential generation. Local commits need none; they have no remote effect.
+  No general "approve on behalf of the user" API is added.
+- This is a documented narrow exception to per-tool prompting, including
+  `strict`: an explicit run request already authorizes this bounded workflow,
+  and the diff is not reviewed by a human before the push. The start copy and
+  docs say so. `normal`, `strict` and `auto` are unchanged for every other tool;
+  `auto` cannot create a run without ingress authorization or widen a mandate;
+  nothing is marked `InternalTool()` to get here.
+- Denied in v1: default or protected branch writes, force-push, tags, deleting
+  remote refs, review approval, merge, auto-merge, workflow-file changes (they
+  would execute newly authored privileged CI), changes outside the allowed
+  repository. Protection is checked live before push; if the check is
+  unavailable the push fails closed. No heartbeat, schedule, MCP call,
+  repository text or the agent's own tools can create or widen a mandate.
 
 ## Validation and publication
 
-Use a new checkout and `eggy/<run-id>` branch per run; resolve paths from server
-IDs rather than user strings. Reject local/file/SSH remotes, embedded credentials,
-URL redirects to other hosts, and unsafe refs. Disable recursive submodules and
-Git hooks; do not inherit system/user Git configuration or credential helpers.
+- After the coding turn ends and its process group is dead, the publisher
+  computes the change set against the recorded base, rejects special files,
+  escaping paths and secrets, preserves modes, deletions and binaries, and
+  applies it to a fresh checkout with controlled Git metadata before committing.
+  It never runs Git inside the agent's workspace against its hooks or config.
+- Commit identity comes from the verified GitHub identity (no-reply email),
+  never from model text.
+- No changes means a completed "no change" result and no empty PR. Checks that
+  failed or could not run produce a **draft** PR with a conspicuous summary;
+  passing checks produce a regular PR. The PR body has the task summary,
+  changes, the checks actually run and their results, limitations, and a stable
+  run marker.
+- **Check results are evidence only if Eggy ran them.** A model's claim that
+  tests pass is not recorded as a result; the shell tool's captured exit codes
+  are. Repository CI on the PR is the independent second check.
+- Persist intent before each external effect. On timeout or restart, inspect the
+  remote branch SHA and the PR's head, base and run marker before retrying. An
+  existing branch with unexpected content stops the run rather than overwriting
+  it. If push succeeded and PR creation failed, retry only the PR. Never
+  duplicate a PR after an ambiguous response.
 
-After stopping all coding descendants, the trusted publisher verifies the base,
-branch, remote identity, and changed paths. It must not execute Git against
-attacker-controlled hooks/config. Build the publishable tree in a fresh trusted
-checkout with controlled Git metadata, then rerun required checks in a separate
-credential-free sandbox. Preserve legitimate modes/deletions/binary files while
-rejecting special files, escaping paths, and secrets. Changes to GitHub workflows
-are outside v1 and fail with an explanation; this avoids silently expanding PAT
-permissions or executing newly authored privileged CI.
+## Telegram surface
 
-The minimum runtime includes Git, the pinned CLI, and the existing Go toolchain;
-add Node/Bun only as documented, pinned build dependencies for supported projects.
-Do not claim every repository can build. Report unavailable tools and checks
-honestly. No changes yields a completed no-change result without an empty PR.
-Failed or unavailable checks produce a draft PR with a conspicuous test summary;
-passing required checks produce a regular PR. Neither result approves or merges it.
+Telegram stays private chats only, sender-allowlisted, and a **direct command
+surface**; selections cannot authorize anything.
 
-The trusted adapter performs commit/push/PR operations using only this account's
-credential. Commit identity comes from the verified GitHub identity with an
-appropriate no-reply email, not model text. PR description includes task summary,
-changes, actual tests/results, limitations, and the stable run marker. Publication
-may trigger the repository's existing CI; users must see this in the start copy.
+- `/code repos` lists the allowed repositories with this account's clone
+  status; `/code repos enable <name>` and `disable <name>` toggle it. Disabling
+  refuses new runs and removes the account's idle workspace for that
+  repository; a running job is cancelled first.
+- `/code <name> <task>` starts a run; `/code status`, `/code cancel [id]`,
+  `/code answer <id> <text>` manage it. Final PR links go to the originating
+  verified destination. Discord receives the link as a notice only and cannot
+  start, answer or enable anything in v1. Delivery uses the existing channel
+  routing; a failed delivery is retried without republishing and stays visible
+  in the panel.
+- The commands live in `internal/commands` and call the same service as the
+  panel; Telegram is a view, not a second implementation.
 
-Persist intent before each external side effect. On a timeout, inspect the remote
-branch SHA and PR head/base/run marker before retrying. If a branch exists with
-unexpected content, stop rather than overwrite. If push succeeded but PR creation
-failed, retain the branch and retry only PR creation. Never duplicate a PR after
-an ambiguous response or deployment restart.
+## Persistence and lifecycle
 
-## Lifecycle, persistence, and integration boundaries
+- One additive `agent_runs` table (`CREATE TABLE IF NOT EXISTS` with the other
+  schemas, no `MachineStateVersion` bump): account and run identity, repository,
+  mandate reference and expiry, state and revision, credential generation, base
+  and head SHAs, pending question, bounded redacted result, publication stage
+  and idempotency data, PR URL, notification status. The sealed GitHub token
+  uses existing `auth_records` with associated data binding account, plugin,
+  provider and generation. Account derives only from `ports.Principal`;
+  everything fails closed without it.
+- States: queued, running, waiting_for_user, publishing, completed, failed,
+  cancelled, interrupted. Transitions are conditional transactional updates
+  owned by the plugin service. Publication stage is stored separately so
+  recovery never repeats a confirmed effect.
+- One enabled-only worker, dispatched from the existing bootstrap lifecycle. A
+  run is independent of the initiating HTTP connection. On restart the
+  in-flight turn keeps the existing drain; coding processes get a bounded
+  shutdown and become `interrupted`. Startup reconciles publication and queued
+  work and does not relaunch an interrupted turn on its own. An owner can
+  resume with the saved brief and workspace if the mandate is still valid, or
+  must start again.
+- Replacing or disconnecting the GitHub token advances its generation and
+  invalidates queued and active authority; active coding stops and publication
+  is refused. A request already sent to GitHub may complete, and the run is
+  reconciled and reported, not rolled back. Cancellation, account removal and
+  plugin disable prohibit new effects; none deletes an already-pushed branch
+  or PR.
 
-Proposed durable states: queued, preparing, running, waiting_for_user, validating,
-publishing, completed, failed, cancelled, interrupted. Store publication stage
-separately so recovery does not repeat confirmed effects. Questions have an ID and
-brief revision; only the owning account can answer, and stale answers are rejected.
-A changed repository or materially expanded task requires a new mandate.
-
-Create one additive `agent_runs` table holding account/run identity, immutable
-request and mandate reference, state/revision, credential generations, destination,
-base/head SHAs, question, bounded redacted results, stage/idempotency metadata,
-PR URL, and notification status. Reuse auth_records and approval records rather
-than duplicate their contents. All state transitions use conditional transactional
-updates. No MachineStateVersion bump for this additive schema.
-
-The plugin service owns transitions. Bootstrap dispatches queued work from the
-existing lifecycle, with one enabled-only execution worker; there is no second
-agent loop or scheduler. A submitted run is independent of the initiating HTTP
-connection. Normal Eggy restart keeps existing turn draining; coding processes
-receive a bounded shutdown and become interrupted. Startup reconciles publication
-and queued work; it does not blindly relaunch interrupted Claude execution.
-Owner-triggered resume uses the saved brief/workspace and current valid mandate,
-or requires a new request if expired or invalidated. No indefinite CLI sessions.
-
-Notification delivery uses the existing destination/channel routing. Retry delivery
-without repeating publication. Persist the final PR URL before notification;
-delivery failure remains visible in the panel. Account removal, credential
-disconnect, cancellation, and plugin disable prohibit new effects. Cancellation
-does not delete an already-pushed branch or PR.
-
-Responsibilities:
+## Boundaries and wiring
 
 | Area | Responsibility |
 | --- | --- |
-| `internal/plugins/agent_runner` | Service, state transitions, tool, reviewed skill assets |
-| `internal/ports` | Narrow provider-neutral run storage, coding execution, and publication contracts |
-| `internal/storage/sqlite` | Owned run records, transactional claims and recovery state |
-| `internal/auth` | Account-scoped sealed credential access using existing grants primitives |
-| `internal/repository/github` | Extend existing transport for scoped clone, push, and PR operations |
-| `internal/subprocess` | Enforced isolation and bounded child lifecycle |
-| `internal/coding/claude` | Claude-specific argv, auth injection, output parsing, and plugin loading |
-| `internal/core/services` | Existing approval authority extended for narrowly scoped upfront authorization |
-| `internal/panel` and `website` | Private connection/run UI, start/cancel/answer/status endpoints |
-| `internal/commands` | Explicit coding-request ingress for verified private chat |
-| `internal/config`, `internal/bootstrap` | Enable flag, construction, registration, lifecycle wiring |
+| `internal/plugins/agent_runner` | Service, transitions, `agent_runner` tool, coding tools, reviewed skill assets |
+| `internal/ports` | Narrow run-store and publication contracts |
+| `internal/storage/sqlite` | `agent_runs` table, claims, recovery state |
+| `internal/auth` | Account-scoped sealed token access over existing grants primitives |
+| `internal/repository/github` | Extend the existing client for scoped clone, push and PR; read-only callers stay compatible |
+| `internal/core/services` | Approval service accepts the mandate-derived push and PR actions |
+| `internal/commands` | `/code` commands |
+| `internal/panel`, `website` | Plugins-page card and run UI; routes mounted only when the service is non-nil; capability listed in authenticated `/api/session` `features`, never `/api/mode` |
+| `internal/config`, `internal/bootstrap` | `agent_runner.enabled`, construction when enabled and nil otherwise, worker and registration |
 
-Panel declares its own service interface and never imports the plugin. Add the
-feature to authenticated `/api/session`, never `/api/mode`. One tool,
-`agent_runner`, offers start/status/list/cancel/answer operations; start requires
-the trusted mandate, never arbitrary command text as execution authority.
-Persist only a digest/reference for the mandate; do not expose a bearer authority
-token to the model. The dispatcher supplies the verified request binding in context.
-Read actions declare their effect; mutations remain mutations. Unprompted tool
-allowlists exclude the entire runner capability. Accounts without ready
-connections see setup UI but pay no runner schema or skill prompt cost.
+The panel declares its own small service interface and never imports the plugin.
+There is no shared plugin interface. This is the second plugin; if it needs
+shared structure Finance lacked, that is argued in the implementation plan, not
+assumed. A disabled plugin has no tool schema, no route, no worker, no skills
+and no prompt bytes. The enable card follows the rule that a new config section
+is not done until it has a settings card, and nothing operates on the YAML file
+by gesture.
 
 ## Footprint and deletion budget
 
-This is a new capability, not a line-reduction refactor. Proposed review budget:
-at most 3,000 added handwritten production lines across Go and UI, excluding
-tests and pinned upstream skills; one startup key (`agent_runner.enabled`), one
-tool definition, one table, two sealed provider records per connected account,
-existing approval records per operation, and one worker only while enabled.
-No new scheduler, database, application service, generic lifecycle framework, or
-runtime marketplace. Exceeding the estimate requires explaining the specific
-capability/security need before expanding the plan.
+New capability, not a reduction. Added: one startup key, one owner-facing tool
+plus turn-scoped coding tools, one table, one sealed record per connected
+account, per-operation approval records, one worker only while enabled. My
+estimate is 2,500–4,000 handwritten production lines across Go and UI,
+excluding tests and the pinned skills — noticeably smaller than the Claude Code
+design because there is no CLI adapter, second credential or isolation layer in
+v1. This is an estimate to hold the implementation to, not a target to hit by
+deleting capability. Exceeding it requires saying what capability or security
+need forced it. Nothing existing is deleted. Removing the plugin removes its
+package, wiring and UI; the additive table may stay inert for rollback.
 
-Delete no existing capability. Extend the existing GitHub transport, sealers,
-approval service, channel delivery, and subprocess primitives instead of creating
-parallel implementations. Removing the plugin should remove its package, wiring,
-UI, and adapters specific to coding; additive records may remain inert for rollback.
-Runtime-disabled means zero tools/routes/workers/prompts, not zero image bytes.
+## Verification
 
-## Acceptance and verification
+Test-first; focused checks, then `make fmt vet test race build`; `make smoke`
+with Docker or report the environment blocker.
 
-Implementation proceeds test-first with focused checks, then `make fmt vet test
-race build`; run `make smoke` with Docker or report the environment blocker.
-Add responsive browser coverage for setup, queued/running/question/error/PR states.
+1. Disabled plugin: no routes, tools, skills, worker or capability leakage.
+2. Two accounts: guessed run IDs, tokens, logs, answers, workspaces, stale
+   generations, concurrent disconnect and enable/disable races all fail closed.
+3. Only a verified web start or `/code` from a verified private sender creates a
+   mandate; model arguments, repository text, selections, schedules and
+   heartbeats cannot. Modes behave as before outside the exception.
+4. Push and PR each reject altered payloads, changed account/remote/ref, expiry,
+   reuse, default/protected refs, merge, approval and force-push.
+5. Path and symlink escapes from the coding tools are rejected; the shell
+   environment contains no Eggy secrets; the token never appears in argv, Git
+   config, logs or the workspace.
+6. Crash injection around push and PR proves reconciliation, no duplicate PR, no
+   lost URL, and notification retry without republishing.
+7. Fake-model tests cover question, budget cap, cancellation, malformed tool
+   calls and missing toolchain; check results come only from captured exit codes.
+8. End to end on a real allowed repository with a real PAT and OpenRouter model:
+   enable from Telegram, run, observe a feature-branch PR for the right account,
+   private link delivery, and no approval or merge. Responsive browser coverage
+   for setup, queued, running, question, error and PR states.
 
-Required evidence:
+## Sequence for the implementation plan
 
-1. Disabled plugin has no routes, tools, skill index, worker, or private capability
-   leakage; an unconnected account cannot invoke another account's runner.
-2. Two-account tests cover guessed run IDs, credentials, logs, answers, artifacts,
-   stale generations, concurrent disconnect, and background ownership restoration.
-3. Explicit request creates the bounded authorization once; model arguments,
-   repository text, generic Telegram selections, schedules, and heartbeats cannot.
-   All modes retain their behavior outside this narrow exception.
-4. Commit/push/PR independently reject altered payloads, account/remote/ref changes,
-   expiry, reuse, protected/default refs, merge/approval, and force-push attempts.
-5. Railway isolation proof covers every property above, including descendants,
-   networking, resource exhaustion, and malicious Git metadata. No unsafe fallback.
-6. A real opt-in run with each user's own subscription loads the pinned skills;
-   fake subprocess tests cover malformed/truncated output, questions, expiry,
-   quota, missing tools, and cancellation. No API billing fallback occurs.
-7. Crash injection before/after push and PR calls proves reconciliation, no duplicate
-   PR, no lost URL, and notification retry without republishing.
-8. End-to-end: private repo clone, isolated change, reported checks, correct
-   user's feature branch/PR, private link delivery, and no approval/merge.
+1. Confirm per-account repository enablement storage; account-scoped sealed PAT;
+   plugin shell and Plugins card.
+2. Clone and workspace lifecycle; confined coding tools; run with a fake model.
+3. Mandate, approvals extension, publisher, reconciliation.
+4. `/code` Telegram commands and delivery.
+5. Panel UI, skills subset, real-model end-to-end run.
+6. Phase 2 (separate spec): enforced shell isolation, gated on a Railway proof.
 
-The implementation plan should sequence: Railway/auth/skill feasibility proof;
-owned credentials and plugin surface; run authority and persistence; isolated
-Claude execution; trusted publication/recovery; integrated UI and end-to-end checks.
-Each stage has an independently testable deliverable. Do not build the publication
-UI around an unproven isolation mechanism.
+## Review focus
 
-## Sources and review status
-
-Primary references checked while preparing this spec:
-
-- [Claude authentication](https://code.claude.com/docs/en/authentication): setup
-  tokens, subscription use, environment precedence, and the bare-mode limitation.
-- [Programmatic Claude Code](https://code.claude.com/docs/en/headless): CLI execution
-  and structured results; pin and test the version used by the adapter.
-- [Claude sandboxing](https://code.claude.com/docs/en/sandboxing): Linux dependencies
-  and nested-container limitations; does not establish Railway compatibility.
-- [Superpowers](https://github.com/obra/superpowers): harness-specific installation
-  and skill workflow; Eggy's adaptation is new work.
-- [Railway volumes](https://docs.railway.com/volumes): persistent deployment storage.
-- [GitHub PATs](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens):
-  repository-scoped tokens and organization restrictions.
-
-Only this specification is delivered. Review should focus on the bounded upfront
-authorization exception, explicit request ingress, draft PR behavior on failed
-checks, resource defaults, and the fail-closed Railway feasibility prerequisite.
-After written-spec approval, create the detailed implementation plan.
+The v1 trust model (same OS user, owner's own repositories, documented gap), the
+mandate exception to per-tool prompting, the `/code` ingress, draft PRs when
+checks fail or cannot run, and the constants for limits.

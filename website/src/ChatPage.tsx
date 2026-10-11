@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, sendChatMessage } from "./api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
-import { LockIcon, ReplyIcon } from "./components/ui/icons";
+import { LockIcon, MenuIcon, ReplyIcon } from "./components/ui/icons";
 import { cn, errorMessage } from "./lib/utils";
 
 type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
@@ -140,12 +140,16 @@ export function ChatPage({
   onSessionExpired,
   onMessageResolved,
   onThreadCreated,
+  onOpenSidebar,
 }: {
   threadId: string | null;
   title: string;
   onSessionExpired: () => void;
   onMessageResolved?: () => void;
   onThreadCreated?: (threadId: string) => void;
+  // Passed only while the rail is closed. On a phone the header carries the
+  // menu control, so the chat does not leave an empty gutter for it.
+  onOpenSidebar?: () => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
   // pending holds our own just-sent messages that loadHistory hasn't
@@ -288,7 +292,18 @@ export function ChatPage({
 
   return (
     <div className="app-canvas flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8">
+      <header className="flex h-14 shrink-0 items-center gap-2 bg-background px-4 shadow-[inset_0_-1px_0_hsl(var(--border))] sm:px-8">
+        {onOpenSidebar && (
+          <button
+            type="button"
+            onClick={onOpenSidebar}
+            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            aria-label="Open sidebar"
+            title="Open sidebar"
+          >
+            <MenuIcon />
+          </button>
+        )}
         <div className="min-w-0">
           <h1 className="truncate text-base font-medium tracking-tight">{title}</h1>
         </div>

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { ChatPage } from "../src/ChatPage";
 import { ConfigPage } from "../src/ConfigPage";
 import { TraceBrowser, Waterfall } from "../src/TracesPage";
 import { Button } from "../src/components/ui/button";
@@ -86,4 +87,22 @@ test("form controls expose phone-sized touch targets", () => {
   );
 
   expect((html.match(/min-h-11|h-11/g) ?? []).length).toBeGreaterThanOrEqual(4);
+});
+
+test("chat header carries the menu control on a phone only while the rail is closed", () => {
+  const closed = renderToStaticMarkup(
+    createElement(ChatPage, {
+      threadId: null,
+      title: "New chat",
+      onSessionExpired: () => {},
+      onOpenSidebar: () => {},
+    }),
+  );
+  expect(closed).toContain('aria-label="Open sidebar"');
+  expect(closed).toContain("md:hidden");
+
+  const open = renderToStaticMarkup(
+    createElement(ChatPage, { threadId: null, title: "New chat", onSessionExpired: () => {} }),
+  );
+  expect(open).not.toContain('aria-label="Open sidebar"');
 });

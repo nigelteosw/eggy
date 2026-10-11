@@ -35,6 +35,12 @@ export const PanelIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const MenuIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 6h13M3.5 10h13M3.5 14h13" />
+  </Icon>
+);
+
 export const CpuIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x="6" y="6" width="8" height="8" rx="1.5" />
@@ -109,6 +115,12 @@ export const PaletteIcon = (p: IconProps) => (
 export const ChevronDownIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="m6 8 4 4 4-4" />
+  </Icon>
+);
+
+export const PaperclipIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M16.5 9.5 9.8 16.2a2.5 2.5 0 0 1-3.5-3.5l6.9-6.9a4 4 0 0 1 5.7 5.7l-7.4 7.4" />
   </Icon>
 );
 

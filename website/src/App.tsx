@@ -10,7 +10,7 @@ import { runningExtensions } from "./extensions";
 import { SchedulesPage } from "./SchedulesPage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
-import { CloseIcon, PanelIcon } from "./components/ui/icons";
+import { CloseIcon, MenuIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 import { isSettingsPath, pathForView, viewForPath, type View } from "./routing";
 
@@ -217,9 +217,12 @@ export function App() {
   // Only an extension whose feature is running can be open; a stale id from before
   // a restart finds nothing and the view underneath shows.
   const activeExtensionDef = runningExtensions(features ?? []).find((extension) => extension.id === activeExtension);
+  // A chat with a thread or draft open draws its own header, which carries the
+  // menu control on a phone; every other view gets the top bar instead.
+  const chatHeaderVisible = !activeExtensionDef && view === "chat" && (activeThreadId !== null || draftChatOpen);
 
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-background">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row">
       {sidebarOpen && (
         <div
           className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
@@ -265,10 +268,12 @@ export function App() {
         />
       </div>
 
-      {/* With the rail closed, the reopen control holds its own gutter, so no
-          page has to leave room for it under its heading. */}
+      {/* At md and up, the reopen control holds its own gutter, so no page has to
+          leave room for it under its heading. On a phone that gutter would be
+          empty width, so the control becomes a menu button in a top bar instead,
+          and a chat's own header carries it. */}
       {!sidebarOpen && (
-        <div className="flex w-14 shrink-0 justify-center pt-1.5">
+        <div className="hidden w-14 shrink-0 justify-center pt-1.5 md:flex">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -281,7 +286,21 @@ export function App() {
         </div>
       )}
 
-      <div className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {!sidebarOpen && !chatHeaderVisible && (
+          <div className="flex h-14 shrink-0 items-center px-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              aria-label="Open sidebar"
+              title="Open sidebar"
+            >
+              <MenuIcon />
+            </button>
+          </div>
+        )}
+        <div className="flex min-h-0 min-w-0 flex-1">
         {activeExtensionDef ? (
           // An extension takes the whole work area beside the rail, with its own
           // header and a close control that returns to the view underneath.
@@ -314,6 +333,7 @@ export function App() {
                   setActiveThreadId(id);
                   setDraftChatOpen(false);
                 }}
+                onOpenSidebar={sidebarOpen ? undefined : () => setSidebarOpen(true)}
               />
             </div>
           ) : (
@@ -330,6 +350,7 @@ export function App() {
             <TracesPage onSessionExpired={onSessionExpired} />
           </div>
         ) : null}
+        </div>
       </div>
       <SettingsDialog
         open={settingsOpen}

@@ -338,7 +338,10 @@ export function ThreadSidebar({
       className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 md:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
-      <div className="flex h-14 shrink-0 items-center gap-1 pl-4 pr-2">
+      {/* The header strip drags the window when Eggy runs in an app window with
+          its title bar hidden, the way the sidebar's top edge does in Claude's
+          desktop app. The collapse control opts out so it still takes clicks. */}
+      <div className="flex h-14 shrink-0 items-center gap-1 pl-4 pr-2 [-webkit-app-region:drag]">
         <span className="flex-1 truncate">
           <EggyBrand />
         </span>
@@ -347,7 +350,7 @@ export function ThreadSidebar({
           onClick={onCollapse}
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-800 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-800 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [-webkit-app-region:no-drag]"
         >
           <PanelIcon />
         </button>
@@ -503,8 +506,22 @@ export function ThreadSidebar({
         onPointerDown={beginResize}
         onKeyDown={resizeWithKeyboard}
         onDoubleClick={resetSidebarWidth}
-        className="absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:bg-transparent hover:after:bg-primary/50 focus-visible:after:bg-primary md:block"
-      />
+        className={cn(
+          "group absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none after:absolute after:inset-y-0 after:left-1/2 after:w-px focus-visible:after:bg-primary md:block",
+          // The guide line shows on hover and stays while dragging, when the
+          // pointer has usually left the 12px target.
+          resizing ? "after:bg-primary/50" : "after:bg-transparent hover:after:bg-primary/50",
+        )}
+      >
+        {!resizing && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-full top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-xl bg-foreground px-3 py-2 text-xs font-medium text-background shadow-lift group-hover:block"
+          >
+            Drag to resize
+          </span>
+        )}
+      </button>
     </div>
   );
 }

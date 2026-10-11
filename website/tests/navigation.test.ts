@@ -185,3 +185,10 @@ test("finance settings live under Capabilities, where its running state is shown
   expect(enabled).toContain("Running");
   expect(enabled).not.toContain("Not running");
 });
+
+test("the rail header drags the window and keeps its collapse control clickable", () => {
+  const html = sidebar({ view: "chat" });
+  expect(html).toContain("[-webkit-app-region:drag]");
+  expect(html).toContain('aria-label="Collapse sidebar"');
+  expect(html).toContain("[-webkit-app-region:no-drag]");
+});

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "./api";
-import { ArrowUpIcon, ChevronDownIcon, CloseIcon } from "./components/ui/icons";
+import { ArrowUpIcon, ChevronDownIcon, CloseIcon, PaperclipIcon, PlusIcon } from "./components/ui/icons";
 import { cn, errorMessage } from "./lib/utils";
 
 // The three approval modes as the composer says them: a short label for the
@@ -46,13 +46,12 @@ function SettingSelect({
     <div
       title={title}
       className={cn(
-        "relative flex min-h-9 min-w-0 items-center gap-1.5 rounded-xl px-2.5 text-xs text-muted-foreground transition-colors",
-        pickable && "cursor-pointer hover:bg-background hover:text-foreground",
+        "relative flex h-9 min-w-0 items-center gap-1 rounded-xl px-2 text-xs text-foreground transition-colors",
+        pickable && "cursor-pointer hover:bg-neutral-200",
         busy && "opacity-60",
       )}
     >
-      <span>{name}</span>
-      <span className={cn("max-w-[8rem] truncate font-medium", value ? "text-foreground" : "text-muted-foreground")}>{label}</span>
+      <span className={cn("max-w-[6rem] truncate font-medium sm:max-w-[9rem]", !value && "text-muted-foreground")}>{label}</span>
       {pickable && <ChevronDownIcon className="h-3 w-3 shrink-0" />}
       {pickable && (
         <select
@@ -95,7 +94,12 @@ export function Composer({
   const [agent, setAgent] = useState<AgentSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // Files the owner picked with the + control. They show as chips above the
+  // field; the chat API does not take attachments yet, so sending is refused
+  // while any are attached rather than dropping them silently.
+  const [files, setFiles] = useState<File[]>([]);
   const field = useRef<HTMLTextAreaElement | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   // A fresh quote means the user is mid-thought; bring them to the field.
   useEffect(() => {
@@ -147,6 +151,10 @@ export function Composer({
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
+    if (files.length > 0) {
+      setNote("Eggy can't read attached files yet. Remove them to send.");
+      return;
+    }
     setDraft("");
     if (field.current) field.current.style.height = "auto";
     onSend(text, quote);
@@ -178,6 +186,27 @@ export function Composer({
               </div>
             </div>
           )}
+          {files.length > 0 && (
+            <ul className="flex flex-wrap gap-1.5 px-3 pt-3" aria-label="Attached files">
+              {files.map((file, index) => (
+                <li
+                  key={`${file.name}-${index}`}
+                  className="flex max-w-[14rem] items-center gap-1.5 rounded-xl bg-background py-1 pl-2.5 pr-1 text-xs shadow-sm"
+                >
+                  <PaperclipIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{file.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => setFiles((current) => current.filter((_, at) => at !== index))}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
+                  >
+                    <CloseIcon className="h-3 w-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <textarea
             ref={field}
             value={draft}
@@ -197,8 +226,30 @@ export function Composer({
             placeholder={quote ? "Reply to the quoted text..." : "Ask Eggy anything..."}
             className="scrollbar-slim max-h-[220px] w-full resize-none bg-transparent px-[18px] pb-2 pt-4 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
           />
-          <div className="flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2 pt-1 shadow-[inset_0_1px_0_hsl(var(--border))]">
-            <span className="px-1.5 text-xs font-medium text-muted-foreground">Run settings</span>
+          <div className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1">
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              aria-label="Add files or photos"
+              title="Add files or photos"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <PlusIcon className="h-5 w-5" />
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              accept="image/*,application/pdf,text/*"
+              className="hidden"
+              onChange={(event) => {
+                const picked = Array.from(event.target.files ?? []);
+                if (picked.length > 0) setFiles((current) => [...current, ...picked]);
+                event.target.value = "";
+              }}
+            />
+            <span className="hidden flex-1 truncate text-center text-xs text-muted-foreground sm:block">Eggy can make mistakes.</span>
+            <span className="flex-1 sm:hidden" />
             {agent && agent.models.length > 0 && (
               <SettingSelect
                 name="Model"
@@ -236,7 +287,7 @@ export function Composer({
               disabled={!draft.trim()}
               aria-label="Send message"
               className={cn(
-                "ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
+                "ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
                 "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-30",
               )}
             >

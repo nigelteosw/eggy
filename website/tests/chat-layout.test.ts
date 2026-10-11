@@ -19,7 +19,7 @@ test("an empty conversation uses one direct title and instruction", () => {
   expect(html).not.toContain("🥚");
 });
 
-test("the composer names run settings and respects the phone safe area", () => {
+test("the composer puts file upload left, run settings right, and respects the phone safe area", () => {
   const html = renderToStaticMarkup(
     createElement(Composer, {
       onSend: () => {},
@@ -27,7 +27,9 @@ test("the composer names run settings and respects the phone safe area", () => {
     }),
   );
 
-  expect(html).toContain("Run settings");
+  expect(html).toContain('aria-label="Add files or photos"');
+  expect(html).toContain("Eggy can make mistakes.");
+  expect(html).not.toContain("Run settings");
   expect(html).toContain("safe-area-inset-bottom");
   expect(html).toContain('aria-label="Send message"');
   expect(html).toContain("h-11 w-11");

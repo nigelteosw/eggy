@@ -517,14 +517,6 @@ export function ThreadSidebar({
           "focus-visible:after:opacity-100",
         )}
       >
-        {!resizing && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-full top-1/2 hidden -translate-y-1/2 whitespace-nowrap rounded-xl bg-foreground px-3 py-2 text-xs font-medium text-background shadow-lift group-hover:block"
-          >
-            Drag to resize
-          </span>
-        )}
       </button>
     </div>
   );

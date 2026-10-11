@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/core/destination"
@@ -70,6 +71,12 @@ type WebhookHandler struct {
 	resolveSelection func(context.Context, string) (string, bool)
 	pairing          PairingConsumer
 	replier          Replier
+	// albums holds media groups still waiting for their next item; see
+	// album.go. albumWindow is the quiet gap that ends one (zero means the
+	// default).
+	albumMu     sync.Mutex
+	albums      map[string]*album
+	albumWindow time.Duration
 }
 
 func (h *WebhookHandler) WithReplier(replier Replier) *WebhookHandler {
@@ -111,13 +118,16 @@ type update struct {
 }
 
 type message struct {
-	MessageID int64       `json:"message_id"`
-	From      user        `json:"from"`
-	Chat      chat        `json:"chat"`
-	Text      string      `json:"text"`
-	Caption   string      `json:"caption"`
-	Photo     []photoSize `json:"photo"`
-	Document  *document   `json:"document"`
+	MessageID int64  `json:"message_id"`
+	From      user   `json:"from"`
+	Chat      chat   `json:"chat"`
+	Text      string `json:"text"`
+	Caption   string `json:"caption"`
+	// MediaGroupID is shared by the updates of one album; Telegram delivers
+	// each item as its own update.
+	MediaGroupID string      `json:"media_group_id"`
+	Photo        []photoSize `json:"photo"`
+	Document     *document   `json:"document"`
 	// ReplyTo is the message the owner replied to, and Quote the part of it
 	// they selected when they replied to a passage rather than the whole.
 	ReplyTo *message `json:"reply_to_message"`
@@ -242,6 +252,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// of the update that caused it.
 		if incoming.Message != nil && h.replier != nil {
 			_ = h.replier.Deliver(verified, "I couldn't read that message: "+err.Error()+".")
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if incoming.Message != nil && incoming.Message.MediaGroupID != "" {
+		key := strconv.FormatInt(sender, 10) + ":" + incoming.Message.MediaGroupID
+		if err := h.addToAlbum(verified, key, event, incoming.Message.Caption); err != nil {
+			http.Error(w, "update failed", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return

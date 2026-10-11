@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/core/destination"
@@ -568,5 +569,77 @@ func TestWebhookSelectionCannotDispatchCommands(t *testing.T) {
 				t.Fatalf("status=%d dispatched=%d", response.Code, calls)
 			}
 		})
+	}
+}
+
+// Telegram delivers an album as one update per photo sharing a media_group_id.
+// They must reach the agent as a single message carrying every image, with
+// the caption (which Telegram puts on only one of them) as its text.
+func TestWebhookCoalescesAlbumIntoOneMessage(t *testing.T) {
+	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte("jpeg")}}
+	sunk := make(chan events.Event, 4)
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
+		sunk <- event
+		return nil
+	}, nil).WithFileDownloader(downloader)
+	handler.albumWindow = 20 * time.Millisecond
+	post := func(body string) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status=%d", response.Code)
+		}
+	}
+	post(`{"update_id":20,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"media_group_id":"g1","photo":[{"file_id":"a","file_size":1}]}}`)
+	post(`{"update_id":21,"message":{"message_id":6,"from":{"id":42},"chat":{"id":42},"media_group_id":"g1","caption":"compare these","photo":[{"file_id":"b","file_size":1}]}}`)
+
+	select {
+	case event := <-sunk:
+		var message events.Message
+		if err := json.Unmarshal(event.Payload, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message.Text != "compare these" || len(message.Parts) != 2 {
+			t.Fatalf("message=%#v", message)
+		}
+		if event.Owner != "42" || event.SenderID != "42" {
+			t.Fatalf("owner=%q sender=%q", event.Owner, event.SenderID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("album never delivered")
+	}
+	select {
+	case extra := <-sunk:
+		t.Fatalf("album delivered twice: %#v", extra)
+	case <-time.After(60 * time.Millisecond):
+	}
+}
+
+// Documents sent together are an album too, and get the same single message.
+func TestWebhookCoalescesDocumentAlbumWithoutCaption(t *testing.T) {
+	downloader := &recordingFileDownloader{part: ports.ContentPart{Type: ports.ModalityFile, MediaType: "application/pdf", Filename: "a.pdf", Data: []byte("%PDF-")}}
+	sunk := make(chan events.Event, 4)
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(_ context.Context, event events.Event) error {
+		sunk <- event
+		return nil
+	}, nil).WithFileDownloader(downloader)
+	handler.albumWindow = 20 * time.Millisecond
+	for i, id := range []string{"d1", "d2", "d3"} {
+		body := fmt.Sprintf(`{"update_id":%d,"message":{"message_id":%d,"from":{"id":42},"chat":{"id":42},"media_group_id":"g2","document":{"file_id":%q,"file_name":"a.pdf","mime_type":"application/pdf","file_size":9}}}`, 30+i, 10+i, id)
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	select {
+	case event := <-sunk:
+		var message events.Message
+		_ = json.Unmarshal(event.Payload, &message)
+		if message.Text != "Read these files." || len(message.Parts) != 3 {
+			t.Fatalf("message=%#v", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("album never delivered")
 	}
 }

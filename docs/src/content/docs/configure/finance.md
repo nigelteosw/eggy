@@ -4,9 +4,9 @@ description: Log spending by telling Eggy or sending a receipt photo, and see it
 eyebrow: Configure
 ---
 
-Enabling finance lets each person log what they spend by telling Eggy ("lunch 14.50") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their spending under **Plugins → Finance** in the web panel's sidebar.
+Enabling finance lets each person log what they spend by telling Eggy ("lunch 14.50") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their spending under **Extensions → Finance** in the web panel's sidebar.
 
-Without this section there is no finance tool, no Finance entry under Plugins, and nothing about it in any model request.
+Without this section there is no finance tool, no Finance entry under Extensions, and nothing about it in any model request.
 
 ## Turn it on
 
@@ -52,7 +52,7 @@ If a receipt's total, currency or date is unclear, Eggy asks instead of guessing
 
 ## The Finance page
 
-Finance is listed under **Plugins** in the sidebar only while finance is running. It fills the work area
+Finance is listed under **Extensions** in the sidebar only while finance is running. It fills the work area
 beside the sidebar, and choosing any other destination or closing it returns you to the view you left. It shows,
 for one month at a time:
 
@@ -84,8 +84,8 @@ Eggy's own prompt carries no entries. The model sees them only when it calls the
 
 ## Turning it off
 
-Switch it off in the same card and restart. The Plugins entry and the tool disappear. **Your entries stay** in `eggy.db` and come back when you turn it on again.
+Switch it off in the same card and restart. The Extensions entry and the tool disappear. **Your entries stay** in `eggy.db` and come back when you turn it on again.
 
 ## Cost when disabled
 
-Nothing. With the section absent or `enabled: false`, nothing is constructed: no tool schema reaches a model request, no route is served, no Plugins entry is drawn and no goroutine runs. The only residue is an empty table in the database.
+Nothing. With the section absent or `enabled: false`, nothing is constructed: no tool schema reaches a model request, no route is served, no Extensions entry is drawn and no goroutine runs. The only residue is an empty table in the database.

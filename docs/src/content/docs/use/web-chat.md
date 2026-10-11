@@ -17,7 +17,7 @@ conversations and the destinations below. Each view is addressable directly:
 
 Scheduled is in the sidebar. Settings, Traces and sign-out are in the account
 menu at the foot of the sidebar. Settings opens as a popup over the view you are on. Optional features such as Finance are
-under **Plugins** in the sidebar and open to fill the work area beside the sidebar.
+under **Extensions** in the sidebar and open to fill the work area beside the sidebar.
 
 The layout is responsive: on a phone the sidebar slides over the content and
 closes when you pick a destination, and the settings sidebar collapses into its

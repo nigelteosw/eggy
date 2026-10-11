@@ -92,7 +92,7 @@ func mcpCallbackHandler(manager *mcpadapter.Manager) http.Handler {
 
 // mcpAdmin adapts the MCP manager to the narrow views the owner surfaces
 // need. It exists so internal/commands and internal/web can administer MCP
-// without importing the plugin package, and it is the one place the adapter's
+// without importing the extension package, and it is the one place the adapter's
 // state strings are translated -- both consumers pin the same values.
 type mcpAdmin struct{ manager *mcpadapter.Manager }
 

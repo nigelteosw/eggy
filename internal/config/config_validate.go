@@ -249,7 +249,7 @@ func (c Config) validateGoogleIdentity() error {
 }
 
 // knownGoogleProducts is duplicated from the adapter's own list rather than
-// imported: internal/config must not depend on a plugin package, and the
+// imported: internal/config must not depend on an extension package, and the
 // adapter's Tools function is the one place that pins the pairing.
 var knownGoogleProducts = []string{"calendar", "contacts", "docs", "drive", "gmail", "sheets"}
 

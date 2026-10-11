@@ -174,7 +174,7 @@ func googleActionCatalog() map[string]panel.GoogleProductActions {
 }
 
 // googleAdmin adapts the adapter to the command surface, so internal/commands
-// stays free of the plugin package exactly as it does for MCP.
+// stays free of the extension package exactly as it does for MCP.
 type googleAdmin struct{ auth *googleadapter.Auth }
 
 func newGoogleAdmin(auth *googleadapter.Auth) *googleAdmin {

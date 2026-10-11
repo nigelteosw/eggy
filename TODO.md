@@ -171,13 +171,13 @@ Deletion budget: net smaller, ~−190 lines across Go and TypeScript estimated;
 
 ## P3 — Finance follow-ups (S–M each)
 
-The finance plugin shipped tracking only. Take these on demonstrated use, one
+The finance extension shipped tracking only. Take these on demonstrated use, one
 at a time, not as a set.
 
 - **A weekly spend digest from a schedule.** Grant the scheduled turn
   `finance:list` and `finance:summary`, scoped by action the way
   `schedule:list` already is in `turns.ReadOnlyTools()`. That makes the
-  unprompted-turn allowlist name a plugin's tool, a coupling worth arguing on
+  unprompted-turn allowlist name an extension's tool, a coupling worth arguing on
   its own; `log`, `update` and `delete` must stay off it.
 - **A per-account default currency**, if accounts spend mostly in different
   currencies. It moves from `finance.currency` to per-account state beside
@@ -199,7 +199,7 @@ Choose these on owner use, not feature parity.
 | Recall beyond keywords (M) | Capture a real FTS5 miss first. Try query reformulation, then an LLM digest of the hits (what Hermes does), before embeddings. An embedding index inside SQLite is not a fourth durable form but still needs a measured benefit. | 0 additions until a failed case exists. |
 | Memory upkeep nudge (S) | Hermes periodically prompts its agent to update memory; Eggy writes memory only when a turn decides to. A scheduled consolidation pass conflicts with "unprompted turns cannot mutate anything", so what fits is a nudge at the end of an owner turn. Show a missed durable fact first; changing the invariant is a separate decision. | ~20–50 production lines, 0 config keys/tools/records/loops. |
 | Skills as `/name` shortcuts (S) | Pi runs saved Markdown prompts as `/name`; a skill fired by `/brief` makes a recurring request one tap from a phone. Needs a concrete repeated workflow, not a mirror of the panel. Grants no tool and lifts no approval, like `skill_read`. | ~40–80 production lines, 0 config keys/tools/records/loops. |
-| Feature plugins (L) | The owner wants plugins that can be added or removed — a travel manager, a D&D game manager — and `plugins/` is kept free for them. Design first: AGENTS.md declines runtime-loaded plugins and a marketplace, so the likely shapes are a compile-time package enabled by config, or a bundle of skills, Markdown documents, and an MCP server. Either must cost nothing when absent and keep approvals per action. | Estimate in design; state config keys, tools, and records per plugin. |
+| Feature extensions (L) | The owner wants extensions that can be added or removed — a travel manager, a D&D game manager — and `extensions/` is kept free for them. Design first: AGENTS.md declines runtime-loaded plugins and a marketplace, so the likely shapes are a compile-time package enabled by config, or a bundle of skills, Markdown documents, and an MCP server. Either must cost nothing when absent and keep approvals per action. | Estimate in design; state config keys, tools, and records per extension. |
 | Anthropic Messages adapter (M) | Add for a real direct-provider or wire-feature need; provider neutrality alone is not owner value. Wire through the existing adapter selector. | 1 package/selector case, 0 tools/record types/loops; quantify lines and config in design. |
 
 ## Documentation and operational follow-through (S)

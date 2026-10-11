@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AccountMenu } from "../src/AccountMenu";
 import { ConfigPage } from "../src/ConfigPage";
-import { runningPlugins } from "../src/plugins";
+import { runningExtensions } from "../src/extensions";
 import { ThreadSidebar, groupThreads } from "../src/ThreadSidebar";
 import type { Thread } from "../src/api";
 import { isSettingsPath, pathForView, viewForPath, type View } from "../src/routing";
@@ -30,7 +30,7 @@ test("settings is a popup path over the chat, with or without a trailing slash",
 });
 
 test("retired pages fall back to chat rather than an empty screen", () => {
-  // Plugins was a page and Finance is now a popup, so their old addresses land
+  // The old Plugins page is gone and Finance is now a popup, so their old addresses land
   // on chat instead of a route that no longer renders anything.
   expect(viewForPath("/plugins")).toBe("chat");
   expect(viewForPath("/finance")).toBe("chat");
@@ -78,7 +78,7 @@ function sidebar(props: { view: View; features?: string[] }) {
       view: props.view,
       onNavigate: () => {},
       features: props.features ?? [],
-      onOpenPlugin: () => {},
+      onOpenExtension: () => {},
       onOpenSettings: () => {},
       onLogout: () => {},
     }),
@@ -101,10 +101,10 @@ test("Scheduled is the current destination only on the Scheduled view", () => {
   expect(sidebar({ view: "chat" })).not.toContain('aria-current="page"');
 });
 
-test("Plugins appear in the rail only when a plugin is running, and Finance sits inside their menu", () => {
-  expect(sidebar({ view: "chat", features: [] })).not.toContain(">Plugins<");
+test("Extensions appear in the rail only when an extension is running, and Finance sits inside their menu", () => {
+  expect(sidebar({ view: "chat", features: [] })).not.toContain(">Extensions<");
   const enabled = sidebar({ view: "chat", features: ["finance"] });
-  expect(enabled).toContain(">Plugins<");
+  expect(enabled).toContain(">Extensions<");
   // The menu is closed until opened, so Finance is not in the markup yet.
   expect(enabled).not.toContain(">Finance<");
   expect(enabled).not.toContain('href="/finance"');
@@ -125,10 +125,10 @@ test("the account menu is closed until opened, so the rail shows only the owner'
   expect(html).not.toContain('role="menu"');
 });
 
-test("a plugin is listed only while its feature is running", () => {
-  expect(runningPlugins([]).map((plugin) => plugin.id)).toEqual([]);
-  expect(runningPlugins(["finance"]).map((plugin) => plugin.id)).toEqual(["finance"]);
-  expect(runningPlugins(["other"]).map((plugin) => plugin.id)).toEqual([]);
+test("an extension is listed only while its feature is running", () => {
+  expect(runningExtensions([]).map((extension) => extension.id)).toEqual([]);
+  expect(runningExtensions(["finance"]).map((extension) => extension.id)).toEqual(["finance"]);
+  expect(runningExtensions(["other"]).map((extension) => extension.id)).toEqual([]);
 });
 
 function thread(id: string, updatedAt: string): Thread {

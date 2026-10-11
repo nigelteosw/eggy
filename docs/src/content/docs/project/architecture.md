@@ -36,7 +36,7 @@ flowchart TB
 - `internal/commands` owns the direct Telegram command surface.
 - `internal/panel` owns HTTP routes and the authenticated web API.
 - `internal/<family>/<provider>` holds concrete providers and infrastructure adapters, grouped by capability: `channel/`, `llm/`, `storage/`, `schedule/`, `subprocess/`, `repository/`, `auth/`, `context/`, `fsutil/`, and single-provider families `mcp`, `google`, `web/tavily`, `skills`.
-- There is no `plugins/` directory; the name is reserved for owner-addable feature plugins.
+- There is no `extensions/` directory; the name is reserved for owner-addable feature extensions.
 
 The direction `config ← panel ← bootstrap` is one-way. Config and panel never import bootstrap.
 

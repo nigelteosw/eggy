@@ -391,7 +391,7 @@ func webUIHandler() http.Handler {
 
 func isApplicationRoute(path string) bool {
 	switch path {
-	case "/settings", "/settings/", "/traces", "/traces/", "/finance", "/finance/", "/plugins", "/plugins/", "/auth/link":
+	case "/settings", "/settings/", "/traces", "/traces/", "/finance", "/finance/", "/extensions", "/extensions/", "/auth/link":
 		return true
 	default:
 		return false

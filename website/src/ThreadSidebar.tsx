@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
 import { ClockIcon, PanelIcon, PlugIcon, PlusIcon } from "./components/ui/icons";
-import { runningPlugins } from "./plugins";
+import { runningExtensions } from "./extensions";
 import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
 import type { View } from "./routing";
@@ -134,7 +134,7 @@ export function ThreadSidebar({
   view,
   onNavigate,
   features,
-  onOpenPlugin,
+  onOpenExtension,
   onOpenSettings,
   account,
   onLogout,
@@ -157,8 +157,8 @@ export function ThreadSidebar({
   view: View;
   onNavigate: (view: View) => void;
   features: string[];
-  // Opens a plugin's window by its id, from the Plugins menu.
-  onOpenPlugin: (pluginId: string) => void;
+  // Opens an extension's window by its id, from the Extensions menu.
+  onOpenExtension: (extensionId: string) => void;
   onOpenSettings: () => void;
   account?: Account;
   onLogout: () => void;
@@ -176,19 +176,19 @@ export function ThreadSidebar({
   const sidebarWidthRef = useRef(sidebarWidth);
   const dragStart = useRef({ x: 0, width: SIDEBAR_DEFAULT_WIDTH });
   const [resizing, setResizing] = useState(false);
-  const [pluginsOpen, setPluginsOpen] = useState(false);
-  const pluginsRoot = useRef<HTMLDivElement | null>(null);
-  const plugins = runningPlugins(features);
+  const [extensionsOpen, setExtensionsOpen] = useState(false);
+  const extensionsRoot = useRef<HTMLDivElement | null>(null);
+  const extensions = runningExtensions(features);
 
-  // The Plugins menu dismisses the way the edit-sidebar popover does: a press
+  // The Extensions menu dismisses the way the edit-sidebar popover does: a press
   // anywhere outside it, or Escape, closes it.
   useEffect(() => {
-    if (!pluginsOpen) return;
+    if (!extensionsOpen) return;
     const onPointer = (event: globalThis.PointerEvent) => {
-      if (!pluginsRoot.current?.contains(event.target as Node)) setPluginsOpen(false);
+      if (!extensionsRoot.current?.contains(event.target as Node)) setExtensionsOpen(false);
     };
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setPluginsOpen(false);
+      if (event.key === "Escape") setExtensionsOpen(false);
     };
     document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
@@ -196,7 +196,7 @@ export function ThreadSidebar({
       document.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("keydown", onKey);
     };
-  }, [pluginsOpen]);
+  }, [extensionsOpen]);
 
   function updateSidebarWidth(width: number) {
     const next = clampSidebarWidth(width);
@@ -361,28 +361,28 @@ export function ThreadSidebar({
           onClick={handleNew}
         />
         <NavRow icon={<ClockIcon />} label="Scheduled" active={view === "scheduled"} onClick={() => onNavigate("scheduled")} />
-        {plugins.length > 0 && (
-          <div ref={pluginsRoot} className="relative">
-            <NavRow icon={<PlugIcon />} label="Plugins" active={pluginsOpen} onClick={() => setPluginsOpen((open) => !open)} />
-            {pluginsOpen && (
+        {extensions.length > 0 && (
+          <div ref={extensionsRoot} className="relative">
+            <NavRow icon={<PlugIcon />} label="Extensions" active={extensionsOpen} onClick={() => setExtensionsOpen((open) => !open)} />
+            {extensionsOpen && (
               <div
                 role="menu"
-                aria-label="Plugins"
+                aria-label="Extensions"
                 className="mt-1 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
               >
-                {plugins.map((plugin) => (
+                {extensions.map((extension) => (
                   <button
-                    key={plugin.id}
+                    key={extension.id}
                     type="button"
                     role="menuitem"
                     onClick={() => {
-                      setPluginsOpen(false);
-                      onOpenPlugin(plugin.id);
+                      setExtensionsOpen(false);
+                      onOpenExtension(extension.id);
                     }}
                     className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-sm text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
                   >
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{plugin.icon}</span>
-                    {plugin.label}
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{extension.icon}</span>
+                    {extension.label}
                   </button>
                 ))}
               </div>

@@ -321,7 +321,7 @@ export function FinanceReport({
   );
 }
 
-// embedded is set when the page sits under a plugin header that already names it;
+// embedded is set when the page sits under an extension header that already names it;
 // the visible heading is then dropped so it is not said twice.
 export function FinancePage({ onSessionExpired, embedded = false }: { onSessionExpired: () => void; embedded?: boolean }) {
   // An empty month asks the server for the owner's current one; after the

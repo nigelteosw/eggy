@@ -26,7 +26,7 @@ type MCPRuntime interface {
 }
 
 // MCPStatus is one server's live condition, flattened out of the adapter's own
-// status type so this package stays free of the MCP plugin.
+// status type so this package stays free of the MCP extension.
 type MCPStatus struct {
 	Name       string
 	State      string
@@ -198,7 +198,7 @@ func mcpStateText(enabled bool, live map[string]MCPStatus, name string) string {
 }
 
 // These mirror the adapter's own state strings. They are repeated rather than
-// imported because internal/commands must not depend on a plugin package; the
+// imported because internal/commands must not depend on an extension package; the
 // bootstrap adapter that converts between the two pins the values.
 const (
 	mcpStateLoginRequired = "login_required"

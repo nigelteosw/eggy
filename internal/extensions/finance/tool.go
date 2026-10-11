@@ -21,7 +21,7 @@ type tool struct {
 	definition ports.ToolDefinition
 }
 
-// NewTool returns the one tool this plugin adds. Five actions share one schema
+// NewTool returns the one tool this extension adds. Five actions share one schema
 // because every core tool ships its schema on every model call: enabling
 // finance costs one definition, not five.
 //

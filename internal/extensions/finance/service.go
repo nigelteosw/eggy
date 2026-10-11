@@ -3,7 +3,7 @@
 // second caller of the same Service, so there is one place that decides what a
 // valid entry is.
 //
-// It is the first feature plugin. It is wired at compile time by
+// It is the first feature extension. It is wired at compile time by
 // internal/bootstrap, only when finance.enabled is set; when it is not, none of
 // this is constructed and nothing about it reaches a prompt, a route or a
 // goroutine.
@@ -62,7 +62,7 @@ type Service struct {
 	currencies []string
 }
 
-// New checks its options up front, so a currency the plugin cannot count fails
+// New checks its options up front, so a currency the extension cannot count fails
 // at startup rather than at someone's first entry.
 func New(store ports.FinanceStore, opts Options) (*Service, error) {
 	if store == nil {

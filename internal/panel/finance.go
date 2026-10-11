@@ -13,8 +13,8 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// FinanceService is the finance plugin as the panel sees it. The panel declares
-// the interface and never imports the plugin: bootstrap hands over the one
+// FinanceService is the finance extension as the panel sees it. The panel declares
+// the interface and never imports the extension: bootstrap hands over the one
 // service the model's tool also writes through, so there is a single place that
 // decides what a valid entry is, and nothing here can write around it.
 //

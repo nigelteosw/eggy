@@ -15,8 +15,8 @@ import (
 // does not raise MachineStateVersion, which would lock a rollback out for no
 // reason. A later change to this table's shape would.
 //
-// The table exists whether or not the finance plugin is enabled: turning the
-// plugin off must never lose what was logged, and an empty table costs nothing.
+// The table exists whether or not the finance extension is enabled: turning the
+// extension off must never lose what was logged, and an empty table costs nothing.
 //
 // Money is an integer count of the minor unit, never a float. The CHECK is the
 // last line behind the service's own validation.

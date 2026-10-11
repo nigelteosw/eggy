@@ -981,15 +981,15 @@ func TestWebRawConfigRequiresASession(t *testing.T) {
 	}
 }
 
-func TestPluginsPathServesTheApplicationShell(t *testing.T) {
+func TestExtensionsPathServesTheApplicationShell(t *testing.T) {
 	handler := NewWebHandler("", WebUIConfig{})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/plugins", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/extensions", nil))
 	if response.Code != http.StatusOK {
-		t.Fatalf("GET /plugins status=%d body=%s", response.Code, response.Body.String())
+		t.Fatalf("GET /extensions status=%d body=%s", response.Code, response.Body.String())
 	}
 	if !strings.Contains(response.Body.String(), "<title>Eggy</title>") {
-		t.Fatalf("GET /plugins did not serve the application shell: %s", response.Body.String())
+		t.Fatalf("GET /extensions did not serve the application shell: %s", response.Body.String())
 	}
 }
 

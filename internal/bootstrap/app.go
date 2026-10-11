@@ -337,7 +337,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(newTavilyTools(config, secrets, options)...); err != nil {
 		return nil, err
 	}
-	// The finance plugin: nil service and no tools unless finance.enabled, so
+	// The finance extension: nil service and no tools unless finance.enabled, so
 	// an owner who does not track spending pays no schema bytes and no route.
 	financeService, financeTools, err := newFinance(config, database, location, options.Now)
 	if err != nil {

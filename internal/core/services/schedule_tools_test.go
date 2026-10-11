@@ -13,7 +13,7 @@ import (
 
 // fakeSchedules records what the tools write and holds what they read. Using
 // this rather than the real scheduler is what keeps internal/core free of a
-// plugin import.
+// extension import.
 //
 // It grew List and Remove when the list and cancel tools arrived, which by
 // the standard this comment used to set means ScheduleWriter is no longer a

@@ -370,7 +370,7 @@ func (c *modelCatalog) trace(recorder *services.TraceRecorder) {
 
 // newModelAdapter is the one place a provider's configured adapter name
 // becomes a running implementation. This is the extension point for a new
-// model backend: add the plugin package, add its name to
+// model backend: add the extension package, add its name to
 // config.supportedModelAdapters so the name validates, and add one case here.
 // Nothing else in the tree needs to change.
 //

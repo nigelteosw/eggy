@@ -154,7 +154,7 @@ Capability families (`internal/`)
 - `auth/session`, `auth/grants`, `auth/connections` — sign-in primitives, sealed OAuth grants, sealed chat credentials.
 - `panel/webui` — the embedded panel assets; `fsutil/atomicfile`, `fsutil/filelock` — durable writes and cross-process locks.
 
-There is no `plugins/` directory; the name is reserved for owner-addable feature plugins.
+There is no `extensions/` directory; the name is reserved for owner-addable feature extensions.
 
 ## Development
 

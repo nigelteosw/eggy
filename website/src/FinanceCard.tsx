@@ -43,7 +43,7 @@ export function FinanceSettingsView({
             <span>Finance</span>
             <span
               role="status"
-              aria-label="Finance plugin status"
+              aria-label="Finance extension status"
               className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700"
             >
               {running ? "Running" : "Not running"}

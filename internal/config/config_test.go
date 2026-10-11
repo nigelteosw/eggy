@@ -130,7 +130,7 @@ func TestValuesCoversEverySecretField(t *testing.T) {
 
 // OpenAI is reachable without a new adapter: "openai_compatible" *is* OpenAI's
 // Chat Completions wire format, so ChatGPT models are a providers entry rather
-// than a plugin package. This pins that, because the alternative -- writing an
+// than an extension package. This pins that, because the alternative -- writing an
 // "openai" adapter that duplicates openaicompat -- is the obvious wrong turn
 // when adding it.
 func TestOpenAIIsAProviderEntryNotANewAdapter(t *testing.T) {

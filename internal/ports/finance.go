@@ -80,7 +80,7 @@ type FinancePatch struct {
 	Amount, Currency, Date, Category, Merchant, Note *string
 }
 
-// FinanceStore is the persistence the finance plugin needs. Every method acts
+// FinanceStore is the persistence the finance extension needs. Every method acts
 // as the account on the context and fails with ErrNoPrincipal without one.
 type FinanceStore interface {
 	CreateFinanceEntry(ctx context.Context, entry FinanceEntry) error

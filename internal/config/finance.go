@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// FinanceConfig switches the finance plugin on and names the currency an entry
+// FinanceConfig switches the finance extension on and names the currency an entry
 // takes when the owner does not say one. It is startup configuration: a change
 // applies on restart, because a capability that is not configured registers no
 // tool, mounts no route and costs no prompt bytes.
@@ -20,10 +20,10 @@ type FinanceConfig struct {
 // FinanceCurrencies is the one list of currencies an entry may carry, in the
 // order the panel offers them. Validation, the tool's schema enum, the panel's
 // dropdown and the service all read this one value rather than keeping copies:
-// config validates the default, and config may not import the plugin, so the
-// list lives here and the plugin receives it from bootstrap.
+// config validates the default, and config may not import the extension, so the
+// list lives here and the extension receives it from bootstrap.
 //
-// The plugin keeps each code's minor-unit exponent beside its parser. A code
+// The extension keeps each code's minor-unit exponent beside its parser. A code
 // added here without one is caught by that package's test.
 var FinanceCurrencies = []string{"USD", "EUR", "JPY", "GBP", "CNY", "AUD", "CAD", "CHF", "HKD", "SGD"}
 

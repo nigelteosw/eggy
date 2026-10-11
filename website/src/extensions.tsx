@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 import { FinancePage } from "./FinancePage";
 import { WalletIcon } from "./components/ui/icons";
 
-// The feature plugins the web panel can open. Each one is listed under the
-// rail's Plugins menu and opens as a window over the current view. A plugin
+// The feature extensions the web panel can open. Each one is listed under the
+// rail's Extensions menu and opens as a window over the current view. An extension
 // is listed only while its feature is running, so a disabled one leaves no
 // trace in the panel.
-export type PluginDef = {
+export type ExtensionDef = {
   id: string;
   label: string;
   icon: ReactNode;
@@ -14,7 +14,7 @@ export type PluginDef = {
   Panel: (props: { onSessionExpired: () => void }) => ReactNode;
 };
 
-export const PLUGINS: PluginDef[] = [
+export const EXTENSIONS: ExtensionDef[] = [
   {
     id: "finance",
     label: "Finance",
@@ -24,6 +24,6 @@ export const PLUGINS: PluginDef[] = [
   },
 ];
 
-export function runningPlugins(features: string[]): PluginDef[] {
-  return PLUGINS.filter((plugin) => features.includes(plugin.feature));
+export function runningExtensions(features: string[]): ExtensionDef[] {
+  return EXTENSIONS.filter((extension) => features.includes(extension.feature));
 }

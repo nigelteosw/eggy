@@ -740,7 +740,7 @@ type TavilyConfig struct {
 
 // knownTavilyDepths is duplicated from the adapter rather than imported, for
 // the same reason knownGoogleProducts is: internal/config must not depend on a
-// plugin package.
+// extension package.
 var (
 	knownSearchDepths  = []string{"basic", "advanced", "fast", "ultra-fast"}
 	knownExtractDepths = []string{"basic", "advanced"}

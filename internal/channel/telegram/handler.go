@@ -279,6 +279,12 @@ func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events
 		return base, nil
 	}
 	if incoming.Callback != nil {
+		if strings.HasPrefix(incoming.Callback.Data, "control:") {
+			payload, _ := json.Marshal(events.ControlRequest{Data: incoming.Callback.Data, MessageID: strconv.FormatInt(incoming.Callback.Message.MessageID, 10)})
+			base.Type, base.Payload = events.TypeControl, payload
+			base.SenderID = strconv.FormatInt(incoming.Callback.From.ID, 10)
+			return base, nil
+		}
 		if strings.HasPrefix(incoming.Callback.Data, "select:") {
 			if h.resolveSelection == nil {
 				return events.Event{}, fmt.Errorf("invalid selection callback")

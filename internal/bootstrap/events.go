@@ -70,10 +70,27 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		// not evidence of where anything came from.
 		if event.Source == "telegram" && event.Destination.Kind == destination.Telegram && event.SenderID != "" {
 			ctx = commands.WithWebLoginSender(ctx, event.SenderID)
+			fields := strings.Fields(message.Text)
+			if len(fields) == 1 && a.telegramControls != nil {
+				command := strings.SplitN(fields[0], "@", 2)[0]
+				if command == "/menu" || command == "/settings" {
+					return a.telegramControls.Show(destination.With(ctx, event.Destination), strings.TrimPrefix(command, "/"), "")
+				}
+			}
 		}
 		return a.turnService.OwnerMessage(destination.With(ctx, event.Destination), ports.Message{
 			Role: ports.RoleUser, Content: message.Prompt(), Parts: message.Parts,
 		}, source)
+	case events.TypeControl:
+		if event.Source != "telegram" || event.Destination.Kind != destination.Telegram || event.SenderID == "" || a.telegramControls == nil {
+			return errors.New("control surface unavailable")
+		}
+		var request events.ControlRequest
+		if err := json.Unmarshal(event.Payload, &request); err != nil {
+			return err
+		}
+		ctx = commands.WithWebLoginSender(ctx, event.SenderID)
+		return a.telegramControls.Callback(destination.With(ctx, event.Destination), request.Data, request.MessageID)
 	case events.TypeSchedule:
 		message, err := decodeMessage(event)
 		if err != nil {

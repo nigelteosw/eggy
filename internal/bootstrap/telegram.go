@@ -93,6 +93,13 @@ func (w telegramWiring) tools() []ports.Tool {
 	return []ports.Tool{w.selector.Tool()}
 }
 
+func (w telegramWiring) controls(service telegram.ControlService, now func() time.Time) *telegram.Control {
+	if w.client == nil {
+		return nil
+	}
+	return telegram.NewControl(w.client, service, now)
+}
+
 // webhook is the update route, or nil when Telegram is not configured;
 // panel.NewHTTPHandler serves the path as unavailable for a nil handler.
 //

@@ -13,6 +13,7 @@ import (
 type Type string
 
 const (
+	TypeControl       Type = "control"
 	TypeMessage       Type = "message"
 	TypeApproval      Type = "approval"
 	TypeSchedule      Type = "schedule"
@@ -25,6 +26,12 @@ const (
 	// self-contained read-only agent turn.
 	TypeScheduledMessage Type = "scheduled_message"
 )
+
+// ControlRequest is a transport-owned callback, never a model-authored reply.
+type ControlRequest struct {
+	Data      string `json:"data"`
+	MessageID string `json:"message_id"`
+}
 
 type Event struct {
 	ID            string    `json:"id"`

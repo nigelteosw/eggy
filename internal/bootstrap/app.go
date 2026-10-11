@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/channel/telegram"
 	"github.com/nigelteosw/eggy/internal/channel/webchat"
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
@@ -80,17 +81,18 @@ type App struct {
 	// tools is the one registry the loop runs on, kept so the panel's tool
 	// list and the approval executor resolve names against the same catalog a
 	// turn does rather than against a second copy.
-	tools       *services.ToolRegistry
-	turnService *turns.Service
-	commands    *commands.CommandService
-	scheduler   *schedulerlocal.Scheduler
-	approvals   *services.ApprovalService
-	workspaces  *repo.WorkspaceSessions
-	mcp         *mcpadapter.Manager
-	database    *sqlitestore.Store
-	discord     discordWiring
-	accounts    panel.AccountDirectory
-	now         func() time.Time
+	tools            *services.ToolRegistry
+	turnService      *turns.Service
+	commands         *commands.CommandService
+	telegramControls *telegram.Control
+	scheduler        *schedulerlocal.Scheduler
+	approvals        *services.ApprovalService
+	workspaces       *repo.WorkspaceSessions
+	mcp              *mcpadapter.Manager
+	database         *sqlitestore.Store
+	discord          discordWiring
+	accounts         panel.AccountDirectory
+	now              func() time.Time
 	// location is the owner's timezone, resolved once at construction. The
 	// heartbeat's active-hours window is read on the owner's clock, not the
 	// host's, and a deployment in UTC serving an owner elsewhere must go
@@ -453,6 +455,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		WebLoginLink:     app.webLoginLinkMinter(database, options.ConfigPath),
 		Now:              options.Now,
 	})
+	app.telegramControls = telegramSurface.controls(app.commands, options.Now)
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn
 	// itself does lives in internal/core/turns.
@@ -475,6 +478,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		_, ok := app.accounts.Account(id)
 		return ok
 	}, stateStore, map[events.Type]services.EventHandler{
+		events.TypeControl: app.processEvent,
 		events.TypeMessage: app.processEvent, events.TypeApproval: app.processEvent, events.TypeSchedule: app.processEvent,
 		events.TypeScheduledMessage: app.processEvent,
 	})

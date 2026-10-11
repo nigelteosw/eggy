@@ -517,10 +517,10 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	if len(names) != 12 {
-		t.Fatalf("registered %d commands, want 12: %v", len(names), names)
+	if len(names) != 14 {
+		t.Fatalf("registered %d commands, want 14: %v", len(names), names)
 	}
-	for _, want := range []string{"help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"} {
+	for _, want := range []string{"menu", "settings", "help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}

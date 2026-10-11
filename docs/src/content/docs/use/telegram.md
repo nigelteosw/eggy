@@ -66,6 +66,8 @@ Eggy's Telegram command surface is intentionally small.
 
 | Command | Behavior |
 | --- | --- |
+| `/menu` | Open Status, My settings, Help, and Open web panel buttons |
+| `/settings` | Open your personal model, effort, thinking, approval mode, and heartbeat controls |
 | `/help [model\|mcp\|google\|mode]` | Show grouped commands or detailed topic help |
 | `/status` | Show the active model and pending approval count |
 | `/stop` | Cancel the turn currently running in this conversation |
@@ -138,6 +140,17 @@ Docs, Sheets, and Contacts. See [Google Workspace](/eggy/configure/google-worksp
 | `/google logout` | Discard the stored Google grant |
 
 ## Choosing a model without leaving chat
+
+Send `/menu` to open Eggy's controls, or `/settings` to go directly to your
+personal settings. Tap a setting, choose its value, and the same message updates
+with the result. These buttons use the same settings as the slash commands and
+web panel, without a model call. Auto approval mode has an explicit warning and
+an **Enable auto mode** button; opening settings never changes your mode.
+
+Only your linked private account can use a menu. Opening a new menu supersedes
+the previous one; menus expire after ten minutes and a restart clears them.
+Send `/menu` again to reopen the controls. Model-authored inline selections remain
+ordinary replies and cannot activate these settings controls.
 
 `/model` alone reports the active alias, effective reasoning effort, and the
 aliases available. Effort and thinking visibility are personal settings shared

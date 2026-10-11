@@ -45,12 +45,12 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // administration commands, and they are here because what they reach lives on
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
-func TestOnlyTwelveTelegramCommandsAreAdvertised(t *testing.T) {
+func TestTelegramCommandsAreAdvertised(t *testing.T) {
 	got := TelegramAutocomplete()
-	if len(got) != 12 {
+	if len(got) != 14 {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"}
+	want := []string{"menu", "settings", "help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)

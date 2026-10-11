@@ -8,6 +8,8 @@ var telegramCommands = []struct {
 	Name, Description, Group string
 	NoArgs                   bool
 }{
+	{"menu", "Open Eggy's Telegram controls", "Conversation", true},
+	{"settings", "Open your personal settings", "Personal settings", true},
 	{"help", "Show commands or help for a topic", "Conversation", false},
 	{"status", "Show brief operational status", "Conversation", true},
 	{"stop", "Stop the turn in the current conversation", "Conversation", true},

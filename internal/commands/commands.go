@@ -145,6 +145,9 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		}
 	}
 	switch name {
+	case "menu", "settings":
+		panel, err := s.Control(ctx, name)
+		return panel.Text + "\n\nUse /model, /mode, /heartbeat or /web. Telegram provides buttons for these controls.", true, err
 	case "help":
 		return s.help(args), true, nil
 	case "status":

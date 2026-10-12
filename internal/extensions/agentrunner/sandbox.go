@@ -102,3 +102,10 @@ func parseSandboxExec(args []string) (runDir string, argv []string, err error) {
 	}
 	return args[0], args[2:], nil
 }
+
+// within reports whether path is dir or below it, comparing cleaned paths
+// lexically. Callers resolve symlinks first when the distinction matters.
+func within(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel)
+}

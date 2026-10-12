@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -298,12 +297,6 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 		}
 		return nil
 	})
-}
-
-// within reports whether path is dir or below it.
-func within(path, dir string) bool {
-	rel, err := filepath.Rel(dir, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel)
 }
 
 // SandboxExecMain is the sandbox-exec entry point, run inside the child

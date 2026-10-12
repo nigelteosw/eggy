@@ -10,33 +10,30 @@ budgets are estimates to refine before implementation.
 
 ## P0 — Agent Runner extension: Eggy codes on allowed repositories (L)
 
-Spec: `docs/superpowers/specs/2026-10-11-agent-runner-design.md` (proposed; not
-yet approved). Eggy's own loop, on a cheap OpenRouter model, edits a local
-checkout of an owner-allowed repository, runs its checks, and a trusted
-publisher pushes a feature branch and opens a PR. No Claude Code, no
-subscription token.
+Spec: `docs/superpowers/specs/2026-10-11-agent-runner-design.md` (approved
+2026-10-12). Plan: `docs/superpowers/plans/2026-10-12-agent-runner.md`
+(11 tasks). A coding turn on Eggy's loop, on the model `agent_runner.model`
+names, edits a sandboxed checkout of an owner-allowed repository, and the
+extension pushes `eggy/<run-id>` and opens a PR with the account's own PAT.
 
-- Extensions page card with `agent_runner.enabled`, like Finance. Each account
-  connects its own GitHub PAT (sealed, account-scoped) and enables cloning per
-  allowed repository, in the panel or in Telegram (`/code repos`).
-- Start from the panel form or `/code <repo> <task>` in a verified private
-  chat only. That ingress creates a 24-hour mandate; push and PR each get their
-  own payload-bound approval. Never merge, approve, force-push, or touch a
-  default/protected branch; reject workflow-file changes.
-- One `agent_runs` table, one worker while enabled, one owner-facing tool plus
-  turn-scoped coding tools. Check results come only from captured exit codes;
-  failed or unrun checks give a draft PR. Reconcile push/PR after a crash
-  without duplicating the PR.
-- v1 runs the shell as Eggy's OS user under `localprocess` in repositories the
-  owner trusts; the gap is documented. Enforced isolation is a later phase,
-  gated on a Railway proof, and is not a prerequisite.
-- Revise the `AGENTS.md` shipping and approval rules in the same change.
-- First step: confirm where per-account repository enablement is stored.
-  Sequence and the eight verification items are in the spec.
+- `internal/extensions/agentrunner/`, one `agent_runner.enabled` switch, its
+  own model and skill toggles, separate from Eggy's chat settings.
+- Each account sets its own PAT in settings and enables repositories in the
+  panel or with `/code repos enable <name>`.
+- Start only from the panel form or `/code run <name> <task>`; the start is a
+  24-hour mandate that authorizes the push and one PR in every mode. Eggy
+  never approves, merges, force-pushes, tags, or touches `.github/**` or a
+  protected branch.
+- `bash` and `run_check` run as uid `coder` under Landlock ABI 6 (verified on
+  Railway 2026-10-12), with HTTPS egress only; a failed startup probe drops
+  `bash`. Only `run_check` exit codes count as PR evidence.
+- Go and Node are baked into the image.
+- Revise the `AGENTS.md` shipping and `/mode` rules in Task 8.
 
-Deletion budget: ~2,500–4,000 production lines (estimate), 1 config key,
-1 tool plus turn-scoped coding tools, 1 record type, 1 worker while enabled,
-0 new services/databases/loops.
+Deletion budget: ~2,300–3,800 production lines (estimate), 3 config keys plus
+`repositories[].checks`, 1 owner tool plus 7 coding tools outside the
+registry, 2 tables, 1 sealed record per account, 1 worker while enabled,
+1 system user.
 
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
-import { ChevronDownIcon, ClockIcon, PanelIcon, PlugIcon, PlusIcon } from "./components/ui/icons";
+import { ChevronDownIcon, ClockIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
 import { runningExtensions } from "./extensions";
 import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
@@ -394,6 +394,7 @@ export function ThreadSidebar({
           onClick={handleNew}
         />
         <NavRow icon={<ClockIcon />} label="Scheduled" active={view === "scheduled"} onClick={() => onNavigate("scheduled")} />
+        <NavRow icon={<SlidersIcon />} label="Customize" active={view === "customize"} onClick={() => onNavigate("customize")} />
         {extensions.length > 0 && (
           <div ref={extensionsRoot} className="relative">
             <NavRow icon={<PlugIcon />} label="Extensions" active={extensionsOpen} onClick={() => setExtensionsOpen((open) => !open)} />

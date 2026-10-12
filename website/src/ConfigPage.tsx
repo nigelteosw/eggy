@@ -3,8 +3,6 @@ import { logout, type Theme } from "./api";
 import { cn } from "./lib/utils";
 import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
-import { McpCard } from "./McpCard";
-import { GoogleCard } from "./GoogleCard";
 import { DiscordCard } from "./DiscordCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { WatchCard } from "./WatchCard";
@@ -64,7 +62,7 @@ export const SECTIONS: Section[] = [
   { id: "permissions", group: "personal", label: "Pending approvals", title: "My pending approvals", description: "Actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People — trusted users who can administer this deployment", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", icon: <UsersIcon /> },
   { id: "models", group: "shared", label: "Models", title: "Shared deployment — changes here affect everyone", description: "Providers, API keys, and the aliases that route to them, used by every person.", icon: <CpuIcon /> },
-  { id: "connections", group: "shared", label: "Connections", title: "Shared deployment — changes here affect everyone", description: "External tools, the shared Google Workspace grant, and chat bots.", icon: <PlugIcon /> },
+  { id: "connections", group: "shared", label: "Connections", title: "Shared deployment — changes here affect everyone", description: "Chat bots. Skills, MCP servers and Google are on the Customize page.", icon: <PlugIcon /> },
   { id: "capabilities", group: "shared", label: "Capabilities", title: "Shared deployment — capabilities", description: "What Eggy can use during anyone's turn.", icon: <WrenchIcon /> },
   { id: "soul", group: "shared", label: "Soul", title: "Shared deployment — Eggy's soul", description: "Who Eggy is and how it sounds, for everyone.", icon: <HeartIcon /> },
   { id: "appearance", group: "shared", label: "Appearance", title: "Shared deployment — appearance", description: "How the panel looks, for everyone.", icon: <PaletteIcon /> },
@@ -207,8 +205,6 @@ export function ConfigPage({
           )}
           {active === "connections" && (
             <>
-              <McpCard onSessionExpired={onSessionExpired} />
-              <GoogleCard onSessionExpired={onSessionExpired} />
               <DiscordCard onSessionExpired={onSessionExpired} />
             </>
           )}

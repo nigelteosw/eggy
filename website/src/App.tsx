@@ -8,6 +8,7 @@ import { TracesPage } from "./TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { runningExtensions } from "./extensions";
 import { SchedulesPage } from "./SchedulesPage";
+import { CustomizePage } from "./CustomizePage";
 import { SetupPage } from "./SetupPage";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { MenuIcon, PanelIcon } from "./components/ui/icons";
@@ -334,6 +335,10 @@ export function App() {
         ) : view === "scheduled" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <SchedulesPage onSessionExpired={onSessionExpired} />
+          </div>
+        ) : view === "customize" ? (
+          <div className="min-h-0 min-w-0 flex-1">
+            <CustomizePage onSessionExpired={onSessionExpired} />
           </div>
         ) : view === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">

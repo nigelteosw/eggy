@@ -712,3 +712,30 @@ export function updateFinanceEntry(id: string, patch: FinancePatch): Promise<Fin
 export function deleteFinanceEntry(id: string): Promise<FinanceEntry> {
   return request<FinanceEntry>(`/api/finance/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
+
+// Skills are owner-authored Markdown shared by the whole deployment. A row with
+// `invalid` set is a file the server could not load; it can be deleted but not
+// opened, and the reason is shown instead.
+export type SkillRow = { name: string; description: string; disabled: boolean; invalid?: string };
+export type SkillDetail = { name: string; description: string; body: string; disabled: boolean };
+export type SkillInput = { description: string; body: string; disabled: boolean };
+
+export function listSkills(): Promise<SkillRow[]> {
+  return request<SkillRow[]>("/api/skills");
+}
+
+export function getSkill(name: string): Promise<SkillDetail> {
+  return request<SkillDetail>(`/api/skills/${encodeURIComponent(name)}`);
+}
+
+export function createSkill(name: string, input: SkillInput): Promise<CommandResult> {
+  return request("/api/skills", { method: "POST", body: JSON.stringify({ name, ...input }) });
+}
+
+export function updateSkill(name: string, input: SkillInput): Promise<CommandResult> {
+  return request(`/api/skills/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteSkill(name: string): Promise<CommandResult> {
+  return request(`/api/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+}

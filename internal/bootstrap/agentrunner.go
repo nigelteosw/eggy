@@ -117,12 +117,15 @@ func deliverToOrigin(ctx context.Context, channel ports.Channel, run ports.Agent
 	if run.OriginDestination == "" {
 		return nil
 	}
-	if channel == nil {
-		return errors.New("no channel to deliver the run's message")
-	}
 	var dest destination.Destination
 	if err := json.Unmarshal([]byte(run.OriginDestination), &dest); err != nil {
 		return fmt.Errorf("run origin: %w", err)
+	}
+	if dest.Kind == "" {
+		return nil
+	}
+	if channel == nil {
+		return errors.New("no channel to deliver the run's message")
 	}
 	return channel.Deliver(destination.With(ctx, dest), text)
 }
@@ -143,6 +146,13 @@ func (c codeAdapter) StartRun(ctx context.Context, repository, task string) (por
 	return c.service.Start(ctx, agentrunner.StartRequest{
 		Repository: repository, Task: task, Channel: origin.Kind, Destination: string(raw),
 	})
+}
+
+// StartPanelRun starts a run from the web panel. It has no chat origin, and it
+// must not inherit one from the context, because an unset context reads as the
+// Telegram default. Its result is shown in the panel and never sent to a chat.
+func (c codeAdapter) StartPanelRun(ctx context.Context, repository, task string) (ports.AgentRun, error) {
+	return c.service.Start(ctx, agentrunner.StartRequest{Repository: repository, Task: task, Channel: "panel"})
 }
 
 func (c codeAdapter) Runs(ctx context.Context) ([]ports.AgentRun, error) {

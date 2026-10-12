@@ -93,3 +93,13 @@ func TestCodeAdapterRecordsVerifiedOrigin(t *testing.T) {
 	}
 }
 
+// A run from the panel has no chat origin. An empty origin kind must never be
+// sent anywhere, because routing an empty kind lands on the default channel.
+func TestPanelRunHasNoChatOriginAndNoDelivery(t *testing.T) {
+	if err := deliverToOrigin(context.Background(), nil, ports.AgentRun{OriginDestination: `{"kind":""}`}, "x"); err != nil {
+		t.Fatalf("an empty origin kind was delivered: %v", err)
+	}
+	if err := deliverToOrigin(context.Background(), nil, ports.AgentRun{}, "x"); err != nil {
+		t.Fatalf("a run with no origin was delivered: %v", err)
+	}
+}

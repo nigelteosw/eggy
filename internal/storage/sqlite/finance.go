@@ -144,7 +144,7 @@ func (s *Store) DeleteFinanceEntry(ctx context.Context, id string) (ports.Financ
 
 // financeWhere builds the one predicate listing and totals share, always led by
 // the account. Dates are YYYY-MM-DD text, so string comparison is date order.
-func financeWhere(account, from, to, category string) (string, []any) {
+func financeWhere(account, from, to, category, text string) (string, []any) {
 	clauses := []string{"account_id = ?"}
 	args := []any{account}
 	if from != "" {
@@ -159,22 +159,52 @@ func financeWhere(account, from, to, category string) (string, []any) {
 		clauses = append(clauses, "category = ?")
 		args = append(args, category)
 	}
+	if text != "" {
+		// instr rather than LIKE: the text is matched literally, so a % or _
+		// the owner typed is just a character, not a wildcard.
+		needle := strings.ToLower(text)
+		clauses = append(clauses, "(instr(lower(merchant), ?) > 0 OR instr(lower(note), ?) > 0 OR instr(lower(category), ?) > 0)")
+		args = append(args, needle, needle, needle)
+	}
 	return strings.Join(clauses, " AND "), args
 }
 
-// ListFinanceEntries returns the newest entries first, with the number that
-// matched before the limit so a caller can say how many were left out.
+// financeOrder is the ORDER BY for a listing. Every fragment is fixed here; the
+// sort and order arrive already validated by the service and only choose among
+// them. Ties end on newest first, so the order is the same on every call.
+func financeOrder(sort, order string) string {
+	dir := "DESC"
+	if order == "asc" {
+		dir = "ASC"
+	}
+	const newestFirst = ", occurred_on DESC, created_at DESC, id DESC"
+	switch sort {
+	case ports.FinanceSortAmount:
+		// Currencies are never compared: JPY and SGD amounts sort in separate runs.
+		return "currency ASC, amount_minor " + dir + newestFirst
+	case ports.FinanceSortCategory:
+		return "category " + dir + newestFirst
+	case ports.FinanceSortMerchant:
+		return "lower(merchant) " + dir + newestFirst
+	default:
+		return "occurred_on " + dir + ", created_at " + dir + ", id " + dir
+	}
+}
+
+// ListFinanceEntries returns the matching entries in the filter's order, with
+// the number that matched before the limit so a caller can say how many were
+// left out.
 func (s *Store) ListFinanceEntries(ctx context.Context, filter ports.FinanceFilter) ([]ports.FinanceEntry, int, error) {
 	account, err := accountOf(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	where, args := financeWhere(account, filter.From, filter.To, filter.Category)
+	where, args := financeWhere(account, filter.From, filter.To, filter.Category, filter.Query)
 	var total int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM finance_entries WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	query := `SELECT ` + financeColumns + ` FROM finance_entries WHERE ` + where + ` ORDER BY occurred_on DESC, created_at DESC, id DESC`
+	query := `SELECT ` + financeColumns + ` FROM finance_entries WHERE ` + where + ` ORDER BY ` + financeOrder(filter.Sort, filter.Order)
 	if filter.Limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, filter.Limit)
@@ -202,7 +232,7 @@ func (s *Store) FinanceTotals(ctx context.Context, from, to string) (ports.Finan
 	if err != nil {
 		return ports.FinanceTotals{}, err
 	}
-	where, args := financeWhere(account, from, to, "")
+	where, args := financeWhere(account, from, to, "", "")
 	totals := ports.FinanceTotals{ByCategory: []ports.FinanceCategoryTotal{}, ByDay: []ports.FinanceDayTotal{}}
 	err = scanRows(ctx, s.db, `SELECT currency, category, SUM(amount_minor), COUNT(*) FROM finance_entries WHERE `+where+`
 		GROUP BY currency, category ORDER BY currency, SUM(amount_minor) DESC, category`, func(scan func(...any) error) error {

@@ -19,6 +19,9 @@ import (
 type fakeStore struct {
 	entries map[string]map[string]ports.FinanceEntry // account -> id -> entry
 	order   []string
+	// last is the filter the most recent listing received, so a test can see
+	// what the service resolved before it reached the store.
+	last ports.FinanceFilter
 }
 
 func newFakeStore() *fakeStore {
@@ -76,6 +79,7 @@ func (f *fakeStore) DeleteFinanceEntry(ctx context.Context, id string) (ports.Fi
 }
 
 func (f *fakeStore) ListFinanceEntries(ctx context.Context, filter ports.FinanceFilter) ([]ports.FinanceEntry, int, error) {
+	f.last = filter
 	m, err := f.account(ctx)
 	if err != nil {
 		return nil, 0, err

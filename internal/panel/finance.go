@@ -80,7 +80,10 @@ func decodeFinanceBody(r *http.Request, into any) error {
 func newFinanceListHandler(svc FinanceService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		filter := ports.FinanceFilter{From: query.Get("from"), To: query.Get("to"), Category: query.Get("category")}
+		filter := ports.FinanceFilter{
+			From: query.Get("from"), To: query.Get("to"), Category: query.Get("category"),
+			Query: query.Get("q"), Sort: query.Get("sort"), Order: query.Get("order"),
+		}
 		if raw := query.Get("limit"); raw != "" {
 			limit, err := strconv.Atoi(raw)
 			if err != nil || limit < 0 {

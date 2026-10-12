@@ -35,12 +35,29 @@ type FinanceEntry struct {
 	UpdatedAt   time.Time
 }
 
-// FinanceFilter bounds a listing. From and To are inclusive YYYY-MM-DD dates
-// and either may be empty; Limit zero means no limit.
+// The keys a listing may sort by. The store maps each to a fixed column and
+// never builds an ORDER BY from caller text.
+const (
+	FinanceSortDate     = "date"
+	FinanceSortAmount   = "amount"
+	FinanceSortCategory = "category"
+	FinanceSortMerchant = "merchant"
+)
+
+// FinanceFilter bounds and orders a listing. From and To are inclusive
+// YYYY-MM-DD dates and either may be empty; Limit zero means no limit.
+//
+// Query is a case-insensitive text match against merchant, category and note.
+// Sort is one of the FinanceSort keys and Order is "asc" or "desc"; the
+// service resolves empty values to each key's default before the store sees
+// them. Ties always fall back to newest first, so an order is never unstable.
 type FinanceFilter struct {
 	From     string
 	To       string
 	Category string
+	Query    string
+	Sort     string
+	Order    string
 	Limit    int
 }
 

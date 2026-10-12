@@ -33,7 +33,17 @@ const (
 	maxCategory = 40
 	maxMerchant = 80
 	maxNote     = 280
+	maxQuery    = 80
 )
+
+// sortOrders is each sort key with the order it takes when the caller names
+// none: newest and largest first for date and amount, A to Z for the text keys.
+var sortOrders = map[string]string{
+	ports.FinanceSortDate:     "desc",
+	ports.FinanceSortAmount:   "desc",
+	ports.FinanceSortCategory: "asc",
+	ports.FinanceSortMerchant: "asc",
+}
 
 var monthPattern = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
@@ -254,8 +264,9 @@ func (s *Service) Delete(ctx context.Context, id string) (ports.FinanceEntry, er
 	return s.store.DeleteFinanceEntry(ctx, strings.TrimSpace(id))
 }
 
-// List returns the newest entries first and the count before the limit. With
-// no dates it covers the current month.
+// List returns the entries the filter selects, ordered by its sort (newest
+// first by default) and the count before the limit. With no dates it covers
+// the current month.
 func (s *Service) List(ctx context.Context, filter ports.FinanceFilter) ([]ports.FinanceEntry, int, error) {
 	from, to, err := s.Range(filter.From, filter.To)
 	if err != nil {
@@ -263,10 +274,39 @@ func (s *Service) List(ctx context.Context, filter ports.FinanceFilter) ([]ports
 	}
 	filter.From, filter.To = from, to
 	filter.Category = strings.ToLower(strings.TrimSpace(filter.Category))
+	query, err := cleanText("query", filter.Query, maxQuery, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	filter.Query = query
+	if filter.Sort, filter.Order, err = resolveSort(filter.Sort, filter.Order); err != nil {
+		return nil, 0, err
+	}
 	if filter.Limit <= 0 || filter.Limit > maxList {
 		filter.Limit = maxList
 	}
 	return s.store.ListFinanceEntries(ctx, filter)
+}
+
+// resolveSort turns a sort key and order into their canonical form, filling in
+// each key's default order. Anything else is refused rather than guessed at.
+func resolveSort(sort, order string) (string, string, error) {
+	sort = strings.ToLower(strings.TrimSpace(sort))
+	if sort == "" {
+		sort = ports.FinanceSortDate
+	}
+	defaultOrder, ok := sortOrders[sort]
+	if !ok {
+		return "", "", invalid("sort %q must be one of date, amount, category, merchant", sort)
+	}
+	order = strings.ToLower(strings.TrimSpace(order))
+	if order == "" {
+		order = defaultOrder
+	}
+	if order != "asc" && order != "desc" {
+		return "", "", invalid("order %q must be asc or desc", order)
+	}
+	return sort, order, nil
 }
 
 // Summary sums the range per currency, by category and by day.

@@ -427,11 +427,34 @@ func addPathRule(rulesetFD uintptr, path string, access uint64) error {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
 	defer unix.Close(fd)
-	attr := unix.LandlockPathBeneathAttr{Allowed_access: access, Parent_fd: int32(fd)}
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	// Landlock refuses a rule whose rights a non-directory cannot hold (EINVAL),
+	// so the directory-only rights are dropped for files and devices.
+	attr := unix.LandlockPathBeneathAttr{Allowed_access: rightsFor(access, st.Mode&unix.S_IFMT == unix.S_IFDIR), Parent_fd: int32(fd)}
 	if _, _, errno := unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE, rulesetFD, landlockRulePathBeneath, uintptr(unsafe.Pointer(&attr)), 0, 0, 0); errno != 0 {
 		return fmt.Errorf("landlock rule %s: %w", path, errno)
 	}
 	return nil
+}
+
+// dirOnlyRights are the Landlock rights that apply to directories alone. A rule
+// that grants one to a file or device fails with EINVAL.
+const dirOnlyRights = unix.LANDLOCK_ACCESS_FS_READ_DIR | unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
+	unix.LANDLOCK_ACCESS_FS_REMOVE_FILE | unix.LANDLOCK_ACCESS_FS_MAKE_CHAR |
+	unix.LANDLOCK_ACCESS_FS_MAKE_DIR | unix.LANDLOCK_ACCESS_FS_MAKE_REG |
+	unix.LANDLOCK_ACCESS_FS_MAKE_SOCK | unix.LANDLOCK_ACCESS_FS_MAKE_FIFO |
+	unix.LANDLOCK_ACCESS_FS_MAKE_BLOCK | unix.LANDLOCK_ACCESS_FS_MAKE_SYM |
+	unix.LANDLOCK_ACCESS_FS_REFER
+
+// rightsFor returns the rights a rule may carry for an object of the given kind.
+func rightsFor(access uint64, isDir bool) uint64 {
+	if isDir {
+		return access
+	}
+	return access &^ dirOnlyRights
 }
 
 // setLimits bounds what a command can consume. The numbers are the design's

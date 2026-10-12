@@ -213,6 +213,23 @@ export const SearchIcon = (p: IconProps) => (
   </Icon>
 );
 
+// Three sliders, the filter control's mark.
+export const SlidersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 2.5v8M4 14.5v3M10 2.5v4M10 10.5v7M16 2.5v8.5M16 15v2.5" />
+    <circle cx="4" cy="12.5" r="2" />
+    <circle cx="10" cy="8.5" r="2" />
+    <circle cx="16" cy="13.5" r="1.5" />
+  </Icon>
+);
+
+// Opposed arrows, the sort control's mark.
+export const ArrowsUpDownIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6.5 16.5v-13M3.5 6.5l3-3 3 3M13.5 3.5v13M10.5 13.5l3 3 3-3" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="m5 5 10 10M15 5 5 15" />

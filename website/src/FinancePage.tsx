@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   SessionExpiredError,
   createFinanceEntry,
@@ -18,7 +18,9 @@ import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./
 import { CloseIcon } from "./components/ui/icons";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
+import { FinanceToolbar } from "./FinanceToolbar";
 import { CATEGORY_SUGGESTIONS, dayLabel, daysOfRange, monthLabel, shiftMonth } from "./lib/finance";
+import { DEFAULT_VIEW, isFiltered, listRequest, type EntryView } from "./lib/finance-list";
 import { errorMessage } from "./lib/utils";
 
 // Money is text all the way down: the server formats every amount and sizes
@@ -50,11 +52,17 @@ export function AddEntryForm({
   currencies,
   defaultCurrency,
   busy,
+  open,
+  onOpenChange,
   onCreate,
 }: {
   currencies: string[];
   defaultCurrency: string;
   busy: boolean;
+  // Optional so the form opens and closes on its own unless the page, as the
+  // toolbar's Add button does, takes that over.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   // Resolves true when the entry was recorded, so the form clears only then
   // and a refused entry keeps what was typed.
   onCreate: (input: FinanceInput) => Promise<boolean>;
@@ -81,7 +89,7 @@ export function AddEntryForm({
   }
 
   return (
-    <details className="rounded-2xl bg-neutral-100 p-4">
+    <details id="finance-add-entry" className="rounded-2xl bg-neutral-100 p-4" open={open} onToggle={(event) => onOpenChange?.(event.currentTarget.open)}>
       <summary className="cursor-pointer text-[12.5px] font-medium">Add entry</summary>
       <form onSubmit={submit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
         <Field label="Amount">
@@ -207,6 +215,8 @@ export function FinanceReport({
   onEdit,
   onSave,
   onDelete,
+  listControls,
+  filtered = false,
 }: {
   summary: FinanceSummary;
   entries: FinanceEntry[];
@@ -216,6 +226,10 @@ export function FinanceReport({
   onEdit: (id: string | null) => void;
   onSave: (id: string, patch: FinancePatch) => Promise<void>;
   onDelete: (id: string) => void;
+  // The search and sort controls, drawn above the entries. A search can match
+  // nothing, so the section stays while filtered even with no rows to show.
+  listControls?: ReactNode;
+  filtered?: boolean;
 }) {
   const empty = summary.totals.length === 0 && entries.length === 0;
   // The strip is drawn in one currency, because bars in two would be
@@ -280,9 +294,11 @@ export function FinanceReport({
         </>
       )}
 
-      {entries.length > 0 && (
+      {(entries.length > 0 || filtered) && (
         <section className="flex flex-col gap-3">
           <CardHeader title="Entries" />
+          {listControls}
+          {entries.length === 0 && <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">No entries match.</p>}
           <ul className="flex flex-col gap-2">
             {entries.map((entry) => (
               <li key={entry.id} className="flex flex-col gap-2 rounded-2xl bg-neutral-100 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
@@ -333,8 +349,12 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  // Only the newest load may land: stepping through months quickly must not
-  // end on whichever response happened to arrive last.
+  const [addOpen, setAddOpen] = useState(false);
+  // The search, filter and sort the list is asked for. Changing it asks only
+  // for the list again; the month's totals do not depend on it.
+  const [view, setView] = useState<EntryView>(DEFAULT_VIEW);
+  // Only the newest load may land: stepping through months quickly, or
+  // retyping a search, must not end on whichever response arrived last.
   const latest = useRef(0);
 
   const fail = useCallback(
@@ -348,12 +368,13 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
     [onSessionExpired],
   );
 
-  const load = useCallback(
-    async (target: string) => {
+  // Loads a month's totals and its entries as the view asks for them.
+  const loadMonth = useCallback(
+    async (target: string, next: EntryView) => {
       const mine = ++latest.current;
       try {
         const nextSummary = await getFinanceSummary(target || undefined);
-        const nextList = await getFinanceEntries({ from: nextSummary.from, to: nextSummary.to });
+        const nextList = await getFinanceEntries(listRequest(nextSummary, next));
         if (mine !== latest.current) return;
         setSummary(nextSummary);
         setList(nextList);
@@ -365,9 +386,33 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
     [fail],
   );
 
+  // Asks for the list again under the current search and sort, for the month
+  // already on screen.
+  const loadList = useCallback(
+    async (range: FinanceSummary, next: EntryView) => {
+      const mine = ++latest.current;
+      try {
+        const nextList = await getFinanceEntries(listRequest(range, next));
+        if (mine !== latest.current) return;
+        setList(nextList);
+        setError(null);
+      } catch (err) {
+        if (mine === latest.current) fail(err, "Could not load finance");
+      }
+    },
+    [fail],
+  );
+
+  // The view is read here without being listed: changing it has its own effect
+  // below, so moving between months never fetches the list twice.
   useEffect(() => {
-    void load(month);
-  }, [load, month]);
+    void loadMonth(month, view);
+  }, [loadMonth, month]);
+
+  // Nothing to refine until a month has loaded; the month load above fetches it.
+  useEffect(() => {
+    if (summary) void loadList(summary, view);
+  }, [view]);
 
   // Runs a write, then reloads what the page shows. Resolves true on success.
   async function mutate(write: () => Promise<unknown>, failure: string): Promise<boolean> {
@@ -375,7 +420,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
     setError(null);
     try {
       await write();
-      await load(summary?.month ?? month);
+      await loadMonth(summary?.month ?? month, view);
       return true;
     } catch (err) {
       fail(err, failure);
@@ -429,6 +474,18 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               total={list.total}
               editingId={editingId}
               busy={busy}
+              filtered={isFiltered(view)}
+              listControls={
+                <FinanceToolbar
+                  view={view}
+                  categories={[...new Set(summary.by_category.map((row) => row.category))].sort()}
+                  onChange={(change) => setView((current) => ({ ...current, ...change }))}
+                  onAdd={() => {
+                    setAddOpen(true);
+                    document.getElementById("finance-add-entry")?.scrollIntoView({ block: "center", behavior: "smooth" });
+                  }}
+                />
+              }
               onEdit={setEditingId}
               onSave={async (id, patch) => {
                 if (await mutate(() => updateFinanceEntry(id, patch), "Could not save the entry")) setEditingId(null);
@@ -442,6 +499,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               currencies={summary.currencies}
               defaultCurrency={summary.default_currency}
               busy={busy}
+              open={addOpen}
+              onOpenChange={setAddOpen}
               onCreate={(input) => mutate(() => createFinanceEntry(input), "Could not add the entry")}
             />
           </>

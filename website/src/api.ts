@@ -690,7 +690,9 @@ export function getFinanceSummary(month?: string): Promise<FinanceSummary> {
   return request<FinanceSummary>(`/api/finance/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`);
 }
 
-export function getFinanceEntries(filter: { from?: string; to?: string; category?: string; limit?: number } = {}): Promise<FinanceEntryList> {
+export function getFinanceEntries(
+  filter: { from?: string; to?: string; category?: string; q?: string; sort?: string; order?: string; limit?: number } = {},
+): Promise<FinanceEntryList> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {
     if (value !== undefined && value !== "") params.set(key, String(value));

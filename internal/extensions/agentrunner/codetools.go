@@ -31,6 +31,22 @@ type ActiveRun struct {
 	Checks       [][]string
 	mu           sync.Mutex
 	CheckResults []CheckResult
+	question     string
+}
+
+// setQuestion records the question the model asked the owner. The worker
+// reads it when the turn ends, which is how ask_owner ends a run's work.
+func (r *ActiveRun) setQuestion(q string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.question = q
+}
+
+// Question returns the question asked this turn, or "".
+func (r *ActiveRun) Question() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.question
 }
 
 // CheckResult is one check the runner executed, with its real exit code.

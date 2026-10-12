@@ -63,7 +63,7 @@ func scanAgentRun(scan func(...any) error) (ports.AgentRun, error) {
 		usedActiveNS          int64
 		delivered             int64
 	)
-	if err := scan(&run.ID, &run.Repository, &run.Brief, &run.BriefDigest, &run.BaseBranch, &run.BaseSHA, &run.Branch, &run.HeadSHA,
+	if err := scan(&run.AccountID, &run.ID, &run.Repository, &run.Brief, &run.BriefDigest, &run.BaseBranch, &run.BaseSHA, &run.Branch, &run.HeadSHA,
 		&state, &run.Revision, &stage, &run.PATGeneration, &expires, &run.Question, &run.Answer, &run.UsedTokens, &usedActiveNS,
 		&run.Output, &run.PRURL, &run.Failure, &run.OriginChannel, &run.OriginDestination, &delivered, &created, &upd); err != nil {
 		return ports.AgentRun{}, err
@@ -84,6 +84,9 @@ func scanAgentRun(scan func(...any) error) (ports.AgentRun, error) {
 	run.Delivered = delivered != 0
 	return run, nil
 }
+
+// agentRunSelect adds the owner, which reads come back with and writes never set.
+const agentRunSelect = `account_id, ` + agentRunColumns
 
 // agentRunArgs lists the values in agentRunColumns order, for INSERT and UPDATE.
 func agentRunArgs(run ports.AgentRun) []any {
@@ -119,7 +122,7 @@ func (s *Store) GetAgentRun(ctx context.Context, id string) (ports.AgentRun, err
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
-	run, err := scanAgentRun(s.db.QueryRowContext(ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE id = ? AND account_id = ?`, id, account).Scan)
+	run, err := scanAgentRun(s.db.QueryRowContext(ctx, `SELECT `+agentRunSelect+` FROM agent_runs WHERE id = ? AND account_id = ?`, id, account).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.AgentRun{}, ports.ErrAgentRunNotFound
 	}
@@ -132,7 +135,7 @@ func (s *Store) ListAgentRuns(ctx context.Context, limit int) ([]ports.AgentRun,
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE account_id = ? ORDER BY created_at DESC LIMIT ?`, account, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunSelect+` FROM agent_runs WHERE account_id = ? ORDER BY created_at DESC LIMIT ?`, account, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +221,7 @@ func (s *Store) EnabledRepositories(ctx context.Context) ([]string, error) {
 // NextQueuedAgentRun is for the worker, which serves every account. It takes
 // no account on purpose and is never reachable from a request.
 func (s *Store) NextQueuedAgentRun(ctx context.Context) (ports.AgentRun, bool, error) {
-	run, err := scanAgentRun(s.db.QueryRowContext(ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE state = ? ORDER BY created_at ASC LIMIT 1`, string(ports.AgentRunQueued)).Scan)
+	run, err := scanAgentRun(s.db.QueryRowContext(ctx, `SELECT `+agentRunSelect+` FROM agent_runs WHERE state = ? ORDER BY created_at ASC LIMIT 1`, string(ports.AgentRunQueued)).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ports.AgentRun{}, false, nil
 	}
@@ -233,7 +236,7 @@ func (s *Store) NextQueuedAgentRun(ctx context.Context) (ports.AgentRun, bool, e
 func (s *Store) AgentRunsInStates(ctx context.Context, states ...ports.AgentRunState) ([]ports.AgentRun, error) {
 	var runs []ports.AgentRun
 	for _, state := range states {
-		rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunColumns+` FROM agent_runs WHERE state = ? ORDER BY created_at ASC`, string(state))
+		rows, err := s.db.QueryContext(ctx, `SELECT `+agentRunSelect+` FROM agent_runs WHERE state = ? ORDER BY created_at ASC`, string(state))
 		if err != nil {
 			return nil, err
 		}

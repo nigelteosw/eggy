@@ -129,3 +129,16 @@ func TestAgentRunSchemaIsAdditive(t *testing.T) {
 		t.Fatalf("row lost on reopen: %v", err)
 	}
 }
+
+// The worker has no request principal, so a run read back must carry the
+// owner stored on its row. That is the only way the worker can act as it.
+func TestAgentRunReadCarriesStoredOwner(t *testing.T) {
+	db := newTestStore(t, 0)
+	if err := db.CreateAgentRun(as("owner-b"), agentRun("r9", "eggy", time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	next, ok, err := db.NextQueuedAgentRun(context.Background())
+	if err != nil || !ok || next.AccountID != "owner-b" {
+		t.Fatalf("next = %+v ok=%v err=%v", next, ok, err)
+	}
+}

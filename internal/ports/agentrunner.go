@@ -50,7 +50,12 @@ const (
 // may name which account a record is for. Output is already redacted before it
 // is stored.
 type AgentRun struct {
-	ID                string
+	ID string
+	// AccountID is the owner stored on the run's row. The store sets it on
+	// read; no caller can choose it on create, which takes the account from
+	// the context. The worker runs as this account, the only way it can act on
+	// a run without a request.
+	AccountID         string
 	Repository        string
 	Brief             string
 	BriefDigest       string // sha256 hex of Brief

@@ -143,6 +143,9 @@ func (c Config) Validate() error {
 	if err := c.validateFinance(); err != nil {
 		return err
 	}
+	if err := c.validateAgentRunner(); err != nil {
+		return err
+	}
 	// An unrecognized mode is refused rather than falling back to a working
 	// one: an owner who wrote "readonly" meant to be asked about writes, and
 	// quietly running them instead is the one failure this setting exists to

@@ -62,6 +62,7 @@ type Config struct {
 	Google           GoogleConfig                `yaml:"google,omitempty"`
 	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
 	Finance          FinanceConfig               `yaml:"finance,omitempty"`
+	AgentRunner      AgentRunnerConfig           `yaml:"agent_runner,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`
 	Approvals        ApprovalsConfig             `yaml:"approvals,omitempty"`
@@ -407,6 +408,10 @@ type RepositoryConfig struct {
 	CloneURL          string   `yaml:"clone_url"`
 	BaseBranch        string   `yaml:"base_branch"`
 	ProtectedBranches []string `yaml:"protected_branches"`
+	// Checks are the argv lists the agent runner may execute in this
+	// repository's checkout. They are the only commands a run can run, and
+	// their exit codes are the only check results a pull request reports.
+	Checks [][]string `yaml:"checks,omitempty"`
 	// Self marks the repository that holds Eggy's own source. It grants no
 	// capability of its own -- it only tells the agent which registered
 	// repository is its own body, so a self-improvement turn knows where

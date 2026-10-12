@@ -99,3 +99,10 @@ test("the add-repository form refuses an empty name or URL before sending", () =
   expect(markup).toContain("https://github.com/owner/repo.git");
   expect(markup).toContain("disabled");
 });
+
+// The extension window has a fixed height, so the page must scroll itself. The
+// finance page does it with this wrapper; without it, content is clipped.
+test("the Agent Runner page owns its scrolling, as the finance page does", async () => {
+  const source = await Bun.file(new URL("../src/AgentRunnerPage.tsx", import.meta.url)).text();
+  expect(source).toContain("h-full min-h-0 overflow-y-auto");
+});

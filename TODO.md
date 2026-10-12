@@ -72,6 +72,29 @@ SPA, 0 config keys beyond the plugin toggle, 0 tools (`skill_read` stays the
 only one), 1 durable flag per skill and plugin in SQLite, 0 loops. Removing
 `McpCard` from Settings offsets part of it.
 
+## P1 — Google login by callback instead of pasted URL (S–M)
+
+`/google login` sends the owner to consent, which redirects to the dead
+`http://localhost:1` (`google.LoopbackRedirect`); the owner copies the failed
+URL back. That was chosen because a desktop-type client needs no registered
+redirect. `server.public_base_url` now exists and the MCP flow already uses it
+at `/auth/mcp/{server}/callback`, so Google can complete itself.
+
+- A panel "Connect Google" button and `GET /auth/google/callback`, which calls
+  the existing `Auth.CompleteLogin`. Unlike the MCP callback it requires a
+  signed-in panel session as well as a matching `state`.
+- The redirect becomes `public_base_url + /auth/google/callback`, one value
+  shared by `BeginLogin` and the exchange so it still matches byte for byte.
+  Reword the `LoopbackRedirect` comment and the AGENTS.md OAuth invariant.
+- Needs a Web-application OAuth client with that redirect registered in Google
+  Cloud (desktop clients cannot take an https redirect): a new client ID and
+  secret, then one reconnect. Say so on the settings card.
+- Keep `/google login <url>` as the fallback when no public base URL is set.
+  Google's device flow is out: it excludes the Gmail, Calendar and Docs scopes.
+
+Deletion budget: ~60–120 production lines, 0 config keys, 0 tools, 0 record
+types, 0 loops.
+
 ## P2 — Make status actionable and bounded (S–M)
 
 `CommandService.status` (`internal/commands/commands.go`) reports model, mode,

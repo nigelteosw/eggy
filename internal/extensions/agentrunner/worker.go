@@ -64,6 +64,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if err := s.reconcile(ctx); err != nil {
 		s.log().Error("agent runner: publication reconciliation", "error", err)
 	}
+	if err := s.sweep(ctx); err != nil {
+		s.log().Error("agent runner: workspace sweep", "error", err)
+	}
 	ticker := time.NewTicker(sweepEvery)
 	defer ticker.Stop()
 	for {
@@ -77,6 +80,38 @@ func (s *Service) Run(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// sweep applies the retention rules to run directories. A run still in flight
+// keeps its workspace; a failed, cancelled or interrupted run keeps it for
+// retainedFailure; a completed run's workspace goes once it is published. A
+// directory with no run record is an orphan and goes.
+func (s *Service) sweep(ctx context.Context) error {
+	runs, err := s.opts.Store.AgentRunsInStates(ctx, ports.AgentRunQueued, ports.AgentRunRunning, ports.AgentRunWaitingForUser,
+		ports.AgentRunPublishing, ports.AgentRunCompleted, ports.AgentRunFailed, ports.AgentRunCancelled, ports.AgentRunInterrupted)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]ports.AgentRun, len(runs))
+	for _, run := range runs {
+		byID[run.ID] = run
+	}
+	now := s.opts.Now()
+	return s.opts.Workspaces.Sweep(now, func(id string) (time.Time, bool) {
+		run, ok := byID[id]
+		if !ok {
+			return time.Time{}, false
+		}
+		switch run.State {
+		case ports.AgentRunFailed, ports.AgentRunCancelled, ports.AgentRunInterrupted:
+			return run.UpdatedAt.Add(retainedFailure), true
+		case ports.AgentRunCompleted:
+			return time.Time{}, false
+		default:
+			// In flight: kept until the run ends and the sweep runs again.
+			return now.Add(maxRunActive), true
+		}
+	})
 }
 
 // drain runs queued work until none is left.
@@ -233,6 +268,10 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, re
 	run.UsedTokens = budget.used
 
 	switch {
+	case ctx.Err() != nil:
+		// The worker is shutting down. The write must outlive the cancelled
+		// context, or the run would be left looking like it is still running.
+		return s.finish(context.WithoutCancel(ctx), run, ports.AgentRunInterrupted, "interrupted by a restart; start the run again to retry", "")
 	case runCtx.Err() != nil:
 		return s.finish(ctx, run, ports.AgentRunCancelled, "cancelled by owner", "")
 	case errors.Is(err, errTokenBudget):

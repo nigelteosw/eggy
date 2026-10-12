@@ -29,6 +29,12 @@ const (
 	maxAskQuestionLen = 1000
 	listLimit         = 50
 	sweepEvery        = 30 * time.Second
+	// retainedFailure is how long a failed, cancelled or interrupted run keeps
+	// its workspace, so the owner can inspect what the agent did.
+	retainedFailure = 7 * 24 * time.Hour
+	// maxWorkspaceBytes is the disk all run directories together may use.
+	// A run is refused at admission when the directories already exceed it.
+	maxWorkspaceBytes = 10 << 30
 )
 
 // Options is everything the service needs. Bootstrap builds it; nothing here
@@ -166,6 +172,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (ports.AgentRun, 
 		if run.State == ports.AgentRunQueued {
 			return ports.AgentRun{}, errors.New("you already have a queued run; wait for it to start or cancel it")
 		}
+	}
+	used, err := s.opts.Workspaces.Usage()
+	if err != nil {
+		return ports.AgentRun{}, err
+	}
+	if used >= maxWorkspaceBytes {
+		return ports.AgentRun{}, errors.New("the agent runner's disk is full; wait for old runs to be removed")
 	}
 	now := s.opts.Now().UTC()
 	digest := sha256.Sum256([]byte(task))

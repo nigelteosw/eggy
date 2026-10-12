@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -211,5 +212,38 @@ func TestCompletedRunDeliversSummary(t *testing.T) {
 	got := stored(t, h, run.ID)
 	if got.State != ports.AgentRunCompleted || got.Output != "changed README" {
 		t.Fatalf("run = %+v", got)
+	}
+}
+
+// The sweep keeps a run in flight and a failed run within its retention, and
+// removes a completed run's workspace and any directory with no run record.
+func TestSweepRetentionRules(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	now := h.svc.opts.Now()
+	record := func(id string, state ports.AgentRunState) ports.AgentRun {
+		run := ports.AgentRun{ID: id, Repository: "r", Brief: "b", BriefDigest: "d", BaseBranch: "main",
+			Branch: "eggy/" + id, State: state, PATGeneration: 1, MandateExpires: now.Add(time.Hour),
+			CreatedAt: now, UpdatedAt: now}
+		if err := h.store.CreateAgentRun(acct("a"), run); err != nil {
+			t.Fatal(err)
+		}
+		seedWorkspace(t, h.svc.opts.Workspaces.Dir(id))
+		return run
+	}
+	inFlight := record(strings.Repeat("a", 32), ports.AgentRunQueued)
+	failed := record(strings.Repeat("b", 32), ports.AgentRunFailed)
+	done := record(strings.Repeat("c", 32), ports.AgentRunCompleted)
+	orphan := strings.Repeat("e", 32)
+	seedWorkspace(t, h.svc.opts.Workspaces.Dir(orphan))
+
+	if err := h.svc.sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	exists := func(id string) bool { _, err := os.Stat(h.svc.opts.Workspaces.Dir(id)); return err == nil }
+	if !exists(inFlight.ID) || !exists(failed.ID) {
+		t.Fatal("an in-flight or retained run's workspace was removed")
+	}
+	if exists(done.ID) || exists(orphan) {
+		t.Fatal("a completed run's or an orphan's workspace was kept")
 	}
 }

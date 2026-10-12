@@ -258,7 +258,7 @@ func editTool(ws string, in json.RawMessage) (string, error) {
 	return "edited " + args.Path, nil
 }
 
-func bashTool(ctx context.Context, runner commandRunner, runDir string, in json.RawMessage) (string, error) {
+func bashTool(ctx context.Context, runner CommandRunner, runDir string, in json.RawMessage) (string, error) {
 	var args struct {
 		Command string `json:"command"`
 	}
@@ -272,7 +272,7 @@ func bashTool(ctx context.Context, runner commandRunner, runDir string, in json.
 	return formatResult(result), nil
 }
 
-func runCheckTool(ctx context.Context, runner commandRunner, runDir string, run *ActiveRun, in json.RawMessage) (string, error) {
+func runCheckTool(ctx context.Context, runner CommandRunner, runDir string, run *ActiveRun, in json.RawMessage) (string, error) {
 	var args struct {
 		Index int `json:"index"`
 	}

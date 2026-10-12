@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -69,11 +70,13 @@ const maxToolStepsPerTurn = 500
 // active turns, capability manifest, and approval executors all live on
 // turnService or commands now, which is what owns them.
 type App struct {
-	config      config.Config
-	store       ports.StateStore
-	runtime     *services.AgentRuntime
-	context     ports.ContextStore
-	channel     ports.Channel
+	config  config.Config
+	store   ports.StateStore
+	runtime *services.AgentRuntime
+	context ports.ContextStore
+	channel ports.Channel
+	// agentRunner is the coding-run extension, nil unless agent_runner.enabled.
+	agentRunner *agentrunner.Service
 	chatHub     *webchat.Hub
 	dispatcher  *services.Dispatcher
 	httpHandler http.Handler
@@ -348,6 +351,17 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(financeTools...); err != nil {
 		return nil, err
 	}
+	// The agent runner: nil and no tool, worker or workspace root unless
+	// agent_runner.enabled. Its coding tools never reach this registry; they
+	// belong to the run's own loop.
+	agentRunner, agentRunnerTools, err := newAgentRunner(config, secrets, database, opened.auth, targets, layout, app.channel, options.Now)
+	if err != nil {
+		return nil, err
+	}
+	if err := gate(agentRunnerTools...); err != nil {
+		return nil, err
+	}
+	app.agentRunner = agentRunner
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options, opened.auth)
 	if err != nil {
 		return nil, err
@@ -434,6 +448,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// serves or about which providers opted in.
 	discovery := newModelDiscovery(config, catalog.providers)
 	app.commands = commands.New(commands.Options{
+		Code:         codeRunnerFor(app.agentRunner),
 		ConfigPath:   options.ConfigPath,
 		MCP:          mcpAdministration.commandsView(),
 		Google:       googleAdministration.commandsView(),

@@ -37,7 +37,7 @@ func call(t *testing.T, tool ports.Tool, input string) (string, error) {
 }
 
 // newWorkspaceForTools returns a workspace whose ws/ exists, and the run.
-func newWorkspaceForTools(t *testing.T, runner commandRunner, checks [][]string) (*Workspaces, *ActiveRun, string) {
+func newWorkspaceForTools(t *testing.T, runner CommandRunner, checks [][]string) (*Workspaces, *ActiveRun, string) {
 	t.Helper()
 	w := NewWorkspaces(t.TempDir(), runner)
 	if err := makeRunDirs(w.Dir(runIDA)); err != nil {

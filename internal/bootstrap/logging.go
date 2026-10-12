@@ -175,14 +175,20 @@ func (r *redactor) add(secrets []string) {
 	r.secrets = merged
 }
 
-func (r *redactor) Write(data []byte) (int, error) {
+// scrub returns text with every known secret replaced. The agent runner uses
+// it for anything it stores or sends, so both paths share one redaction rule.
+func (r *redactor) scrub(text string) string {
 	r.mu.Lock()
 	secrets := r.secrets
 	r.mu.Unlock()
-	line := string(data)
 	for _, secret := range secrets {
-		line = strings.ReplaceAll(line, secret, "[redacted]")
+		text = strings.ReplaceAll(text, secret, "[redacted]")
 	}
+	return text
+}
+
+func (r *redactor) Write(data []byte) (int, error) {
+	line := r.scrub(string(data))
 	if _, err := io.WriteString(r.target, line); err != nil {
 		return 0, err
 	}

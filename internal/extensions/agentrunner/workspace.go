@@ -14,12 +14,25 @@ import (
 	"time"
 )
 
-// commandRunner is the sandbox as the workspace sees it. The real Sandbox
+// CommandRunner is the sandbox as the workspace sees it. The real Sandbox
 // satisfies it; tests substitute a fake.
-type commandRunner interface {
+type CommandRunner interface {
 	Run(ctx context.Context, spec SandboxSpec) (SandboxResult, error)
 	PrepareRunDir(runDir string) error
 }
+
+// Refused is the runner used when no command may run, because the sandbox
+// could not be set up or its data protections could not be locked. Every call
+// fails with the reason, so nothing runs unconfined.
+type Refused struct{ Reason error }
+
+// Run refuses.
+func (r Refused) Run(context.Context, SandboxSpec) (SandboxResult, error) {
+	return SandboxResult{}, r.Reason
+}
+
+// PrepareRunDir refuses.
+func (r Refused) PrepareRunDir(string) error { return r.Reason }
 
 // runIDPattern is what a run id looks like: 16 random bytes, hex encoded. Dir
 // refuses anything else, so a run id can never name a path outside the root.
@@ -28,11 +41,11 @@ var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // Workspaces owns the run directories under the data volume.
 type Workspaces struct {
 	root   string
-	runner commandRunner
+	runner CommandRunner
 }
 
 // NewWorkspaces returns the workspace store rooted at root.
-func NewWorkspaces(root string, runner commandRunner) *Workspaces {
+func NewWorkspaces(root string, runner CommandRunner) *Workspaces {
 	return &Workspaces{root: root, runner: runner}
 }
 

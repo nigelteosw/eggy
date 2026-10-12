@@ -66,6 +66,9 @@ type Options struct {
 	Store        ports.StateStore
 	Approvals    ApprovalGate
 	Conversation ConversationResetter
+	// Code is the agent runner for /code. Nil means the extension is off, and
+	// /code says so rather than failing.
+	Code         CodeRunner
 	Turns        TurnStopper
 	Restarter    Restarter
 	AgentRuntime AgentSettings
@@ -184,6 +187,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.soulCommand(ctx)
 	case "heartbeat":
 		return s.heartbeatCommand(ctx, args)
+	case "code":
+		return s.codeCommand(ctx, args)
 	default:
 		return "Unknown command. Send /help for commands.", true, nil
 	}

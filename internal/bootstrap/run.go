@@ -16,6 +16,18 @@ func (a *App) Run(ctx context.Context) error {
 		defer a.database.Close()
 	}
 	defer a.workers.Wait()
+	// The coding-run worker is a long-lived goroutine on the workers group, so
+	// the drain below waits for it. Its own context ends on the way out, before
+	// that wait: a restart stops the worker rather than blocking on it.
+	if a.agentRunner != nil {
+		runnerCtx, stopRunner := context.WithCancel(ctx)
+		defer stopRunner()
+		a.workers.Go(func() {
+			if err := a.agentRunner.Run(runnerCtx); err != nil {
+				slog.Error("agent runner stopped", "error", err)
+			}
+		})
+	}
 	if a.mcp != nil {
 		defer a.mcp.Close()
 	}

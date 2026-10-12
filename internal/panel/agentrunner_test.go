@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -62,7 +63,7 @@ func (f *fakeAgentRunner) SandboxStatus() (bool, string)       { return false, "
 // pass-through guard, and returns the mux.
 func serveAgentRunner(svc AgentRunnerService) *http.ServeMux {
 	mux := http.NewServeMux()
-	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, "/nonexistent/config.yaml", svc)
+	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, "/nonexistent/config.yaml", svc, nil, nil)
 	return mux
 }
 
@@ -194,7 +195,7 @@ func TestAgentRunnerStatusReportsSandbox(t *testing.T) {
 func TestAgentRepoAddRefusesUnsafeURL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	mux := http.NewServeMux()
-	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, path, &fakeAgentRunner{})
+	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, path, &fakeAgentRunner{}, nil, nil)
 	rec := do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"x","clone_url":"git@github.com:a/x.git"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
@@ -202,5 +203,59 @@ func TestAgentRepoAddRefusesUnsafeURL(t *testing.T) {
 	rec = do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"x","clone_url":"https://github.com/a/x.git","owner":"me"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("unknown field status = %d, want 400", rec.Code)
+	}
+}
+
+// A repository saved a moment ago is shown at once and marked as waiting for a
+// restart; one the config dropped is still shown, marked removed; edited checks
+// also ask for a restart; an untouched repository asks for nothing.
+func TestMergeRepositoriesMarksWhatNeedsARestart(t *testing.T) {
+	saved := []config.RepositoryConfig{
+		{Name: "steady", Checks: [][]string{{"go", "test"}}},
+		{Name: "edited", Checks: [][]string{{"go", "vet"}}},
+		{Name: "new"},
+	}
+	live := []AgentRepository{
+		{Name: "steady", Enabled: true, PushAccess: true, Checks: [][]string{{"go", "test"}}},
+		{Name: "edited", Enabled: true, Checks: [][]string{{"go", "test"}}},
+		{Name: "gone", Enabled: true},
+	}
+	got := map[string]AgentRepository{}
+	for _, repo := range mergeRepositories(saved, live) {
+		got[repo.Name] = repo
+	}
+	if got["steady"].NeedsRestart || !got["steady"].Enabled {
+		t.Fatalf("steady = %+v", got["steady"])
+	}
+	if !got["edited"].NeedsRestart || got["edited"].Checks[0][1] != "vet" {
+		t.Fatalf("edited = %+v", got["edited"])
+	}
+	if !got["new"].Pending || !got["new"].NeedsRestart || got["new"].Enabled {
+		t.Fatalf("new = %+v", got["new"])
+	}
+	if !got["gone"].Removed || !got["gone"].NeedsRestart {
+		t.Fatalf("gone = %+v", got["gone"])
+	}
+}
+
+// Adding a repository saves it and restarts Eggy once, so the runner reads the
+// new list; a refused add restarts nothing.
+func TestAgentRepoAddRestartsOnlyAfterASuccessfulWrite(t *testing.T) {
+	restarter := &fakeRestarter{}
+	path := writeConfigFile(t, validConfig())
+	mux := http.NewServeMux()
+	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, path, &fakeAgentRunner{}, restarter, restartEnv)
+
+	bad := do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"x","clone_url":"git@github.com:a/x.git"}`)
+	if bad.Code != http.StatusBadRequest || restarter.restarts != 0 {
+		t.Fatalf("refused add: status %d, restarts %d", bad.Code, restarter.restarts)
+	}
+	good := do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"widgets","clone_url":"https://github.com/acme/widgets.git"}`)
+	if good.Code != http.StatusOK || restarter.restarts != 1 || !strings.Contains(good.Body.String(), "restarting") {
+		t.Fatalf("add: status %d, restarts %d, body %s", good.Code, restarter.restarts, good.Body.String())
+	}
+	gone := do(t, mux, http.MethodDelete, "/api/agent-runner/repositories/widgets", "")
+	if gone.Code != http.StatusOK || restarter.restarts != 2 {
+		t.Fatalf("remove: status %d, restarts %d", gone.Code, restarter.restarts)
 	}
 }

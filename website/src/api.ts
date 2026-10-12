@@ -756,7 +756,18 @@ export type AgentRun = {
   created_at: string;
 };
 
-export type AgentRepository = { name: string; enabled: boolean; push_access: boolean; checks: string[][] };
+export type AgentRepository = {
+  name: string;
+  enabled: boolean;
+  push_access: boolean;
+  checks: string[][];
+  // Saved, but the running process has not loaded it yet.
+  pending: boolean;
+  // Still running, but no longer in the config.
+  removed: boolean;
+  // Pending, removed, or checks edited since startup: all apply on a restart.
+  needs_restart: boolean;
+};
 
 export type AgentPAT = {
   connected: boolean;

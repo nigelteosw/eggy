@@ -208,3 +208,17 @@ func TestAnswerRejectsRunNotWaiting(t *testing.T) {
 		t.Fatal("answer accepted for a queued run")
 	}
 }
+
+// A repository added after the token was saved works without re-entering the
+// token: Start checks access with the stored one.
+func TestStartChecksAccessForARepositoryAddedAfterTheToken(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	added := append(append([]config.RepositoryConfig{}, testRepos...), config.RepositoryConfig{Name: "r2", CloneURL: "https://github.com/o/r2.git", BaseBranch: "main"})
+	h.svc.opts.Repositories = func() []config.RepositoryConfig { return added }
+	if err := h.store.SetRepositoryEnabled(acct("a"), "r2", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Start(acct("a"), StartRequest{Repository: "r2", Task: "change it"}); err != nil {
+		t.Fatalf("a new repository was refused although the stored token can push to it: %v", err)
+	}
+}

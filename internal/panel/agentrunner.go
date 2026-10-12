@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -37,6 +39,13 @@ type AgentRepository struct {
 	Enabled    bool       `json:"enabled"`
 	PushAccess bool       `json:"push_access"`
 	Checks     [][]string `json:"checks"`
+	// Pending is a saved repository the running process has not loaded yet.
+	// Removed is one the process still runs that the config no longer lists.
+	// NeedsRestart is true for either, and for checks that were edited since
+	// startup: all three change only when Eggy restarts.
+	Pending      bool `json:"pending"`
+	Removed      bool `json:"removed"`
+	NeedsRestart bool `json:"needs_restart"`
 }
 
 // AgentPAT is what the browser may learn about an account's GitHub token. The
@@ -96,20 +105,20 @@ func decodeAgentBody(r *http.Request, into any) error {
 
 // mountAgentRunnerRoutes registers the agent runner's API. It is called only
 // when the service exists, so a disabled extension has no route at all.
-func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) http.Handler, configPath string, svc AgentRunnerService) {
+func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) http.Handler, configPath string, svc AgentRunnerService, restarter commands.Restarter, getenv func(string) string) {
 	mux.Handle("GET /api/agent-runner/status", guard(agentStatus(svc)))
 	mux.Handle("GET /api/agent-runner/runs", guard(agentRunsList(svc)))
 	mux.Handle("POST /api/agent-runner/runs", guard(agentRunStart(svc)))
 	mux.Handle("GET /api/agent-runner/runs/{id}", guard(agentRunGet(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/cancel", guard(agentRunCancel(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/answer", guard(agentRunAnswer(svc)))
-	mux.Handle("GET /api/agent-runner/repos", guard(agentRepos(svc)))
-	mux.Handle("POST /api/agent-runner/repos/{name}", guard(agentRepoToggle(svc)))
+	mux.Handle("GET /api/agent-runner/repos", guard(agentRepos(svc, configPath)))
+	mux.Handle("POST /api/agent-runner/repos/{name}", guard(agentRepoToggle(svc, configPath)))
 	mux.Handle("GET /api/agent-runner/pat", guard(agentPATGet(svc)))
 	mux.Handle("PUT /api/agent-runner/pat", guard(agentPATSet(svc)))
 	mux.Handle("DELETE /api/agent-runner/pat", guard(agentPATDelete(svc)))
-	mux.Handle("POST /api/agent-runner/repositories", guard(agentRepoAdd(configPath)))
-	mux.Handle("DELETE /api/agent-runner/repositories/{name}", guard(agentRepoRemove(configPath)))
+	mux.Handle("POST /api/agent-runner/repositories", guard(agentRepoAdd(configPath, restarter, getenv)))
+	mux.Handle("DELETE /api/agent-runner/repositories/{name}", guard(agentRepoRemove(configPath, restarter, getenv)))
 	mux.Handle("POST /api/config/repositories/{name}/checks", guard(agentChecksSet(configPath)))
 }
 
@@ -196,9 +205,62 @@ func agentRunAnswer(svc AgentRunnerService) http.HandlerFunc {
 	}
 }
 
-func agentRepos(svc AgentRunnerService) http.HandlerFunc {
+// savedRepositories merges what the running service knows with what the config
+// file says, so a repository added a moment ago is shown at once and marked as
+// waiting for a restart, instead of being invisible until one happens.
+func savedRepositories(ctx context.Context, svc AgentRunnerService, configPath string) ([]AgentRepository, error) {
+	live, err := svc.Repositories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadDocument(configPath)
+	if err != nil {
+		// No readable file, such as in a test: the running list is all there is.
+		return live, nil
+	}
+	return mergeRepositories(cfg.Repositories, live), nil
+}
+
+// mergeRepositories keeps the config's order and checks, and takes enablement
+// and push access from the running service where it knows the repository.
+func mergeRepositories(saved []config.RepositoryConfig, live []AgentRepository) []AgentRepository {
+	liveByName := make(map[string]AgentRepository, len(live))
+	for _, repo := range live {
+		liveByName[repo.Name] = repo
+	}
+	merged := make([]AgentRepository, 0, len(saved))
+	seen := map[string]bool{}
+	for _, repo := range saved {
+		seen[repo.Name] = true
+		running, known := liveByName[repo.Name]
+		if !known {
+			merged = append(merged, AgentRepository{Name: repo.Name, Checks: repo.Checks, Pending: true, NeedsRestart: true})
+			continue
+		}
+		running.NeedsRestart = !reflect.DeepEqual(nonNil(running.Checks), nonNil(repo.Checks))
+		running.Checks = repo.Checks
+		merged = append(merged, running)
+	}
+	for _, repo := range live {
+		if !seen[repo.Name] {
+			repo.Removed, repo.NeedsRestart = true, true
+			merged = append(merged, repo)
+		}
+	}
+	return merged
+}
+
+// nonNil makes a nil and an empty check list compare equal.
+func nonNil(checks [][]string) [][]string {
+	if checks == nil {
+		return [][]string{}
+	}
+	return checks
+}
+
+func agentRepos(svc AgentRunnerService, configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		repos, err := svc.Repositories(r.Context())
+		repos, err := savedRepositories(r.Context(), svc, configPath)
 		if err != nil {
 			writeAgentFailure(w, err)
 			return
@@ -207,7 +269,7 @@ func agentRepos(svc AgentRunnerService) http.HandlerFunc {
 	}
 }
 
-func agentRepoToggle(svc AgentRunnerService) http.HandlerFunc {
+func agentRepoToggle(svc AgentRunnerService, configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Enabled bool `json:"enabled"`
@@ -220,7 +282,7 @@ func agentRepoToggle(svc AgentRunnerService) http.HandlerFunc {
 			writeAgentFailure(w, err)
 			return
 		}
-		repos, err := svc.Repositories(r.Context())
+		repos, err := savedRepositories(r.Context(), svc, configPath)
 		if err != nil {
 			writeAgentFailure(w, err)
 			return
@@ -296,10 +358,23 @@ func agentChecksSet(configPath string) http.HandlerFunc {
 	}
 }
 
+// restartAfterRepositoryChange restarts Eggy so the runner reads the new
+// repository list, through the one restart path: its pre-flight refuses a
+// config that would not start, and then the change is saved but not applied,
+// which the owner is told.
+func restartAfterRepositoryChange(title string, restarter commands.Restarter, configPath string, getenv func(string) string) webResult {
+	message, restarting := commands.Restart(restarter, configPath, getenv)
+	if restarting {
+		return webResult{State: webSuccess, Title: title, Detail: "Eggy is restarting to apply it. Reload in a few seconds."}
+	}
+	return webResult{State: webInfo, Title: title, Detail: "Saved, but not applied: " + message}
+}
+
 // agentRepoAdd allows a repository. It writes through the config authority, so
-// the same URL and name rules apply as to a hand-edited file. The change is
-// read at startup, and the response says so.
-func agentRepoAdd(configPath string) http.HandlerFunc {
+// the same URL and name rules apply as to a hand-edited file, and then restarts
+// Eggy so the runner reads the new list. A change that could not be written
+// restarts nothing.
+func agentRepoAdd(configPath string, restarter commands.Restarter, getenv func(string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name       string `json:"name"`
@@ -315,19 +390,19 @@ func agentRepoAdd(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Added " + body.Name + ".", Detail: restartToApply})
+		writeWebResult(w, restartAfterRepositoryChange("Added "+body.Name+".", restarter, configPath, getenv))
 	}
 }
 
-// agentRepoRemove stops allowing a repository. Its runs stop when the restart
-// reads the new list; the record and any workspace are kept.
-func agentRepoRemove(configPath string) http.HandlerFunc {
+// agentRepoRemove stops allowing a repository and restarts Eggy to apply it.
+// The run records and any workspace are kept.
+func agentRepoRemove(configPath string, restarter commands.Restarter, getenv func(string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if err := config.RemoveRepository(configPath, name); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeWebResult(w, webResult{State: webSuccess, Title: "Removed " + name + ".", Detail: restartToApply})
+		writeWebResult(w, restartAfterRepositoryChange("Removed "+name+".", restarter, configPath, getenv))
 	}
 }

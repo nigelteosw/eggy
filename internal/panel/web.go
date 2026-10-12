@@ -291,7 +291,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}
 
 	if webConfig.AgentRunner != nil {
-		mountAgentRunnerRoutes(mux, guard, configPath, webConfig.AgentRunner)
+		mountAgentRunnerRoutes(mux, guard, configPath, webConfig.AgentRunner, webConfig.Restarter, webConfig.Getenv)
 	}
 
 	mux.Handle("GET /api/config/models/available", guard(newModelDiscoveryHandler(webConfig.ModelDiscovery)))

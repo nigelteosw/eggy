@@ -163,7 +163,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (ports.AgentRun, 
 	if !slices.Contains(enabled, repo.Name) {
 		return ports.AgentRun{}, fmt.Errorf("repository %q is not enabled for your account; enable it first", repo.Name)
 	}
-	status, err := s.opts.Credentials.Status(ctx)
+	status, err := s.accessStatus(ctx)
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
@@ -281,9 +281,12 @@ func (s *Service) Repositories(ctx context.Context) ([]RepoStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	status, err := s.opts.Credentials.Status(ctx)
+	status, err := s.accessStatus(ctx)
 	if err != nil {
-		return nil, err
+		// A GitHub outage must not hide the repository list: show what is known.
+		if status, err = s.opts.Credentials.Status(ctx); err != nil {
+			return nil, err
+		}
 	}
 	var out []RepoStatus
 	for _, repo := range s.opts.Repositories() {
@@ -364,4 +367,22 @@ func (s *Service) DisconnectPAT(ctx context.Context) error {
 		}
 	}
 	return s.opts.Credentials.Disconnect(ctx)
+}
+
+// accessStatus is the account's token status, with access to any configured
+// repository the token has never been checked against filled in using the
+// stored token. A page load or a run start therefore makes no GitHub call
+// unless a repository was added since the token was last checked.
+func (s *Service) accessStatus(ctx context.Context) (PATStatus, error) {
+	status, err := s.opts.Credentials.Status(ctx)
+	if err != nil || !status.Connected {
+		return status, err
+	}
+	repos := s.opts.Repositories()
+	for _, repo := range repos {
+		if _, checked := status.Repositories[repo.Name]; !checked {
+			return s.opts.Credentials.Refresh(ctx, repos)
+		}
+	}
+	return status, nil
 }

@@ -188,3 +188,49 @@ func (c *Credentials) token(ctx context.Context) (string, int64, error) {
 	}
 	return rec.Token, w.Generation, nil
 }
+
+// Refresh re-checks push access to each configured repository with the token
+// already stored, so a repository added after the token was saved works without
+// the owner entering the token again. The token and its generation are
+// unchanged: only the access map is rewritten, so nothing granted under the
+// token is cancelled. An account with no token gets a not-connected status.
+func (c *Credentials) Refresh(ctx context.Context, repos []config.RepositoryConfig) (PATStatus, error) {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return PATStatus{}, err
+	}
+	w, err := c.load(account)
+	if err != nil {
+		return PATStatus{}, err
+	}
+	if len(w.Sealed) == 0 {
+		return PATStatus{Generation: w.Generation}, nil
+	}
+	ad := associatedData(account, w.Generation)
+	var rec patRecord
+	if err := c.sealer.Open(w.Sealed, ad, &rec); err != nil {
+		return PATStatus{}, err
+	}
+	access := make(map[string]bool, len(repos))
+	for _, repo := range repos {
+		owner, name, err := ParseCloneURL(repo.CloneURL)
+		if err != nil {
+			access[repo.Name] = false
+			continue
+		}
+		push, err := c.gh.CanPush(ctx, rec.Token, owner, name)
+		if err != nil {
+			return PATStatus{}, err
+		}
+		access[repo.Name] = push
+	}
+	rec.Repositories = access
+	sealed, err := c.sealer.Seal(rec, ad)
+	if err != nil {
+		return PATStatus{}, err
+	}
+	if err := c.save(account, patWrapper{Generation: w.Generation, Sealed: sealed}); err != nil {
+		return PATStatus{}, err
+	}
+	return PATStatus{Connected: true, Login: rec.Login, Generation: w.Generation, Repositories: access}, nil
+}

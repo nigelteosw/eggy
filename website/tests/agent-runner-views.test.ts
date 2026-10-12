@@ -7,7 +7,7 @@ import { GitHubTokenView } from "../src/GitHubTokenField";
 import { runningExtensions } from "../src/extensions";
 import { AGENT_START_COPY } from "../src/lib/agent-runner";
 
-const repos = [{ name: "eggy", enabled: true, push_access: true, checks: [] }];
+const repos = [{ name: "eggy", enabled: true, push_access: true, checks: [], pending: false, removed: false, needs_restart: false }];
 
 test("the start form shows the spec's copy above its button", () => {
   const markup = renderToStaticMarkup(
@@ -16,7 +16,6 @@ test("the start form shows the spec's copy above its button", () => {
       repository: "eggy",
       task: "add a line",
       busy: false,
-      error: null,
       onRepositoryChange: () => {},
       onTaskChange: () => {},
       onStart: () => {},
@@ -26,20 +25,20 @@ test("the start form shows the spec's copy above its button", () => {
   expect(markup.indexOf("open a pull request")).toBeLessThan(markup.indexOf("Start run"));
 });
 
-test("the start button is disabled when no repository is enabled", () => {
+test("with no repository ready the start form says what to do instead of offering an empty list", () => {
   const markup = renderToStaticMarkup(
     createElement(AgentRunStartForm, {
-      repositories: [],
+      repositories: [{ ...repos[0], enabled: false }, { ...repos[0], name: "later", pending: true, needs_restart: true }],
       repository: "",
-      task: "x",
+      task: "",
       busy: false,
-      error: null,
       onRepositoryChange: () => {},
       onTaskChange: () => {},
       onStart: () => {},
     }),
   );
-  expect(markup).toContain("disabled");
+  expect(markup).toContain("No repository is ready");
+  expect(markup).not.toContain("Start run");
 });
 
 test("the token field never shows a saved token, and reports only the login and access", () => {
@@ -91,9 +90,9 @@ test("the add-repository form refuses an empty name or URL before sending", () =
       cloneURL: "",
       baseBranch: "",
       busy: false,
-      error: null,
       onChange: () => {},
       onAdd: () => {},
+      onCancel: () => {},
     }),
   );
   expect(markup).toContain("Add repository");

@@ -57,6 +57,9 @@ func fakeGitHubForPAT(t *testing.T, pushOK bool) (*Credentials, *memRecords) {
 		switch r.URL.Path {
 		case "/user":
 			_, _ = w.Write([]byte(`{"login":"nigel","id":42}`))
+		case "/repos/o/r2":
+			// A second repository the token can push to, for the refresh tests.
+			_, _ = w.Write([]byte(`{"permissions":{"push":true}}`))
 		case "/repos/o/r":
 			body := `{"permissions":{"push":false}}`
 			if pushOK {
@@ -177,5 +180,34 @@ func TestCredentialsRequirePrincipal(t *testing.T) {
 func TestCredentialsKeyMustBeThirtyTwoBytes(t *testing.T) {
 	if _, err := NewCredentials(newMemRecords(), base64.StdEncoding.EncodeToString([]byte("short")), NewGitHub(nil)); err == nil {
 		t.Fatal("a short encryption key was accepted")
+	}
+}
+
+// A repository added after the token was saved gets its access checked with the
+// stored token, without the owner entering it again, and without advancing the
+// generation, which would cancel authority the token still holds.
+func TestCredentialsRefreshChecksNewRepositoriesWithTheStoredToken(t *testing.T) {
+	creds, _ := fakeGitHubForPAT(t, true)
+	if _, err := creds.Set(acct("a"), "ghp_secret", testRepos); err != nil {
+		t.Fatal(err)
+	}
+	more := append(append([]config.RepositoryConfig{}, testRepos...), config.RepositoryConfig{Name: "r2", CloneURL: "https://github.com/o/r2.git"})
+	status, err := creds.Refresh(acct("a"), more)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Generation != 1 || !status.Repositories["r2"] || !status.Repositories["r"] {
+		t.Fatalf("status = %+v", status)
+	}
+	if token, generation, err := creds.token(acct("a")); err != nil || token != "ghp_secret" || generation != 1 {
+		t.Fatalf("token after refresh = %q gen %d err %v", token, generation, err)
+	}
+}
+
+func TestCredentialsRefreshWithoutATokenSaysNotConnected(t *testing.T) {
+	creds, _ := fakeGitHubForPAT(t, true)
+	status, err := creds.Refresh(acct("a"), testRepos)
+	if err != nil || status.Connected {
+		t.Fatalf("status = %+v err %v", status, err)
 	}
 }

@@ -3,3 +3,6 @@
 .env
 data
 bin
+.superpowers
+website/node_modules
+website/dist

@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: fmt vet lint test race build build-web smoke clean
+.PHONY: fmt vet lint test race build build-web smoke clean docker-test
 
 fmt:
 	gofmt -w cmd internal
@@ -36,3 +36,7 @@ smoke:
 
 clean:
 	rm -f bin/eggyd
+
+# The Dockerfile's test stage: the image build skips it, so deploys stay fast.
+docker-test:
+	docker build --target test .

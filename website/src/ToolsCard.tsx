@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { CommandResult, SessionExpiredError, listTools } from "./api";
-import { DataTable } from "./components/ui/data-table";
 import { Input } from "./components/ui/input";
 import { CardHeader } from "./components/ui/card-header";
 import { ErrorBanner } from "./components/ui/error-banner";
@@ -71,11 +70,23 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
           onChange={(e) => setFilter(e.target.value)}
           className="rounded-xl border-0 bg-neutral-100"
         />
-        <DataTable
-          headers={result?.table_headers}
-          rows={visible}
-          empty={filter ? `No tool matches "${filter}".` : "No tools are registered."}
-        />
+        {visible.length === 0 ? (
+          <p className="rounded-xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">
+            {filter ? `No tool matches "${filter}".` : "No tools are registered."}
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-neutral-200 overflow-hidden rounded-xl border border-neutral-200">
+            {visible.map((row) => (
+              <li key={`${row[SOURCE]}:${row[NAME]}`} className="flex flex-col gap-1.5 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <code className="text-sm font-medium text-foreground">{row[NAME]}</code>
+                  <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700">{row[SOURCE]}</span>
+                </div>
+                <p className="text-[13px] leading-5 text-neutral-700">{row[DESCRIPTION]}</p>
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
           The list is read-only. Kernel tools are compiled in; <code className="rounded bg-neutral-100 px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
           tools come from the servers above and appear or disappear as those connect, reload, or are logged out of.

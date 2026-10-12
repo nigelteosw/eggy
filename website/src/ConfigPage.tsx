@@ -191,7 +191,7 @@ export function ConfigPage({
       </div>
 
       <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))]">
-        <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7">
+        <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 sm:pr-14 lg:max-w-[960px] lg:px-10 lg:pt-8">
           <header className="flex flex-col gap-1.5 pb-1">
             <h1 className="text-xl font-semibold tracking-tight">{section.title}</h1>
             <p className="max-w-2xl text-sm leading-6 text-neutral-700">{section.description}</p>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
-import { ClockIcon, PanelIcon, PlugIcon, PlusIcon } from "./components/ui/icons";
+import { ChevronDownIcon, ClockIcon, PanelIcon, PlugIcon, PlusIcon } from "./components/ui/icons";
 import { runningExtensions } from "./extensions";
 import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
@@ -41,6 +41,27 @@ function rememberSidebarWidth(width: number) {
     window.localStorage.setItem(sidebarWidthKey, String(width));
   } catch {
     // Resizing still works when storage is unavailable.
+  }
+}
+
+// Which date groups the owner has folded shut. It is a per-browser
+// convenience, so when storage is unavailable every group simply starts open.
+const collapsedGroupsKey = "eggy.chat.sidebar.collapsedGroups";
+
+function storedCollapsedGroups(): Set<string> {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(collapsedGroupsKey) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((label): label is string => typeof label === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberCollapsedGroups(collapsed: Set<string>) {
+  try {
+    window.localStorage.setItem(collapsedGroupsKey, JSON.stringify([...collapsed]));
+  } catch {
+    // Folding still works for this visit when storage is unavailable.
   }
 }
 
@@ -179,6 +200,15 @@ export function ThreadSidebar({
   const [extensionsOpen, setExtensionsOpen] = useState(false);
   const extensionsRoot = useRef<HTMLDivElement | null>(null);
   const extensions = runningExtensions(features);
+  const [collapsedGroups, setCollapsedGroups] = useState(storedCollapsedGroups);
+
+  function toggleGroup(label: string) {
+    const next = new Set(collapsedGroups);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    rememberCollapsedGroups(next);
+    setCollapsedGroups(next);
+  }
 
   // The Extensions menu dismisses the way the edit-sidebar popover does: a press
   // anywhere outside it, or Escape, closes it.
@@ -406,8 +436,23 @@ export function ThreadSidebar({
         ) : (
           groups.map((group) => (
             <section key={group.label} aria-label={group.label} className="flex flex-col gap-0.5">
-              <h2 className="px-2.5 pb-1 pt-3 text-xs font-medium text-muted-foreground">{group.label}</h2>
-              {group.threads.map((thread) => {
+              <h2 className="pb-2 pt-4">
+                <button
+                  type="button"
+                  aria-expanded={!collapsedGroups.has(group.label)}
+                  onClick={() => toggleGroup(group.label)}
+                  className="group flex w-full items-center gap-1 rounded-lg px-2.5 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-neutral-200/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  {group.label}
+                  <ChevronDownIcon
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100",
+                      collapsedGroups.has(group.label) && "-rotate-90",
+                    )}
+                  />
+                </button>
+              </h2>
+              {!collapsedGroups.has(group.label) && group.threads.map((thread) => {
                 const active = view === "chat" && thread.id === activeThreadId;
                 if (thread.id === renamingId) {
                   return (

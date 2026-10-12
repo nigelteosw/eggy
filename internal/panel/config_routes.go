@@ -191,6 +191,16 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			})
 		case "appearance":
 			result.Fields = []webField{{Label: "theme", Value: cfg.Appearance.ResolvedTheme()}}
+		case "agent_runner":
+			// The saved state. Whether the runner is running comes from the
+			// session's feature list, so the card can say "restart to apply".
+			// Skills travel as name=true pairs, in the order the config lists them.
+			result.Fields = []webField{
+				{Label: "enabled", Value: strconv.FormatBool(cfg.AgentRunner.Enabled)},
+				{Label: "model", Value: cfg.AgentRunner.Model},
+				{Label: "skills", Value: agentSkillPairs(cfg.AgentRunner.Skills)},
+				{Label: "running", Value: strconv.FormatBool(webConfig.AgentRunner != nil)},
+			}
 		case "finance":
 			// The saved state. What is running comes from the session's
 			// feature list; the card compares the two to say "restart to
@@ -335,6 +345,13 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 		case "appearance":
 			err = config.SetAppearance(configPath, named["theme"])
 			title = "Saved appearance."
+		case "agent_runner":
+			enabled := named["enabled"] == "true"
+			err = config.SetAgentRunner(configPath, enabled, named["model"], parseAgentSkillPairs(named["skills"]))
+			title = "Saved Agent Runner."
+			if !enabled {
+				title = "Agent Runner turned off."
+			}
 		case "finance":
 			enabled := named["enabled"] == "true"
 			err = config.SetFinance(configPath, enabled, named["currency"])
@@ -356,4 +373,33 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: title, Detail: detail})
 	}
+}
+
+// agentSkillPairs renders skill toggles as "name=true,name=false" for the
+// form, in the fixed order the config package lists them.
+func agentSkillPairs(skills map[string]bool) string {
+	var pairs []string
+	for _, name := range config.AgentRunnerSkills {
+		on, ok := skills[name]
+		if !ok {
+			on = true
+		}
+		pairs = append(pairs, name+"="+strconv.FormatBool(on))
+	}
+	return strings.Join(pairs, ",")
+}
+
+// parseAgentSkillPairs reads the form's "name=true,name=false" back. Anything
+// it does not recognise is kept, so config validation refuses an unknown skill
+// by name rather than this layer dropping it silently.
+func parseAgentSkillPairs(raw string) map[string]bool {
+	skills := map[string]bool{}
+	for _, pair := range strings.Split(raw, ",") {
+		name, value, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if !ok || name == "" {
+			continue
+		}
+		skills[name] = value == "true"
+	}
+	return skills
 }

@@ -321,3 +321,33 @@ func (s *Service) signal() {
 	default:
 	}
 }
+
+// PAT reports the account's GitHub token without its value.
+func (s *Service) PAT(ctx context.Context) (PATStatus, error) {
+	return s.opts.Credentials.Status(ctx)
+}
+
+// SetPAT verifies and stores the account's token. The returned status is what
+// GitHub confirmed, never the token itself.
+func (s *Service) SetPAT(ctx context.Context, token string) (PATStatus, error) {
+	return s.opts.Credentials.Set(ctx, token, s.opts.Repositories())
+}
+
+// DisconnectPAT removes the account's token. Its live runs are cancelled first,
+// because a run that could still push would be acting on authority the owner
+// just withdrew.
+func (s *Service) DisconnectPAT(ctx context.Context) error {
+	runs, err := s.opts.Store.ListAgentRuns(ctx, listLimit)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		switch run.State {
+		case ports.AgentRunQueued, ports.AgentRunWaitingForUser, ports.AgentRunRunning:
+			if _, err := s.Cancel(ctx, run.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return s.opts.Credentials.Disconnect(ctx)
+}

@@ -538,6 +538,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if financeService != nil {
 		webConfig.Finance = financeService
 	}
+	if agentRunner != nil {
+		webConfig.AgentRunner = panelAgentRunner{service: agentRunner}
+	}
 	webConfig.DiscordLinking = config.DiscordEnabled()
 	webConfig.DiscordRunning = app.discord.running()
 	webConfig.DiscordApplicationID = config.Discord.ApplicationID

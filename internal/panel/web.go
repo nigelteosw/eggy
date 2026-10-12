@@ -115,6 +115,9 @@ type WebUIConfig struct {
 	// keeps "finance" out of the session's feature list, so the panel draws no
 	// Finance tab: an absent capability is absent, not empty.
 	Finance FinanceService
+	// AgentRunner is the coding-run extension. Nil unless agent_runner.enabled,
+	// and then the page and its routes exist; nil mounts nothing.
+	AgentRunner AgentRunnerService
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -277,11 +280,18 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.Finance != nil {
 		features = append(features, "finance")
 	}
+	if webConfig.AgentRunner != nil {
+		features = append(features, "agent_runner")
+	}
 	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "agent_runner"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
+	}
+
+	if webConfig.AgentRunner != nil {
+		mountAgentRunnerRoutes(mux, guard, configPath, webConfig.AgentRunner)
 	}
 
 	mux.Handle("GET /api/config/models/available", guard(newModelDiscoveryHandler(webConfig.ModelDiscovery)))

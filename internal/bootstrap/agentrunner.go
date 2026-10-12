@@ -19,6 +19,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"github.com/nigelteosw/eggy/internal/home"
+	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -190,4 +191,68 @@ func codeRunnerFor(service *agentrunner.Service) commands.CodeRunner {
 		return nil
 	}
 	return codeAdapter{service: service}
+}
+
+// panelAgentRunner presents the agent runner to the web panel. It is a view
+// onto the same service /code uses: no second implementation of anything.
+type panelAgentRunner struct {
+	service *agentrunner.Service
+}
+
+func (p panelAgentRunner) Runs(ctx context.Context) ([]ports.AgentRun, error) {
+	return p.service.List(ctx)
+}
+
+func (p panelAgentRunner) StartRun(ctx context.Context, repository, task string) (ports.AgentRun, error) {
+	return codeAdapter{service: p.service}.StartPanelRun(ctx, repository, task)
+}
+
+func (p panelAgentRunner) Run(ctx context.Context, id string) (ports.AgentRun, error) {
+	return p.service.Get(ctx, id)
+}
+
+func (p panelAgentRunner) CancelRun(ctx context.Context, id string) (ports.AgentRun, error) {
+	return p.service.Cancel(ctx, id)
+}
+
+func (p panelAgentRunner) AnswerRun(ctx context.Context, id, text string) (ports.AgentRun, error) {
+	return p.service.Answer(ctx, id, text)
+}
+
+func (p panelAgentRunner) Repositories(ctx context.Context) ([]panel.AgentRepository, error) {
+	repos, err := p.service.Repositories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]panel.AgentRepository, 0, len(repos))
+	for _, repo := range repos {
+		out = append(out, panel.AgentRepository{Name: repo.Name, Enabled: repo.Enabled, PushAccess: repo.PushAccess})
+	}
+	return out, nil
+}
+
+func (p panelAgentRunner) SetRepositoryEnabled(ctx context.Context, name string, enabled bool) error {
+	return p.service.SetRepositoryEnabled(ctx, name, enabled)
+}
+
+func (p panelAgentRunner) PAT(ctx context.Context) (panel.AgentPAT, error) {
+	status, err := p.service.PAT(ctx)
+	return panelPAT(status), err
+}
+
+func (p panelAgentRunner) SetPAT(ctx context.Context, token string) (panel.AgentPAT, error) {
+	status, err := p.service.SetPAT(ctx, token)
+	return panelPAT(status), err
+}
+
+func (p panelAgentRunner) DisconnectPAT(ctx context.Context) error {
+	return p.service.DisconnectPAT(ctx)
+}
+
+func (p panelAgentRunner) SandboxStatus() (bool, string) {
+	return p.service.SandboxStatus()
+}
+
+func panelPAT(status agentrunner.PATStatus) panel.AgentPAT {
+	return panel.AgentPAT{Connected: status.Connected, Login: status.Login, Generation: status.Generation, Repositories: status.Repositories}
 }

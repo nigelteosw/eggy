@@ -55,25 +55,30 @@ type AgentRun struct {
 	// read; no caller can choose it on create, which takes the account from
 	// the context. The worker runs as this account, the only way it can act on
 	// a run without a request.
-	AccountID         string
-	Repository        string
-	Brief             string
-	BriefDigest       string // sha256 hex of Brief
-	BaseBranch        string
-	BaseSHA           string
-	Branch            string // eggy/<ID>
-	HeadSHA           string
-	State             AgentRunState
-	Revision          int64
-	Stage             PublishStage
-	PATGeneration     int64
-	MandateExpires    time.Time
-	Question          string
-	Answer            string
-	UsedTokens        int64
-	UsedActive        time.Duration
-	Output            string
-	PRURL             string
+	AccountID      string
+	Repository     string
+	Brief          string
+	BriefDigest    string // sha256 hex of Brief
+	BaseBranch     string
+	BaseSHA        string
+	Branch         string // eggy/<ID>
+	HeadSHA        string
+	State          AgentRunState
+	Revision       int64
+	Stage          PublishStage
+	PATGeneration  int64
+	MandateExpires time.Time
+	Question       string
+	Answer         string
+	UsedTokens     int64
+	UsedActive     time.Duration
+	Output         string
+	PRURL          string
+	// PRTitle, PRBody and Draft are fixed at commit time, so a crash after the
+	// commit can still open the same pull request.
+	PRTitle           string
+	PRBody            string
+	Draft             bool
 	Failure           string
 	OriginChannel     string
 	OriginDestination string

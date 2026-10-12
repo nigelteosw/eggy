@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -40,6 +41,13 @@ func (r *ActiveRun) setQuestion(q string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.question = q
+}
+
+// results returns a copy of the check results recorded so far.
+func (r *ActiveRun) results() []CheckResult {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.CheckResults)
 }
 
 // Question returns the question asked this turn, or "".

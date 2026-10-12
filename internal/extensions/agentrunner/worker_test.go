@@ -17,14 +17,12 @@ import (
 // so no clone runs, and the workspace exists.
 func prepared(t *testing.T, h *harness, run ports.AgentRun) ports.AgentRun {
 	t.Helper()
-	run.BaseSHA = "base0000"
+	run.BaseSHA = h.base
 	updated, err := h.store.UpdateAgentRun(acct("a"), run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := makeRunDirs(h.svc.opts.Workspaces.Dir(run.ID)); err != nil {
-		t.Fatal(err)
-	}
+	seedWorkspace(t, h.svc.opts.Workspaces.Dir(run.ID))
 	return updated
 }
 
@@ -116,10 +114,10 @@ func TestBudgetTokensFailsRun(t *testing.T) {
 func TestBudgetWallTimeFailsRun(t *testing.T) {
 	h := newHarness(t, nil, func(int, ports.ModelRequest) (ports.ModelResponse, error) { return finalAnswer("x"), nil })
 	run := startRun(t, h, "x")
-	run.BaseSHA = "base0000"
+	run.BaseSHA = h.base
 	run.UsedActive = maxRunActive
 	run, _ = h.store.UpdateAgentRun(acct("a"), run)
-	_ = makeRunDirs(h.svc.opts.Workspaces.Dir(run.ID))
+	seedWorkspace(t, h.svc.opts.Workspaces.Dir(run.ID))
 	if err := h.svc.execute(context.Background(), run); err != nil {
 		t.Fatal(err)
 	}

@@ -36,6 +36,7 @@ type harness struct {
 	svc   *Service
 	store *memStore
 	model *fakeModel
+	base  string // the base commit of the local remote a run publishes to
 	notes []string
 	mu    sync.Mutex
 }
@@ -52,14 +53,18 @@ func newHarness(t *testing.T, mut func(*Options), respond func(int, ports.ModelR
 	creds, _ := fakeGitHubForPAT(t, true)
 	store := newMemStore()
 	h := &harness{store: store, model: &fakeModel{respond: respond}}
+	bare, base := newBareRemote(t)
+	h.base = base
 	seq := 0
 	opts := Options{
 		Store:        store,
 		Credentials:  creds,
+		GitHub:       creds.gh,
 		Workspaces:   NewWorkspaces(t.TempDir(), &fakeRunner{}),
 		Repositories: func() []config.RepositoryConfig { return testRepos },
 		Models:       map[string]agent.ModelTarget{"coder": {Model: h.model, ModelID: "fake-model"}},
 		Model:        "coder",
+		GitURL:       func(config.RepositoryConfig) string { return bare },
 		SandboxOK:    true,
 		Now:          func() time.Time { return time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC) },
 		NewID: func() string {

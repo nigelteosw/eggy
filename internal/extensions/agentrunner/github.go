@@ -221,3 +221,28 @@ func ParseCloneURL(cloneURL string) (owner, repo string, err error) {
 	}
 	return parts[0], parts[1], nil
 }
+
+// BranchSHA returns the commit a branch points at, and whether the branch
+// exists. Reconciliation uses it to tell whether an earlier push landed.
+func (g *GitHub) BranchSHA(ctx context.Context, token, owner, repo, branch string) (string, bool, error) {
+	status, raw, err := g.do(ctx, token, http.MethodGet, "/repos/"+owner+"/"+repo+"/git/ref/heads/"+url.PathEscape(branch), nil)
+	if err != nil {
+		return "", false, err
+	}
+	switch status {
+	case http.StatusOK:
+		var ref struct {
+			Object struct {
+				SHA string `json:"sha"`
+			} `json:"object"`
+		}
+		if err := json.Unmarshal(raw, &ref); err != nil || ref.Object.SHA == "" {
+			return "", false, errors.New("github branch ref: unreadable response")
+		}
+		return ref.Object.SHA, true, nil
+	case http.StatusNotFound:
+		return "", false, nil
+	default:
+		return "", false, fmt.Errorf("github branch ref: status %d", status)
+	}
+}

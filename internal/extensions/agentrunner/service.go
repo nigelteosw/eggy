@@ -50,6 +50,12 @@ type Options struct {
 	Notify func(ctx context.Context, run ports.AgentRun, text string) error
 	// Redact scrubs live secrets from anything persisted or delivered.
 	Redact func(string) string
+	// SecretValues lists the live secrets a change must not contain. It is
+	// Secrets.Values() from config, the only list of live credentials.
+	SecretValues func() []string
+	// GitURL is the git remote a repository is cloned and pushed through. It is
+	// the repository's clone_url; tests point it at a local remote.
+	GitURL func(config.RepositoryConfig) string
 	Now    func() time.Time
 	NewID  func() string
 }
@@ -79,6 +85,12 @@ func New(o Options) (*Service, error) {
 	}
 	if o.Redact == nil {
 		o.Redact = func(s string) string { return s }
+	}
+	if o.SecretValues == nil {
+		o.SecretValues = func() []string { return nil }
+	}
+	if o.GitURL == nil {
+		o.GitURL = func(repo config.RepositoryConfig) string { return repo.CloneURL }
 	}
 	return &Service{opts: o, wake: make(chan struct{}, 1), cancels: map[string]context.CancelFunc{}}, nil
 }

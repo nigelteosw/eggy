@@ -56,25 +56,11 @@ func (w *Workspaces) Clone(ctx context.Context, runID, cloneURL, baseBranch, tok
 	if err := makeRunDirs(dir); err != nil {
 		return "", err
 	}
-	askpassDir, err := os.MkdirTemp(w.root, ".askpass-*")
+	env, cleanup, err := gitEnv(w.root, filepath.Join(dir, "home"), token)
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(askpassDir)
-	askpass := filepath.Join(askpassDir, "askpass")
-	script := "#!/bin/sh\ncase \"$1\" in\n  *sername*) echo x-access-token ;;\n  *) echo \"$EGGY_GIT_TOKEN\" ;;\nesac\n"
-	if err := os.WriteFile(askpass, []byte(script), 0o700); err != nil {
-		return "", err
-	}
-	env := []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + filepath.Join(dir, "home"),
-		"GIT_ASKPASS=" + askpass,
-		"EGGY_GIT_TOKEN=" + token,
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=/dev/null",
-	}
+	defer cleanup()
 	ws := filepath.Join(dir, "ws")
 	if err := gitRun(ctx, env, "", token, "clone", "--no-tags", "--single-branch", "--branch", baseBranch, cloneURL, ws); err != nil {
 		return "", err
@@ -97,6 +83,33 @@ func (w *Workspaces) Clone(ctx context.Context, runID, cloneURL, baseBranch, tok
 	return base, nil
 }
 
+// gitEnv is the environment for a git process that needs the PAT. The token
+// reaches git only through the environment, read by an askpass helper, so it
+// is never in argv or a URL. The global config is disabled, so no credential
+// helper or alias from the machine applies. The caller runs cleanup afterwards.
+func gitEnv(root, home, token string) ([]string, func(), error) {
+	dir, err := os.MkdirTemp(root, ".askpass-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	askpass := filepath.Join(dir, "askpass")
+	script := "#!/bin/sh\ncase \"$1\" in\n  *sername*) echo x-access-token ;;\n  *) echo \"$EGGY_GIT_TOKEN\" ;;\nesac\n"
+	if err := os.WriteFile(askpass, []byte(script), 0o700); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + home,
+		"GIT_ASKPASS=" + askpass,
+		"EGGY_GIT_TOKEN=" + token,
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+	}, cleanup, nil
+}
+
 // gitRun runs git and returns an error that never contains token.
 func gitRun(ctx context.Context, env []string, dir, token string, args ...string) error {
 	_, err := gitOutput(ctx, env, dir, token, args...)
@@ -113,8 +126,11 @@ func gitOutput(ctx context.Context, env []string, dir, token string, args ...str
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		msg := strings.ReplaceAll(stderr.String(), token, "[redacted]")
-		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(msg))
+		// Some git commands explain a refusal on stdout ("nothing to commit"),
+		// so both streams are kept in the error, with the token removed.
+		detail := strings.TrimSpace(stderr.String() + "\n" + stdout.String())
+		msg := strings.ReplaceAll(detail, token, "[redacted]")
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, msg)
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }

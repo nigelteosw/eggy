@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/agent"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -60,6 +61,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if err := s.reconcileStartup(ctx); err != nil {
 		s.log().Error("agent runner: startup reconciliation", "error", err)
 	}
+	if err := s.reconcile(ctx); err != nil {
+		s.log().Error("agent runner: publication reconciliation", "error", err)
+	}
 	ticker := time.NewTicker(sweepEvery)
 	defer ticker.Stop()
 	for {
@@ -96,11 +100,11 @@ func (s *Service) log() *slog.Logger {
 	return slog.Default().With("component", "agent_runner")
 }
 
-// reconcileStartup records runs a restart cut off. They are not relaunched: a
-// coding process cannot be resumed reliably, and the owner decides whether to
-// start again.
+// reconcileStartup records a coding run a restart cut off. It is not relaunched:
+// a coding process cannot be resumed reliably, and the owner decides whether to
+// start again. A run in publication is not touched here; reconcile resumes it.
 func (s *Service) reconcileStartup(ctx context.Context) error {
-	running, err := s.opts.Store.AgentRunsInStates(ctx, ports.AgentRunRunning, ports.AgentRunPublishing)
+	running, err := s.opts.Store.AgentRunsInStates(ctx, ports.AgentRunRunning)
 	if err != nil {
 		return err
 	}
@@ -187,13 +191,13 @@ func (s *Service) execute(ctx context.Context, run ports.AgentRun) error {
 			return err
 		}
 	}
-	return s.codingTurn(ctx, runCtx, run, repo.Checks)
+	return s.codingTurn(ctx, runCtx, run, repo)
 }
 
 // codingTurn runs the model over the coding tools until it stops, asks the
 // owner, or hits a limit, then records which.
-func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, checks [][]string) error {
-	active := &ActiveRun{ID: run.ID, Checks: checks}
+func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, repo config.RepositoryConfig) error {
+	active := &ActiveRun{ID: run.ID, Checks: repo.Checks}
 	tools := append(CodingTools(s.opts.Workspaces, active, s.opts.SandboxOK), codeTool{
 		def: def("ask_owner", "Ask the owner one question you cannot resolve yourself. Then end your turn.",
 			`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}`, ports.ToolEffect{}),
@@ -241,7 +245,7 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, ch
 	case err != nil:
 		return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact("coding turn: "+err.Error()), "")
 	}
-	return s.finish(ctx, run, ports.AgentRunCompleted, "", s.opts.Redact(result.Message.Content))
+	return s.publish(ctx, run, repo, active.results(), result.Message.Content)
 }
 
 // turnInput is the brief, plus the owner's answer when the run is resuming.
@@ -272,7 +276,7 @@ func (s *Service) finish(ctx context.Context, run ports.AgentRun, state ports.Ag
 	run.State = state
 	run.Failure = failure
 	if output != "" {
-		run.Output = truncate(output, maxOutputBytes)
+		run.Output = truncate(s.opts.Redact(output), maxOutputBytes)
 	}
 	updated, err := s.opts.Store.UpdateAgentRun(ctx, run)
 	if err != nil {

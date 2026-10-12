@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   origin_destination TEXT NOT NULL DEFAULT '',
   delivered          INTEGER NOT NULL DEFAULT 0,
   created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL
+  updated_at         TEXT NOT NULL,
+  pr_title           TEXT NOT NULL DEFAULT '',
+  pr_body            TEXT NOT NULL DEFAULT '',
+  draft              INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS agent_runs_account_created ON agent_runs (account_id, created_at);
 CREATE INDEX IF NOT EXISTS agent_runs_state_created ON agent_runs (state, created_at);
@@ -53,7 +56,7 @@ CREATE TABLE IF NOT EXISTS agent_runner_repos (
 );
 `
 
-const agentRunColumns = `id, repository, brief, brief_digest, base_branch, base_sha, branch, head_sha, state, revision, stage, pat_generation, mandate_expires, question, answer, used_tokens, used_active_ns, output, pr_url, failure, origin_channel, origin_destination, delivered, created_at, updated_at`
+const agentRunColumns = `id, repository, brief, brief_digest, base_branch, base_sha, branch, head_sha, state, revision, stage, pat_generation, mandate_expires, question, answer, used_tokens, used_active_ns, output, pr_url, failure, origin_channel, origin_destination, delivered, created_at, updated_at, pr_title, pr_body, draft`
 
 func scanAgentRun(scan func(...any) error) (ports.AgentRun, error) {
 	var (
@@ -61,11 +64,11 @@ func scanAgentRun(scan func(...any) error) (ports.AgentRun, error) {
 		state, stage          string
 		expires, created, upd string
 		usedActiveNS          int64
-		delivered             int64
+		delivered, draft      int64
 	)
 	if err := scan(&run.AccountID, &run.ID, &run.Repository, &run.Brief, &run.BriefDigest, &run.BaseBranch, &run.BaseSHA, &run.Branch, &run.HeadSHA,
 		&state, &run.Revision, &stage, &run.PATGeneration, &expires, &run.Question, &run.Answer, &run.UsedTokens, &usedActiveNS,
-		&run.Output, &run.PRURL, &run.Failure, &run.OriginChannel, &run.OriginDestination, &delivered, &created, &upd); err != nil {
+		&run.Output, &run.PRURL, &run.Failure, &run.OriginChannel, &run.OriginDestination, &delivered, &created, &upd, &run.PRTitle, &run.PRBody, &draft); err != nil {
 		return ports.AgentRun{}, err
 	}
 	var err error
@@ -82,22 +85,29 @@ func scanAgentRun(scan func(...any) error) (ports.AgentRun, error) {
 	run.Stage = ports.PublishStage(stage)
 	run.UsedActive = time.Duration(usedActiveNS)
 	run.Delivered = delivered != 0
+	run.Draft = draft != 0
 	return run, nil
 }
+
+// agentRunColumnCount is the number of columns agentRunColumns names.
+var agentRunColumnCount = strings.Count(agentRunColumns, ",") + 1
 
 // agentRunSelect adds the owner, which reads come back with and writes never set.
 const agentRunSelect = `account_id, ` + agentRunColumns
 
 // agentRunArgs lists the values in agentRunColumns order, for INSERT and UPDATE.
 func agentRunArgs(run ports.AgentRun) []any {
-	delivered := 0
+	delivered, draft := 0, 0
 	if run.Delivered {
 		delivered = 1
+	}
+	if run.Draft {
+		draft = 1
 	}
 	return []any{run.ID, run.Repository, run.Brief, run.BriefDigest, run.BaseBranch, run.BaseSHA, run.Branch, run.HeadSHA,
 		string(run.State), run.Revision, string(run.Stage), run.PATGeneration, formatTime(run.MandateExpires), run.Question, run.Answer,
 		run.UsedTokens, int64(run.UsedActive), run.Output, run.PRURL, run.Failure, run.OriginChannel, run.OriginDestination, delivered,
-		formatTime(run.CreatedAt), formatTime(run.UpdatedAt)}
+		formatTime(run.CreatedAt), formatTime(run.UpdatedAt), run.PRTitle, run.PRBody, draft}
 }
 
 // CreateAgentRun stores a new run for the acting account.
@@ -106,8 +116,7 @@ func (s *Store) CreateAgentRun(ctx context.Context, run ports.AgentRun) error {
 	if err != nil {
 		return err
 	}
-	// 25 run columns plus account_id.
-	placeholders := strings.TrimSuffix(strings.Repeat("?, ", 26), ", ")
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", agentRunColumnCount+1), ", ")
 	args := append([]any{account}, agentRunArgs(run)...)
 	_, err = s.db.ExecContext(ctx, `INSERT INTO agent_runs (account_id, `+agentRunColumns+`) VALUES (`+placeholders+`)`, args...)
 	if err != nil {
@@ -153,7 +162,8 @@ func (s *Store) ListAgentRuns(ctx context.Context, limit int) ([]ports.AgentRun,
 
 // UpdateAgentRun writes the run only if the stored revision is still the one
 // the caller read. When it is not, the answer tells a stale caller apart from
-// a run that no longer exists. created_at is never rewritten.
+// a run that no longer exists. The SET list is built from agentRunColumns, so
+// a column added there cannot be left out of an update.
 func (s *Store) UpdateAgentRun(ctx context.Context, run ports.AgentRun) (ports.AgentRun, error) {
 	account, err := accountOf(ctx)
 	if err != nil {
@@ -162,13 +172,19 @@ func (s *Store) UpdateAgentRun(ctx context.Context, run ports.AgentRun) (ports.A
 	expected := run.Revision
 	run.Revision++
 	run.UpdatedAt = time.Now().UTC()
-	// agentRunArgs order: id, then the writable columns, then created_at, then updated_at.
-	all := agentRunArgs(run)
-	setArgs := append(append([]any{}, all[1:23]...), all[24])
-	result, err := s.db.ExecContext(ctx, `UPDATE agent_runs SET repository = ?, brief = ?, brief_digest = ?, base_branch = ?, base_sha = ?, branch = ?, head_sha = ?,
-		state = ?, revision = ?, stage = ?, pat_generation = ?, mandate_expires = ?, question = ?, answer = ?, used_tokens = ?, used_active_ns = ?,
-		output = ?, pr_url = ?, failure = ?, origin_channel = ?, origin_destination = ?, delivered = ?, updated_at = ?
-		WHERE id = ? AND account_id = ? AND revision = ?`, append(setArgs, run.ID, account, expected)...)
+	names := strings.Split(agentRunColumns, ", ")
+	values := agentRunArgs(run)
+	var sets []string
+	var args []any
+	for i, name := range names {
+		if name == "id" || name == "created_at" {
+			continue
+		}
+		sets = append(sets, name+" = ?")
+		args = append(args, values[i])
+	}
+	args = append(args, run.ID, account, expected)
+	result, err := s.db.ExecContext(ctx, `UPDATE agent_runs SET `+strings.Join(sets, ", ")+` WHERE id = ? AND account_id = ? AND revision = ?`, args...)
 	if err != nil {
 		return ports.AgentRun{}, fmt.Errorf("update agent run: %w", err)
 	}

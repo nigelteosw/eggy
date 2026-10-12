@@ -6,7 +6,7 @@ eyebrow: Configure
 
 MCP servers extend Eggy's tool catalog at runtime. Tools are namespaced as `<server>__<normalized_tool>`, preventing a remote server from replacing a native tool.
 
-> **Trust model:** placing a server in `config.yaml` is the approval. MCP tools do not receive per-call Eggy approvals.
+> **Trust model:** placing a server in `config.yaml` is the trust decision. Tools named in that server's `require_approval` list ask the owner before each call, and in `strict` mode every MCP call asks. Other MCP tools run without a per-call prompt in `normal` mode.
 
 ## Streamable HTTP
 

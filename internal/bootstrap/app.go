@@ -488,6 +488,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	webConfig := panel.WebUIConfig{
 		Now:     options.Now,
+		Skills:  skillsService,
 		ChatHub: app.chatHub, Enqueue: app.Enqueue, Memory: database, Threads: database,
 		Auth: database, Sessions: database, Accounts: app.accounts,
 		PasswordAccountID: passwordAccountID, EnvironmentAlias: environmentAlias, EnvironmentPasswordHash: environmentHash,

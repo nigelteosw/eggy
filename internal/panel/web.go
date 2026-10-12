@@ -71,6 +71,9 @@ type WebUIConfig struct {
 	// section; this is only the part config cannot do -- starting an OAuth
 	// flow against a live connection.
 	MCP MCPLoginStarter
+	// Skills is the owner's view of the skills directory. Skills are core, so
+	// bootstrap always supplies it; nil leaves the skills routes unmounted.
+	Skills SkillsAdmin
 	// Tools is the live tool registry, listed read-only by the panel.
 	Tools ToolCatalog
 	// Approvals lists what is waiting on the owner. Deciding one goes
@@ -311,6 +314,13 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/raw", guard(rawConfigGetRoute(configPath)))
 	mux.Handle("POST /api/config/raw", guard(rawConfigSetRoute(configPath, webConfig.Getenv, nil)))
 
+	if webConfig.Skills != nil {
+		mux.Handle("GET /api/skills", guard(skillsListRoute(webConfig.Skills)))
+		mux.Handle("POST /api/skills", guard(skillsCreateRoute(webConfig.Skills)))
+		mux.Handle("GET /api/skills/{name}", guard(skillsGetRoute(webConfig.Skills)))
+		mux.Handle("PUT /api/skills/{name}", guard(skillsUpdateRoute(webConfig.Skills)))
+		mux.Handle("DELETE /api/skills/{name}", guard(skillsDeleteRoute(webConfig.Skills)))
+	}
 	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", guard(webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", guard(webMCPRemoveRoute(configPath)))

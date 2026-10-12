@@ -1,8 +1,8 @@
 // Package skills persists procedural skills as flat Markdown files, one per
-// skill, each with a small YAML frontmatter block (name, description)
-// followed by the skill's instructions. There is no database and no bundled
-// scripts/assets: a skill is text the agent reads, never something Eggy
-// executes, matching docs/adr/0005-procedural-skills.md.
+// skill, each with a small YAML frontmatter block (name, description, and an
+// optional disabled flag) followed by the skill's instructions. There is no
+// database and no bundled scripts/assets: a skill is text the agent reads,
+// never something Eggy executes, matching docs/adr/0005-procedural-skills.md.
 package skills
 
 import (
@@ -10,7 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -44,6 +44,7 @@ func ValidateName(name string) error {
 type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Disabled    bool   `yaml:"disabled,omitempty"`
 }
 
 type Store struct {
@@ -63,19 +64,11 @@ func (s *Store) path(name string) string {
 	return filepath.Join(s.dir, name+".md")
 }
 
-// maxIndexBytes bounds the aggregate size of the summaries List returns.
-// Every summary is resident in the system prompt on every turn (see
-// agent.renderSkills), so the index is a context cost the owner never sees
-// billed directly: cap it here rather than letting a skills directory grow
-// the prompt without limit.
-const maxIndexBytes = 16 << 10
-
-// List returns the summaries of every readable skill, in name order. A file
-// that is oversized, unreadable, or malformed is skipped with a warning
-// instead of failing the whole listing, so one bad file cannot disable the
-// skills the owner can still use. Once the summaries reach maxIndexBytes the
-// remaining files are skipped, again with a warning naming them: an index at
-// capacity is reported, never silently trimmed.
+// List returns every skill file in the directory in name order, including
+// disabled and invalid ones, so the owner can see and repair what is there.
+// A file that is oversized, unreadable, or malformed is listed with Invalid
+// set to the reason rather than failing the whole listing. Model-facing
+// filtering and the index budget are the service's job, not the store's.
 func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -90,37 +83,17 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 		return nil, err
 	}
 	summaries := make([]ports.SkillSummary, 0, len(entries))
-	indexBytes := 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 			continue
 		}
-		info, err := entry.Info()
+		stem := strings.TrimSuffix(entry.Name(), ".md")
+		front, _, err := s.load(stem)
 		if err != nil {
-			slog.Warn("skipping unreadable skill file", "file", entry.Name(), "error", err)
+			summaries = append(summaries, ports.SkillSummary{Name: stem, Invalid: err.Error()})
 			continue
 		}
-		if info.Size() > s.maxBytes {
-			slog.Warn("skipping oversized skill file", "file", entry.Name(), "bytes", info.Size(), "limit", s.maxBytes)
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
-		if err != nil {
-			slog.Warn("skipping unreadable skill file", "file", entry.Name(), "error", err)
-			continue
-		}
-		front, _, err := parse(data)
-		if err != nil {
-			slog.Warn("skipping malformed skill file", "file", entry.Name(), "error", err)
-			continue
-		}
-		cost := len(front.Name) + len(front.Description) + 2
-		if indexBytes+cost > maxIndexBytes {
-			slog.Warn("skill index is at capacity, skipping skill", "file", entry.Name(), "limit", maxIndexBytes)
-			continue
-		}
-		indexBytes += cost
-		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description})
+		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description, Disabled: front.Disabled})
 	}
 	slices.SortFunc(summaries, func(a, b ports.SkillSummary) int { return cmp.Compare(a.Name, b.Name) })
 	return summaries, nil
@@ -135,31 +108,56 @@ func (s *Store) Read(ctx context.Context, name string) (ports.Skill, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := s.readFile(name)
+	front, body, err := s.load(name)
 	if err != nil {
 		return ports.Skill{}, err
+	}
+	return ports.Skill{Name: front.Name, Description: front.Description, Body: body, Disabled: front.Disabled}, nil
+}
+
+// load reads and validates one skill file. The frontmatter name must match
+// the file it lives in: a file whose identity disagrees with its name is
+// refused rather than served under either one.
+func (s *Store) load(name string) (frontmatter, string, error) {
+	data, err := readLimited(s.path(name), s.maxBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return frontmatter{}, "", fmt.Errorf("%w: %q", ports.ErrSkillNotFound, name)
+	}
+	if err != nil {
+		return frontmatter{}, "", fmt.Errorf("skill %q: %w", name, err)
 	}
 	front, body, err := parse(data)
 	if err != nil {
-		return ports.Skill{}, err
+		return frontmatter{}, "", err
 	}
-	return ports.Skill{Name: front.Name, Description: front.Description, Body: body}, nil
+	if front.Name != name {
+		return frontmatter{}, "", fmt.Errorf("frontmatter name %q does not match file name %q", front.Name, name)
+	}
+	return front, body, nil
 }
 
-func (s *Store) readFile(name string) ([]byte, error) {
-	data, err := os.ReadFile(s.path(name))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("skill %q does not exist", name)
-	}
+// readLimited reads at most limit bytes and refuses anything longer. It reads
+// through a LimitReader so a file that grows after it was stat'd still cannot
+// allocate more than limit+1 bytes.
+func readLimited(path string, limit int64) ([]byte, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > s.maxBytes {
-		return nil, fmt.Errorf("skill %q exceeds size limit of %d bytes", name, s.maxBytes)
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("exceeds size limit of %d bytes", limit)
 	}
 	return data, nil
 }
 
+// Write creates or replaces a skill. A file that already exists keeps its
+// disabled state, so editing content never re-enables a skill the owner
+// turned off.
 func (s *Store) Write(ctx context.Context, name, description, body string) error {
 	if err := ValidateName(name); err != nil {
 		return err
@@ -178,15 +176,44 @@ func (s *Store) Write(ctx context.Context, name, description, body string) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	data, err := render(name, description, body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	disabled := false
+	if existing, _, err := s.load(name); err == nil {
+		disabled = existing.Disabled
+	}
+	data, err := render(name, description, body, disabled)
 	if err != nil {
 		return err
 	}
 	if int64(len(data)) > s.maxBytes {
 		return fmt.Errorf("skill %q exceeds size limit of %d bytes", name, s.maxBytes)
 	}
+	path := s.path(name)
+	return filelock.With(path, func() error {
+		return atomicfile.Write(path, data, 0o600)
+	})
+}
+
+// SetDisabled changes only the owner's enabled choice. The content is left as
+// it is, and a file that cannot be read is not rewritten.
+func (s *Store) SetDisabled(ctx context.Context, name string, disabled bool) error {
+	if err := ValidateName(name); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	front, body, err := s.load(name)
+	if err != nil {
+		return err
+	}
+	data, err := render(name, front.Description, body, disabled)
+	if err != nil {
+		return err
+	}
 	path := s.path(name)
 	return filelock.With(path, func() error {
 		return atomicfile.Write(path, data, 0o600)
@@ -206,7 +233,7 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 	return filelock.With(path, func() error {
 		if _, err := os.Stat(path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("skill %q does not exist", name)
+				return fmt.Errorf("%w: %q", ports.ErrSkillNotFound, name)
 			}
 			return err
 		}
@@ -233,8 +260,8 @@ func parse(data []byte) (frontmatter, string, error) {
 	return front, body, nil
 }
 
-func render(name, description, body string) ([]byte, error) {
-	encoded, err := yaml.Marshal(frontmatter{Name: name, Description: description})
+func render(name, description, body string, disabled bool) ([]byte, error) {
+	encoded, err := yaml.Marshal(frontmatter{Name: name, Description: description, Disabled: disabled})
 	if err != nil {
 		return nil, err
 	}

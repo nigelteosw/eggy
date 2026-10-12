@@ -89,11 +89,23 @@ func New(o Options) (*Service, error) {
 	if o.NewID == nil {
 		o.NewID = newRunID
 	}
-	if o.Redact == nil {
-		o.Redact = func(s string) string { return s }
-	}
 	if o.SecretValues == nil {
 		o.SecretValues = func() []string { return nil }
+	}
+	if o.Redact == nil {
+		// Without a configured redactor, scrub the live secrets anyway: a missing
+		// wiring must fail safe, not let a secret into a stored or sent text.
+		secrets := o.SecretValues
+		o.Redact = func(text string) string {
+			values := slices.Clone(secrets())
+			slices.SortFunc(values, func(a, b string) int { return len(b) - len(a) })
+			for _, value := range values {
+				if len(value) >= minSecretLength {
+					text = strings.ReplaceAll(text, value, "[redacted]")
+				}
+			}
+			return text
+		}
 	}
 	if o.GitURL == nil {
 		o.GitURL = func(repo config.RepositoryConfig) string { return repo.CloneURL }

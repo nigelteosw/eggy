@@ -425,3 +425,21 @@ func TestNotifyRetryDoesNotRepublish(t *testing.T) {
 		t.Fatalf("run = %+v", got)
 	}
 }
+
+// The summary is the model's own text. A secret in it must not reach the pull
+// request body, which GitHub stores and shows to everyone with access.
+func TestPublishRedactsSecretFromPRBody(t *testing.T) {
+	p := newPubEnv(t)
+	run := p.newRun("00000000000000000000000000000018")
+	p.writeWS(run.ID, "README.md", "changed\n")
+	repo, _ := p.svc.repository("r")
+	if err := p.svc.publish(acct("a"), run, repo, passingGoTest, "updated the readme with "+testSecret); err != nil {
+		t.Fatal(err)
+	}
+	if p.opens != 1 {
+		t.Fatalf("opened %d PRs, want 1", p.opens)
+	}
+	if body := p.prs[0]["body"].(string); strings.Contains(body, testSecret) {
+		t.Fatalf("secret reached the PR body:\n%s", body)
+	}
+}

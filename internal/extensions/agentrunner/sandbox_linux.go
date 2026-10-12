@@ -13,7 +13,9 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -92,12 +94,31 @@ func NewSandbox() (*Sandbox, error) {
 	return &Sandbox{coderUID: uint32(uid), coderGID: uint32(gid), self: self}, nil
 }
 
-// PrepareRunDir creates a run's directories, owned by coder and private to it.
+// PrepareRunDir creates a run's directories. Only ws/, home/ and tmp/ belong
+// to coder. The run directory itself stays root-owned and untraversable for
+// writing, so coder cannot rename or replace the subtrees, and the publisher's
+// own checkout, which sits beside them, is never handed to the agent.
 func (s *Sandbox) PrepareRunDir(runDir string) error {
 	if err := makeRunDirs(runDir); err != nil {
 		return err
 	}
-	return filepath.WalkDir(runDir, func(path string, _ fs.DirEntry, err error) error {
+	if err := os.Chmod(runDir, 0o711); err != nil {
+		return err
+	}
+	for _, sub := range agentWritable {
+		if err := s.chownTree(filepath.Join(runDir, sub)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// agentWritable are the only parts of a run directory coder may touch.
+var agentWritable = []string{"ws", "home", "tmp"}
+
+// chownTree gives coder every entry under root, and leaves root's parent alone.
+func (s *Sandbox) chownTree(root string) error {
+	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -153,6 +174,10 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 	}()
 	waitErr := cmd.Wait()
 	close(done)
+	// The leader exiting does not end its group: a backgrounded child keeps
+	// running and could keep writing into the workspace while the publisher
+	// reads it. Nothing may outlive the command, so the whole group goes.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	mu.Lock()
 	didTimeOut := timedOut
 	mu.Unlock()
@@ -276,15 +301,24 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 			return os.Chmod(runs, 0o711)
 		}
 		if within(path, runs) {
-			// Run directories and their contents belong to coder; interrupted
+			// Inside a run, only the agent's own subtrees go to coder; the run
+			// directory and the publisher's checkout stay root-owned. Interrupted
 			// runs keep their workspaces across restarts.
-			if err := os.Lchown(path, int(s.coderUID), int(s.coderGID)); err != nil {
+			rel, err := filepath.Rel(runs, path)
+			if err != nil {
 				return err
 			}
-			if entry.IsDir() {
-				return os.Chmod(path, 0o700)
+			parts := strings.Split(rel, string(filepath.Separator))
+			if len(parts) == 1 {
+				return os.Lchown(path, 0, 0)
 			}
-			return nil
+			if len(parts) == 2 && slices.Contains(agentWritable, parts[1]) && entry.IsDir() {
+				return s.chownTree(path)
+			}
+			if len(parts) > 2 && slices.Contains(agentWritable, parts[1]) {
+				return nil // already handed to coder by its parent's chownTree
+			}
+			return os.Lchown(path, 0, 0)
 		}
 		if err := os.Lchown(path, 0, 0); err != nil {
 			return err

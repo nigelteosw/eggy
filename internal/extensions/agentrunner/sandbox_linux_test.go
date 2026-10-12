@@ -101,3 +101,22 @@ func TestSandboxTimeoutKillsGroup(t *testing.T) {
 		t.Fatalf("expected timeout, got exit %d", result.ExitCode)
 	}
 }
+
+// A backgrounded child must not outlive its command: it could keep writing into
+// the workspace while the publisher reads it. The child here would leave a
+// marker two seconds after the command returns, so the marker must not appear.
+func TestSandboxKillsBackgroundChildren(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	run := filepath.Join(dataDir, "agent-runs", "background")
+	if err := sb.PrepareRunDir(run); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(run, "ws", "marker")
+	if _, err := sb.Run(context.Background(), SandboxSpec{RunDir: run, Argv: []string{"bash", "-c", "(sleep 2; touch marker) &"}}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a background child outlived its command and wrote into the workspace")
+	}
+}

@@ -338,7 +338,9 @@ func (s *Service) publish(ctx context.Context, run ports.AgentRun, repo config.R
 	draft := !checksPassed(repo.Checks, results)
 	run.HeadSHA = head
 	run.PRTitle = prTitle(run.Brief)
-	run.PRBody = prBody(run, summary, paths, repo.Checks, results, draft)
+	// The body is redacted like every other stored text: the summary is the
+	// model's, and nothing it wrote may reach GitHub with a live secret in it.
+	run.PRBody = s.opts.Redact(prBody(run, summary, paths, repo.Checks, results, draft))
 	run.Draft = draft
 	run.Output = s.opts.Redact(summary)
 	run.Stage = ports.PublishCommitted

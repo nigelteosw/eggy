@@ -179,3 +179,11 @@ func TestAgentRunnerRoutesAbsentWhenNil(t *testing.T) {
 		t.Fatalf("status = %d, want 404 with no agent runner", response.Code)
 	}
 }
+
+// The page learns whether bash is available and, when it is not, why.
+func TestAgentRunnerStatusReportsSandbox(t *testing.T) {
+	rec := do(t, serveAgentRunner(&fakeAgentRunner{}), http.MethodGet, "/api/agent-runner/status", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"sandbox_ok":false`) || !strings.Contains(rec.Body.String(), "not root") {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}

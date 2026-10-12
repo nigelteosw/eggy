@@ -226,7 +226,7 @@ func (p panelAgentRunner) Repositories(ctx context.Context) ([]panel.AgentReposi
 	}
 	out := make([]panel.AgentRepository, 0, len(repos))
 	for _, repo := range repos {
-		out = append(out, panel.AgentRepository{Name: repo.Name, Enabled: repo.Enabled, PushAccess: repo.PushAccess})
+		out = append(out, panel.AgentRepository{Name: repo.Name, Enabled: repo.Enabled, PushAccess: repo.PushAccess, Checks: repo.Checks})
 	}
 	return out, nil
 }

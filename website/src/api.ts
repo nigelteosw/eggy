@@ -339,7 +339,7 @@ export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
   return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance" | "agent_runner";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see
@@ -738,4 +738,79 @@ export function updateSkill(name: string, input: SkillInput): Promise<CommandRes
 
 export function deleteSkill(name: string): Promise<CommandResult> {
   return request(`/api/skills/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+// The agent runner: coding runs on allowed repositories. The browser never
+// sees a token, a brief's account, or an origin; each run is the panel's view
+// of one ports.AgentRun.
+export type AgentRun = {
+  id: string;
+  repository: string;
+  state: string;
+  stage?: string;
+  question?: string;
+  pr_url?: string;
+  draft: boolean;
+  failure?: string;
+  output?: string;
+  created_at: string;
+};
+
+export type AgentRepository = { name: string; enabled: boolean; push_access: boolean; checks: string[][] };
+
+export type AgentPAT = {
+  connected: boolean;
+  login?: string;
+  generation: number;
+  repositories?: Record<string, boolean>;
+};
+
+export type AgentStatus = { sandbox_ok: boolean; sandbox_reason: string };
+
+export function getAgentStatus(): Promise<AgentStatus> {
+  return request<AgentStatus>("/api/agent-runner/status");
+}
+
+export function listAgentRuns(): Promise<AgentRun[]> {
+  return request<AgentRun[]>("/api/agent-runner/runs");
+}
+
+export function startAgentRun(input: { repository: string; task: string }): Promise<AgentRun> {
+  return request<AgentRun>("/api/agent-runner/runs", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function getAgentRun(id: string): Promise<AgentRun> {
+  return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}`);
+}
+
+export function cancelAgentRun(id: string): Promise<AgentRun> {
+  return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export function answerAgentRun(id: string, text: string): Promise<AgentRun> {
+  return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}/answer`, { method: "POST", body: JSON.stringify({ text }) });
+}
+
+export function listAgentRepos(): Promise<AgentRepository[]> {
+  return request<AgentRepository[]>("/api/agent-runner/repos");
+}
+
+export function setAgentRepoEnabled(name: string, enabled: boolean): Promise<AgentRepository[]> {
+  return request<AgentRepository[]>(`/api/agent-runner/repos/${encodeURIComponent(name)}`, { method: "POST", body: JSON.stringify({ enabled }) });
+}
+
+export function getAgentPAT(): Promise<AgentPAT> {
+  return request<AgentPAT>("/api/agent-runner/pat");
+}
+
+export function setAgentPAT(token: string): Promise<AgentPAT> {
+  return request<AgentPAT>("/api/agent-runner/pat", { method: "PUT", body: JSON.stringify({ token }) });
+}
+
+export function deleteAgentPAT(): Promise<AgentPAT> {
+  return request<AgentPAT>("/api/agent-runner/pat", { method: "DELETE" });
+}
+
+export function setRepositoryChecks(name: string, checks: string[][]): Promise<CommandResult> {
+  return request<CommandResult>(`/api/config/repositories/${encodeURIComponent(name)}/checks`, { method: "POST", body: JSON.stringify({ checks }) });
 }

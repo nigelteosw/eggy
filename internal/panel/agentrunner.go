@@ -33,9 +33,10 @@ type AgentRunnerService interface {
 
 // AgentRepository is one allowed repository as an account sees it.
 type AgentRepository struct {
-	Name       string `json:"name"`
-	Enabled    bool   `json:"enabled"`
-	PushAccess bool   `json:"push_access"`
+	Name       string     `json:"name"`
+	Enabled    bool       `json:"enabled"`
+	PushAccess bool       `json:"push_access"`
+	Checks     [][]string `json:"checks"`
 }
 
 // AgentPAT is what the browser may learn about an account's GitHub token. The
@@ -96,6 +97,7 @@ func decodeAgentBody(r *http.Request, into any) error {
 // mountAgentRunnerRoutes registers the agent runner's API. It is called only
 // when the service exists, so a disabled extension has no route at all.
 func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) http.Handler, configPath string, svc AgentRunnerService) {
+	mux.Handle("GET /api/agent-runner/status", guard(agentStatus(svc)))
 	mux.Handle("GET /api/agent-runner/runs", guard(agentRunsList(svc)))
 	mux.Handle("POST /api/agent-runner/runs", guard(agentRunStart(svc)))
 	mux.Handle("GET /api/agent-runner/runs/{id}", guard(agentRunGet(svc)))
@@ -107,6 +109,15 @@ func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) htt
 	mux.Handle("PUT /api/agent-runner/pat", guard(agentPATSet(svc)))
 	mux.Handle("DELETE /api/agent-runner/pat", guard(agentPATDelete(svc)))
 	mux.Handle("POST /api/config/repositories/{name}/checks", guard(agentChecksSet(configPath)))
+}
+
+// agentStatus says whether bash is offered, and why not when it is not, so the
+// page can tell the owner what the runs will be able to do.
+func agentStatus(svc AgentRunnerService) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		ok, reason := svc.SandboxStatus()
+		writeJSON(w, map[string]any{"sandbox_ok": ok, "sandbox_reason": reason})
+	}
 }
 
 func agentRunsList(svc AgentRunnerService) http.HandlerFunc {

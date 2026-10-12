@@ -6,6 +6,7 @@ import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
 import { FIELD_LABEL } from "./components/ui/form";
 import { errorMessage } from "./lib/utils";
+import { GitHubTokenField } from "./GitHubTokenField";
 
 // PersonalSettingsCard is the signed-in person's own runtime settings: the
 // model and effort behind /model, thinking visibility, and the approval
@@ -155,6 +156,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
           </fieldset>
         </div>
       )}
+      <GitHubTokenField onSessionExpired={onSessionExpired} />
     </div>
   );
 }

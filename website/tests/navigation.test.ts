@@ -177,13 +177,16 @@ test("finance settings live under Capabilities, where its running state is shown
       }),
     );
 
+  // The page also carries the Agent Runner card, so the finance status is read
+  // from its own labelled element rather than from the whole page.
+  const financeStatus = (html: string) => html.match(/aria-label="Finance extension status"[^>]*>([^<]*)</)?.[1];
+
   const disabled = render([]);
-  expect(disabled).toContain("Not running");
+  expect(financeStatus(disabled)).toBe("Not running");
   expect(disabled).toContain("Enable finance");
 
   const enabled = render(["finance"]);
-  expect(enabled).toContain("Running");
-  expect(enabled).not.toContain("Not running");
+  expect(financeStatus(enabled)).toBe("Running");
 });
 
 test("the rail header drags the window and keeps its collapse control clickable", () => {

@@ -121,9 +121,10 @@ type StartRequest struct {
 
 // RepoStatus is one allowed repository as an account sees it.
 type RepoStatus struct {
-	Name       string `json:"name"`
-	Enabled    bool   `json:"enabled"`
-	PushAccess bool   `json:"push_access"`
+	Name       string     `json:"name"`
+	Enabled    bool       `json:"enabled"`
+	PushAccess bool       `json:"push_access"`
+	Checks     [][]string `json:"checks"`
 }
 
 func (s *Service) repository(name string) (config.RepositoryConfig, bool) {
@@ -278,6 +279,7 @@ func (s *Service) Repositories(ctx context.Context) ([]RepoStatus, error) {
 			Name:       repo.Name,
 			Enabled:    slices.Contains(enabled, repo.Name),
 			PushAccess: status.Repositories[repo.Name],
+			Checks:     repo.Checks,
 		})
 	}
 	return out, nil

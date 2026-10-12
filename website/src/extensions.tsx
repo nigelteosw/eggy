@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { FinancePage } from "./FinancePage";
-import { WalletIcon } from "./components/ui/icons";
+import { FileCodeIcon, WalletIcon } from "./components/ui/icons";
+import { AgentRunnerPage } from "./AgentRunnerPage";
 
 // The feature extensions the web panel can open. Each one is listed under the
 // rail's Extensions menu and opens as a window over the current view. An extension
@@ -23,6 +24,13 @@ export const EXTENSIONS: ExtensionDef[] = [
     icon: <WalletIcon className="h-4 w-4" />,
     feature: "finance",
     Panel: ({ onSessionExpired, onClose }) => <FinancePage onClose={onClose} onSessionExpired={onSessionExpired} />,
+  },
+  {
+    id: "agent_runner",
+    label: "Agent Runner",
+    icon: <FileCodeIcon className="h-4 w-4" />,
+    feature: "agent_runner",
+    Panel: ({ onSessionExpired, onClose }) => <AgentRunnerPage onClose={onClose} onSessionExpired={onSessionExpired} />,
   },
 ];
 

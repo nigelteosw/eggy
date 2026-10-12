@@ -155,3 +155,55 @@ func firstModelAlias(t *testing.T, cfg Config) string {
 	t.Fatal("fixture defines no model alias")
 	return ""
 }
+
+func TestAddAndRemoveRepositoryRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := RepositoryConfig{Name: "widgets", CloneURL: "https://github.com/acme/widgets.git"}
+	if err := AddRepository(path, repo); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range reloaded.Repositories {
+		if r.Name == "widgets" {
+			found = r.CloneURL == repo.CloneURL && r.BaseBranch == "main"
+		}
+	}
+	if !found {
+		t.Fatalf("added repository not saved with main as base: %+v", reloaded.Repositories)
+	}
+	if err := AddRepository(path, repo); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("duplicate add: %v", err)
+	}
+	if err := RemoveRepository(path, "widgets"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRepository(path, "widgets"); err == nil || !strings.Contains(err.Error(), "unknown repository") {
+		t.Fatalf("removing twice: %v", err)
+	}
+}
+
+func TestAddRepositoryRefusesUnsafeEntries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]RepositoryConfig{
+		"ssh url":         {Name: "a", CloneURL: "git@github.com:acme/a.git"},
+		"other host":      {Name: "b", CloneURL: "https://gitlab.com/acme/b.git"},
+		"embedded creds":  {Name: "c", CloneURL: "https://user:pw@github.com/acme/c.git"},
+		"name with slash": {Name: "d/e", CloneURL: "https://github.com/acme/d.git"},
+		"empty name":      {Name: "", CloneURL: "https://github.com/acme/f.git"},
+	}
+	for label, repo := range cases {
+		if err := AddRepository(path, repo); err == nil {
+			t.Errorf("%s was accepted", label)
+		}
+	}
+}

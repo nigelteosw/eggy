@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   SessionExpiredError,
+  addAgentRepository,
   answerAgentRun,
   cancelAgentRun,
   getAgentStatus,
   listAgentRepos,
   listAgentRuns,
   setAgentRepoEnabled,
+  removeAgentRepository,
   setRepositoryChecks,
   startAgentRun,
   type AgentRepository,
@@ -146,7 +148,61 @@ function RunDetail({
   );
 }
 
-function RepositoryRow({ repo, onToggle, onSaveChecks }: { repo: AgentRepository; onToggle: (on: boolean) => void; onSaveChecks: (text: string) => void }) {
+// AddRepositoryForm allows one more repository. Only a GitHub https URL is
+// accepted; the server refuses anything else with the reason.
+export function AddRepositoryForm({
+  name,
+  cloneURL,
+  baseBranch,
+  busy,
+  error,
+  onChange,
+  onAdd,
+}: {
+  name: string;
+  cloneURL: string;
+  baseBranch: string;
+  busy: boolean;
+  error: string | null;
+  onChange: (field: "name" | "cloneURL" | "baseBranch", value: string) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <form
+      className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onAdd();
+      }}
+    >
+      <p className={FIELD_LABEL}>Add a repository</p>
+      <Input className={FIELD} value={name} onChange={(e) => onChange("name", e.target.value)} aria-label="Repository name" placeholder="name, e.g. widgets" />
+      <Input className={FIELD} value={cloneURL} onChange={(e) => onChange("cloneURL", e.target.value)} aria-label="Clone URL" placeholder="https://github.com/owner/repo.git" />
+      <Input className={FIELD} value={baseBranch} onChange={(e) => onChange("baseBranch", e.target.value)} aria-label="Base branch" placeholder="main" />
+      <p className="text-xs text-neutral-700">
+        Runs start after a restart. Then save your GitHub token again so Eggy checks access to the new repository.
+      </p>
+      <div>
+        <button type="submit" disabled={busy || name.trim() === "" || cloneURL.trim() === ""} className={PRIMARY_BUTTON}>
+          Add repository
+        </button>
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+    </form>
+  );
+}
+
+function RepositoryRow({
+  repo,
+  onToggle,
+  onSaveChecks,
+  onRemove,
+}: {
+  repo: AgentRepository;
+  onToggle: (on: boolean) => void;
+  onSaveChecks: (text: string) => void;
+  onRemove: () => void;
+}) {
   // Prefilled from the saved checks: saving an editor that started empty would
   // silently clear them.
   const [checks, setChecks] = useState(() => (repo.checks ?? []).map((argv) => argv.join(" ")).join("\n"));
@@ -163,9 +219,12 @@ function RepositoryRow({ repo, onToggle, onSaveChecks }: { repo: AgentRepository
       </label>
       {parsed.length > MAX_CHECKS && <p className="text-xs text-neutral-700">At most {MAX_CHECKS} checks.</p>}
       <p className="text-xs text-neutral-700">Checks take effect after a restart.</p>
-      <div>
+      <div className="flex gap-2">
         <button type="button" disabled={parsed.length > MAX_CHECKS} onClick={() => onSaveChecks(checks)} className={SECONDARY_BUTTON}>
           Save checks
+        </button>
+        <button type="button" onClick={onRemove} className={SECONDARY_BUTTON}>
+          Remove repository
         </button>
       </div>
     </div>
@@ -181,6 +240,8 @@ export function AgentRunnerPage({ onClose, onSessionExpired }: { onClose: () => 
   const [task, setTask] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [newRepo, setNewRepo] = useState({ name: "", cloneURL: "", baseBranch: "" });
+  const [addError, setAddError] = useState<string | null>(null);
 
   const fail = useCallback(
     (err: unknown) => {
@@ -247,12 +308,30 @@ export function AgentRunnerPage({ onClose, onSessionExpired }: { onClose: () => 
       />
       <section className="flex flex-col gap-3">
         <h3 className={FIELD_LABEL}>Repositories</h3>
+        <AddRepositoryForm
+          name={newRepo.name}
+          cloneURL={newRepo.cloneURL}
+          baseBranch={newRepo.baseBranch}
+          busy={busy}
+          error={addError}
+          onChange={(field, value) => setNewRepo({ ...newRepo, [field]: value })}
+          onAdd={() =>
+            addAgentRepository({ name: newRepo.name.trim(), clone_url: newRepo.cloneURL.trim(), base_branch: newRepo.baseBranch.trim() || "main" })
+              .then(() => {
+                setNewRepo({ name: "", cloneURL: "", baseBranch: "" });
+                setAddError(null);
+                refresh();
+              })
+              .catch((err) => setAddError(err instanceof Error ? err.message : "Could not add the repository"))
+          }
+        />
         {repos.map((repo) => (
           <RepositoryRow
             key={repo.name}
             repo={repo}
             onToggle={(on) => setAgentRepoEnabled(repo.name, on).then(setRepos).catch(fail)}
             onSaveChecks={(text) => setRepositoryChecks(repo.name, parseChecks(text)).catch(fail)}
+            onRemove={() => removeAgentRepository(repo.name).then(refresh).catch(fail)}
           />
         ))}
       </section>

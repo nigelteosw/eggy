@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,21 @@ func TestAgentRunnerStatusReportsSandbox(t *testing.T) {
 	rec := do(t, serveAgentRunner(&fakeAgentRunner{}), http.MethodGet, "/api/agent-runner/status", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"sandbox_ok":false`) || !strings.Contains(rec.Body.String(), "not root") {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Adding a repository goes through the config authority: an unsafe URL is a 400
+// and the config file is not touched.
+func TestAgentRepoAddRefusesUnsafeURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	mux := http.NewServeMux()
+	mountAgentRunnerRoutes(mux, func(next http.HandlerFunc) http.Handler { return next }, path, &fakeAgentRunner{})
+	rec := do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"x","clone_url":"git@github.com:a/x.git"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	rec = do(t, mux, http.MethodPost, "/api/agent-runner/repositories", `{"name":"x","clone_url":"https://github.com/a/x.git","owner":"me"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field status = %d, want 400", rec.Code)
 	}
 }

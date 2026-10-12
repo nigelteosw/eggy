@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentRunStartForm } from "../src/AgentRunnerPage";
+import { AddRepositoryForm, AgentRunStartForm } from "../src/AgentRunnerPage";
 import { AgentRunnerSettingsView } from "../src/AgentRunnerCard";
 import { GitHubTokenView } from "../src/GitHubTokenField";
 import { runningExtensions } from "../src/extensions";
@@ -82,4 +82,21 @@ test("the settings card asks for a restart exactly when saved and running differ
 test("the Extensions menu lists Agent Runner only while its feature is running", () => {
   expect(runningExtensions([]).map((e) => e.id)).not.toContain("agent_runner");
   expect(runningExtensions(["agent_runner"]).map((e) => e.id)).toContain("agent_runner");
+});
+
+test("the add-repository form refuses an empty name or URL before sending", () => {
+  const markup = renderToStaticMarkup(
+    createElement(AddRepositoryForm, {
+      name: "",
+      cloneURL: "",
+      baseBranch: "",
+      busy: false,
+      error: null,
+      onChange: () => {},
+      onAdd: () => {},
+    }),
+  );
+  expect(markup).toContain("Add repository");
+  expect(markup).toContain("https://github.com/owner/repo.git");
+  expect(markup).toContain("disabled");
 });

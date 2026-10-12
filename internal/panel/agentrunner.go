@@ -108,6 +108,8 @@ func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) htt
 	mux.Handle("GET /api/agent-runner/pat", guard(agentPATGet(svc)))
 	mux.Handle("PUT /api/agent-runner/pat", guard(agentPATSet(svc)))
 	mux.Handle("DELETE /api/agent-runner/pat", guard(agentPATDelete(svc)))
+	mux.Handle("POST /api/agent-runner/repositories", guard(agentRepoAdd(configPath)))
+	mux.Handle("DELETE /api/agent-runner/repositories/{name}", guard(agentRepoRemove(configPath)))
 	mux.Handle("POST /api/config/repositories/{name}/checks", guard(agentChecksSet(configPath)))
 }
 
@@ -291,5 +293,41 @@ func agentChecksSet(configPath string) http.HandlerFunc {
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Saved checks."})
+	}
+}
+
+// agentRepoAdd allows a repository. It writes through the config authority, so
+// the same URL and name rules apply as to a hand-edited file. The change is
+// read at startup, and the response says so.
+func agentRepoAdd(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name       string `json:"name"`
+			CloneURL   string `json:"clone_url"`
+			BaseBranch string `json:"base_branch"`
+		}
+		if err := decodeAgentBody(r, &body); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		repo := config.RepositoryConfig{Name: body.Name, CloneURL: body.CloneURL, BaseBranch: body.BaseBranch}
+		if err := config.AddRepository(configPath, repo); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Added " + body.Name + ".", Detail: restartToApply})
+	}
+}
+
+// agentRepoRemove stops allowing a repository. Its runs stop when the restart
+// reads the new list; the record and any workspace are kept.
+func agentRepoRemove(configPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := config.RemoveRepository(configPath, name); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: "Removed " + name + ".", Detail: restartToApply})
 	}
 }

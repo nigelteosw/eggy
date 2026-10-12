@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -86,5 +88,46 @@ func SetRepositoryChecks(path, repository string, checks [][]string) error {
 			}
 		}
 		return fmt.Errorf("unknown repository %q", repository)
+	})
+}
+
+// repositoryNamePattern is what a repository name may contain: it is used as a
+// path component in run ids and messages, so separators are refused.
+var repositoryNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
+
+// AddRepository adds an allowed repository. Only https://github.com/ clone URLs
+// without embedded credentials are accepted, and a missing base branch is main.
+// The change applies after a restart, like every repository change.
+func AddRepository(path string, repo RepositoryConfig) error {
+	if !repositoryNamePattern.MatchString(repo.Name) {
+		return fmt.Errorf("repository name %q must be letters, digits, dots, dashes or underscores", repo.Name)
+	}
+	if !strings.HasPrefix(repo.CloneURL, "https://github.com/") || strings.Contains(strings.TrimPrefix(repo.CloneURL, "https://"), "@") {
+		return errors.New("clone_url must be an https://github.com/ URL without credentials")
+	}
+	if repo.BaseBranch == "" {
+		repo.BaseBranch = "main"
+	}
+	return mutate(path, func(cfg *Config) error {
+		for _, existing := range cfg.Repositories {
+			if existing.Name == repo.Name {
+				return fmt.Errorf("repository %q already exists", repo.Name)
+			}
+		}
+		cfg.Repositories = append(cfg.Repositories, repo)
+		return nil
+	})
+}
+
+// RemoveRepository removes an allowed repository by name.
+func RemoveRepository(path, name string) error {
+	return mutate(path, func(cfg *Config) error {
+		for i := range cfg.Repositories {
+			if cfg.Repositories[i].Name == name {
+				cfg.Repositories = append(cfg.Repositories[:i], cfg.Repositories[i+1:]...)
+				return nil
+			}
+		}
+		return fmt.Errorf("unknown repository %q", name)
 	})
 }

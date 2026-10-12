@@ -814,3 +814,11 @@ export function deleteAgentPAT(): Promise<AgentPAT> {
 export function setRepositoryChecks(name: string, checks: string[][]): Promise<CommandResult> {
   return request<CommandResult>(`/api/config/repositories/${encodeURIComponent(name)}/checks`, { method: "POST", body: JSON.stringify({ checks }) });
 }
+
+export function addAgentRepository(input: { name: string; clone_url: string; base_branch: string }): Promise<CommandResult> {
+  return request<CommandResult>("/api/agent-runner/repositories", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function removeAgentRepository(name: string): Promise<CommandResult> {
+  return request<CommandResult>(`/api/agent-runner/repositories/${encodeURIComponent(name)}`, { method: "DELETE" });
+}

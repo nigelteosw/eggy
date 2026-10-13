@@ -28,6 +28,8 @@ Curating memory is the one write `normal` lets through. USER.md and MEMORY.md ar
 
 Logging spending is the other. With [Finance](/eggy/configure/finance/) enabled, `finance` writes only to your own account's entries, which no other account can see and which you read and edit in the Finance page, so `normal` does not ask before each one. `strict` still does, and a heartbeat or schedule can never reach the tool at all.
 
+`agent_runner` follows the same rule: reading a run's status, list or steps runs freely, while cancelling a run or answering its question asks first in `normal`. A heartbeat or schedule cannot reach it.
+
 A tool that has not been classified counts as a write. That is deliberate: forgetting costs an approval prompt, while the opposite mistake costs the mutation itself.
 
 **MCP is the exception.** A remote catalog cannot be classified from here — nothing in Eggy knows whether `deploy` writes — so an MCP server keeps its own `require_approval` list and `normal` mode does not second-guess it. `strict` still stops everything, MCP included.

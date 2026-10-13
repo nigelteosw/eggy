@@ -59,8 +59,11 @@ for one month at a time:
 - a total per currency, your default first
 - spending by category, as bars sized against the largest in each currency
 - a day-by-day strip across the month
+- a search box over merchant, category and note, a category filter, and sorting by date, amount, category or merchant
 - every entry, which you can edit or delete in place
 - an **Add entry** form, for what you did not tell Eggy
+
+Search and filters apply to the month you are looking at. Sorting keeps amounts within their own currency, so a list sorted by amount never puts SGD and JPY in one order. Ties fall back to newest first.
 
 Use the arrows to move between months. A bookmark to `/finance` opens chat instead.
 

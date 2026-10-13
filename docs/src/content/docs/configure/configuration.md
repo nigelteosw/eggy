@@ -25,6 +25,7 @@ Eggy reads `config.yaml` from its home directory, from `EGGY_CONFIG`, or from an
 | `google` | Optional Google Workspace grant, Eggy's expected identity, products, and approval overrides |
 | `tavily` | Optional web search and page extraction |
 | `finance` | Optional expense tracker: a `finance` tool and a Finance page, listed under Extensions |
+| `agent_runner` | Optional coding runner: changes allowed repositories and opens pull requests for review |
 | `discord` | Optional Discord DM bot; the token is set from the panel, not here |
 | `heartbeat` | Optional periodic check-in that speaks only when warranted |
 | `approvals` | Where a fresh deployment's approval mode starts |
@@ -38,6 +39,7 @@ Each section links to the guide that explains it:
 [Google Workspace](/eggy/configure/google-workspace/),
 [web search](/eggy/configure/web-search/),
 [finance](/eggy/configure/finance/),
+[Agent Runner](/eggy/configure/agent-runner/),
 [Discord](/eggy/configure/discord/),
 [repositories](/eggy/configure/repositories/),
 [schedules and heartbeat](/eggy/configure/automation/), and

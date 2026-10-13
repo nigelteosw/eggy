@@ -46,6 +46,14 @@ creating or cancelling asks.
 
 See [Finance](/eggy/configure/finance/).
 
+## With `agent_runner` enabled
+
+| Tool | Effect | What it does |
+| --- | --- | --- |
+| `agent_runner` | mixed | `status`, `list` and `steps` read a coding run; `cancel` and `answer` change one. It cannot start a run |
+
+See [Agent Runner](/eggy/configure/agent-runner/).
+
 ## With `repositories` configured
 
 | Tool | Effect | What it does |

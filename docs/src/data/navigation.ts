@@ -44,6 +44,7 @@ export const navigation: readonly DocNavGroup[] = [
       { title: "Finance", path: "/configure/finance", description: "Log spending by chat or receipt photo and see it under Extensions → Finance." },
       { title: "Discord", path: "/configure/discord", description: "Talk to Eggy in a private Discord DM, with the bot added from the panel." },
       { title: "Repository inspection", path: "/configure/repositories", description: "Configure trusted read-only repository access." },
+      { title: "Agent Runner", path: "/configure/agent-runner", description: "Let Eggy change allowed repositories, run their checks, and open a pull request for review." },
     ],
   },
   {

@@ -84,8 +84,11 @@ type App struct {
 	// tools is the one registry the loop runs on, kept so the panel's tool
 	// list and the approval executor resolve names against the same catalog a
 	// turn does rather than against a second copy.
-	tools            *services.ToolRegistry
-	turnService      *turns.Service
+	tools       *services.ToolRegistry
+	turnService *turns.Service
+	// conversation records what Eggy said outside a turn, such as a reminder,
+	// so the owner's next reply has the same history a turn would.
+	conversation     *services.ConversationService
 	commands         *commands.CommandService
 	telegramControls *telegram.Control
 	scheduler        *schedulerlocal.Scheduler
@@ -233,6 +236,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	skillsService := services.NewSkillsService(skillsStore)
 	approvalExecutors := map[approvals.Action]ApprovalExecutor{}
 	conversation := services.NewConversationService(database, 20, options.Now, options.Logger)
+	app.conversation = conversation
 
 	// The recorder is built before the model catalog because it wraps it:
 	// tracing is applied at the ports.Model boundary, so every backend --

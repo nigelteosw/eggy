@@ -105,7 +105,13 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return err
 		}
-		return a.channel.Deliver(destination.With(ctx, proactiveDestination()), message.Text)
+		if err := a.channel.Deliver(destination.With(ctx, proactiveDestination()), message.Text); err != nil {
+			return err
+		}
+		// Recorded only once delivered: the owner's next plain reply
+		// ("yeah just submitted") is read against this history, and it must
+		// not refer to a reminder that never arrived.
+		return a.conversation.Record(ctx, proactiveDestination().ConversationID(), ports.Message{Role: ports.RoleAssistant, Content: message.Text}, "schedule")
 	case events.TypeApproval:
 		var decision events.ApprovalDecision
 		if err := json.Unmarshal(event.Payload, &decision); err != nil {

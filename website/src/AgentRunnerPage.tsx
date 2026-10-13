@@ -408,13 +408,20 @@ export function AgentRunnerPage({
     return () => window.clearInterval(timer);
   }, [fail, refresh]);
 
+  // A different run starts with an empty timeline, so the last run's steps are
+  // never shown under this one.
+  useEffect(() => {
+    setSteps([]);
+  }, [selectedId]);
+
   // The steps reload with the runs, so an open run's timeline keeps up with it.
+  // They are kept in place while they reload: clearing them on every refresh
+  // blanked the timeline every 15 seconds.
   useEffect(() => {
     if (view !== "run" || !selectedId) {
       return;
     }
     let current = true;
-    setSteps([]);
     listAgentRunSteps(selectedId)
       .then((next) => {
         if (current) setSteps(next);
@@ -623,6 +630,18 @@ export function AgentRunnerPage({
               setView("run");
             }}
           />
+        )}
+
+        {view === "run" && !selected && (
+          <Section title="Run" hint="This run is no longer listed.">
+            <button
+              type="button"
+              onClick={() => setView("runs")}
+              className={SECONDARY_BUTTON}
+            >
+              All runs
+            </button>
+          </Section>
         )}
 
         {view === "run" && selected && (

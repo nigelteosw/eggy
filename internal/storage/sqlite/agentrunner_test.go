@@ -175,3 +175,36 @@ func TestAgentRunEventsAreOrderedAndScopedToAccount(t *testing.T) {
 		t.Fatalf("other account sees %d events", len(other))
 	}
 }
+
+// Steps written at the same moment must each get a number of their own: the
+// record is ordered by them, so a collision would drop a step.
+func TestAgentRunEventsConcurrentAppendsGetDistinctNumbers(t *testing.T) {
+	db := newTestStore(t, 0)
+	if err := db.CreateAgentRun(as("a"), agentRun("r1", "eggy", time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	const writers = 20
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		go func() {
+			errs <- db.AppendAgentRunEvent(as("a"), "r1", ports.AgentRunEvent{At: time.Now().UTC(), Kind: "tool", Text: "step"})
+		}()
+	}
+	for i := 0; i < writers; i++ {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := db.ListAgentRunEvents(as("a"), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != writers {
+		t.Fatalf("recorded %d steps, want %d", len(got), writers)
+	}
+	for i, step := range got {
+		if step.Seq != i+1 {
+			t.Fatalf("step %d has seq %d, want %d", i, step.Seq, i+1)
+		}
+	}
+}

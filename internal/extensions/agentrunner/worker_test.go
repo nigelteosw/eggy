@@ -280,7 +280,7 @@ func TestRunRecordsItsSteps(t *testing.T) {
 	if strings.Join(kinds, ",") != strings.Join(want, ",") {
 		t.Fatalf("step kinds = %v, want %v (steps %+v)", kinds, want, steps)
 	}
-	if !strings.Contains(steps[1].Text, "ask_owner: Question recorded") {
-		t.Fatalf("tool step = %q, want the ask_owner outcome", steps[1].Text)
+	if steps[1].Text != "ask_owner: ok" {
+		t.Fatalf("tool step = %q, want the tool name and its status, not its output", steps[1].Text)
 	}
 }

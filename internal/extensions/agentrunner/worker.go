@@ -384,22 +384,22 @@ type recordedTool struct {
 
 func (t recordedTool) Execute(callCtx context.Context, input json.RawMessage) (json.RawMessage, error) {
 	out, err := t.Tool.Execute(callCtx, input)
-	outcome := toolOutcome(out)
+	// The record names the tool and whether it worked, never what it returned:
+	// a read of a repository file would otherwise be stored, and shown back to
+	// the owner, with nothing to say it came from the repository.
+	outcome := "ok"
 	if err != nil {
-		outcome = "error: " + err.Error()
+		outcome = "error: " + firstLine(err.Error(), maxToolErrorText)
 	}
 	t.s.note(t.ctx, t.runID, "tool", t.Tool.Definition().Name+": "+outcome)
 	return out, err
 }
 
-// toolOutcome is the text a coding tool returned. Coding tools wrap their text
-// as {"output": ...}; the record keeps the text the model read, not the wrapper.
-func toolOutcome(out json.RawMessage) string {
-	var wrapped struct {
-		Output *string `json:"output"`
-	}
-	if json.Unmarshal(out, &wrapped) == nil && wrapped.Output != nil {
-		return *wrapped.Output
-	}
-	return string(out)
+// maxToolErrorText bounds the error text a tool step keeps.
+const maxToolErrorText = 200
+
+// firstLine returns the first line of text, cut to limit bytes.
+func firstLine(text string, limit int) string {
+	line, _, _ := strings.Cut(text, "\n")
+	return truncate(line, limit)
 }

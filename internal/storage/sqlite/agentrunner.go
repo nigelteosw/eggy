@@ -283,34 +283,27 @@ func (s *Store) AgentRunsInStates(ctx context.Context, states ...ports.AgentRunS
 }
 
 // AppendAgentRunEvent records a step of one of the acting account's runs. The
-// run's ownership is checked in the same transaction that numbers the step, so
-// another account's run is refused rather than written to.
+// step is one INSERT ... SELECT: the run's ownership and the next step number
+// are read and written in a single statement, so two steps written at once
+// cannot take the same number, and another account's run matches no row.
 func (s *Store) AppendAgentRunEvent(ctx context.Context, runID string, event ports.AgentRunEvent) error {
 	account, err := accountOf(ctx)
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	result, err := s.db.ExecContext(ctx, `INSERT INTO agent_run_events (run_id, account_id, seq, at, kind, text)
+SELECT r.id, r.account_id, COALESCE((SELECT MAX(seq) FROM agent_run_events WHERE run_id = r.id), 0) + 1, ?, ?, ?
+FROM agent_runs r WHERE r.id = ? AND r.account_id = ?`,
+		formatTime(event.At), event.Kind, event.Text, runID, account)
 	if err != nil {
 		return fmt.Errorf("append agent run event: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
-	var owned int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_runs WHERE id = ? AND account_id = ?`, runID, account).Scan(&owned); err != nil {
+	if rows, err := result.RowsAffected(); err != nil {
 		return fmt.Errorf("append agent run event: %w", err)
-	}
-	if owned == 0 {
+	} else if rows == 0 {
 		return ports.ErrAgentRunNotFound
 	}
-	var seq int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_run_events WHERE run_id = ?`, runID).Scan(&seq); err != nil {
-		return fmt.Errorf("append agent run event: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_run_events (run_id, account_id, seq, at, kind, text) VALUES (?, ?, ?, ?, ?, ?)`,
-		runID, account, seq, formatTime(event.At), event.Kind, event.Text); err != nil {
-		return fmt.Errorf("append agent run event: %w", err)
-	}
-	return tx.Commit()
+	return nil
 }
 
 // ListAgentRunEvents returns the steps of one of the acting account's runs.

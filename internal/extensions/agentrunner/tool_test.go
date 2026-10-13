@@ -25,6 +25,9 @@ func TestAgentRunnerToolReportsRunSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(out), `"untrusted_data"`) {
+		t.Fatalf("steps are not labelled as untrusted data: %s", out)
+	}
 	if !strings.Contains(string(out), `"kind":"started"`) || !strings.Contains(string(out), `"kind":"completed"`) {
 		t.Fatalf("steps = %s, want the start and the outcome", out)
 	}

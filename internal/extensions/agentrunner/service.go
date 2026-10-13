@@ -219,6 +219,15 @@ func (s *Service) Get(ctx context.Context, id string) (ports.AgentRun, error) {
 	return s.opts.Store.GetAgentRun(ctx, id)
 }
 
+// Steps returns what happened in one of the account's runs, in order. The run
+// is read first, so another account's run reads as not found, not as empty.
+func (s *Service) Steps(ctx context.Context, id string) ([]ports.AgentRunEvent, error) {
+	if _, err := s.opts.Store.GetAgentRun(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.opts.Store.ListAgentRunEvents(ctx, id)
+}
+
 func (s *Service) List(ctx context.Context) ([]ports.AgentRun, error) {
 	return s.opts.Store.ListAgentRuns(ctx, listLimit)
 }
@@ -242,7 +251,11 @@ func (s *Service) Cancel(ctx context.Context, id string) (ports.AgentRun, error)
 	case ports.AgentRunQueued, ports.AgentRunWaitingForUser:
 		run.State = ports.AgentRunCancelled
 		run.Failure = "cancelled by owner"
-		return s.opts.Store.UpdateAgentRun(ctx, run)
+		updated, err := s.opts.Store.UpdateAgentRun(ctx, run)
+		if err == nil {
+			s.note(ctx, run.ID, "cancelled", "cancelled by owner")
+		}
+		return updated, err
 	default:
 		return run, fmt.Errorf("run is already %s", run.State)
 	}

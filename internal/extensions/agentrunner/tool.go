@@ -23,8 +23,8 @@ func NewTool(s *Service) ports.Tool {
 func (agentRunnerTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "agent_runner",
-		Description: "Check on the agent runner's coding runs: status or list them, cancel one, or answer its question. It cannot start a run; the owner starts runs from the Agent Runner page or with /code run.",
-		Schema:      json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["status","list","cancel","answer"]},"id":{"type":"string"},"text":{"type":"string"}},"required":["action"],"additionalProperties":false}`),
+		Description: "Check on the agent runner's coding runs: status or list them, read a run's steps (what it did and why it stopped), cancel one, or answer its question. It cannot start a run; the owner starts runs from the Agent Runner page or with /code run.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["status","list","steps","cancel","answer"]},"id":{"type":"string"},"text":{"type":"string"}},"required":["action"],"additionalProperties":false}`),
 		Effect:      ports.ToolEffect{Mutations: []string{"cancel", "answer"}},
 	}
 }
@@ -71,6 +71,15 @@ func (t agentRunnerTool) Execute(ctx context.Context, input json.RawMessage) (js
 			views = append(views, viewOf(run))
 		}
 		result = views
+	case "steps":
+		steps, err := t.s.Steps(ctx, args.ID)
+		if err != nil {
+			return nil, err
+		}
+		if steps == nil {
+			steps = []ports.AgentRunEvent{}
+		}
+		result = steps
 	case "cancel":
 		run, err := t.s.Cancel(ctx, args.ID)
 		if err != nil {
@@ -84,7 +93,7 @@ func (t agentRunnerTool) Execute(ctx context.Context, input json.RawMessage) (js
 		}
 		result = viewOf(run)
 	default:
-		return nil, errors.New("action must be status, list, cancel or answer")
+		return nil, errors.New("action must be status, list, steps, cancel or answer")
 	}
 	return json.Marshal(result)
 }

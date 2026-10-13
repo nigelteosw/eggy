@@ -16,6 +16,7 @@ import (
 // fakeAgentRunner records the account-scoped calls and answers with fixed data.
 type fakeAgentRunner struct {
 	runs    map[string]ports.AgentRun
+	steps   map[string][]ports.AgentRunEvent
 	started []string
 }
 
@@ -38,6 +39,12 @@ func (f *fakeAgentRunner) Run(_ context.Context, id string) (ports.AgentRun, err
 		return ports.AgentRun{}, ports.ErrAgentRunNotFound
 	}
 	return run, nil
+}
+func (f *fakeAgentRunner) RunSteps(_ context.Context, id string) ([]ports.AgentRunEvent, error) {
+	if _, ok := f.runs[id]; !ok {
+		return nil, ports.ErrAgentRunNotFound
+	}
+	return f.steps[id], nil
 }
 func (f *fakeAgentRunner) CancelRun(ctx context.Context, id string) (ports.AgentRun, error) {
 	return f.Run(ctx, id)
@@ -257,5 +264,26 @@ func TestAgentRepoAddRestartsOnlyAfterASuccessfulWrite(t *testing.T) {
 	gone := do(t, mux, http.MethodDelete, "/api/agent-runner/repositories/widgets", "")
 	if gone.Code != http.StatusOK || restarter.restarts != 2 {
 		t.Fatalf("remove: status %d, restarts %d", gone.Code, restarter.restarts)
+	}
+}
+
+// A run's steps are served as their own list: in order, never null for a run
+// with none, and a run that is not the owner's reads as not found.
+func TestAgentRunStepsServeTheRecord(t *testing.T) {
+	fake := &fakeAgentRunner{
+		runs:  map[string]ports.AgentRun{"r1": {ID: "r1", Repository: "eggy", State: ports.AgentRunFailed}, "r2": {ID: "r2", Repository: "eggy", State: ports.AgentRunQueued}},
+		steps: map[string][]ports.AgentRunEvent{"r1": {{Seq: 1, Kind: "started", Text: "coding run started"}, {Seq: 2, Kind: "failed", Text: "check failed"}}},
+	}
+	mux := serveAgentRunner(fake)
+	rec := do(t, mux, http.MethodGet, "/api/agent-runner/runs/r1/steps", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"kind":"failed"`) || !strings.Contains(rec.Body.String(), "check failed") {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	empty := do(t, mux, http.MethodGet, "/api/agent-runner/runs/r2/steps", "")
+	if strings.TrimSpace(empty.Body.String()) != "[]" {
+		t.Fatalf("run with no steps body = %q, want []", empty.Body.String())
+	}
+	if rec := do(t, mux, http.MethodGet, "/api/agent-runner/runs/not-mine/steps", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("foreign run status = %d, want 404", rec.Code)
 	}
 }

@@ -211,6 +211,10 @@ func (p panelAgentRunner) Run(ctx context.Context, id string) (ports.AgentRun, e
 	return p.service.Get(ctx, id)
 }
 
+func (p panelAgentRunner) RunSteps(ctx context.Context, id string) ([]ports.AgentRunEvent, error) {
+	return p.service.Steps(ctx, id)
+}
+
 func (p panelAgentRunner) CancelRun(ctx context.Context, id string) (ports.AgentRun, error) {
 	return p.service.Cancel(ctx, id)
 }

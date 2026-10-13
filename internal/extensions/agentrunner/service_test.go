@@ -188,7 +188,7 @@ func TestToolHasNoStartAction(t *testing.T) {
 	if strings.Contains(string(def.Schema), `"start"`) {
 		t.Fatalf("agent_runner exposes a start action: %s", def.Schema)
 	}
-	if !strings.Contains(string(def.Schema), `"enum":["status","list","cancel","answer"]`) {
+	if !strings.Contains(string(def.Schema), `"enum":["status","list","steps","cancel","answer"]`) {
 		t.Fatalf("actions = %s", def.Schema)
 	}
 }

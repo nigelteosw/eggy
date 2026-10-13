@@ -247,3 +247,40 @@ func TestSweepRetentionRules(t *testing.T) {
 		t.Fatal("a completed run's or an orphan's workspace was kept")
 	}
 }
+
+// A run's record says what happened between its steps: the start, each tool
+// call the coding model made and what came back, the question, and the answer
+// that resumed it, through to the outcome.
+func TestRunRecordsItsSteps(t *testing.T) {
+	h := newHarness(t, nil, func(n int, req ports.ModelRequest) (ports.ModelResponse, error) {
+		if n == 1 {
+			return ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, ToolCalls: []ports.ToolCall{{ID: "q", Name: "ask_owner", Arguments: json.RawMessage(`{"question":"Which file?"}`)}}}}, nil
+		}
+		return finalAnswer("updated README.md"), nil
+	})
+	run := prepared(t, h, startRun(t, h, "fix the docs"))
+	if err := h.svc.execute(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Answer(acct("a"), run.ID, "README.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.execute(context.Background(), stored(t, h, run.ID)); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := h.store.ListAgentRunEvents(acct("a"), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, step := range steps {
+		kinds = append(kinds, step.Kind)
+	}
+	want := []string{"started", "tool", "question", "started", "completed"}
+	if strings.Join(kinds, ",") != strings.Join(want, ",") {
+		t.Fatalf("step kinds = %v, want %v (steps %+v)", kinds, want, steps)
+	}
+	if !strings.Contains(steps[1].Text, "ask_owner: Question recorded") {
+		t.Fatalf("tool step = %q, want the ask_owner outcome", steps[1].Text)
+	}
+}

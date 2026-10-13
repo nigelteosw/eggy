@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   SessionExpiredError,
   addAgentRepository,
@@ -6,6 +6,7 @@ import {
   cancelAgentRun,
   getAgentStatus,
   listAgentRepos,
+  listAgentRunSteps,
   listAgentRuns,
   removeAgentRepository,
   setAgentRepoEnabled,
@@ -13,6 +14,7 @@ import {
   startAgentRun,
   type AgentRepository,
   type AgentRun,
+  type AgentRunStep,
   type AgentStatus,
 } from "./api";
 import { CardHeader } from "./components/ui/card-header";
@@ -24,11 +26,11 @@ import { Switch } from "./components/ui/switch";
 import {
   AGENT_START_COPY,
   MAX_CHECKS,
-  canCancel,
   parseChecks,
+  runHeadline,
   sandboxNotice,
-  stateLabel,
 } from "./lib/agent-runner";
+import { AgentRunDetailView, AgentRunsGrid, Badge, Section } from "./AgentRunsView";
 
 // serverText joins a result's title and detail, so the page says what the
 // server did, including that Eggy is restarting, in the server's own words.
@@ -74,53 +76,6 @@ function Notice({
         </button>
       )}
     </div>
-  );
-}
-
-function Badge({
-  children,
-  tone = "plain",
-}: {
-  children: ReactNode;
-  tone?: "plain" | "warn" | "good";
-}) {
-  const toneClass =
-    tone === "warn"
-      ? "bg-amber-950/50 text-amber-200"
-      : tone === "good"
-        ? "bg-emerald-950/50 text-emerald-200"
-        : "bg-neutral-200/60 text-neutral-700";
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClass}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Section({
-  title,
-  hint,
-  action,
-  children,
-}: {
-  title: string;
-  hint?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-end justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          {hint && <p className="text-xs text-neutral-700">{hint}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -390,103 +345,6 @@ function RepositoryCard({
   );
 }
 
-function RunDetail({
-  run,
-  busy,
-  onCancel,
-  onAnswer,
-}: {
-  run: AgentRun;
-  busy: boolean;
-  onCancel: () => void;
-  onAnswer: (text: string) => void;
-}) {
-  const [answer, setAnswer] = useState("");
-  return (
-    <div
-      className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
-      aria-label="Run"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-foreground">
-          {run.repository}
-        </span>
-        <Badge
-          tone={
-            run.state === "completed"
-              ? "good"
-              : run.state === "failed"
-                ? "warn"
-                : "plain"
-          }
-        >
-          {stateLabel(run.state)}
-        </Badge>
-      </div>
-      {run.question && run.state === "waiting_for_user" && (
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onAnswer(answer);
-            setAnswer("");
-          }}
-        >
-          <p className="text-sm text-neutral-700">
-            The agent asks: {run.question}
-          </p>
-          <Input
-            className={FIELD}
-            value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
-            aria-label="Your answer"
-          />
-          <div>
-            <button
-              type="submit"
-              disabled={busy || answer.trim() === ""}
-              className={PRIMARY_BUTTON}
-            >
-              Send answer
-            </button>
-          </div>
-        </form>
-      )}
-      {run.pr_url && (
-        <p className="text-sm text-neutral-700">
-          {run.draft ? "Draft pull request: " : "Pull request: "}
-          <a
-            href={run.pr_url}
-            target="_blank"
-            rel="noreferrer"
-            className="underline"
-          >
-            {run.pr_url}
-          </a>
-        </p>
-      )}
-      {run.failure && <p className="text-sm text-neutral-700">{run.failure}</p>}
-      {run.output && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-neutral-700">
-          {run.output}
-        </pre>
-      )}
-      {canCancel(run.state) && (
-        <div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onCancel}
-            className={SECONDARY_BUTTON}
-          >
-            Cancel run
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AgentRunnerPage({
   onClose,
   onSessionExpired,
@@ -497,7 +355,12 @@ export function AgentRunnerPage({
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [repos, setRepos] = useState<AgentRepository[] | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
-  const [selected, setSelected] = useState<AgentRun | null>(null);
+  // view is which page the window shows: the setup page, the grid of runs, or
+  // one run. The selected run is held by id so the 15-second refresh keeps it current.
+  const [view, setView] = useState<"setup" | "runs" | "run">("setup");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = runs.find((run) => run.id === selectedId) ?? null;
+  const [steps, setSteps] = useState<AgentRunStep[]>([]);
   const [repository, setRepository] = useState("");
   const [task, setTask] = useState("");
   const [busy, setBusy] = useState(false);
@@ -545,6 +408,23 @@ export function AgentRunnerPage({
     return () => window.clearInterval(timer);
   }, [fail, refresh]);
 
+  // The steps reload with the runs, so an open run's timeline keeps up with it.
+  useEffect(() => {
+    if (view !== "run" || !selectedId) {
+      return;
+    }
+    let current = true;
+    setSteps([]);
+    listAgentRunSteps(selectedId)
+      .then((next) => {
+        if (current) setSteps(next);
+      })
+      .catch(fail);
+    return () => {
+      current = false;
+    };
+  }, [view, selectedId, runs, fail]);
+
   // perform runs one action, reports its result in the message area, and
   // refreshes, so every change shows up the same way.
   async function perform(
@@ -575,7 +455,8 @@ export function AgentRunnerPage({
       "Run queued. It will report here when it finishes.",
     )) as AgentRun | undefined;
     if (run) {
-      setSelected(run);
+      setSelectedId(run.id);
+      setView("run");
       setTask("");
     }
   }
@@ -604,7 +485,7 @@ export function AgentRunnerPage({
     // The scroll container is this page's own: the extension window gives a
     // fixed height, and without overflow here the content is clipped, not scrolled.
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+      <div className={`mx-auto flex w-full flex-col gap-6 p-6 ${view === "runs" ? "max-w-5xl" : "max-w-3xl"}`}>
         <div className="flex items-start justify-between gap-3">
           <CardHeader
             title="Agent Runner"
@@ -633,6 +514,8 @@ export function AgentRunnerPage({
         )}
         {notice && <Notice message={{ tone: "info", text: notice }} />}
 
+        {view === "setup" && (
+          <>
         <Section
           title="Repositories"
           hint="The repositories Eggy may change. Each one needs your GitHub token to have push access."
@@ -707,55 +590,61 @@ export function AgentRunnerPage({
           />
         </Section>
 
-        <Section title="Runs">
-          {runs.length === 0 && (
-            <p className="text-sm text-neutral-700">No runs yet.</p>
-          )}
-          {runs.map((run) => (
-            <button
-              key={run.id}
-              type="button"
-              onClick={() => setSelected(run)}
-              className="flex items-center justify-between rounded-xl bg-neutral-100 px-4 py-2.5 text-left text-sm"
-            >
-              <span className="text-foreground">{run.repository}</span>
-              <span className="flex items-center gap-3 text-neutral-700">
-                <span className="text-xs">
-                  {new Date(run.created_at).toLocaleString()}
-                </span>
-                <Badge
-                  tone={
-                    run.state === "completed"
-                      ? "good"
-                      : run.state === "failed"
-                        ? "warn"
-                        : "plain"
-                  }
-                >
-                  {stateLabel(run.state)}
-                </Badge>
-              </span>
-            </button>
-          ))}
-          {selected && (
-            <RunDetail
-              run={selected}
-              busy={busy}
-              onCancel={() =>
-                void perform(
-                  () => cancelAgentRun(selected.id).then(setSelected),
-                  "Cancelling the run.",
-                )
-              }
-              onAnswer={(text) =>
-                void perform(
-                  () => answerAgentRun(selected.id, text).then(setSelected),
-                  "Answer sent.",
-                )
-              }
-            />
-          )}
+        <Section
+            title="Runs"
+            hint="Each run has its own page with the reason it stopped."
+            action={
+              <button
+                type="button"
+                onClick={() => setView("runs")}
+                className={SECONDARY_BUTTON}
+              >
+                All runs ({runs.length})
+              </button>
+            }
+          >
+            {runs[0] ? (
+              <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+                Latest: {runs[0].repository} · {runHeadline(runs[0])}
+              </p>
+            ) : (
+              <p className="text-sm text-neutral-700">No runs yet.</p>
+            )}
         </Section>
+          </>
+        )}
+
+        {view === "runs" && (
+          <AgentRunsGrid
+            runs={runs}
+            onBack={() => setView("setup")}
+            onOpen={(id) => {
+              setSelectedId(id);
+              setView("run");
+            }}
+          />
+        )}
+
+        {view === "run" && selected && (
+          <AgentRunDetailView
+            run={selected}
+            steps={steps}
+            busy={busy}
+            onBack={() => setView("runs")}
+            onCancel={() =>
+              void perform(
+                () => cancelAgentRun(selected.id),
+                "Cancelling the run.",
+              )
+            }
+            onAnswer={(text) =>
+              void perform(
+                () => answerAgentRun(selected.id, text),
+                "Answer sent.",
+              )
+            }
+          />
+        )}
       </div>
     </div>
   );

@@ -1,3 +1,5 @@
+import type { AgentRun } from "../api";
+
 // Pure rules for the agent runner's panel: the wording the spec fixes, what a
 // restart is needed for, and how the form's text maps to config. The components
 // render these; they do not decide them.
@@ -74,4 +76,48 @@ export function parseChecks(text: string): string[][] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.split(/\s+/));
+}
+
+const STAGE_LABELS: Record<string, string> = {
+  "": "Not started publishing",
+  committed: "Committed",
+  push_intended: "Pushing",
+  pushed: "Pushed",
+  pr_intended: "Opening pull request",
+  pr_opened: "Pull request opened",
+  delivered: "Delivered",
+};
+
+// The publish stage as words. It says how far publication got, which is the
+// first thing to read when a run stops after its commit.
+export function stageLabel(stage: string): string {
+  return STAGE_LABELS[stage] ?? stage;
+}
+
+// The one line a run's card leads with: the issue, if there is one, in the
+// owner's words. The full text is the detail page's job.
+export function runHeadline(run: AgentRun): string {
+  switch (run.state) {
+    case "failed":
+    case "cancelled":
+    case "interrupted":
+      return run.failure || (run.state === "failed" ? "Failed without a reason recorded." : stateLabel(run.state));
+    case "waiting_for_user":
+      return `Asks you: ${run.question ?? ""}`.trim();
+    case "completed":
+      if (run.pr_url) {
+        return "Pull request opened.";
+      }
+      return (run.output ?? "").split("\n")[0] || "Completed.";
+    default:
+      return run.stage ? `${stateLabel(run.state)} · ${stageLabel(run.stage)}` : stateLabel(run.state);
+  }
+}
+
+// The badge tone: a finished run that worked is good, one that failed is a
+// warning, and everything still moving is plain.
+export function runTone(state: string): "plain" | "warn" | "good" {
+  if (state === "completed") return "good";
+  if (state === "failed") return "warn";
+  return "plain";
 }

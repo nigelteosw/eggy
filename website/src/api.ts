@@ -756,6 +756,15 @@ export type AgentRun = {
   created_at: string;
 };
 
+// One step in a run's record: a state or stage change, a tool call the coding
+// model made, or a check's outcome. The text is already redacted by the server.
+export type AgentRunStep = {
+  seq: number;
+  at: string;
+  kind: string;
+  text: string;
+};
+
 export type AgentRepository = {
   name: string;
   enabled: boolean;
@@ -792,6 +801,10 @@ export function startAgentRun(input: { repository: string; task: string }): Prom
 
 export function getAgentRun(id: string): Promise<AgentRun> {
   return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}`);
+}
+
+export function listAgentRunSteps(id: string): Promise<AgentRunStep[]> {
+  return request<AgentRunStep[]>(`/api/agent-runner/runs/${encodeURIComponent(id)}/steps`);
 }
 
 export function cancelAgentRun(id: string): Promise<AgentRun> {

@@ -344,6 +344,7 @@ func (s *Service) publish(ctx context.Context, run ports.AgentRun, repo config.R
 	run.Draft = draft
 	run.Output = s.opts.Redact(summary)
 	run.Stage = ports.PublishCommitted
+	s.note(ctx, run.ID, "stage", string(ports.PublishCommitted))
 	if run, err = s.opts.Store.UpdateAgentRun(ctx, run); err != nil {
 		return err
 	}
@@ -372,6 +373,7 @@ func (s *Service) continuePublish(ctx context.Context, run ports.AgentRun, repo 
 			switch {
 			case exists && sha == run.HeadSHA:
 				run.Stage = ports.PublishPushed
+				s.note(ctx, run.ID, "stage", string(ports.PublishPushed))
 				pushed = true
 			case exists:
 				return s.finish(ctx, run, ports.AgentRunFailed, "branch "+run.Branch+" has unexpected content; it was not overwritten", "")
@@ -382,6 +384,7 @@ func (s *Service) continuePublish(ctx context.Context, run ports.AgentRun, repo 
 				return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact(err.Error()), "")
 			}
 			run.Stage = ports.PublishPushIntended
+			s.note(ctx, run.ID, "stage", string(ports.PublishPushIntended))
 			if run, err = s.opts.Store.UpdateAgentRun(ctx, run); err != nil {
 				return err
 			}
@@ -389,6 +392,7 @@ func (s *Service) continuePublish(ctx context.Context, run ports.AgentRun, repo 
 				return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact("push: "+err.Error()), "")
 			}
 			run.Stage = ports.PublishPushed
+			s.note(ctx, run.ID, "stage", string(ports.PublishPushed))
 		}
 		if run, err = s.opts.Store.UpdateAgentRun(ctx, run); err != nil {
 			return err
@@ -437,6 +441,7 @@ func (s *Service) openPR(ctx context.Context, run ports.AgentRun, owner, name, t
 	}
 	if !found {
 		run.Stage = ports.PublishPRIntended
+		s.note(ctx, run.ID, "stage", string(ports.PublishPRIntended))
 		if run, err = s.opts.Store.UpdateAgentRun(ctx, run); err != nil {
 			return run, err
 		}
@@ -449,6 +454,7 @@ func (s *Service) openPR(ctx context.Context, run ports.AgentRun, owner, name, t
 	}
 	run.PRURL = url
 	run.Stage = ports.PublishPROpened
+	s.note(ctx, run.ID, "stage", string(ports.PublishPROpened))
 	return s.opts.Store.UpdateAgentRun(ctx, run)
 }
 
@@ -467,6 +473,7 @@ func (s *Service) deliverPR(ctx context.Context, run ports.AgentRun) error {
 	}
 	run.Delivered = true
 	run.Stage = ports.PublishDelivered
+	s.note(ctx, run.ID, "stage", string(ports.PublishDelivered))
 	run.State = ports.AgentRunCompleted
 	_, err := s.opts.Store.UpdateAgentRun(ctx, run)
 	return err

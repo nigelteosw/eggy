@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 );
 CREATE INDEX IF NOT EXISTS agent_runs_account_created ON agent_runs (account_id, created_at);
 CREATE INDEX IF NOT EXISTS agent_runs_state_created ON agent_runs (state, created_at);
+CREATE TABLE IF NOT EXISTS agent_run_events (
+  run_id     TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  seq        INTEGER NOT NULL,
+  at         TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  text       TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (run_id, seq)
+);
 CREATE TABLE IF NOT EXISTS agent_runner_repos (
   account_id TEXT NOT NULL,
   repository TEXT NOT NULL,
@@ -271,4 +280,61 @@ func (s *Store) AgentRunsInStates(ctx context.Context, states ...ports.AgentRunS
 		}
 	}
 	return runs, nil
+}
+
+// AppendAgentRunEvent records a step of one of the acting account's runs. The
+// run's ownership is checked in the same transaction that numbers the step, so
+// another account's run is refused rather than written to.
+func (s *Store) AppendAgentRunEvent(ctx context.Context, runID string, event ports.AgentRunEvent) error {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("append agent run event: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var owned int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agent_runs WHERE id = ? AND account_id = ?`, runID, account).Scan(&owned); err != nil {
+		return fmt.Errorf("append agent run event: %w", err)
+	}
+	if owned == 0 {
+		return ports.ErrAgentRunNotFound
+	}
+	var seq int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM agent_run_events WHERE run_id = ?`, runID).Scan(&seq); err != nil {
+		return fmt.Errorf("append agent run event: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_run_events (run_id, account_id, seq, at, kind, text) VALUES (?, ?, ?, ?, ?, ?)`,
+		runID, account, seq, formatTime(event.At), event.Kind, event.Text); err != nil {
+		return fmt.Errorf("append agent run event: %w", err)
+	}
+	return tx.Commit()
+}
+
+// ListAgentRunEvents returns the steps of one of the acting account's runs.
+func (s *Store) ListAgentRunEvents(ctx context.Context, runID string) ([]ports.AgentRunEvent, error) {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, text FROM agent_run_events WHERE run_id = ? AND account_id = ? ORDER BY seq`, runID, account)
+	if err != nil {
+		return nil, fmt.Errorf("list agent run events: %w", err)
+	}
+	defer rows.Close()
+	var events []ports.AgentRunEvent
+	for rows.Next() {
+		var event ports.AgentRunEvent
+		var at string
+		if err := rows.Scan(&event.Seq, &at, &event.Kind, &event.Text); err != nil {
+			return nil, fmt.Errorf("list agent run events: %w", err)
+		}
+		if event.At, err = parseTime(at); err != nil {
+			return nil, fmt.Errorf("agent run event %s/%d at: %w", runID, event.Seq, err)
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
 }

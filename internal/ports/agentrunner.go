@@ -104,4 +104,19 @@ type AgentRunStore interface {
 	NextQueuedAgentRun(ctx context.Context) (AgentRun, bool, error)
 	// AgentRunsInStates returns runs in any of the given states, across accounts.
 	AgentRunsInStates(ctx context.Context, states ...AgentRunState) ([]AgentRun, error)
+	// AppendAgentRunEvent records one step of a run the acting account owns,
+	// numbered after the run's last event. A run that is not theirs is refused.
+	AppendAgentRunEvent(ctx context.Context, runID string, event AgentRunEvent) error
+	// ListAgentRunEvents returns a run's steps in the order they happened.
+	ListAgentRunEvents(ctx context.Context, runID string) ([]AgentRunEvent, error)
+}
+
+// AgentRunEvent is one step in a run's record: a state or stage change, a
+// tool call the coding model made, or the outcome of a check. Text is already
+// redacted and bounded by the time it reaches the store.
+type AgentRunEvent struct {
+	Seq  int       `json:"seq"`
+	At   time.Time `json:"at"`
+	Kind string    `json:"kind"`
+	Text string    `json:"text"`
 }

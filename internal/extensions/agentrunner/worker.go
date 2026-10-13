@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
@@ -209,6 +210,7 @@ func (s *Service) execute(ctx context.Context, run ports.AgentRun) error {
 	if err != nil {
 		return err
 	}
+	s.note(ctx, run.ID, "started", "coding run started on "+run.Repository+" from "+run.BaseBranch)
 	if run.BaseSHA == "" {
 		token, generation, err := s.opts.Credentials.token(runCtx)
 		if err != nil {
@@ -250,6 +252,10 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, re
 			return "Question recorded. End your turn now and wait for the owner's answer.", nil
 		},
 	})
+
+	for i := range tools {
+		tools[i] = recordedTool{Tool: tools[i], s: s, ctx: ctx, runID: run.ID}
+	}
 
 	budget := &tokenBudget{used: run.UsedTokens}
 	target := s.opts.Models[s.opts.Model]
@@ -305,6 +311,7 @@ func (s *Service) waitFor(ctx context.Context, run ports.AgentRun) error {
 	if err != nil {
 		return err
 	}
+	s.note(ctx, run.ID, "question", run.Question)
 	s.deliver(ctx, updated, "The agent runner has a question for you on "+updated.Repository+": "+updated.Question+"\nAnswer it from the Agent Runner page or with /code answer "+updated.ID+" <text>.")
 	return nil
 }
@@ -320,6 +327,11 @@ func (s *Service) finish(ctx context.Context, run ports.AgentRun, state ports.Ag
 	updated, err := s.opts.Store.UpdateAgentRun(ctx, run)
 	if err != nil {
 		return err
+	}
+	if failure != "" {
+		s.note(ctx, run.ID, string(state), failure)
+	} else {
+		s.note(ctx, run.ID, string(state), "finished")
 	}
 	if state == ports.AgentRunCompleted {
 		s.deliver(ctx, updated, "Run finished on "+updated.Repository+": "+updated.Output)
@@ -345,4 +357,49 @@ func truncate(text string, limit int) string {
 		return text
 	}
 	return text[:limit]
+}
+
+// maxEventText bounds one step in the run record. A check's output can run
+// long; the record is for reading what happened, not for replaying it.
+const maxEventText = 500
+
+// note records one step of a run. It is best effort: a failed write is logged
+// and never fails the run the step describes, because the step is a record of
+// the run, not part of its work.
+func (s *Service) note(ctx context.Context, runID, kind, text string) {
+	text = truncate(s.opts.Redact(strings.TrimSpace(text)), maxEventText)
+	if err := s.opts.Store.AppendAgentRunEvent(ctx, runID, ports.AgentRunEvent{At: s.opts.Now(), Kind: kind, Text: text}); err != nil {
+		slog.Warn("agent run step not recorded", "run_id", runID, "kind", kind, "error", err)
+	}
+}
+
+// recordedTool wraps a tool so each call, and what it returned or failed with,
+// is a step in the run record. The call's result is unchanged.
+type recordedTool struct {
+	ports.Tool
+	s     *Service
+	ctx   context.Context
+	runID string
+}
+
+func (t recordedTool) Execute(callCtx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	out, err := t.Tool.Execute(callCtx, input)
+	outcome := toolOutcome(out)
+	if err != nil {
+		outcome = "error: " + err.Error()
+	}
+	t.s.note(t.ctx, t.runID, "tool", t.Tool.Definition().Name+": "+outcome)
+	return out, err
+}
+
+// toolOutcome is the text a coding tool returned. Coding tools wrap their text
+// as {"output": ...}; the record keeps the text the model read, not the wrapper.
+func toolOutcome(out json.RawMessage) string {
+	var wrapped struct {
+		Output *string `json:"output"`
+	}
+	if json.Unmarshal(out, &wrapped) == nil && wrapped.Output != nil {
+		return *wrapped.Output
+	}
+	return string(out)
 }

@@ -14,10 +14,11 @@ type memStore struct {
 	mu    sync.Mutex
 	runs  map[string]ports.AgentRun
 	repos map[string]map[string]bool // account -> repository -> enabled
+	steps map[string][]ports.AgentRunEvent
 }
 
 func newMemStore() *memStore {
-	return &memStore{runs: map[string]ports.AgentRun{}, repos: map[string]map[string]bool{}}
+	return &memStore{runs: map[string]ports.AgentRun{}, repos: map[string]map[string]bool{}, steps: map[string][]ports.AgentRunEvent{}}
 }
 
 func owner(ctx context.Context) (string, error) {
@@ -146,4 +147,32 @@ func (m *memStore) AgentRunsInStates(ctx context.Context, states ...ports.AgentR
 		}
 	}
 	return out, nil
+}
+
+func (m *memStore) AppendAgentRunEvent(ctx context.Context, runID string, event ports.AgentRunEvent) error {
+	account, err := owner(ctx)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if run, ok := m.runs[runID]; !ok || run.AccountID != account {
+		return ports.ErrAgentRunNotFound
+	}
+	event.Seq = len(m.steps[runID]) + 1
+	m.steps[runID] = append(m.steps[runID], event)
+	return nil
+}
+
+func (m *memStore) ListAgentRunEvents(ctx context.Context, runID string) ([]ports.AgentRunEvent, error) {
+	account, err := owner(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if run, ok := m.runs[runID]; !ok || run.AccountID != account {
+		return nil, nil
+	}
+	return append([]ports.AgentRunEvent(nil), m.steps[runID]...), nil
 }

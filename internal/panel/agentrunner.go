@@ -23,6 +23,7 @@ type AgentRunnerService interface {
 	Runs(ctx context.Context) ([]ports.AgentRun, error)
 	StartRun(ctx context.Context, repository, task string) (ports.AgentRun, error)
 	Run(ctx context.Context, id string) (ports.AgentRun, error)
+	RunSteps(ctx context.Context, id string) ([]ports.AgentRunEvent, error)
 	CancelRun(ctx context.Context, id string) (ports.AgentRun, error)
 	AnswerRun(ctx context.Context, id, text string) (ports.AgentRun, error)
 	Repositories(ctx context.Context) ([]AgentRepository, error)
@@ -110,6 +111,7 @@ func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) htt
 	mux.Handle("GET /api/agent-runner/runs", guard(agentRunsList(svc)))
 	mux.Handle("POST /api/agent-runner/runs", guard(agentRunStart(svc)))
 	mux.Handle("GET /api/agent-runner/runs/{id}", guard(agentRunGet(svc)))
+	mux.Handle("GET /api/agent-runner/runs/{id}/steps", guard(agentRunSteps(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/cancel", guard(agentRunCancel(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/answer", guard(agentRunAnswer(svc)))
 	mux.Handle("GET /api/agent-runner/repos", guard(agentRepos(svc, configPath)))
@@ -162,6 +164,22 @@ func agentRunStart(svc AgentRunnerService) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, agentRunView(run))
+	}
+}
+
+// agentRunSteps serves a run's record, oldest step first. An empty run has no
+// steps and reads as an empty list, never null.
+func agentRunSteps(svc AgentRunnerService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		steps, err := svc.RunSteps(r.Context(), r.PathValue("id"))
+		if err != nil {
+			writeAgentFailure(w, err)
+			return
+		}
+		if steps == nil {
+			steps = []ports.AgentRunEvent{}
+		}
+		writeJSON(w, steps)
 	}
 }
 

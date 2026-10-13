@@ -142,3 +142,36 @@ func TestAgentRunReadCarriesStoredOwner(t *testing.T) {
 		t.Fatalf("next = %+v ok=%v err=%v", next, ok, err)
 	}
 }
+
+func TestAgentRunEventsAreOrderedAndScopedToAccount(t *testing.T) {
+	db := newTestStore(t, 0)
+	created := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	if err := db.CreateAgentRun(as("a"), agentRun("r1", "eggy", created)); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []ports.AgentRunEvent{
+		{At: created, Kind: "started", Text: "run started"},
+		{At: created.Add(time.Second), Kind: "tool", Text: "run_check: go test failed"},
+	} {
+		if err := db.AppendAgentRunEvent(as("a"), "r1", event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := db.ListAgentRunEvents(as("a"), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Seq != 1 || got[1].Seq != 2 || got[1].Kind != "tool" || got[1].Text != "run_check: go test failed" {
+		t.Fatalf("events = %+v, want two ordered steps", got)
+	}
+	if err := db.AppendAgentRunEvent(as("b"), "r1", ports.AgentRunEvent{Kind: "x"}); !errors.Is(err, ports.ErrAgentRunNotFound) {
+		t.Fatalf("other account append = %v, want ErrAgentRunNotFound", err)
+	}
+	other, err := db.ListAgentRunEvents(as("b"), "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("other account sees %d events", len(other))
+	}
+}

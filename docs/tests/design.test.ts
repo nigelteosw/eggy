@@ -27,14 +27,13 @@ function declarations(selector: string): string {
 }
 
 describe("compact sidebar design", () => {
-  // The whole point of tightening the navigation scale was that the complete
-  // desktop navigation fits without its own scrollbar. A later spacing change
-  // that overflowed would most likely be repaired by turning scrolling back on,
-  // which reverts the design without touching the spec.
-  test("the desktop sidebar does not scroll independently", () => {
+  // The desktop sidebar scrolls on its own when the navigation is taller than
+  // the viewport, so a short window never clips the last items. Overflow:auto
+  // is what makes the thin scrollbar appear only in that case.
+  test("the desktop sidebar scrolls independently with a thin scrollbar", () => {
     const sidebar = declarations(".sidebar");
-    expect(sidebar).toMatch(/overflow-y:\s*visible/);
-    expect(sidebar).not.toMatch(/overflow(-[xy])?:\s*(auto|scroll|hidden)/);
+    expect(sidebar).toMatch(/overflow-y:\s*auto/);
+    expect(declarations(".sidebar::-webkit-scrollbar")).toMatch(/width:\s*6px/);
     // Sticky beneath the header is the other half of the behavior: without it
     // a non-scrolling sidebar simply leaves the viewport.
     expect(sidebar).toMatch(/position:\s*sticky/);

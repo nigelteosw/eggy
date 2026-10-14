@@ -141,6 +141,12 @@
     position: sticky; top: var(--header-height); height: calc(100vh - var(--header-height));
     overflow-y: auto; overscroll-behavior: contain; padding: 30px 0;
   }
+  /* Overflow is the only trigger: the bar renders only when the nav is taller than the viewport. */
+  .sidebar { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 999px; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: var(--faint); }
   .sidebar-nav { display: grid; gap: 48px; }
   .nav-group h2 {
     margin-bottom: 19px; color: var(--ink); font-size: 17px; font-weight: 520;

@@ -45,6 +45,8 @@ Each section links to the guide that explains it:
 [schedules and heartbeat](/eggy/configure/automation/), and
 [approvals](/eggy/use/approvals/).
 
+Finance and Agent Runner are [extensions](/eggy/configure/extensions/): each has one `enabled` switch, and the extensions guide explains what switching one on adds.
+
 ## Heartbeat
 
 The heartbeat and its watch list have their own guide:

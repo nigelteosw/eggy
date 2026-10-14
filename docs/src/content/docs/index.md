@@ -78,7 +78,7 @@ The core knows only provider-neutral ports. Concrete model, channel, repository,
 
 ## Deliberate boundaries
 
-Configured repositories are trusted inputs, but repository access is read-only. Eggy can clone, open, and inspect a checkout; it cannot edit files, run an agent shell, commit, push, or open a pull request.
+Configured repositories are trusted inputs, and repository inspection is read-only. Eggy can clone, open, and inspect a checkout. The one exception is the optional [Agent Runner](/eggy/configure/agent-runner/) extension: when you switch it on and allow a repository, a run can edit files in a sandbox, run that repository's listed checks, and push one branch and open one pull request for review. It never approves or merges, and it runs only under a mandate you create.
 
 Native tools declare whether they write, and `/mode normal` — the default — lets the reads run while everything that writes asks you first. `/mode strict` asks about all of it; `/mode auto` asks about none. Adding an MCP server to configuration is a trust decision of its own, so its tools run without asking until you name them under that server's `require_approval`.
 

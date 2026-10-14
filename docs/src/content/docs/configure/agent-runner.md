@@ -28,7 +28,7 @@ Coding runs always use `model`, whatever you chose for chat with `/model`. The t
 
 ## Give it a GitHub token
 
-Create a fine-grained GitHub token with **Contents** and **Pull requests** read and write, limited to the repositories you allow. Paste it into the GitHub token field on the Agent Runner page.
+Create a fine-grained GitHub token with **Contents** and **Pull requests** read and write, limited to the repositories you allow. Paste it into the **GitHub token for Agent Runner** field in your personal settings. That field appears only while the runner is on.
 
 The token is sealed in Eggy's database for your account. Eggy never shows it back, and only you see it. When you add a repository, Eggy checks your saved token against it after the next restart.
 

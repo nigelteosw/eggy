@@ -28,7 +28,7 @@ Owner authentication and outbound authorization are deliberately separate. `inte
 
 ## Repository boundary
 
-Configured repositories are trusted. Their tools remain path-restricted, timeout-bounded, output-bounded, and environment-allowlisted. The current general agent surface is read-only.
+Configured repositories are trusted. Their tools remain path-restricted, timeout-bounded, output-bounded, and environment-allowlisted. The general agent surface is read-only. The one exception is the optional [Agent Runner](/eggy/configure/agent-runner/) extension, which can push one `eggy/<run-id>` branch and open one pull request per run, and only under a mandate a verified session or private `/code run` created. Its commands run as a separate unprivileged user under Landlock, and only where a startup probe proves that sandbox works.
 
 The local runner is a restricted process boundary, not a container boundary. A stdio MCP server runs as Eggy's operating-system user and must be treated as trusted code.
 

@@ -4,7 +4,7 @@ description: Log spending by telling Eggy or sending a receipt photo, and see it
 eyebrow: Configure
 ---
 
-Enabling finance lets each person log what they spend by telling Eggy ("lunch 14.50") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their spending under **Extensions → Finance** in the web panel's sidebar.
+Enabling finance lets each person log their money by telling Eggy ("lunch 14.50", "salary 4,200") or by sending a photo of a receipt, correct or delete an entry afterwards, and see their money in and out, what they invested, and how the month compares under **Extensions → Finance** in the web panel's sidebar.
 
 Without this section there is no finance tool, no Finance entry under Extensions, and nothing about it in any model request.
 
@@ -21,6 +21,21 @@ finance:
 ```
 
 `currency` is what an entry takes when no currency is said. It defaults to `SGD`, and it is one of the ten Eggy supports.
+
+## Kinds
+
+Every entry is one of four kinds. The kind decides which way the money moved:
+
+| Kind | Page says | Counts as |
+| --- | --- | --- |
+| `expense` | Spent | money out |
+| `income` | Received | money in |
+| `invest` | Invested | money out, into investments |
+| `divest` | Withdrawn | money in, back from investments |
+
+Eggy takes the kind from what you say: "salary 4,200" is income, "bought ETF 500" is an investment, "sold 200 of the ETF" is a withdrawal. Ordinary purchases are expenses, and an entry with no kind said is an expense, as every entry was before kinds existed.
+
+Money is never converted between currencies, so each figure is for one currency at a time.
 
 ## Currencies
 
@@ -59,9 +74,19 @@ for one month at a time:
 - a total per currency, your default first
 - spending by category, as bars sized against the largest in each currency
 - a day-by-day strip across the month
-- a search box over merchant, category and note, a category filter, and sorting by date, amount, category or merchant
-- every entry, which you can edit or delete in place
-- an **Add entry** form, for what you did not tell Eggy
+- a currency switch when more than one currency has activity, and each figure below is for the one you pick
+- the amount left over after spending and investing, the share of money in you kept, and each figure's change from last month
+- money in, spent, invested and the average day
+- a line of insights for the default currency, such as which category moved most, at most three
+- the last six months as paired in and out bars, with each month's net beneath
+- spending split by category in each category's colour, with the share and the change from last month
+- each day of the month as a bar, with the average day drawn as a dashed line
+- a search box over merchant, category and note, a filter for kind and category, and sorting by date, amount, category or merchant
+- every entry, coloured by its category and signed by which way the money moved; you can edit or delete it in place
+- an **Add** form with a kind picker, for what you did not tell Eggy
+- a **Categories** panel: pick each category's colour, or rename one. Renaming a category to the name of another merges the two and keeps the colour of the one you rename into.
+
+On a phone the figures stack into one column and the charts keep their full width.
 
 Search and filters apply to the month you are looking at. Sorting keeps amounts within their own currency, so a list sorted by amount never puts SGD and JPY in one order. Ties fall back to newest first.
 
@@ -80,7 +105,7 @@ Eggy's own prompt carries no entries. The model sees them only when it calls the
 ## What it does not do
 
 - No budgets, alerts or recurring entries.
-- No refunds or income: every amount is a positive expense.
+- No holdings or prices: investments are money moved in and out, not the value of what you hold.
 - No currency conversion.
 - No import or export.
 - Receipt photos are not kept as entries. Eggy reads the image during the turn and logs the entry; the conversation history keeps a note that an image was attached, not the image itself.

@@ -1,4 +1,4 @@
-// The Finance list's search and sort state, and the request it becomes.
+// The Finance list's search, filter and sort state, and the request it becomes.
 //
 // The matching and ordering run on the server, over the amounts in minor units:
 // comparing money here would break the rule that the browser never adds,
@@ -11,12 +11,13 @@ export type SortOrder = "asc" | "desc";
 
 export type EntryView = {
   query: string;
+  kind: string;
   category: string;
   sort: SortKey;
   order: SortOrder;
 };
 
-export const DEFAULT_VIEW: EntryView = { query: "", category: "", sort: "date", order: "desc" };
+export const DEFAULT_VIEW: EntryView = { query: "", kind: "", category: "", sort: "date", order: "desc" };
 
 // The label each key shows, and the order its first choice takes: newest and
 // largest first for date and amount, A to Z for the words.
@@ -36,16 +37,21 @@ export function chooseSort(view: EntryView, key: SortKey): EntryView {
   return { ...view, order: view.order === "asc" ? "desc" : "asc" };
 }
 
-// Whether a search or a category is narrowing the list. A sort alone does not
-// hide anything, so it does not count.
+// Whether a search, kind or category is narrowing the list. A sort alone does
+// not hide anything, so it does not count.
 export function isFiltered(view: EntryView): boolean {
-  return view.query.trim() !== "" || view.category !== "";
+  return view.query.trim() !== "" || view.kind !== "" || view.category !== "";
+}
+
+// How many of the filter panel's choices are in use, for the badge on its button.
+export function filterCount(view: EntryView): number {
+  return (view.kind !== "" ? 1 : 0) + (view.category !== "" ? 1 : 0);
 }
 
 // The query arguments for one month's entries. Blank search and filter are left
 // out rather than sent empty.
 export function listRequest(range: { from: string; to: string }, view: EntryView) {
-  const request: { from: string; to: string; q?: string; category?: string; sort: SortKey; order: SortOrder } = {
+  const request: { from: string; to: string; q?: string; kind?: string; category?: string; sort: SortKey; order: SortOrder } = {
     from: range.from,
     to: range.to,
     sort: view.sort,
@@ -53,6 +59,7 @@ export function listRequest(range: { from: string; to: string }, view: EntryView
   };
   const query = view.query.trim();
   if (query !== "") request.q = query;
+  if (view.kind !== "") request.kind = view.kind;
   if (view.category !== "") request.category = view.category;
   return request;
 }

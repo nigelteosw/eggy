@@ -16,7 +16,7 @@ var _ ports.FinanceStore = (*Store)(nil)
 func financeEntry(id, day, currency, category string, minor int64) ports.FinanceEntry {
 	at := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	return ports.FinanceEntry{
-		ID: id, OccurredOn: day, AmountMinor: minor, Currency: currency,
+		ID: id, Kind: ports.FinanceKindExpense, OccurredOn: day, AmountMinor: minor, Currency: currency,
 		Category: category, Merchant: "m-" + id, Note: "n-" + id, Source: "chat",
 		CreatedAt: at, UpdatedAt: at,
 	}
@@ -145,9 +145,9 @@ func TestTotalsGroupByCurrencyCategoryAndDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCat := map[string]ports.FinanceCategoryTotal{
-		"SGD/food":      {Currency: "SGD", Category: "food", AmountMinor: 750, Count: 2},
-		"SGD/transport": {Currency: "SGD", Category: "transport", AmountMinor: 300, Count: 1},
-		"JPY/food":      {Currency: "JPY", Category: "food", AmountMinor: 1200, Count: 1},
+		"SGD/food":      {Currency: "SGD", Kind: ports.FinanceKindExpense, Category: "food", AmountMinor: 750, Count: 2},
+		"SGD/transport": {Currency: "SGD", Kind: ports.FinanceKindExpense, Category: "transport", AmountMinor: 300, Count: 1},
+		"JPY/food":      {Currency: "JPY", Kind: ports.FinanceKindExpense, Category: "food", AmountMinor: 1200, Count: 1},
 	}
 	if len(totals.ByCategory) != len(wantCat) {
 		t.Fatalf("by category = %+v", totals.ByCategory)
@@ -228,7 +228,7 @@ func TestFinanceStoreFailsClosedWithoutAPrincipal(t *testing.T) {
 // The table is additive, so an existing home gains it without a migration and
 // without a new machine-state version: an older binary opens the same file and
 // ignores it, which keeps a rollback possible.
-func TestOpeningAnExistingHomeAddsTheFinanceTableWithoutBumpingTheVersion(t *testing.T) {
+func TestOpeningAnExistingHomeAddsTheFinanceTableAndRaisesTheVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "eggy.db")
 	store, err := Open(path)
 	if err != nil {
@@ -252,8 +252,8 @@ func TestOpeningAnExistingHomeAddsTheFinanceTableWithoutBumpingTheVersion(t *tes
 	if err := store.db.QueryRow(`SELECT value FROM schema_meta WHERE key = ?`, machineStateVersionKey).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != strconv.Itoa(localAuthVersion) {
-		t.Fatalf("machine state version = %s, want it unchanged at %d", version, localAuthVersion)
+	if version != strconv.Itoa(MachineStateVersion) {
+		t.Fatalf("machine state version = %s, want %d", version, MachineStateVersion)
 	}
 }
 

@@ -185,27 +185,52 @@ func TestListEmptyAndFiltered(t *testing.T) {
 	}
 }
 
-func TestSummaryGroupsPerCurrencyThenCategory(t *testing.T) {
-	svc, store := newService(t, time.Date(2026, 10, 15, 4, 0, 0, 0, time.UTC))
+func TestSummaryReportsMoneyInAndOutPerCurrency(t *testing.T) {
+	svc, _ := newService(t, time.Date(2026, 10, 15, 4, 0, 0, 0, time.UTC))
 	tool := NewTool(svc)
-	// The fake store sums nothing, so it hands back one row per entry; the
-	// tool's job is to fold those per currency and say so clearly.
 	ctx := asAccount("a")
 	svc.Log(ctx, ports.FinanceInput{Amount: "30", Category: "food"})
 	svc.Log(ctx, ports.FinanceInput{Amount: "15.20", Category: "transport"})
 	svc.Log(ctx, ports.FinanceInput{Amount: "1200", Currency: "JPY", Category: "travel"})
-	_ = store
+	svc.Log(ctx, ports.FinanceInput{Amount: "900", Kind: "income", Category: "salary"})
+	svc.Log(ctx, ports.FinanceInput{Amount: "200", Kind: "invest", Category: "stocks"})
 	text, err := run(t, tool, `{"action":"summary"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"2026-10-01 to 2026-10-31", "SGD 45.20 (2 entries)", "food 30.00", "transport 15.20", "JPY 1200 (1 entry)", "travel 1200"} {
+	for _, want := range []string{
+		"2026-10-01 to 2026-10-31",
+		"SGD in 900.00, out 45.20, invested 200.00, net 654.80 (4 entries)",
+		"spending: food 30.00, transport 15.20",
+		"JPY in 0, out 1200, invested 0, net -1200 (1 entry)",
+		"spending: travel 1200",
+	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("summary lacks %q:\n%s", want, text)
 		}
 	}
-	if text, _ := run(t, tool, `{"action":"summary","from":"2020-01-01","to":"2020-01-31"}`); !strings.Contains(text, "No spending") {
+	if text, _ := run(t, tool, `{"action":"summary","from":"2020-01-01","to":"2020-01-31"}`); !strings.Contains(text, "No money moved") {
 		t.Errorf("empty summary = %q", text)
+	}
+}
+
+func TestLogAndListCarryTheKind(t *testing.T) {
+	tool, svc := newTool(t)
+	text, err := run(t, tool, `{"action":"log","amount":"900","kind":"income","category":"salary"}`)
+	if err != nil || !strings.Contains(text, "income") || !strings.Contains(text, "SGD 900.00") {
+		t.Fatalf("income log = %q, %v", text, err)
+	}
+	run(t, tool, `{"action":"log","amount":"5","category":"food"}`)
+	text, _ = run(t, tool, `{"action":"list","kind":"income"}`)
+	if !strings.Contains(text, "salary") || strings.Contains(text, "food") {
+		t.Fatalf("income-only list = %q", text)
+	}
+	if _, err := run(t, tool, `{"action":"log","amount":"1","kind":"gift","category":"food"}`); err == nil {
+		t.Fatal("an unknown kind was logged")
+	}
+	got, _, _ := svc.List(asAccount("a"), ports.FinanceFilter{})
+	if len(got) != 2 {
+		t.Fatalf("entries = %+v", got)
 	}
 }
 

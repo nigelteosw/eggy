@@ -113,6 +113,16 @@ func (s *Service) DefaultCurrency() string { return s.opts.Default }
 // Format renders an amount the way ParseAmount reads it.
 func (s *Service) Format(minor int64, currency string) string { return FormatAmount(minor, currency) }
 
+// FormatSigned is Format with a leading minus for a negative amount, which
+// FormatAmount alone cannot render: a net outflow is a real number, not an
+// amount to be read.
+func (s *Service) FormatSigned(minor int64, currency string) string {
+	if minor < 0 {
+		return "-" + FormatAmount(-minor, currency)
+	}
+	return FormatAmount(minor, currency)
+}
+
 func (s *Service) today() string { return s.opts.Now().In(s.opts.Location).Format(dateLayout) }
 
 func (s *Service) currency(code string) (string, error) {
@@ -145,6 +155,19 @@ func cleanText(field, value string, limit int, required bool) (string, error) {
 	return value, nil
 }
 
+// cleanKind reads the kind an entry is filed under. Blank is spending, the
+// default every entry had before kinds existed, so an older caller is unchanged.
+func cleanKind(value string) (string, error) {
+	kind := strings.ToLower(strings.TrimSpace(value))
+	if kind == "" {
+		return ports.FinanceKindExpense, nil
+	}
+	if !slices.Contains(ports.FinanceKinds, kind) {
+		return "", invalid("kind %q must be one of %s", kind, strings.Join(ports.FinanceKinds, ", "))
+	}
+	return kind, nil
+}
+
 func cleanCategory(value string) (string, error) {
 	value, err := cleanText("category", value, maxCategory, true)
 	return strings.ToLower(value), err
@@ -152,6 +175,10 @@ func cleanCategory(value string) (string, error) {
 
 // Log validates and records a new entry for the acting account.
 func (s *Service) Log(ctx context.Context, in ports.FinanceInput) (ports.FinanceEntry, error) {
+	kind, err := cleanKind(in.Kind)
+	if err != nil {
+		return ports.FinanceEntry{}, err
+	}
 	currency, err := s.currency(in.Currency)
 	if err != nil {
 		return ports.FinanceEntry{}, err
@@ -187,7 +214,7 @@ func (s *Service) Log(ctx context.Context, in ports.FinanceInput) (ports.Finance
 	}
 	now := s.opts.Now()
 	entry := ports.FinanceEntry{
-		ID: s.opts.NewID(), OccurredOn: date, AmountMinor: minor, Currency: currency,
+		ID: s.opts.NewID(), Kind: kind, OccurredOn: date, AmountMinor: minor, Currency: currency,
 		Category: category, Merchant: merchant, Note: note, Source: source,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -226,6 +253,13 @@ func (s *Service) Update(ctx context.Context, id string, patch ports.FinancePatc
 			entry.AmountMinor = minor
 		}
 		entry.Currency = currency
+		if patch.Kind != nil {
+			kind, err := cleanKind(*patch.Kind)
+			if err != nil {
+				return err
+			}
+			entry.Kind = kind
+		}
 		if patch.Date != nil {
 			date, err := parseDate(*patch.Date)
 			if err != nil {
@@ -273,6 +307,11 @@ func (s *Service) List(ctx context.Context, filter ports.FinanceFilter) ([]ports
 		return nil, 0, err
 	}
 	filter.From, filter.To = from, to
+	if filter.Kind != "" {
+		if filter.Kind, err = cleanKind(filter.Kind); err != nil {
+			return nil, 0, err
+		}
+	}
 	filter.Category = strings.ToLower(strings.TrimSpace(filter.Category))
 	query, err := cleanText("query", filter.Query, maxQuery, false)
 	if err != nil {

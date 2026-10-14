@@ -18,6 +18,7 @@ import (
 // fails here as it would in production.
 type fakeStore struct {
 	entries map[string]map[string]ports.FinanceEntry // account -> id -> entry
+	colors  map[string]map[string]string             // account -> category -> colour
 	order   []string
 	// last is the filter the most recent listing received, so a test can see
 	// what the service resolved before it reached the store.
@@ -25,7 +26,7 @@ type fakeStore struct {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{entries: map[string]map[string]ports.FinanceEntry{}}
+	return &fakeStore{entries: map[string]map[string]ports.FinanceEntry{}, colors: map[string]map[string]string{}}
 }
 
 func (f *fakeStore) account(ctx context.Context) (map[string]ports.FinanceEntry, error) {
@@ -90,7 +91,7 @@ func (f *fakeStore) ListFinanceEntries(ctx context.Context, filter ports.Finance
 		if !ok {
 			continue
 		}
-		if (filter.From != "" && e.OccurredOn < filter.From) || (filter.To != "" && e.OccurredOn > filter.To) || (filter.Category != "" && e.Category != filter.Category) {
+		if (filter.From != "" && e.OccurredOn < filter.From) || (filter.To != "" && e.OccurredOn > filter.To) || (filter.Category != "" && e.Category != filter.Category) || (filter.Kind != "" && e.Kind != filter.Kind) {
 			continue
 		}
 		out = append(out, e)
@@ -102,16 +103,107 @@ func (f *fakeStore) ListFinanceEntries(ctx context.Context, filter ports.Finance
 	return out, total, nil
 }
 
+// FinanceTotals groups the way the SQL does: by currency, kind and category, and
+// by currency, kind and day, so a test sees the same rows the store returns.
 func (f *fakeStore) FinanceTotals(ctx context.Context, from, to string) (ports.FinanceTotals, error) {
 	entries, _, err := f.ListFinanceEntries(ctx, ports.FinanceFilter{From: from, To: to})
 	if err != nil {
 		return ports.FinanceTotals{}, err
 	}
 	var totals ports.FinanceTotals
+	byCategory := map[string]int{}
+	byDay := map[string]int{}
 	for _, e := range entries {
-		totals.ByCategory = append(totals.ByCategory, ports.FinanceCategoryTotal{Currency: e.Currency, Category: e.Category, AmountMinor: e.AmountMinor, Count: 1})
+		key := e.Currency + "/" + e.Kind + "/" + e.Category
+		if i, ok := byCategory[key]; ok {
+			totals.ByCategory[i].AmountMinor += e.AmountMinor
+			totals.ByCategory[i].Count++
+		} else {
+			byCategory[key] = len(totals.ByCategory)
+			totals.ByCategory = append(totals.ByCategory, ports.FinanceCategoryTotal{Currency: e.Currency, Kind: e.Kind, Category: e.Category, AmountMinor: e.AmountMinor, Count: 1})
+		}
+		dayKey := e.Currency + "/" + e.Kind + "/" + e.OccurredOn
+		if i, ok := byDay[dayKey]; ok {
+			totals.ByDay[i].AmountMinor += e.AmountMinor
+		} else {
+			byDay[dayKey] = len(totals.ByDay)
+			totals.ByDay = append(totals.ByDay, ports.FinanceDayTotal{Currency: e.Currency, Kind: e.Kind, Day: e.OccurredOn, AmountMinor: e.AmountMinor})
+		}
 	}
 	return totals, nil
+}
+
+func (f *fakeStore) FinanceMonths(ctx context.Context, from, to string) ([]ports.FinanceMonthTotal, error) {
+	entries, _, err := f.ListFinanceEntries(ctx, ports.FinanceFilter{From: from, To: to})
+	if err != nil {
+		return nil, err
+	}
+	var months []ports.FinanceMonthTotal
+	index := map[string]int{}
+	for _, e := range entries {
+		month := e.OccurredOn[:7]
+		key := e.Currency + "/" + e.Kind + "/" + month
+		if i, ok := index[key]; ok {
+			months[i].AmountMinor += e.AmountMinor
+		} else {
+			index[key] = len(months)
+			months = append(months, ports.FinanceMonthTotal{Currency: e.Currency, Kind: e.Kind, Month: month, AmountMinor: e.AmountMinor})
+		}
+	}
+	return months, nil
+}
+
+func (f *fakeStore) FinanceCategories(ctx context.Context) ([]ports.FinanceCategory, error) {
+	m, err := f.account(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p, _ := ports.PrincipalFromContext(ctx)
+	counts := map[string]int{}
+	for _, e := range m {
+		counts[e.Category]++
+	}
+	var out []ports.FinanceCategory
+	for name, count := range counts {
+		out = append(out, ports.FinanceCategory{Name: name, Count: count, Color: f.colors[p.AccountID][name]})
+	}
+	slices.SortFunc(out, func(a, b ports.FinanceCategory) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
+}
+
+func (f *fakeStore) SetFinanceCategoryColor(ctx context.Context, name, color string) error {
+	if _, err := f.account(ctx); err != nil {
+		return err
+	}
+	p, _ := ports.PrincipalFromContext(ctx)
+	if f.colors[p.AccountID] == nil {
+		f.colors[p.AccountID] = map[string]string{}
+	}
+	f.colors[p.AccountID][name] = color
+	return nil
+}
+
+func (f *fakeStore) RenameFinanceCategory(ctx context.Context, from, to string) error {
+	m, err := f.account(ctx)
+	if err != nil {
+		return err
+	}
+	p, _ := ports.PrincipalFromContext(ctx)
+	for id, e := range m {
+		if e.Category == from {
+			e.Category = to
+			m[id] = e
+		}
+	}
+	if f.colors[p.AccountID] == nil {
+		f.colors[p.AccountID] = map[string]string{}
+	}
+	colors := f.colors[p.AccountID]
+	if colors[to] == "" {
+		colors[to] = colors[from]
+	}
+	delete(colors, from)
+	return nil
 }
 
 func asAccount(id string) context.Context {
@@ -167,7 +259,7 @@ func TestLogFillsDefaultsAndNormalizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := ports.FinanceEntry{
-		ID: "id1", OccurredOn: "2026-10-02", AmountMinor: 1450, Currency: "SGD", Category: "food",
+		ID: "id1", Kind: "expense", OccurredOn: "2026-10-02", AmountMinor: 1450, Currency: "SGD", Category: "food",
 		Merchant: "Ya Kun", Note: "kaya toast", Source: "chat",
 		CreatedAt: time.Date(2026, 10, 2, 4, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 2, 4, 0, 0, 0, time.UTC),
 	}

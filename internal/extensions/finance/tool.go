@@ -35,8 +35,8 @@ func NewTool(svc *Service) ports.Tool {
 	currencies, _ := json.Marshal(svc.Currencies())
 	return tool{svc: svc, definition: ports.ToolDefinition{
 		Name: "finance",
-		Description: "Track the owner's spending. " +
-			"log: record one expense (amount and category; currency defaults to " + svc.DefaultCurrency() + ", date to today). " +
+		Description: "Track the owner's money. " +
+			"log: record one entry (amount and category; kind is expense, income, invest or divest, default expense; currency defaults to " + svc.DefaultCurrency() + ", date to today). " +
 			"update/delete: change or remove an entry by id. " +
 			"list/summary: entries or totals for from..to (default this month). " +
 			"Log a receipt's total, not each line, unless asked; set source=photo when reading an image; ask if the total, currency or date is unclear. " +
@@ -48,6 +48,7 @@ func NewTool(svc *Service) ports.Tool {
 			`"amount":{"type":"string","description":"digits only, like 14.50"},` +
 			`"currency":{"type":"string","enum":` + string(currencies) + `},` +
 			`"date":{"type":"string","description":"YYYY-MM-DD"},` +
+			`"kind":{"type":"string","enum":["expense","income","invest","divest"]},` +
 			`"category":{"type":"string"},` +
 			`"merchant":{"type":"string"},` +
 			`"note":{"type":"string"},` +
@@ -76,6 +77,7 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 		Action   string  `json:"action"`
 		ID       string  `json:"id"`
 		Amount   *string `json:"amount"`
+		Kind     *string `json:"kind"`
 		Currency *string `json:"currency"`
 		Date     *string `json:"date"`
 		Category *string `json:"category"`
@@ -94,13 +96,13 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 	)
 	switch in.Action {
 	case "log":
-		text, err = t.log(ctx, in.Amount, in.Currency, in.Date, in.Category, in.Merchant, in.Note, in.Source)
+		text, err = t.log(ctx, in.Amount, in.Kind, in.Currency, in.Date, in.Category, in.Merchant, in.Note, in.Source)
 	case "update":
-		text, err = t.update(ctx, in.ID, ports.FinancePatch{Amount: in.Amount, Currency: in.Currency, Date: in.Date, Category: in.Category, Merchant: in.Merchant, Note: in.Note})
+		text, err = t.update(ctx, in.ID, ports.FinancePatch{Amount: in.Amount, Kind: in.Kind, Currency: in.Currency, Date: in.Date, Category: in.Category, Merchant: in.Merchant, Note: in.Note})
 	case "delete":
 		text, err = t.delete(ctx, in.ID)
 	case "list":
-		text, err = t.list(ctx, in.From, in.To, str(in.Category))
+		text, err = t.list(ctx, in.From, in.To, str(in.Kind), str(in.Category))
 	case "summary":
 		text, err = t.summary(ctx, in.From, in.To)
 	default:
@@ -112,7 +114,7 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 	return json.Marshal(text)
 }
 
-func (t tool) log(ctx context.Context, amount, currency, date, category, merchant, note, source *string) (string, error) {
+func (t tool) log(ctx context.Context, amount, kind, currency, date, category, merchant, note, source *string) (string, error) {
 	// The schema offers chat and photo only. A model must not be able to claim
 	// an entry came from the panel, so the service's third source is refused
 	// here rather than trusted.
@@ -120,7 +122,7 @@ func (t tool) log(ctx context.Context, amount, currency, date, category, merchan
 		return "", fmt.Errorf("%w: source must be chat or photo", ports.ErrFinanceInvalid)
 	}
 	entry, err := t.svc.Log(ctx, ports.FinanceInput{
-		Amount: str(amount), Currency: str(currency), Date: str(date), Category: str(category),
+		Amount: str(amount), Kind: str(kind), Currency: str(currency), Date: str(date), Category: str(category),
 		Merchant: str(merchant), Note: str(note), Source: str(source),
 	})
 	if err != nil {
@@ -151,12 +153,12 @@ func (t tool) delete(ctx context.Context, id string) (string, error) {
 	return "Deleted: " + t.line(entry), nil
 }
 
-func (t tool) list(ctx context.Context, from, to, category string) (string, error) {
+func (t tool) list(ctx context.Context, from, to, kind, category string) (string, error) {
 	from, to, err := t.svc.Range(from, to)
 	if err != nil {
 		return "", err
 	}
-	entries, total, err := t.svc.List(ctx, ports.FinanceFilter{From: from, To: to, Category: category, Limit: listLimit})
+	entries, total, err := t.svc.List(ctx, ports.FinanceFilter{From: from, To: to, Kind: kind, Category: category, Limit: listLimit})
 	if err != nil {
 		return "", err
 	}
@@ -185,34 +187,27 @@ func (t tool) summary(ctx context.Context, from, to string) (string, error) {
 		return "", err
 	}
 	label := rangeLabel(from, to)
-	if len(totals.ByCategory) == 0 {
-		return "No spending " + label + ".", nil
+	flows := t.svc.flowsOf(totals)
+	if len(flows) == 0 {
+		return "No money moved " + label + ".", nil
 	}
 	// Per currency, because nothing converts between them: a total across SGD
 	// and JPY would be a number that means nothing.
-	type group struct {
-		minor      int64
-		count      int
-		categories []string
-	}
-	var order []string
-	groups := map[string]*group{}
+	spending := map[string][]string{}
 	for _, row := range totals.ByCategory {
-		g, ok := groups[row.Currency]
-		if !ok {
-			g = &group{}
-			groups[row.Currency] = g
-			order = append(order, row.Currency)
+		if row.Kind == ports.FinanceKindExpense {
+			spending[row.Currency] = append(spending[row.Currency], row.Category+" "+t.svc.Format(row.AmountMinor, row.Currency))
 		}
-		g.minor += row.AmountMinor
-		g.count += row.Count
-		g.categories = append(g.categories, row.Category+" "+t.svc.Format(row.AmountMinor, row.Currency))
 	}
 	var out strings.Builder
-	out.WriteString("Spending " + label + ":")
-	for _, currency := range order {
-		g := groups[currency]
-		fmt.Fprintf(&out, "\n%s %s (%d %s): %s", currency, t.svc.Format(g.minor, currency), g.count, plural(g.count, "entry", "entries"), strings.Join(g.categories, ", "))
+	out.WriteString("Money " + label + ":")
+	for _, f := range flows {
+		fmt.Fprintf(&out, "\n%s in %s, out %s, invested %s, net %s (%d %s)", f.Currency,
+			t.svc.Format(f.Inflow, f.Currency), t.svc.Format(f.Outflow, f.Currency), t.svc.Format(f.Invested, f.Currency),
+			t.svc.FormatSigned(f.Net(), f.Currency), f.Count, plural(f.Count, "entry", "entries"))
+		if cats := spending[f.Currency]; len(cats) > 0 {
+			out.WriteString("\n  spending: " + strings.Join(cats, ", "))
+		}
 	}
 	return out.String(), nil
 }
@@ -220,7 +215,11 @@ func (t tool) summary(ctx context.Context, from, to string) (string, error) {
 // line is one entry on one line, id first, because the id is what the model
 // needs to carry into an update.
 func (t tool) line(e ports.FinanceEntry) string {
-	parts := []string{e.ID, e.OccurredOn, e.Currency + " " + t.svc.Format(e.AmountMinor, e.Currency), e.Category}
+	parts := []string{e.ID, e.OccurredOn, e.Currency + " " + t.svc.Format(e.AmountMinor, e.Currency)}
+	if e.Kind != ports.FinanceKindExpense {
+		parts = append(parts, e.Kind)
+	}
+	parts = append(parts, e.Category)
 	if e.Merchant != "" {
 		parts = append(parts, e.Merchant)
 	}

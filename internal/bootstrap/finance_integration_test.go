@@ -134,14 +134,14 @@ func TestFinanceToolAndPanelShareOneStoreAndStayPrivatePerAccount(t *testing.T) 
 
 	summary := apiCall(t, app, cookie, csrf, http.MethodGet, "/api/finance/summary", "")
 	var sum struct {
-		Totals []struct {
-			Currency, Amount string
-			Count            int
-		} `json:"totals"`
+		Flows []struct {
+			Currency, Outflow string
+			Count             int
+		} `json:"flows"`
 	}
 	_ = json.Unmarshal(summary.Body.Bytes(), &sum)
-	if len(sum.Totals) != 1 || sum.Totals[0].Currency != "SGD" || sum.Totals[0].Amount != "18.70" || sum.Totals[0].Count != 2 {
-		t.Fatalf("summary = %s, want SGD 18.70 over 2 entries", summary.Body.String())
+	if len(sum.Flows) != 1 || sum.Flows[0].Currency != "SGD" || sum.Flows[0].Outflow != "18.70" || sum.Flows[0].Count != 2 {
+		t.Fatalf("summary = %s, want SGD 18.70 out over 2 entries", summary.Body.String())
 	}
 
 	// A second account: its tool and its panel both see an empty ledger, and
@@ -176,7 +176,7 @@ func TestFinanceToolAndPanelShareOneStoreAndStayPrivatePerAccount(t *testing.T) 
 		t.Fatalf("patch: status=%d body=%s", response.Code, response.Body.String())
 	}
 	raw, _ = tool.Execute(nigel, json.RawMessage(`{"action":"summary"}`))
-	if !strings.Contains(string(raw), "SGD 19.60 (2 entries)") {
+	if !strings.Contains(string(raw), "SGD in 0.00, out 19.60") || !strings.Contains(string(raw), "(2 entries)") {
 		t.Fatalf("the tool's summary missed the panel's correction: %s", raw)
 	}
 }

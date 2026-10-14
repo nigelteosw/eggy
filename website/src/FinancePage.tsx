@@ -5,6 +5,7 @@ import {
   deleteFinanceEntry,
   getFinanceEntries,
   getFinanceSummary,
+  updateFinanceCategory,
   updateFinanceEntry,
   type FinanceEntry,
   type FinanceEntryList,
@@ -18,18 +19,29 @@ import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./
 import { CloseIcon } from "./components/ui/icons";
 import { Input } from "./components/ui/input";
 import { Select } from "./components/ui/select";
+import { CategoriesPanel, CategoryChip } from "./FinanceCategories";
+import { CurrencySwitch, DailyStrip, Insights, Overview, Spending, Trend } from "./FinanceOverview";
 import { FinanceToolbar } from "./FinanceToolbar";
-import { CATEGORY_SUGGESTIONS, dayLabel, daysOfRange, monthLabel, shiftMonth } from "./lib/finance";
+import {
+  CATEGORY_SUGGESTIONS,
+  KIND_LABEL,
+  KINDS,
+  activeCurrency,
+  entryTitle,
+  forCurrency,
+  isCashIn,
+  monthLabel,
+  shiftMonth,
+  signedAmount,
+  type Kind,
+} from "./lib/finance";
 import { DEFAULT_VIEW, isFiltered, listRequest, type EntryView } from "./lib/finance-list";
-import { errorMessage } from "./lib/utils";
+import { cn, errorMessage } from "./lib/utils";
 
 // Money is text all the way down: the server formats every amount and sizes
 // every bar, so nothing here adds, compares or converts it.
 
-const entriesWord = (count: number) => `${count} ${count === 1 ? "entry" : "entries"}`;
-const percent = (share: number) => `${(share * 100).toFixed(2)}%`;
-
-function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
     <label className={`flex flex-col gap-1.5 ${FIELD_LABEL} ${className ?? ""}`}>
       {label}
@@ -38,10 +50,49 @@ function Field({ label, children, className }: { label: string; children: React.
   );
 }
 
-function CategoryList() {
+// The four things money can do, named the way the owner thinks of them. Spent
+// and Received are the everyday ones, so they lead.
+function KindPicker({ value, onChange }: { value: Kind; onChange: (kind: Kind) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-1 rounded-2xl bg-background p-1 sm:grid-cols-4">
+      {KINDS.map((kind) => (
+        <button
+          key={kind}
+          type="button"
+          role="radio"
+          aria-checked={kind === value}
+          onClick={() => onChange(kind)}
+          className={cn(
+            "min-h-10 rounded-xl px-3 text-[13px] font-medium transition-colors",
+            kind === value ? "bg-neutral-200 text-foreground" : "text-neutral-700 hover:text-foreground",
+          )}
+        >
+          {KIND_LABEL[kind]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function KindSelect({ value, onChange }: { value: string; onChange: (kind: Kind) => void }) {
+  return (
+    <Select value={value} onChange={(event) => onChange(event.target.value as Kind)} aria-label="Kind">
+      {KINDS.map((kind) => (
+        <option key={kind} value={kind}>
+          {KIND_LABEL[kind]}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+// The categories offered as suggestions in the form: the ones already in use,
+// then the starter set, with no repeats.
+function CategoryList({ categories }: { categories: string[] }) {
+  const names = [...new Set([...categories, ...CATEGORY_SUGGESTIONS])];
   return (
     <datalist id="finance-categories">
-      {CATEGORY_SUGGESTIONS.map((category) => (
+      {names.map((category) => (
         <option key={category} value={category} />
       ))}
     </datalist>
@@ -51,6 +102,7 @@ function CategoryList() {
 export function AddEntryForm({
   currencies,
   defaultCurrency,
+  categories,
   busy,
   open,
   onOpenChange,
@@ -58,6 +110,7 @@ export function AddEntryForm({
 }: {
   currencies: string[];
   defaultCurrency: string;
+  categories: string[];
   busy: boolean;
   // Optional so the form opens and closes on its own unless the page, as the
   // toolbar's Add button does, takes that over.
@@ -67,6 +120,7 @@ export function AddEntryForm({
   // and a refused entry keeps what was typed.
   onCreate: (input: FinanceInput) => Promise<boolean>;
 }) {
+  const [kind, setKind] = useState<Kind>("expense");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [date, setDate] = useState("");
@@ -76,7 +130,7 @@ export function AddEntryForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    const input: FinanceInput = { amount, category, currency };
+    const input: FinanceInput = { amount, kind, category, currency };
     if (date) input.date = date;
     if (merchant) input.merchant = merchant;
     if (note) input.note = note;
@@ -90,8 +144,11 @@ export function AddEntryForm({
 
   return (
     <details id="finance-add-entry" className="rounded-2xl bg-neutral-100 p-4" open={open} onToggle={(event) => onOpenChange?.(event.currentTarget.open)}>
-      <summary className="cursor-pointer text-[12.5px] font-medium">Add entry</summary>
-      <form onSubmit={submit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <summary className="cursor-pointer text-[13.5px] font-medium">Add an entry</summary>
+      <form onSubmit={submit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <KindPicker value={kind} onChange={setKind} />
+        </div>
         <Field label="Amount">
           <Input required inputMode="decimal" placeholder="14.50" value={amount} onChange={(e) => setAmount(e.target.value)} className={FIELD_COMPACT} />
         </Field>
@@ -113,16 +170,16 @@ export function AddEntryForm({
         <Field label="Merchant">
           <Input value={merchant} onChange={(e) => setMerchant(e.target.value)} className={FIELD_COMPACT} />
         </Field>
-        <Field label="Note">
+        <Field label="Note" className="sm:col-span-2">
           <Input value={note} onChange={(e) => setNote(e.target.value)} className={FIELD_COMPACT} />
         </Field>
         <div className="sm:col-span-2">
-          <button type="submit" disabled={busy} className={PRIMARY_BUTTON}>
-            {busy ? "Saving..." : "Add"}
+          <button type="submit" disabled={busy} className={cn(PRIMARY_BUTTON, "w-full sm:w-auto")}>
+            {busy ? "Saving..." : "Add entry"}
           </button>
         </div>
       </form>
-      <CategoryList />
+      <CategoryList categories={categories} />
     </details>
   );
 }
@@ -130,16 +187,19 @@ export function AddEntryForm({
 function EntryEditor({
   entry,
   currencies,
+  categories,
   busy,
   onSave,
   onCancel,
 }: {
   entry: FinanceEntry;
   currencies: string[];
+  categories: string[];
   busy: boolean;
   onSave: (patch: FinancePatch) => Promise<void>;
   onCancel: () => void;
 }) {
+  const [kind, setKind] = useState(entry.kind as Kind);
   const [amount, setAmount] = useState(entry.amount);
   const [currency, setCurrency] = useState(entry.currency);
   const [date, setDate] = useState(entry.date);
@@ -153,6 +213,7 @@ function EntryEditor({
     // something different in another currency, so changing the currency
     // restates it, and the server refuses a currency change that does not.
     const patch: FinancePatch = {};
+    if (kind !== entry.kind) patch.kind = kind;
     if (amount !== entry.amount || currency !== entry.currency) patch.amount = amount;
     if (currency !== entry.currency) patch.currency = currency;
     if (date !== entry.date) patch.date = date;
@@ -167,7 +228,10 @@ function EntryEditor({
   }
 
   return (
-    <form onSubmit={submit} className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2">
+    <form onSubmit={submit} className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">
+      <Field label="Kind">
+        <KindSelect value={kind} onChange={setKind} />
+      </Field>
       <Field label="Amount">
         <Input required inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className={FIELD_COMPACT} />
       </Field>
@@ -189,7 +253,7 @@ function EntryEditor({
       <Field label="Merchant">
         <Input value={merchant} onChange={(e) => setMerchant(e.target.value)} className={FIELD_COMPACT} />
       </Field>
-      <Field label="Note">
+      <Field label="Note" className="sm:col-span-2">
         <Input value={note} onChange={(e) => setNote(e.target.value)} className={FIELD_COMPACT} />
       </Field>
       <div className="flex gap-2 sm:col-span-2">
@@ -200,6 +264,7 @@ function EntryEditor({
           Cancel
         </button>
       </div>
+      <CategoryList categories={categories} />
     </form>
   );
 }
@@ -208,6 +273,8 @@ function EntryEditor({
 // from fixtures, so what it draws can be checked without a server.
 export function FinanceReport({
   summary,
+  currency,
+  onCurrency,
   entries,
   total,
   editingId,
@@ -219,6 +286,8 @@ export function FinanceReport({
   filtered = false,
 }: {
   summary: FinanceSummary;
+  currency: string;
+  onCurrency: (code: string) => void;
   entries: FinanceEntry[];
   total: number;
   editingId: string | null;
@@ -226,71 +295,30 @@ export function FinanceReport({
   onEdit: (id: string | null) => void;
   onSave: (id: string, patch: FinancePatch) => Promise<void>;
   onDelete: (id: string) => void;
-  // The search and sort controls, drawn above the entries. A search can match
+  // The search, filter and sort controls, drawn above the entries. A search can match
   // nothing, so the section stays while filtered even with no rows to show.
   listControls?: ReactNode;
   filtered?: boolean;
 }) {
-  const empty = summary.totals.length === 0 && entries.length === 0;
-  // The strip is drawn in one currency, because bars in two would be
-  // comparing yen to dollars. The server puts the default first.
-  const stripCurrency = summary.totals[0]?.currency ?? summary.default_currency;
-  const dayRows = new Map(summary.by_day.filter((row) => row.currency === stripCurrency).map((row) => [row.day, row]));
-  const several = summary.totals.length > 1;
+  const flow = summary.flows.find((row) => row.currency === currency);
+  const empty = summary.flows.length === 0 && entries.length === 0;
+  const colors = new Map(summary.categories.map((category) => [category.name, category.color]));
+  const categoryNames = summary.categories.map((category) => category.name);
 
   return (
     <>
       {empty ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">
-          {`No spending logged in ${monthLabel(summary.month)}. Tell Eggy what you spent, or send a receipt on Telegram.`}
+        <p className="rounded-2xl bg-neutral-100 px-5 py-8 text-center text-sm leading-6 text-neutral-700">
+          {`No money logged in ${monthLabel(summary.month)} yet. Tell Eggy what you spent or earned, or add an entry below.`}
         </p>
       ) : (
         <>
-          <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {summary.totals.map((row) => (
-              <div key={row.currency} className="rounded-2xl bg-neutral-100 p-4">
-                <p className="text-2xl font-semibold tracking-tight tabular-nums">{`${row.currency} ${row.amount}`}</p>
-                <p className="mt-1 text-xs text-neutral-700">{entriesWord(row.count)}</p>
-              </div>
-            ))}
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <CardHeader title="By category" />
-            {summary.totals.map((currencyTotal) => (
-              <div key={currencyTotal.currency} className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
-                {several && <p className="text-[11.5px] font-semibold uppercase tracking-wide text-neutral-700">{currencyTotal.currency}</p>}
-                {summary.by_category
-                  .filter((row) => row.currency === currencyTotal.currency)
-                  .map((row) => (
-                    <div key={row.category} className="grid grid-cols-[7rem_1fr_auto] items-center gap-3 text-sm">
-                      <span className="truncate">{row.category}</span>
-                      <span className="h-2 rounded-full bg-neutral-200">
-                        <span className="block h-2 rounded-full bg-primary/80" style={{ width: percent(row.share) }} />
-                      </span>
-                      <span className="tabular-nums text-neutral-700">{row.amount}</span>
-                    </div>
-                  ))}
-              </div>
-            ))}
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <CardHeader title="By day" description={`Spending in ${stripCurrency}, day by day.`} />
-            <ol data-testid="day-strip" className="flex h-24 items-end gap-0.5 rounded-2xl bg-neutral-100 p-3">
-              {daysOfRange(summary.from, summary.to).map((day) => {
-                const row = dayRows.get(day);
-                return (
-                  <li
-                    key={day}
-                    title={row ? `${dayLabel(day)}: ${stripCurrency} ${row.amount}` : `${dayLabel(day)}: nothing`}
-                    className={`min-w-0 flex-1 rounded-sm ${row ? "bg-primary/80" : "bg-neutral-200"}`}
-                    style={{ height: row ? `${Math.max(row.share * 100, 4)}%` : "4%" }}
-                  />
-                );
-              })}
-            </ol>
-          </section>
+          {summary.flows.length > 1 && <CurrencySwitch currencies={summary.flows.map((row) => row.currency)} value={currency} onChange={onCurrency} />}
+          {flow && <Overview flow={flow} currency={currency} />}
+          {currency === summary.default_currency && <Insights items={summary.insights} />}
+          <Trend points={forCurrency(summary.trend, currency)} current={summary.month} />
+          <Spending lines={forCurrency(summary.spending, currency)} currency={currency} />
+          {flow && <DailyStrip days={forCurrency(summary.days, currency)} flow={flow} currency={currency} from={summary.from} to={summary.to} />}
         </>
       )}
 
@@ -301,30 +329,44 @@ export function FinanceReport({
           {entries.length === 0 && <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">No entries match.</p>}
           <ul className="flex flex-col gap-2">
             {entries.map((entry) => (
-              <li key={entry.id} className="flex flex-col gap-2 rounded-2xl bg-neutral-100 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+              <li key={entry.id} className="flex flex-col gap-3 rounded-2xl bg-neutral-100 px-4 py-3">
                 {editingId === entry.id ? (
                   <EntryEditor
                     entry={entry}
                     currencies={summary.currencies}
+                    categories={categoryNames}
                     busy={busy}
                     onSave={(patch) => onSave(entry.id, patch)}
                     onCancel={() => onEdit(null)}
                   />
                 ) : (
                   <>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{entry.merchant || entry.category}</p>
-                      <p className="truncate text-xs text-neutral-700">{`${entry.date} · ${entry.category}${entry.note ? ` · ${entry.note}` : ""}`}</p>
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{entryTitle(entry)}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-700">
+                          <CategoryChip name={entry.category} color={colors.get(entry.category) ?? ""} />
+                          <span className="tabular-nums">{entry.date}</span>
+                          {entry.note && <span className="truncate">{entry.note}</span>}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className={cn("text-sm font-semibold tabular-nums", isCashIn(entry.kind) && "text-emerald-700 dark:text-emerald-400")}>
+                          {signedAmount(entry.kind, entry.currency, entry.amount)}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-neutral-700">{KIND_LABEL[entry.kind as Kind] ?? entry.kind}</p>
+                      </div>
                     </div>
-                    <span className="w-fit rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-neutral-700">{entry.source}</span>
-                    <p className="text-sm font-semibold tabular-nums">{`${entry.currency} ${entry.amount}`}</p>
-                    <div className="flex gap-1">
-                      <button type="button" onClick={() => onEdit(entry.id)} className={SECONDARY_BUTTON}>
-                        Edit
-                      </button>
-                      <button type="button" disabled={busy} onClick={() => onDelete(entry.id)} className={SECONDARY_BUTTON}>
-                        Delete
-                      </button>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-neutral-700">{`via ${entry.source}`}</span>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => onEdit(entry.id)} className={SECONDARY_BUTTON}>
+                          Edit
+                        </button>
+                        <button type="button" disabled={busy} onClick={() => onDelete(entry.id)} className={SECONDARY_BUTTON}>
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -350,6 +392,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // The currency the owner picked for the figures; null follows the server's choice.
+  const [currency, setCurrency] = useState<string | null>(null);
   // The search, filter and sort the list is asked for. Changing it asks only
   // for the list again; the month's totals do not depend on it.
   const [view, setView] = useState<EntryView>(DEFAULT_VIEW);
@@ -432,8 +476,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
 
   return (
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-10 sm:px-7">
-        <header className="flex flex-col gap-1.5 pb-1">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-4 pb-11 pt-8 sm:px-7 sm:pt-10">
+        <header className="flex flex-col gap-3 pb-1">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
             {onClose && (
@@ -448,11 +492,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               </button>
             )}
           </div>
-          <p className="max-w-2xl text-sm leading-6 text-neutral-700">
-            Money Eggy has logged for you. Add entries in chat, or send a receipt on Telegram.
-          </p>
           {summary && (
-            <div className="mt-3 flex items-center gap-1 self-start">
+            <div className="flex items-center gap-1 self-start">
               <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(summary.month, -1))} className={SECONDARY_BUTTON}>
                 ‹
               </button>
@@ -470,6 +511,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
           <>
             <FinanceReport
               summary={summary}
+              currency={activeCurrency(summary, currency)}
+              onCurrency={setCurrency}
               entries={list.entries}
               total={list.total}
               editingId={editingId}
@@ -478,7 +521,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               listControls={
                 <FinanceToolbar
                   view={view}
-                  categories={[...new Set(summary.by_category.map((row) => row.category))].sort()}
+                  categories={summary.categories.map((category) => category.name)}
                   onChange={(change) => setView((current) => ({ ...current, ...change }))}
                   onAdd={() => {
                     setAddOpen(true);
@@ -498,10 +541,18 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
             <AddEntryForm
               currencies={summary.currencies}
               defaultCurrency={summary.default_currency}
+              categories={summary.categories.map((category) => category.name)}
               busy={busy}
               open={addOpen}
               onOpenChange={setAddOpen}
               onCreate={(input) => mutate(() => createFinanceEntry(input), "Could not add the entry")}
+            />
+            <CategoriesPanel
+              categories={summary.categories}
+              palette={summary.palette}
+              busy={busy}
+              onColour={(name, color) => void mutate(() => updateFinanceCategory(name, { color }), "Could not save the colour")}
+              onRename={(from, to) => mutate(() => updateFinanceCategory(from, { rename: to }), "Could not rename the category")}
             />
           </>
         )}

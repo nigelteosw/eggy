@@ -13,6 +13,7 @@ import {
   type FinanceEntry,
   type FinanceSummary,
 } from "../src/api";
+import { CategoriesPanel } from "../src/FinanceCategories";
 import { AddEntryForm, FinanceReport } from "../src/FinancePage";
 import { FinanceSettingsView } from "../src/FinanceCard";
 import { daysOfRange, monthLabel, shiftMonth } from "../src/lib/finance";
@@ -35,37 +36,77 @@ test("a month's days are listed in full, including leap days", () => {
   expect(daysOfRange("2028-02-01", "2028-02-29")).toHaveLength(29);
 });
 
+// One month of SGD and JPY activity, as the server would answer it. SGD earned
+// 900.00 and spent 45.20; JPY spent 1200 on a trip.
 const summary: FinanceSummary = {
   month: "2026-10",
   from: "2026-10-01",
   to: "2026-10-31",
   currencies: ["USD", "EUR", "JPY", "GBP", "CNY", "AUD", "CAD", "CHF", "HKD", "SGD"],
   default_currency: "SGD",
-  totals: [
-    { currency: "SGD", amount: "45.20", count: 3 },
-    { currency: "JPY", amount: "1200", count: 1 },
+  palette: ["sky", "emerald", "amber", "rose"],
+  flows: [
+    {
+      currency: "SGD",
+      inflow: "900.00",
+      outflow: "45.20",
+      invested: "200.00",
+      net: "654.80",
+      net_invested: "200.00",
+      count: 4,
+      average_day: "1.51",
+      average_share: 0.0503,
+      savings_rate: 72.8,
+      change: { inflow: null, outflow: 50.7, invested: null, net: null },
+    },
+    {
+      currency: "JPY",
+      inflow: "0",
+      outflow: "1200",
+      invested: "0",
+      net: "-1200",
+      net_invested: "0",
+      count: 1,
+      average_day: "40",
+      average_share: 0.2,
+      savings_rate: null,
+      change: { inflow: null, outflow: null, invested: null, net: null },
+    },
   ],
-  by_category: [
-    { currency: "SGD", category: "food", amount: "30.00", count: 2, share: 1 },
-    { currency: "SGD", category: "transport", amount: "15.20", count: 1, share: 0.5067 },
-    { currency: "JPY", category: "travel", amount: "1200", count: 1, share: 1 },
+  trend: [
+    { month: "2026-09", currency: "SGD", inflow: "0", outflow: "30.00", invested: "0", net: "-30.00", inflow_share: 0, outflow_share: 0.0333 },
+    { month: "2026-10", currency: "SGD", inflow: "900.00", outflow: "45.20", invested: "200.00", net: "654.80", inflow_share: 1, outflow_share: 0.0502 },
+    { month: "2026-10", currency: "JPY", inflow: "0", outflow: "1200", invested: "0", net: "-1200", inflow_share: 0, outflow_share: 1 },
   ],
-  by_day: [
+  spending: [
+    { currency: "SGD", category: "food", color: "rose", amount: "30.00", count: 2, share: 0.6637, previous: "20.00", change: 50 },
+    { currency: "SGD", category: "transport", color: "sky", amount: "15.20", count: 1, share: 0.3363, previous: "0", change: null },
+    { currency: "JPY", category: "travel", color: "sky", amount: "1200", count: 1, share: 1, previous: "0", change: null },
+  ],
+  days: [
     { currency: "SGD", day: "2026-10-01", amount: "30.00", share: 1 },
     { currency: "SGD", day: "2026-10-02", amount: "15.20", share: 0.5067 },
     { currency: "JPY", day: "2026-10-02", amount: "1200", share: 1 },
   ],
+  categories: [
+    { name: "food", count: 2, color: "rose" },
+    { name: "transport", count: 1, color: "sky" },
+    { name: "travel", count: 1, color: "sky" },
+  ],
+  insights: ["You kept 72.8% of what came in", "Food is up 50% on last month"],
 };
 
 const entries: FinanceEntry[] = [
-  { id: "e1", date: "2026-10-02", amount: "15.20", currency: "SGD", category: "transport", merchant: "Grab", note: "", source: "chat" },
-  { id: "e2", date: "2026-10-01", amount: "30.00", currency: "SGD", category: "food", merchant: "Ya Kun", note: "with tip", source: "photo" },
+  { id: "e1", kind: "expense", date: "2026-10-02", amount: "15.20", currency: "SGD", category: "transport", merchant: "Grab", note: "", source: "chat" },
+  { id: "e2", kind: "expense", date: "2026-10-01", amount: "30.00", currency: "SGD", category: "food", merchant: "Ya Kun", note: "with tip", source: "photo" },
 ];
 
 function report(over: Partial<Parameters<typeof FinanceReport>[0]> = {}) {
   return renderToStaticMarkup(
     createElement(FinanceReport, {
       summary,
+      currency: "SGD",
+      onCurrency: () => {},
       entries,
       total: entries.length,
       editingId: null,
@@ -78,66 +119,113 @@ function report(over: Partial<Parameters<typeof FinanceReport>[0]> = {}) {
   );
 }
 
-test("the report shows one total per currency, the default first", () => {
+test("the page offers a currency switch and draws one currency at a time", () => {
   const html = report();
-  expect(html).toContain("45.20");
-  expect(html).toContain("3 entries");
-  expect(html).toContain("1200");
-  expect(html).toContain("1 entry");
-  expect(html.indexOf("45.20")).toBeLessThan(html.indexOf("1200"));
+  expect(html).toContain('aria-label="Currency"');
+  expect(html).toContain("SGD 654.80");
+  expect(html).toContain("SGD 45.20");
+  // JPY's figures belong to the JPY view, not this one.
+  expect(html).not.toContain("JPY 1200");
+  const jpy = report({ currency: "JPY" });
+  expect(jpy).toContain("JPY 1200");
+  expect(jpy).not.toContain("SGD 45.20");
 });
 
-test("category bars are sized by the server's share, with no arithmetic on money", () => {
+test("the overview says what was left over, how much was saved, and how spending moved", () => {
   const html = report();
-  expect(html).toContain('style="width:100.00%"');
-  expect(html).toContain('style="width:50.67%"');
-  for (const category of ["food", "transport", "travel"]) expect(html).toContain(category);
+  expect(html).toContain("Left over this month");
+  expect(html).toContain("72.8% saved");
+  expect(html).toContain("▲ 50.7%");
+  expect(html).toContain("Money in");
+  expect(html).toContain("Invested");
 });
 
-test("the daily strip draws every day of the month in the default currency", () => {
+test("a negative figure is marked as negative", () => {
+  const html = report({ currency: "JPY" });
+  expect(html).toContain("-JPY 1200");
+  expect(html).toContain("text-eg-red-ink");
+});
+
+test("insights show for the default currency only", () => {
+  expect(report()).toContain("You kept 72.8% of what came in");
+  expect(report({ currency: "JPY" })).not.toContain("You kept 72.8%");
+});
+
+test("the spending bar is split by category in its own colour, with each share and movement", () => {
+  const html = report();
+  expect(html).toContain('aria-label="Spending split by category"');
+  expect(html).toContain('style="width:66.37%;background-color:#f43f5e"');
+  expect(html).toContain('style="width:33.63%;background-color:#0ea5e9"');
+  expect(html).toContain("66%");
+  expect(html).toContain("▲ 50%");
+});
+
+test("the trend shows six months of paired bars with the month's net beneath", () => {
+  const html = report();
+  const trend = html.match(/aria-label="Money in and out by month"[^>]*>(.*?)<\/ol>/s)?.[1] ?? "";
+  expect(trend.match(/<li/g)).toHaveLength(2);
+  expect(html).toContain("Sep");
+  expect(html).toContain("Oct");
+  expect(html).toContain("654.80");
+});
+
+test("the daily strip draws every day of the month in the chosen currency, with the average line", () => {
   const html = report();
   const strip = html.match(/data-testid="day-strip"[^>]*>(.*?)<\/ol>/s)?.[1] ?? "";
   expect(strip.match(/<li/g)).toHaveLength(31);
   // The JPY row is another currency's day, not part of this strip.
   expect(strip).not.toContain("1200");
+  expect(html).toContain("border-dashed");
+  expect(html).toContain("bottom:5.03%");
 });
 
-test("entries list their details and offer edit and delete", () => {
-  const html = report();
+test("entries show a coloured category, a signed amount, and the kind they were filed as", () => {
+  const html = report({
+    entries: [
+      ...entries,
+      { id: "e3", kind: "income", date: "2026-10-03", amount: "900.00", currency: "SGD", category: "salary", merchant: "", note: "", source: "panel" },
+    ],
+    total: 3,
+  });
   for (const text of ["Grab", "Ya Kun", "2026-10-02", "with tip"]) expect(html).toContain(text);
-  expect(html).toContain("photo");
-  expect(html.match(/>Edit</g)).toHaveLength(2);
-  expect(html.match(/>Delete</g)).toHaveLength(2);
+  expect(html).toContain("via photo");
+  expect(html).toContain("−SGD 15.20");
+  expect(html).toContain("+SGD 900.00");
+  expect(html).toContain("Received");
+  expect(html.match(/>Edit</g)).toHaveLength(3);
 });
 
-test("an entry being edited shows its fields instead of its row", () => {
+test("an entry being edited shows its fields instead of its row, with its kind", () => {
   const html = report({ editingId: "e2" });
   expect(html).toContain('value="30.00"');
   expect(html).toContain("Save");
   expect(html).toContain("Cancel");
+  expect(html).toContain('aria-label="Kind"');
   // The other row is untouched.
   expect(html.match(/>Edit</g)).toHaveLength(1);
 });
 
 test("an empty month says so and says how to start", () => {
   const html = report({
-    summary: { ...summary, totals: [], by_category: [], by_day: [] },
+    summary: { ...summary, flows: [], trend: [], spending: [], days: [], insights: [] },
     entries: [],
     total: 0,
   });
-  expect(html).toContain("No spending logged in October 2026");
-  expect(html).toContain("Telegram");
+  expect(html).toContain("No money logged in October 2026");
+  expect(html).toContain("Tell Eggy");
 });
 
 test("a list that was cut short says how much is not shown", () => {
-  expect(report({ total: 250 })).toContain("248 more");
+  expect(report({ total: 250 })).toContain("248 more not shown");
   expect(report()).not.toContain("more not shown");
 });
 
-test("the add-entry form offers the supported currencies with the default selected", () => {
+test("the add-entry form offers the four kinds with spending first, and the supported currencies", () => {
   const html = renderToStaticMarkup(
-    createElement(AddEntryForm, { currencies: summary.currencies, defaultCurrency: "SGD", busy: false, onCreate: async () => true }),
+    createElement(AddEntryForm, { currencies: summary.currencies, defaultCurrency: "SGD", categories: ["food"], busy: false, onCreate: async () => true }),
   );
+  for (const kind of ["Spent", "Received", "Invested", "Withdrawn"]) expect(html).toContain(`>${kind}<`);
+  expect(html).toMatch(/aria-checked="true"[^>]*>Spent</);
   const options = [...html.matchAll(/<option[^>]*value="([A-Z]{3})"/g)].map((m) => m[1]);
   expect(options).toEqual(summary.currencies);
   expect(html).toMatch(/<option[^>]*value="SGD"[^>]*selected|<option[^>]*selected[^>]*value="SGD"/);
@@ -145,6 +233,16 @@ test("the add-entry form offers the supported currencies with the default select
   // Categories are suggestions, not an enum: the field is free text.
   expect(html).toContain('<datalist id="finance-categories">');
   expect(html).toContain('value="groceries"');
+});
+
+test("the categories panel shows each category's palette, with its own colour selected", () => {
+  const html = renderToStaticMarkup(
+    createElement(CategoriesPanel, { categories: summary.categories, palette: summary.palette, busy: false, onColour: () => {}, onRename: async () => true }),
+  );
+  expect(html).toContain("Renaming a category to the name of another merges");
+  const rose = html.match(/aria-label="rose"[^>]*aria-checked="(true|false)"|aria-checked="(true|false)"[^>]*aria-label="rose"/);
+  expect(rose).not.toBeNull();
+  expect(rose?.[0]).toContain('aria-checked="true"');
 });
 
 // --- API calls, through a recorded fetch -------------------------------------

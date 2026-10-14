@@ -158,7 +158,7 @@ func TestOpenMigratesPendingTelegramPairingsIntoIdentityLinks(t *testing.T) {
 	if _, err := store.db.Exec(`INSERT INTO telegram_pairings (account_id, code_hash, expires_at, claim_id) VALUES (?, ?, ?, NULL)`, "nigel", hash[:], now.Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.Exec(`UPDATE schema_meta SET value = ? WHERE key = ?`, strconv.Itoa(MachineStateVersion-1), machineStateVersionKey); err != nil {
+	if _, err := store.db.Exec(`UPDATE schema_meta SET value = ? WHERE key = ?`, strconv.Itoa(localAuthVersion-1), machineStateVersionKey); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {

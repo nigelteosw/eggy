@@ -42,7 +42,7 @@ creating or cancelling asks.
 
 | Tool | Effect | What it does |
 | --- | --- | --- |
-| `finance` | internal | `log`, `update` and `delete` an expense; `list` entries and `summary` totals for a date range |
+| `finance` | internal | `log`, `update` and `delete` an entry of any kind (spent, received, invested, withdrawn); `list` entries and `summary` money in, out and invested for a date range |
 
 See [Finance](/eggy/configure/finance/).
 

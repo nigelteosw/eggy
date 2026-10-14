@@ -165,6 +165,9 @@ func upgradeBeforeLocalAuth(db *sql.DB) error {
 	if err := refuseNewerMachineState(db); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "finance_entries", "kind", financeKindColumn); err != nil {
+		return err
+	}
 	if err := ensureThreadWorkspaceColumns(db); err != nil {
 		return err
 	}

@@ -36,7 +36,15 @@ import (
 // in place by Open: it is the offline cutover eggyd --migrate-local-login
 // runs after backing up the home, because it goes together with a rewrite
 // of config.yaml.
-const MachineStateVersion = localAuthVersion
+//
+// 11 is finance kinds: an entry is spending, income, an investment or a
+// withdrawal, and categories carry a colour. A version-10 binary would read
+// income as spending and ignore the colours, so it is refused rather than
+// trusted with the new column.
+const MachineStateVersion = financeKindsVersion
+
+// financeKindsVersion is the version that added finance entry kinds.
+const financeKindsVersion = 11
 
 const machineStateVersionKey = "machine_state_version"
 

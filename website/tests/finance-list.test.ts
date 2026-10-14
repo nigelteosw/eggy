@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DEFAULT_VIEW, SORT_KEYS, chooseSort, isFiltered, listRequest, type EntryView } from "../src/lib/finance-list";
+import { DEFAULT_VIEW, SORT_KEYS, chooseSort, filterCount, isFiltered, listRequest, type EntryView } from "../src/lib/finance-list";
 
 const range = { from: "2026-10-01", to: "2026-10-31" };
 
@@ -43,4 +43,23 @@ test("a view is filtered only by a search or a category, not by its sort", () =>
   expect(isFiltered({ ...DEFAULT_VIEW, query: "tea" })).toBe(true);
   expect(isFiltered({ ...DEFAULT_VIEW, category: "food" })).toBe(true);
   expect(isFiltered({ ...DEFAULT_VIEW, query: "   " })).toBe(false);
+});
+
+test("a kind filter narrows the list and the request names it only when set", () => {
+  const view = { ...DEFAULT_VIEW, kind: "income" };
+  expect(isFiltered(view)).toBe(true);
+  expect(listRequest({ from: "2026-10-01", to: "2026-10-31" }, view)).toEqual({
+    from: "2026-10-01",
+    to: "2026-10-31",
+    kind: "income",
+    sort: "date",
+    order: "desc",
+  });
+  expect(listRequest({ from: "2026-10-01", to: "2026-10-31" }, DEFAULT_VIEW)).not.toHaveProperty("kind");
+});
+
+test("the filter badge counts the kind and category choices in use", () => {
+  expect(filterCount(DEFAULT_VIEW)).toBe(0);
+  expect(filterCount({ ...DEFAULT_VIEW, kind: "invest" })).toBe(1);
+  expect(filterCount({ ...DEFAULT_VIEW, kind: "invest", category: "stocks" })).toBe(2);
 });

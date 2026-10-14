@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowsUpDownIcon, ChevronDownIcon, PlusIcon, SearchIcon, SlidersIcon } from "./components/ui/icons";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "./components/ui/form";
 import { Select } from "./components/ui/select";
+import { KIND_LABEL, KINDS } from "./lib/finance";
+import { SEARCH_DEBOUNCE_MS, SORTS, SORT_KEYS, chooseSort, filterCount, isFiltered, type EntryView } from "./lib/finance-list";
 import { cn } from "./lib/utils";
-import { SEARCH_DEBOUNCE_MS, SORTS, SORT_KEYS, chooseSort, isFiltered, type EntryView } from "./lib/finance-list";
 
 type Menu = "filter" | "sort" | null;
 
-function ToolButton({ label, active, expanded, onClick, children }: { label: string; active: boolean; expanded: boolean; onClick: () => void; children: ReactNode }) {
+function ToolButton({ label, active, expanded, badge, onClick, children }: { label: string; active: boolean; expanded: boolean; badge?: number; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
@@ -16,16 +17,21 @@ function ToolButton({ label, active, expanded, onClick, children }: { label: str
       aria-expanded={expanded}
       title={label}
       onClick={onClick}
-      className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30", active ? "bg-neutral-200 text-foreground" : "text-neutral-700")}
+      className={cn(
+        "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
+        active ? "bg-neutral-200 text-foreground" : "text-neutral-700",
+      )}
     >
       {children}
+      {badge ? <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{badge}</span> : null}
     </button>
   );
 }
 
 // The search, filter and sort controls above the entries, with Add at the end.
 // Search is debounced: a keystroke waits briefly before the list is asked again.
-// Filter and sort open small panels; a click outside or Escape closes them.
+// Filter and sort open small panels; a click outside or Escape closes them. On a
+// phone the panels open full width under the controls, so they stay in reach.
 export function FinanceToolbar({
   view,
   categories,
@@ -80,11 +86,22 @@ export function FinanceToolbar({
       </div>
 
       <div className="relative">
-        <ToolButton label="Filter entries" active={isFiltered(view)} expanded={menu === "filter"} onClick={() => toggle("filter")}>
+        <ToolButton label="Filter entries" active={isFiltered(view)} badge={filterCount(view)} expanded={menu === "filter"} onClick={() => toggle("filter")}>
           <SlidersIcon className="h-[18px] w-[18px]" />
         </ToolButton>
         {menu === "filter" && (
-          <div className="absolute right-0 top-full z-20 mt-2 w-60 rounded-2xl border border-neutral-200 bg-card p-3 shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-2 flex w-[min(15rem,calc(100vw-2.5rem))] flex-col gap-3 rounded-2xl border border-neutral-200 bg-card p-3 shadow-lg">
+            <label className={`flex flex-col gap-1.5 ${FIELD_LABEL}`}>
+              Kind
+              <Select value={view.kind} onChange={(event) => onChange({ kind: event.target.value })} aria-label="Kind">
+                <option value="">All kinds</option>
+                {KINDS.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {KIND_LABEL[kind]}
+                  </option>
+                ))}
+              </Select>
+            </label>
             <label className={`flex flex-col gap-1.5 ${FIELD_LABEL}`}>
               Category
               <Select value={view.category} onChange={(event) => onChange({ category: event.target.value })} aria-label="Category">
@@ -119,7 +136,7 @@ export function FinanceToolbar({
                     onChange({ sort: next.sort, order: next.order });
                     setMenu(null);
                   }}
-                  className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-neutral-100"
+                  className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-neutral-100"
                 >
                   <span>{SORTS[key].label}</span>
                   {active && <span className="text-xs text-neutral-700">{view.order === "asc" ? "↑" : "↓"}</span>}
@@ -132,7 +149,7 @@ export function FinanceToolbar({
 
       <button type="button" onClick={onAdd} className={cn(PRIMARY_BUTTON, "flex h-11 items-center gap-1.5")}>
         <PlusIcon className="h-4 w-4" />
-        Add
+        <span className="hidden sm:inline">Add</span>
         <ChevronDownIcon className="h-3.5 w-3.5" />
       </button>
     </div>

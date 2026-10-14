@@ -646,10 +646,11 @@ export function getTrace(id: string): Promise<TraceDetail> {
 //
 // Every amount here is text, formatted by the server in the currency's own
 // minor unit ("14.50", "1200" for JPY). Nothing in the browser adds, compares
-// or converts money: bar lengths arrive as a share the server computed.
+// or converts money: bar lengths and percentages arrive computed.
 
 export type FinanceEntry = {
   id: string;
+  kind: string;
   date: string;
   amount: string;
   currency: string;
@@ -661,19 +662,67 @@ export type FinanceEntry = {
 
 export type FinanceEntryList = { entries: FinanceEntry[]; total: number };
 
+// One currency's money for the month. Inflow is income and withdrawals; outflow
+// is spending. The change figures are percentages against last month, null when
+// last month had nothing to measure from.
+export type FinanceFlow = {
+  currency: string;
+  inflow: string;
+  outflow: string;
+  invested: string;
+  net: string;
+  net_invested: string;
+  count: number;
+  average_day: string;
+  average_share: number;
+  savings_rate: number | null;
+  change: { inflow: number | null; outflow: number | null; invested: number | null; net: number | null };
+};
+
+export type FinanceTrendPoint = {
+  month: string;
+  currency: string;
+  inflow: string;
+  outflow: string;
+  invested: string;
+  net: string;
+  inflow_share: number;
+  outflow_share: number;
+};
+
+export type FinanceSpending = {
+  currency: string;
+  category: string;
+  color: string;
+  amount: string;
+  count: number;
+  share: number;
+  previous: string;
+  change: number | null;
+};
+
+export type FinanceDay = { currency: string; day: string; amount: string; share: number };
+
+export type FinanceCategory = { name: string; count: number; color: string };
+
 export type FinanceSummary = {
   month: string;
   from: string;
   to: string;
   currencies: string[];
   default_currency: string;
-  totals: { currency: string; amount: string; count: number }[];
-  by_category: { currency: string; category: string; amount: string; count: number; share: number }[];
-  by_day: { currency: string; day: string; amount: string; share: number }[];
+  palette: string[];
+  flows: FinanceFlow[];
+  trend: FinanceTrendPoint[];
+  spending: FinanceSpending[];
+  days: FinanceDay[];
+  categories: FinanceCategory[];
+  insights: string[];
 };
 
 export type FinanceInput = {
   amount: string;
+  kind?: string;
   category: string;
   currency?: string;
   date?: string;
@@ -691,7 +740,7 @@ export function getFinanceSummary(month?: string): Promise<FinanceSummary> {
 }
 
 export function getFinanceEntries(
-  filter: { from?: string; to?: string; category?: string; q?: string; sort?: string; order?: string; limit?: number } = {},
+  filter: { from?: string; to?: string; kind?: string; category?: string; q?: string; sort?: string; order?: string; limit?: number } = {},
 ): Promise<FinanceEntryList> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {
@@ -711,6 +760,12 @@ export function updateFinanceEntry(id: string, patch: FinancePatch): Promise<Fin
 
 export function deleteFinanceEntry(id: string): Promise<FinanceEntry> {
   return request<FinanceEntry>(`/api/finance/entries/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// Colours a category, renames it, or both. A rename into an existing category
+// merges the two, and the reply names the category it ended up as.
+export function updateFinanceCategory(name: string, change: { color?: string; rename?: string }): Promise<{ name: string }> {
+  return request<{ name: string }>(`/api/finance/categories/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(change) });
 }
 
 // Skills are owner-authored Markdown shared by the whole deployment. A row with

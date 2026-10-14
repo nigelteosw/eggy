@@ -368,6 +368,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("PATCH /api/finance/entries/{id}", guard(newFinanceUpdateHandler(webConfig.Finance)))
 		mux.Handle("DELETE /api/finance/entries/{id}", guard(newFinanceDeleteHandler(webConfig.Finance)))
 		mux.Handle("GET /api/finance/summary", guard(newFinanceSummaryHandler(webConfig.Finance)))
+		mux.Handle("PUT /api/finance/categories/{name}", guard(newFinanceCategoryHandler(webConfig.Finance)))
 	}
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))

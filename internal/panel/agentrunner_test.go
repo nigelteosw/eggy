@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -113,13 +114,13 @@ func TestAgentRunForeignRunIs404(t *testing.T) {
 	}
 }
 
-// The browser's view of a run carries no brief and no account: the brief is
-// the owner's text, and the account is nothing the page needs.
-func TestAgentRunViewOmitsBriefAndAccount(t *testing.T) {
-	fake := &fakeAgentRunner{runs: map[string]ports.AgentRun{"r1": {ID: "r1", Repository: "eggy", State: ports.AgentRunRunning, Brief: "secret brief text", AccountID: "a"}}}
+// The browser's view of a run carries the owner's brief, so the run page can
+// show the task asked for, but no account: the account is nothing the page needs.
+func TestAgentRunViewCarriesBriefButNotAccount(t *testing.T) {
+	fake := &fakeAgentRunner{runs: map[string]ports.AgentRun{"r1": {ID: "r1", Repository: "eggy", State: ports.AgentRunRunning, Brief: "fix the docs", AccountID: "a"}}}
 	rec := do(t, serveAgentRunner(fake), http.MethodGet, "/api/agent-runner/runs/r1", "")
 	body := rec.Body.String()
-	if rec.Code != http.StatusOK || strings.Contains(body, "secret brief text") || strings.Contains(body, "account") {
+	if rec.Code != http.StatusOK || !strings.Contains(body, "fix the docs") || strings.Contains(body, "account") {
 		t.Fatalf("status %d body %s", rec.Code, body)
 	}
 }
@@ -285,5 +286,22 @@ func TestAgentRunStepsServeTheRecord(t *testing.T) {
 	}
 	if rec := do(t, mux, http.MethodGet, "/api/agent-runner/runs/not-mine/steps", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("foreign run status = %d, want 404", rec.Code)
+	}
+}
+
+// The run page shows what a run spent and where it went, so the browser view
+// carries the usage and the branch names. The brief stays out.
+func TestAgentRunViewCarriesUsageAndBranches(t *testing.T) {
+	fake := &fakeAgentRunner{runs: map[string]ports.AgentRun{"r1": {
+		ID: "r1", Repository: "eggy", State: ports.AgentRunCompleted, BaseBranch: "main", Branch: "eggy/r1",
+		UsedTokens: 150000, UsedActive: 95 * time.Second, PRTitle: "Paginate finance entries",
+	}}}
+	rec := do(t, serveAgentRunner(fake), http.MethodGet, "/api/agent-runner/runs/r1", "")
+	var got agentRunJSON
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.BaseBranch != "main" || got.Branch != "eggy/r1" || got.UsedTokens != 150000 || got.ActiveSeconds != 95 || got.PRTitle != "Paginate finance entries" {
+		t.Fatalf("view = %+v", got)
 	}
 }

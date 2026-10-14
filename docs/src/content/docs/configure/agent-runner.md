@@ -63,13 +63,17 @@ Eggy cannot start a run itself. Its `agent_runner` tool has no start action, bec
 
 ## Follow a run
 
-**Runs** on the Agent Runner page shows every run as a card, three to a row. Each card leads with the run's issue: why it failed, the question it is asking you, the pull request it opened, or the publish stage it has reached.
+The Agent Runner page has two tabs. **Agent Runner** holds the start form, the most recent runs, and your repositories. **Previous runs** holds every run, filtered by **Needs you**, **In progress**, **Completed** or **Stopped**, with a count on each. While a run is waiting for your answer, a banner on both tabs links to it.
 
-Open a card for the full run:
+Open a run for its full story:
 
+- **The task**, the change you asked for, in full.
+- **The question or the pull request** comes first: the answer form when the agent is asking you, the pull request title and link when it opened one.
 - **Why it stopped**, for a failed, cancelled or interrupted run, with **Stopped at** naming the publish stage it reached.
-- **What happened**, the run's steps in order: when it started, each tool call and whether it succeeded, questions, publish stages, and the outcome. A tool step records the tool's name and whether it worked, not what it returned.
-- **What the run produced**, the summary or output, and the pull request link when there is one.
+- **Progress**, the publish checkpoints (Committed, Pushed, Pull request opened, Delivered) with the ones it reached ticked.
+- **Working time**, **Tokens**, the base branch, and the working branch.
+- **What happened**, the run's steps in order: when it started, each tool call and whether it succeeded, questions, publish stages, and the outcome. A tool step records the tool's name and whether it worked, not what it returned. The model's own calls are hidden until you choose to show them.
+- **What the run produced**, the summary or output, collapsed by default.
 
 The same status is available in Telegram with `/code status`.
 
@@ -91,7 +95,7 @@ Cancel a run from its page, or with `/code cancel <id>`.
 | Limit | Value |
 | --- | --- |
 | Active working time per run | 30 minutes |
-| Model tokens per run | 2,000,000 |
+| New model tokens per run (prompt tokens served from the cache do not count) | 2,000,000 |
 | Steps in the coding loop | 200 |
 | Output kept per run | 2 MiB |
 | Disk for all run workspaces | 10 GiB |

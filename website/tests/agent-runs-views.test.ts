@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentRunDetailView, AgentRunsGrid } from "../src/AgentRunsView";
+import { AgentRunDetailView, AgentRunsList } from "../src/AgentRunsView";
 import type { AgentRun } from "../src/api";
 
 const base: AgentRun = { id: "r1", repository: "eggy", state: "running", draft: false, created_at: "2026-10-13T12:59:40Z" };
@@ -13,18 +13,82 @@ const failed: AgentRun = {
   failure: ".github/workflows/ci.yml: workflow and CI files are not changed by Eggy",
 };
 
-test("runs are cards in a three-wide grid, each leading with its issue", () => {
+test("the runs list shows each run's headline, with a count on every filter", () => {
   const markup = renderToStaticMarkup(
-    createElement(AgentRunsGrid, { runs: [base, failed], onBack: () => {}, onOpen: () => {} }),
+    createElement(AgentRunsList, { runs: [base, failed], filter: "all", onFilterChange: () => {}, onOpen: () => {} }),
   );
-  expect(markup).toContain("md:grid-cols-3");
   expect(markup).toContain(failed.failure!.replace(/'/g, "&#x27;"));
-  expect(markup.split("<button").length - 1).toBeGreaterThanOrEqual(3);
+  expect(markup).toContain("Needs you");
+  expect(markup).toContain('aria-pressed="true"');
 });
 
-test("with no runs the grid says so rather than rendering an empty page", () => {
-  const markup = renderToStaticMarkup(createElement(AgentRunsGrid, { runs: [], onBack: () => {}, onOpen: () => {} }));
-  expect(markup).toContain("No runs yet.");
+test("a filter keeps only the runs it names, and says so when none match", () => {
+  const markup = renderToStaticMarkup(
+    createElement(AgentRunsList, { runs: [base, failed], filter: "needs_you", onFilterChange: () => {}, onOpen: () => {} }),
+  );
+  expect(markup).toContain("Nothing is waiting for you.");
+  expect(markup).not.toContain(failed.failure!.replace(/'/g, "&#x27;"));
+});
+
+test("with no runs at all the list says how to start one", () => {
+  const markup = renderToStaticMarkup(
+    createElement(AgentRunsList, { runs: [], filter: "all", onFilterChange: () => {}, onOpen: () => {} }),
+  );
+  expect(markup).toContain("No runs yet. Start one from the Agent Runner tab.");
+});
+
+test("a run waiting for an answer shows the question and the answer form first", () => {
+  const waiting: AgentRun = { ...base, state: "waiting_for_user", question: "Which file?" };
+  const markup = renderToStaticMarkup(
+    createElement(AgentRunDetailView, { run: waiting, busy: false, onBack: () => {}, onCancel: () => {}, onAnswer: () => {} }),
+  );
+  expect(markup).toContain("The agent is asking you");
+  expect(markup).toContain("Which file?");
+  expect(markup).toContain('aria-label="Your answer"');
+});
+
+test("a completed run leads with its pull request title and link, and its checkpoints", () => {
+  const done: AgentRun = {
+    ...base,
+    state: "completed",
+    stage: "delivered",
+    pr_url: "https://github.com/o/eggy/pull/9",
+    pr_title: "Paginate finance entries",
+  };
+  const markup = renderToStaticMarkup(
+    createElement(AgentRunDetailView, { run: done, busy: false, onBack: () => {}, onCancel: () => {}, onAnswer: () => {} }),
+  );
+  expect(markup).toContain("Paginate finance entries");
+  expect(markup).toContain("https://github.com/o/eggy/pull/9");
+  expect(markup).toContain("Pull request opened");
+  expect(markup).not.toContain("Cancel run");
+});
+
+test("model calls are hidden by default, with a count to show them", () => {
+  const steps = [
+    { seq: 1, at: "2026-10-13T12:59:40Z", kind: "started", text: "coding run started" },
+    { seq: 2, at: "2026-10-13T12:59:41Z", kind: "model", text: "model call: 900 new tokens" },
+    { seq: 3, at: "2026-10-13T12:59:42Z", kind: "tool", text: "read: ok" },
+  ];
+  const markup = renderToStaticMarkup(
+    createElement(AgentRunDetailView, { run: base, steps, busy: false, onBack: () => {}, onCancel: () => {}, onAnswer: () => {} }),
+  );
+  expect(markup).toContain("Show 1 model call");
+  expect(markup).not.toContain("model call: 900 new tokens");
+  expect(markup).toContain("read: ok");
+});
+
+test("the run page shows the task that was asked, and a row leads with its first line", () => {
+  const withTask: AgentRun = { ...base, brief: "Paginate the finance list\nkeep the filters" };
+  const page = renderToStaticMarkup(
+    createElement(AgentRunDetailView, { run: withTask, busy: false, onBack: () => {}, onCancel: () => {}, onAnswer: () => {} }),
+  );
+  expect(page).toContain("Paginate the finance list");
+  const rows = renderToStaticMarkup(
+    createElement(AgentRunsList, { runs: [withTask], filter: "all", onFilterChange: () => {}, onOpen: () => {} }),
+  );
+  expect(rows).toContain("Paginate the finance list");
+  expect(rows).not.toContain("keep the filters");
 });
 
 test("a failed run's page leads with why it stopped and what it stopped at", () => {

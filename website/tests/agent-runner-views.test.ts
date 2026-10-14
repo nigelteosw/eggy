@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AddRepositoryForm, AgentRunStartForm } from "../src/AgentRunnerPage";
+import { AddRepositoryForm, AgentRunStartForm, AgentRunnerPage } from "../src/AgentRunnerPage";
 import { AgentRunnerSettingsView } from "../src/AgentRunnerCard";
 import { GitHubTokenView } from "../src/GitHubTokenField";
 import { runningExtensions } from "../src/extensions";
@@ -105,4 +105,12 @@ test("the add-repository form refuses an empty name or URL before sending", () =
 test("the Agent Runner page owns its scrolling, as the finance page does", async () => {
   const source = await Bun.file(new URL("../src/AgentRunnerPage.tsx", import.meta.url)).text();
   expect(source).toContain("h-full min-h-0 overflow-y-auto");
+});
+
+test("the Agent Runner window opens on its start tab, with the previous runs tab beside it", () => {
+  const markup = renderToStaticMarkup(createElement(AgentRunnerPage, { onClose: () => {}, onSessionExpired: () => {} }));
+  expect(markup).toContain('role="tablist"');
+  expect(markup).toContain("Previous runs");
+  expect(markup).toContain("Start a run");
+  expect(markup).toContain('aria-selected="true"');
 });

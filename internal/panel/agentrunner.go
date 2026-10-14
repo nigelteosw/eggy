@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
@@ -58,27 +59,39 @@ type AgentPAT struct {
 	Repositories map[string]bool `json:"repositories,omitempty"`
 }
 
-// agentRunJSON is a run as the browser sees it. It carries no brief, no
-// origin and no account: the brief is the owner's own text, shown from the
-// run's page, and the rest is nothing the browser needs.
+// agentRunJSON is a run as the browser sees it. It carries the brief, which is
+// the owner's own task text, shown to the owner on their own run. It carries no
+// origin and no account: those are nothing the browser needs.
 type agentRunJSON struct {
 	ID         string `json:"id"`
 	Repository string `json:"repository"`
+	Brief      string `json:"brief"`
+	BaseBranch string `json:"base_branch"`
+	Branch     string `json:"branch,omitempty"`
 	State      string `json:"state"`
 	Stage      string `json:"stage,omitempty"`
 	Question   string `json:"question,omitempty"`
 	PRURL      string `json:"pr_url,omitempty"`
+	PRTitle    string `json:"pr_title,omitempty"`
 	Draft      bool   `json:"draft"`
 	Failure    string `json:"failure,omitempty"`
 	Output     string `json:"output,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	// UsedTokens is the run's new-work token spend, and ActiveSeconds its
+	// working time, both as the budget counts them.
+	UsedTokens    int64  `json:"used_tokens"`
+	ActiveSeconds int64  `json:"active_seconds"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 func agentRunView(run ports.AgentRun) agentRunJSON {
 	return agentRunJSON{
-		ID: run.ID, Repository: run.Repository, State: string(run.State), Stage: string(run.Stage),
-		Question: run.Question, PRURL: run.PRURL, Draft: run.Draft, Failure: run.Failure,
-		Output: run.Output, CreatedAt: run.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID: run.ID, Repository: run.Repository, Brief: run.Brief, BaseBranch: run.BaseBranch, Branch: run.Branch,
+		State: string(run.State), Stage: string(run.Stage),
+		Question: run.Question, PRURL: run.PRURL, PRTitle: run.PRTitle, Draft: run.Draft, Failure: run.Failure,
+		Output: run.Output, UsedTokens: run.UsedTokens, ActiveSeconds: int64(run.UsedActive / time.Second),
+		CreatedAt: run.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt: run.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 

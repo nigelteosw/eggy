@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { cn } from "./lib/utils";
 import {
   SessionExpiredError,
   addAgentRepository,
@@ -27,10 +28,11 @@ import {
   AGENT_START_COPY,
   MAX_CHECKS,
   parseChecks,
-  runHeadline,
   sandboxNotice,
+  waitingRuns,
+  type RunFilter,
 } from "./lib/agent-runner";
-import { AgentRunDetailView, AgentRunsGrid, Badge, Section } from "./AgentRunsView";
+import { AgentRunDetailView, AgentRunRow, AgentRunsList, Badge, Section } from "./AgentRunsView";
 
 // serverText joins a result's title and detail, so the page says what the
 // server did, including that Eggy is restarting, in the server's own words.
@@ -106,7 +108,7 @@ export function AgentRunStartForm({
   if (startable.length === 0) {
     return (
       <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-        No repository is ready. Add one above, restart Eggy if it says so, then
+        No repository is ready. Add one under Repositories, restart Eggy if it says so, then
         turn it on for your account.
       </p>
     );
@@ -345,6 +347,19 @@ function RepositoryCard({
   );
 }
 
+type Tab = "start" | "runs";
+
+// The page's two tabs. Setting up and starting a run is one; looking back at
+// what runs did is the other. The tab shows in the page, not in the address,
+// because the extension window has no address of its own.
+const TABS: { id: Tab; label: string }[] = [
+  { id: "start", label: "Agent Runner" },
+  { id: "runs", label: "Previous runs" },
+];
+
+// How many of the newest runs the start tab previews before "See all".
+const RECENT_RUNS = 3;
+
 export function AgentRunnerPage({
   onClose,
   onSessionExpired,
@@ -355,10 +370,11 @@ export function AgentRunnerPage({
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [repos, setRepos] = useState<AgentRepository[] | null>(null);
   const [runs, setRuns] = useState<AgentRun[]>([]);
-  // view is which page the window shows: the setup page, the grid of runs, or
-  // one run. The selected run is held by id so the 15-second refresh keeps it current.
-  const [view, setView] = useState<"setup" | "runs" | "run">("setup");
+  const [tab, setTab] = useState<Tab>("start");
+  // The selected run is held by id so the 15-second refresh keeps it current.
+  // The filter lives here too, so a run opened and closed keeps its filter.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<RunFilter>("all");
   const selected = runs.find((run) => run.id === selectedId) ?? null;
   const [steps, setSteps] = useState<AgentRunStep[]>([]);
   const [repository, setRepository] = useState("");
@@ -418,7 +434,7 @@ export function AgentRunnerPage({
   // They are kept in place while they reload: clearing them on every refresh
   // blanked the timeline every 15 seconds.
   useEffect(() => {
-    if (view !== "run" || !selectedId) {
+    if (tab !== "runs" || !selectedId) {
       return;
     }
     let current = true;
@@ -430,7 +446,7 @@ export function AgentRunnerPage({
     return () => {
       current = false;
     };
-  }, [view, selectedId, runs, fail]);
+  }, [tab, selectedId, runs, fail]);
 
   // perform runs one action, reports its result in the message area, and
   // refreshes, so every change shows up the same way.
@@ -456,15 +472,19 @@ export function AgentRunnerPage({
     }
   }
 
+  function openRun(id: string) {
+    setSelectedId(id);
+    setTab("runs");
+  }
+
   async function startRun() {
     const run = (await perform(
       () => startAgentRun({ repository, task: task.trim() }),
       "Run queued. It will report here when it finishes.",
     )) as AgentRun | undefined;
     if (run) {
-      setSelectedId(run.id);
-      setView("run");
       setTask("");
+      openRun(run.id);
     }
   }
 
@@ -487,12 +507,13 @@ export function AgentRunnerPage({
 
   const notice = status ? sandboxNotice(status) : null;
   const needsRestart = (repos ?? []).some((repo) => repo.needs_restart);
+  const waiting = waitingRuns(runs);
 
   return (
     // The scroll container is this page's own: the extension window gives a
     // fixed height, and without overflow here the content is clipped, not scrolled.
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
-      <div className={`mx-auto flex w-full flex-col gap-6 p-6 ${view === "runs" ? "max-w-5xl" : "max-w-3xl"}`}>
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
         <div className="flex items-start justify-between gap-3">
           <CardHeader
             title="Agent Runner"
@@ -508,6 +529,22 @@ export function AgentRunnerPage({
           </button>
         </div>
 
+        {waiting.length > 0 && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-950/30 px-4 py-3 text-sm"
+          >
+            <span>
+              {waiting.length === 1
+                ? `${waiting[0].repository} is waiting for your answer.`
+                : `${waiting.length} runs are waiting for your answer.`}
+            </span>
+            <button type="button" onClick={() => openRun(waiting[0].id)} className={SECONDARY_BUTTON}>
+              Answer
+            </button>
+          </div>
+        )}
+
         {message && (
           <Notice message={message} onDismiss={() => setMessage(null)} />
         )}
@@ -521,149 +558,158 @@ export function AgentRunnerPage({
         )}
         {notice && <Notice message={{ tone: "info", text: notice }} />}
 
-        {view === "setup" && (
-          <>
-        <Section
-          title="Repositories"
-          hint="The repositories Eggy may change. Each one needs your GitHub token to have push access."
-          action={
-            !adding && (
+        <div className="flex flex-wrap items-center gap-3">
+          <div role="tablist" aria-label="Agent Runner" className="flex gap-1 rounded-xl bg-neutral-100 p-1">
+            {TABS.map((item) => (
               <button
+                key={item.id}
                 type="button"
-                onClick={() => setAdding(true)}
-                className={SECONDARY_BUTTON}
+                role="tab"
+                id={`agent-runner-tab-${item.id}`}
+                aria-selected={tab === item.id}
+                aria-controls="agent-runner-panel"
+                onClick={() => setTab(item.id)}
+                className={cn(
+                  "min-h-9 rounded-lg px-3.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                  tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
+                )}
               >
-                Add repository
+                {item.label}
               </button>
-            )
-          }
-        >
-          {adding && (
-            <AddRepositoryForm
-              name={newRepo.name}
-              cloneURL={newRepo.cloneURL}
-              baseBranch={newRepo.baseBranch}
-              busy={busy}
-              onChange={(field, value) =>
-                setNewRepo({ ...newRepo, [field]: value })
-              }
-              onAdd={addRepository}
-              onCancel={() => setAdding(false)}
-            />
+            ))}
+          </div>
+        </div>
+
+        <div id="agent-runner-panel" role="tabpanel" aria-labelledby={`agent-runner-tab-${tab}`} className="flex flex-col gap-6">
+          {tab === "start" && (
+            <>
+              <Section
+                title="Start a run"
+                hint="Describe a change. Eggy works in the background and opens a pull request."
+              >
+                <AgentRunStartForm
+                  repositories={repos ?? []}
+                  repository={repository}
+                  task={task}
+                  busy={busy}
+                  onRepositoryChange={setRepository}
+                  onTaskChange={setTask}
+                  onStart={startRun}
+                />
+              </Section>
+
+              <Section
+                title="Recent runs"
+                hint="The newest runs. Every run keeps its own page with the reason it stopped."
+                action={
+                  runs.length > 0 && (
+                    <button type="button" onClick={() => setTab("runs")} className={SECONDARY_BUTTON}>
+                      All runs ({runs.length})
+                    </button>
+                  )
+                }
+              >
+                {runs.length === 0 ? (
+                  <p className="text-sm text-neutral-700">No runs yet.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {runs.slice(0, RECENT_RUNS).map((run) => (
+                      <AgentRunRow key={run.id} run={run} onOpen={openRun} />
+                    ))}
+                  </ul>
+                )}
+              </Section>
+
+              <Section
+                title="Repositories"
+                hint="The repositories Eggy may change. Each one needs your GitHub token to have push access."
+                action={
+                  !adding && (
+                    <button type="button" onClick={() => setAdding(true)} className={SECONDARY_BUTTON}>
+                      Add repository
+                    </button>
+                  )
+                }
+              >
+                {adding && (
+                  <AddRepositoryForm
+                    name={newRepo.name}
+                    cloneURL={newRepo.cloneURL}
+                    baseBranch={newRepo.baseBranch}
+                    busy={busy}
+                    onChange={(field, value) => setNewRepo({ ...newRepo, [field]: value })}
+                    onAdd={addRepository}
+                    onCancel={() => setAdding(false)}
+                  />
+                )}
+                {repos !== null && repos.length === 0 && !adding && (
+                  <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+                    No repositories yet. Add one to let Eggy work on it.
+                  </p>
+                )}
+                {(repos ?? []).map((repo) => (
+                  <RepositoryCard
+                    key={repo.name}
+                    repo={repo}
+                    busy={busy}
+                    onToggle={(on) =>
+                      void perform(
+                        () => setAgentRepoEnabled(repo.name, on),
+                        on
+                          ? `${repo.name} is on for your account.`
+                          : `${repo.name} is off for your account.`,
+                      )
+                    }
+                    onSaveChecks={(checks) =>
+                      void perform(
+                        () => setRepositoryChecks(repo.name, checks),
+                        "Checks saved. They apply after Eggy restarts.",
+                      )
+                    }
+                    onRemove={() =>
+                      void perform(() => removeAgentRepository(repo.name), serverText)
+                    }
+                  />
+                ))}
+              </Section>
+            </>
           )}
-          {repos !== null && repos.length === 0 && !adding && (
-            <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-              No repositories yet. Add one to let Eggy work on it.
-            </p>
+
+          {tab === "runs" && !selectedId && (
+            <Section title="Previous runs" hint="Filter by what you need to know. Open a run for its full story.">
+              <AgentRunsList runs={runs} filter={filter} onFilterChange={setFilter} onOpen={openRun} />
+            </Section>
           )}
-          {(repos ?? []).map((repo) => (
-            <RepositoryCard
-              key={repo.name}
-              repo={repo}
+
+          {tab === "runs" && selectedId && !selected && (
+            <Section title="Run" hint="This run is no longer listed.">
+              <button type="button" onClick={() => setSelectedId(null)} className={SECONDARY_BUTTON}>
+                All runs
+              </button>
+            </Section>
+          )}
+
+          {tab === "runs" && selected && (
+            <AgentRunDetailView
+              run={selected}
+              steps={steps}
               busy={busy}
-              onToggle={(on) =>
+              onBack={() => setSelectedId(null)}
+              onCancel={() =>
                 void perform(
-                  () => setAgentRepoEnabled(repo.name, on),
-                  on
-                    ? `${repo.name} is on for your account.`
-                    : `${repo.name} is off for your account.`,
+                  () => cancelAgentRun(selected.id),
+                  "Cancelling the run.",
                 )
               }
-              onSaveChecks={(checks) =>
+              onAnswer={(text) =>
                 void perform(
-                  () => setRepositoryChecks(repo.name, checks),
-                  "Checks saved. They apply after Eggy restarts.",
+                  () => answerAgentRun(selected.id, text),
+                  "Answer sent.",
                 )
               }
-              onRemove={() =>
-                void perform(() => removeAgentRepository(repo.name), serverText)
-              }
             />
-          ))}
-        </Section>
-
-        <Section
-          title="Start a run"
-          hint="Describe a change. Eggy works in the background and opens a pull request."
-        >
-          <AgentRunStartForm
-            repositories={repos ?? []}
-            repository={repository}
-            task={task}
-            busy={busy}
-            onRepositoryChange={setRepository}
-            onTaskChange={setTask}
-            onStart={startRun}
-          />
-        </Section>
-
-        <Section
-            title="Runs"
-            hint="Each run has its own page with the reason it stopped."
-            action={
-              <button
-                type="button"
-                onClick={() => setView("runs")}
-                className={SECONDARY_BUTTON}
-              >
-                All runs ({runs.length})
-              </button>
-            }
-          >
-            {runs[0] ? (
-              <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-                Latest: {runs[0].repository} · {runHeadline(runs[0])}
-              </p>
-            ) : (
-              <p className="text-sm text-neutral-700">No runs yet.</p>
-            )}
-        </Section>
-          </>
-        )}
-
-        {view === "runs" && (
-          <AgentRunsGrid
-            runs={runs}
-            onBack={() => setView("setup")}
-            onOpen={(id) => {
-              setSelectedId(id);
-              setView("run");
-            }}
-          />
-        )}
-
-        {view === "run" && !selected && (
-          <Section title="Run" hint="This run is no longer listed.">
-            <button
-              type="button"
-              onClick={() => setView("runs")}
-              className={SECONDARY_BUTTON}
-            >
-              All runs
-            </button>
-          </Section>
-        )}
-
-        {view === "run" && selected && (
-          <AgentRunDetailView
-            run={selected}
-            steps={steps}
-            busy={busy}
-            onBack={() => setView("runs")}
-            onCancel={() =>
-              void perform(
-                () => cancelAgentRun(selected.id),
-                "Cancelling the run.",
-              )
-            }
-            onAnswer={(text) =>
-              void perform(
-                () => answerAgentRun(selected.id, text),
-                "Answer sent.",
-              )
-            }
-          />
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

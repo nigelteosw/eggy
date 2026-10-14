@@ -121,3 +121,111 @@ export function runTone(state: string): "plain" | "warn" | "good" {
   if (state === "failed") return "warn";
   return "plain";
 }
+
+// A run is waiting for the owner, still moving, or stopped. The runs page
+// filters on these, and the page's badge counts the first.
+export function isWaiting(state: string): boolean {
+  return state === "waiting_for_user";
+}
+
+export function isActive(state: string): boolean {
+  return ["queued", "running", "publishing"].includes(state);
+}
+
+export function isStopped(state: string): boolean {
+  return ["failed", "cancelled", "interrupted"].includes(state);
+}
+
+export type RunFilter = "all" | "needs_you" | "active" | "completed" | "stopped";
+
+export const RUN_FILTERS: { id: RunFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "needs_you", label: "Needs you" },
+  { id: "active", label: "In progress" },
+  { id: "completed", label: "Completed" },
+  { id: "stopped", label: "Stopped" },
+];
+
+export function matchesFilter(state: string, filter: RunFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "needs_you":
+      return isWaiting(state);
+    case "active":
+      return isActive(state);
+    case "completed":
+      return state === "completed";
+    case "stopped":
+      return isStopped(state);
+  }
+}
+
+export function filterRuns(runs: AgentRun[], filter: RunFilter): AgentRun[] {
+  return runs.filter((run) => matchesFilter(run.state, filter));
+}
+
+// Runs the owner has to act on: the agent is waiting for an answer.
+export function waitingRuns(runs: AgentRun[]): AgentRun[] {
+  return runs.filter((run) => isWaiting(run.state));
+}
+
+// The checkpoints a publication passes, in order. A run's stage says how many
+// it has reached; a run that stopped partway shows the ones it got to.
+export const PUBLISH_CHECKPOINTS = ["Committed", "Pushed", "Pull request opened", "Delivered"] as const;
+
+const STAGE_REACHED: Record<string, number> = {
+  "": 0,
+  committed: 1,
+  push_intended: 1,
+  pushed: 2,
+  pr_intended: 2,
+  pr_opened: 3,
+  delivered: 4,
+};
+
+// The publication checkpoints as done or not. A run that never reached
+// publication has none done.
+export function publishProgress(stage: string): { label: string; done: boolean }[] {
+  const reached = STAGE_REACHED[stage] ?? 0;
+  return PUBLISH_CHECKPOINTS.map((label, index) => ({ label, done: index < reached }));
+}
+
+// The model's calls are the noisiest steps in a run's record. They are hidden
+// by default, so the timeline reads as what the agent did.
+export function isModelStep(kind: string): boolean {
+  return kind === "model";
+}
+
+// The task as one line for a row: the brief's first line, trimmed. The whole
+// brief is shown on the run's own page.
+export function briefTitle(brief: string | undefined): string {
+  return (brief ?? "").split("\n")[0].trim();
+}
+
+// Seconds as a short duration: "45s", "3m 12s", "2h 5m".
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}m ${total % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+// Tokens in a compact form the owner can compare at a glance: "950", "42K", "1.2M".
+export function formatTokens(tokens: number): string {
+  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
+}
+
+// How long ago an ISO time was, relative to now. Older than a week it is a date.
+export function timeAgo(iso: string, now: number = Date.now()): string {
+  const seconds = Math.round((now - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString();
+}

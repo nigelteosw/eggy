@@ -746,14 +746,21 @@ export function deleteSkill(name: string): Promise<CommandResult> {
 export type AgentRun = {
   id: string;
   repository: string;
+  brief?: string;
+  base_branch: string;
+  branch?: string;
   state: string;
   stage?: string;
   question?: string;
   pr_url?: string;
+  pr_title?: string;
   draft: boolean;
   failure?: string;
   output?: string;
+  used_tokens: number;
+  active_seconds: number;
   created_at: string;
+  updated_at: string;
 };
 
 // One step in a run's record: a state or stage change, a tool call the coding

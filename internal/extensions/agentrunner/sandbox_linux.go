@@ -3,10 +3,10 @@
 package agentrunner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -141,7 +141,7 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 		timeout = defaultCommandTimeout
 	}
 	if capBytes <= 0 {
-		capBytes = defaultOutputCap
+		capBytes = outputTailBytes
 	}
 	args := append([]string{"sandbox-exec", spec.RunDir, "--"}, spec.Argv...)
 	cmd := exec.Command(s.self, args...)
@@ -151,7 +151,23 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 		Setpgid:    true,
 		Credential: &syscall.Credential{Uid: s.coderUID, Gid: s.coderGID},
 	}
-	out := &cappedBuffer{limit: capBytes}
+	var fullFile io.Writer
+	var fullPath string
+	if spec.FullOutputDir != "" {
+		f, err := os.CreateTemp(spec.FullOutputDir, "output-*.log")
+		if err != nil {
+			return SandboxResult{}, fmt.Errorf("sandbox: output file: %w", err)
+		}
+		defer f.Close()
+		// The command runs as the coder user and reads this file back with its own
+		// shell, so the file is handed to that user; the parent does the writing.
+		if err := f.Chown(int(s.coderUID), int(s.coderGID)); err != nil {
+			_ = os.Remove(f.Name())
+			return SandboxResult{}, fmt.Errorf("sandbox: output file owner: %w", err)
+		}
+		fullFile, fullPath = f, f.Name()
+	}
+	out := newOutputTail(capBytes, fullFile, maxFullOutput)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Start(); err != nil {
@@ -181,7 +197,15 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 	mu.Lock()
 	didTimeOut := timedOut
 	mu.Unlock()
-	result := SandboxResult{Output: out.String(), Truncated: out.truncated, TimedOut: didTimeOut, ExitCode: -1}
+	text, truncated := out.result()
+	result := SandboxResult{
+		Output:               text,
+		Truncated:            truncated,
+		TimedOut:             didTimeOut,
+		ExitCode:             -1,
+		FullOutputPath:       fullPath,
+		FullOutputIncomplete: fullPath != "" && !out.complete(),
+	}
 	if cmd.ProcessState != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
 	}
@@ -189,36 +213,6 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 		return result, fmt.Errorf("sandbox: wait: %w", waitErr)
 	}
 	return result, nil
-}
-
-// cappedBuffer keeps the first limit bytes and reports whether it dropped any.
-type cappedBuffer struct {
-	mu        sync.Mutex
-	buf       bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	room := b.limit - b.buf.Len()
-	if room <= 0 {
-		b.truncated = true
-		return len(p), nil
-	}
-	if len(p) > room {
-		b.truncated = true
-		p = p[:room]
-	}
-	b.buf.Write(p)
-	return len(p), nil
-}
-
-func (b *cappedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
 }
 
 // Probe proves the sandbox works before any command is trusted with it. The

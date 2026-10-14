@@ -276,11 +276,11 @@ func TestRunRecordsItsSteps(t *testing.T) {
 	for _, step := range steps {
 		kinds = append(kinds, step.Kind)
 	}
-	want := []string{"started", "tool", "question", "started", "completed"}
+	want := []string{"started", "model", "tool", "model", "question", "started", "model", "completed"}
 	if strings.Join(kinds, ",") != strings.Join(want, ",") {
 		t.Fatalf("step kinds = %v, want %v (steps %+v)", kinds, want, steps)
 	}
-	if steps[1].Text != "ask_owner: ok" {
-		t.Fatalf("tool step = %q, want the tool name and its status, not its output", steps[1].Text)
+	if steps[2].Text != "ask_owner: ok" {
+		t.Fatalf("tool step = %q, want the tool name and its status, not its output", steps[2].Text)
 	}
 }

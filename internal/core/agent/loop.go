@@ -71,6 +71,10 @@ type RunResult struct {
 	// ReasoningContent is the chain-of-thought behind Message, from whichever
 	// model turn produced the final answer, when the provider returns one.
 	ReasoningContent string
+	// Checkpoint is what the turn did, as a caller can hand it to the turn's
+	// next leg: the folded checkpoint plus the live steps, summarized. It is
+	// the record of the turn's work, not a transcript.
+	Checkpoint string
 }
 
 // ToolSource is where a turn's tools come from. There is exactly one per
@@ -219,6 +223,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		if len(assistant.ToolCalls) == 0 {
 			result.Message = assistant
 			result.ReasoningContent = response.ReasoningContent
+			result.Checkpoint = window.handoff()
 			return result, nil
 		}
 		if l.policy.MaxSteps > 0 && steps >= l.policy.MaxSteps {
@@ -226,6 +231,14 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		}
 		window.tail = append(window.tail, assistant)
 		emit(Event{Kind: EventAssistantMessage, Message: assistant})
+		// A response cut off at the output limit may have truncated arguments.
+		// Nothing in it runs; each call is answered with an error so the model
+		// issues it again, complete.
+		if response.Truncated {
+			window.tail = append(window.tail, truncatedCallResults(assistant.ToolCalls)...)
+			steps++
+			continue
+		}
 		// Every call in the step is resolved against the catalog before any
 		// of them runs: an unknown or disallowed name fails the step outright,
 		// and it should not have half the step's side effects behind it.
@@ -266,6 +279,18 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		window.tail = append(window.tail, toolMessages...)
 		steps++
 	}
+}
+
+// truncatedCallResults answers each call of a response the output limit cut
+// off. They are errors, so the model reads them as a failed call and re-issues it.
+func truncatedCallResults(calls []ports.ToolCall) []ports.Message {
+	messages := make([]ports.Message, 0, len(calls))
+	for _, call := range calls {
+		content, _ := json.Marshal(map[string]string{"error": fmt.Sprintf(
+			"tool call %q was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the call with complete arguments.", call.Name)})
+		messages = append(messages, ports.Message{Role: ports.RoleTool, Name: call.Name, ToolCallID: call.ID, Content: string(content)})
+	}
+	return messages
 }
 
 // ToolNames returns the tools available for a turn after applying the same

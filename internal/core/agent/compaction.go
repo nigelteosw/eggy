@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -55,6 +57,16 @@ type ContextPolicy struct {
 	// MaxSteps is the runaway guard. Zero means the default; a negative
 	// value means no guard at all.
 	MaxSteps int
+	// FoldChars, when set below the request allowance, is the size a fold
+	// for the request budget reduces the window to. Folding then happens in
+	// one batch rather than a step per call, so the checkpoint, and the
+	// cached prefix after it, change only occasionally.
+	FoldChars int
+	// PreserveExcerpts keeps the newlines and indentation of folded tool
+	// output, lists the files read and edited in the checkpoint, and tells the
+	// model that checkpoint text is not file contents. A turn that edits files
+	// needs all three.
+	PreserveExcerpts bool
 }
 
 func (p ContextPolicy) normalized() ContextPolicy {
@@ -121,6 +133,31 @@ type contextWindow struct {
 	steering []ports.Message
 	summary  string
 	tail     []ports.Message
+	// files records which files the folded steps read and edited, so the
+	// checkpoint can name them when PreserveExcerpts is set.
+	files fileLedger
+}
+
+// fileLedger is the set of files a turn's folded steps touched, in first-seen
+// order.
+type fileLedger struct {
+	read, edited []string
+}
+
+// maxLedgerFiles bounds each list in the checkpoint. The lists are a pointer
+// to what to re-read, not an inventory, so the newest entries are kept.
+const maxLedgerFiles = 200
+
+func (l *fileLedger) note(list *[]string, path string) {
+	for _, existing := range *list {
+		if existing == path {
+			return
+		}
+	}
+	*list = append(*list, path)
+	if len(*list) > maxLedgerFiles {
+		*list = (*list)[len(*list)-maxLedgerFiles:]
+	}
 }
 
 func newContextWindow(policy ContextPolicy, preserved []ports.Message) *contextWindow {
@@ -132,19 +169,64 @@ func (w *contextWindow) messages() []ports.Message {
 	window := make([]ports.Message, 0, len(w.preserved)+len(w.steering)+len(w.tail)+1)
 	window = append(window, w.preserved...)
 	if w.summary != "" {
-		window = append(window, CheckpointMessage(w.summary))
+		window = append(window, w.checkpoint())
 	}
 	window = append(window, w.steering...)
 	return append(window, w.tail...)
+}
+
+// checkpoint is the summary as the model reads it: with PreserveExcerpts, the
+// files read and edited are listed and the summary is marked as not exact.
+func (w *contextWindow) checkpoint() ports.Message {
+	return CheckpointMessage(w.checkpointText())
+}
+
+func (w *contextWindow) checkpointText() string {
+	if !w.policy.PreserveExcerpts {
+		return w.summary
+	}
+	return w.summary + w.files.notes() + "\nExcerpts above are summaries, not file contents; copy edit text only from a fresh read."
+}
+
+// notes lists the files the folded steps read and edited.
+func (l fileLedger) notes() string {
+	text := ""
+	if len(l.read) > 0 {
+		text += "\nFiles read earlier (re-read one before you edit it): " + strings.Join(l.read, ", ")
+	}
+	if len(l.edited) > 0 {
+		text += "\nFiles edited earlier: " + strings.Join(l.edited, ", ")
+	}
+	return text
 }
 
 // mandatory is everything fit cannot compact away, excluding the newest step.
 func (w *contextWindow) mandatoryChars() int {
 	total := w.preservedChars + MessageChars(w.steering)
 	if w.summary != "" {
-		total += MessageChars([]ports.Message{CheckpointMessage(w.summary)})
+		total += MessageChars([]ports.Message{w.checkpoint()})
 	}
 	return total
+}
+
+// handoff is what a turn leaves for its next leg: the checkpoint plus the live
+// tail, summarized the same way a folded step would be. It is bounded to the
+// newest SummaryLimit characters.
+func (w *contextWindow) handoff() string {
+	text := w.summary
+	files := fileLedger{read: slices.Clone(w.files.read), edited: slices.Clone(w.files.edited)}
+	for _, message := range w.tail {
+		if message.Role == ports.RoleUser {
+			text = AppendSummary(text, "owner instruction: "+collapse(message.Content, w.policy.OutputExcerptChars))
+			continue
+		}
+		files.record(message)
+		text = AppendSummary(text, w.summarize(message))
+	}
+	if w.policy.PreserveExcerpts {
+		text += files.notes()
+	}
+	return text
 }
 
 // fit folds the oldest steps into the checkpoint until the window is inside
@@ -157,6 +239,12 @@ func (w *contextWindow) mandatoryChars() int {
 // step still does not fit, rather than sending a request that cannot work.
 func (w *contextWindow) fit(overhead int) error {
 	allowance := w.policy.RequestChars - w.policy.ReserveChars - overhead
+	// A request-budget fold goes down to FoldChars when that is set, so the
+	// next fold is far away. The tail budget still folds one step at a time.
+	target := allowance
+	if w.policy.FoldChars > 0 && w.policy.FoldChars < allowance {
+		target = w.policy.FoldChars
+	}
 	for {
 		w.boundSteering()
 		steps := splitSteps(w.tail)
@@ -168,13 +256,29 @@ func (w *contextWindow) fit(overhead int) error {
 		if !overTail && !overRequest {
 			break
 		}
-		w.fold(steps[0])
-		w.tail = w.tail[len(steps[0].messages):]
+		w.foldOldest()
+		if overRequest {
+			for {
+				rest := splitSteps(w.tail)
+				if len(rest) <= 1 || w.mandatoryChars()+stepChars(rest) <= target {
+					break
+				}
+				w.foldOldest()
+			}
+		}
 	}
 	if total := w.mandatoryChars() + MessageChars(w.tail); total > allowance {
 		return fmt.Errorf("%w: %d characters of required input against a %d-character allowance", ErrContextTooLarge, total, allowance)
 	}
 	return nil
+}
+
+// foldOldest folds the first step of the live tail into the checkpoint. The
+// newest step is never folded, so the caller must check for more than one.
+func (w *contextWindow) foldOldest() {
+	first := splitSteps(w.tail)[0]
+	w.fold(first)
+	w.tail = w.tail[len(first.messages):]
 }
 
 // fold turns one step into checkpoint lines. Owner messages are moved rather
@@ -185,8 +289,33 @@ func (w *contextWindow) fold(folded step) {
 			w.steering = append(w.steering, message)
 			continue
 		}
-		w.summary = AppendSummary(w.summary, SummarizeMessage(message, w.policy.OutputExcerptChars))
+		w.files.record(message)
+		w.summary = AppendSummary(w.summary, w.summarize(message))
 	}
+}
+
+// record notes the files a tool call read or edited. The names are the coding
+// tools' own, as they are in a Pi-style file ledger.
+func (l *fileLedger) record(message ports.Message) {
+	for _, call := range message.ToolCalls {
+		var args struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(call.Arguments, &args) != nil || args.Path == "" {
+			continue
+		}
+		switch call.Name {
+		case "read":
+			l.note(&l.read, args.Path)
+		case "edit":
+			l.note(&l.edited, args.Path)
+		}
+	}
+}
+
+// summarize renders one message for the checkpoint under this window's policy.
+func (w *contextWindow) summarize(message ports.Message) string {
+	return summarizeMessage(message, w.policy)
 }
 
 // boundSteering keeps rescued steering from growing without limit. The
@@ -268,12 +397,25 @@ func AppendSummary(summary, event string) string {
 // model an action happened while discarding the finding that was the point
 // of taking it.
 func SummarizeMessage(message ports.Message, excerpt int) string {
+	return summarizeMessage(message, ContextPolicy{OutputExcerptChars: excerpt})
+}
+
+func summarizeMessage(message ports.Message, policy ContextPolicy) string {
+	excerpt := policy.OutputExcerptChars
 	if excerpt <= 0 {
 		excerpt = 1024
 	}
+	// excerpt renders one piece of a message. Under PreserveExcerpts a tool
+	// result keeps its lines, so text copied from it still matches the file.
+	clip := func(value string, limit int) string {
+		if policy.PreserveExcerpts {
+			return keepLines(value, limit)
+		}
+		return collapse(value, limit)
+	}
 	switch {
 	case message.Name != "":
-		return "result of " + message.Name + " (untrusted data): " + collapse(message.Content, excerpt)
+		return "result of " + message.Name + " (untrusted data): " + clip(message.Content, excerpt)
 	case len(message.ToolCalls) > 0:
 		entries := make([]string, 0, len(message.ToolCalls)+1)
 		if text := collapse(message.Content, excerpt/4); text != "" {
@@ -298,6 +440,18 @@ func collapse(value string, limit int) string {
 		return value
 	}
 	return TruncateRunes(value, limit) + fmt.Sprintf("… [%d of %d characters shown]", limit, total)
+}
+
+// keepLines is collapse for content that will be read as file text: newlines
+// and indentation are kept. Only leading and trailing blank lines are trimmed,
+// so the first line keeps its indentation.
+func keepLines(value string, limit int) string {
+	value = strings.TrimRight(strings.TrimLeft(value, "\r\n"), " \t\r\n")
+	total := utf8.RuneCountInString(value)
+	if limit <= 0 || total <= limit {
+		return value
+	}
+	return TruncateRunes(value, limit) + fmt.Sprintf("\n… [%d of %d characters shown]", limit, total)
 }
 
 // TruncateMessage bounds a message's content for a summary.

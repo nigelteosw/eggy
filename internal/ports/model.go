@@ -35,6 +35,10 @@ type ModelResponse struct {
 	// following request's message history; the state a provider needs back
 	// travels opaquely in Message.ProviderReasoning instead.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// Truncated reports that the provider stopped because the response hit its
+	// output token limit. Any tool call in Message may then carry arguments
+	// cut off mid-value, so the loop does not run them.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type ModelUsage struct {

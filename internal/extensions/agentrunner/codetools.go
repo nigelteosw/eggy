@@ -22,6 +22,9 @@ const (
 	maxListEntries  = 500
 	maxReadLines    = 2000
 	maxSearchResult = 200
+	// maxReadBytes bounds one read's text. It stays under the core's bound on a
+	// tool result, so a read is never cut from its start.
+	maxReadBytes = 40 << 10
 )
 
 // ActiveRun is the per-run state the coding tools share: the repository's
@@ -88,11 +91,11 @@ func CodingTools(w *Workspaces, run *ActiveRun, withBash bool) []ports.Tool {
 	tools := []ports.Tool{
 		codeTool{def: def("list", "List the entries of a directory in the workspace.", `{"type":"object","properties":{"path":{"type":"string"}},"additionalProperties":false}`, ports.ReadOnlyTool()),
 			run: func(_ context.Context, in json.RawMessage) (string, error) { return listTool(ws, in) }},
-		codeTool{def: def("read", "Read lines of a file in the workspace.", `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":2000}},"required":["path"],"additionalProperties":false}`, ports.ReadOnlyTool()),
+		codeTool{def: def("read", "Read lines of a file in the workspace.", `{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":0,"description":"1-based line to start at"},"limit":{"type":"integer","minimum":1,"maximum":2000}},"required":["path"],"additionalProperties":false}`, ports.ReadOnlyTool()),
 			run: func(_ context.Context, in json.RawMessage) (string, error) { return readTool(ws, in) }},
 		codeTool{def: def("search", "Search workspace files for a regular expression.", `{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"],"additionalProperties":false}`, ports.ReadOnlyTool()),
 			run: func(_ context.Context, in json.RawMessage) (string, error) { return searchTool(ws, in) }},
-		codeTool{def: def("edit", "Replace one exact occurrence of old with new in a file, or create a file when old is empty.", `{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"],"additionalProperties":false}`, ports.ToolEffect{}),
+		codeTool{def: def("edit", "Replace exact text in a file. Each edits[].old must match exactly once in the file as it was before this call, and edits must not overlap: merge nearby changes into one edit. An empty old creates a file that does not exist.", `{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"}},"required":["old","new"],"additionalProperties":false}}},"required":["path","edits"],"additionalProperties":false}`, ports.ToolEffect{}),
 			run: func(_ context.Context, in json.RawMessage) (string, error) { return editTool(ws, in) }},
 		codeTool{def: def("run_check", "Run one of the repository's configured checks by index. Its exit code is recorded.", `{"type":"object","properties":{"index":{"type":"integer","minimum":0}},"required":["index"],"additionalProperties":false}`, ports.ToolEffect{}),
 			run: func(ctx context.Context, in json.RawMessage) (string, error) {
@@ -142,6 +145,8 @@ func listTool(ws string, in json.RawMessage) (string, error) {
 	return strings.Join(names, "\n"), nil
 }
 
+// readTool returns lines of a file, from a 1-based offset. A read that stops
+// short says where to continue, so the model never mistakes a cut for the end.
 func readTool(ws string, in json.RawMessage) (string, error) {
 	var args struct {
 		Path   string `json:"path"`
@@ -160,13 +165,36 @@ func readTool(ws string, in json.RawMessage) (string, error) {
 		return "", err
 	}
 	lines := strings.Split(string(body), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	limit := args.Limit
 	if limit <= 0 || limit > maxReadLines {
 		limit = maxReadLines
 	}
-	start := min(max(args.Offset, 0), len(lines))
+	start := max(args.Offset-1, 0)
+	if start >= len(lines) && len(lines) > 0 {
+		return "", fmt.Errorf("offset %d is beyond the end of the file (%d lines)", args.Offset, len(lines))
+	}
 	end := min(start+limit, len(lines))
-	return strings.Join(lines[start:end], "\n"), nil
+	var shown []string
+	size := 0
+	for i := start; i < end; i++ {
+		if size+len(lines[i])+1 > maxReadBytes {
+			if len(shown) == 0 {
+				return fmt.Sprintf("[line %d is %d bytes, over the %d-byte read limit; read it with: sed -n '%dp' %s | head -c %d]",
+					i+1, len(lines[i]), maxReadBytes, i+1, args.Path, maxReadBytes), nil
+			}
+			break
+		}
+		shown = append(shown, lines[i])
+		size += len(lines[i]) + 1
+	}
+	text := strings.Join(shown, "\n")
+	if next := start + len(shown); next < len(lines) {
+		text += fmt.Sprintf("\n[Showing lines %d-%d of %d. Use offset=%d to continue.]", start+1, next, len(lines), next+1)
+	}
+	return text, nil
 }
 
 func searchTool(ws string, in json.RawMessage) (string, error) {
@@ -214,50 +242,6 @@ func searchTool(ws string, in json.RawMessage) (string, error) {
 	return strings.Join(matches, "\n"), nil
 }
 
-func editTool(ws string, in json.RawMessage) (string, error) {
-	var args struct {
-		Path string `json:"path"`
-		Old  string `json:"old"`
-		New  string `json:"new"`
-	}
-	if err := json.Unmarshal(in, &args); err != nil {
-		return "", err
-	}
-	path, err := resolveInside(ws, args.Path)
-	if err != nil {
-		return "", err
-	}
-	if args.Old == "" {
-		if _, err := os.Stat(path); err == nil {
-			return "", fmt.Errorf("%s already exists; give old text to edit it", args.Path)
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(path, []byte(args.New), 0o600); err != nil {
-			return "", err
-		}
-		return "created " + args.Path, nil
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", err
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	count := strings.Count(string(body), args.Old)
-	if count != 1 {
-		return "", fmt.Errorf("old text matches %d times in %s; it must match exactly once", count, args.Path)
-	}
-	updated := strings.Replace(string(body), args.Old, args.New, 1)
-	if err := os.WriteFile(path, []byte(updated), info.Mode().Perm()); err != nil {
-		return "", err
-	}
-	return "edited " + args.Path, nil
-}
-
 func bashTool(ctx context.Context, runner CommandRunner, runDir string, in json.RawMessage) (string, error) {
 	var args struct {
 		Command string `json:"command"`
@@ -265,7 +249,7 @@ func bashTool(ctx context.Context, runner CommandRunner, runDir string, in json.
 	if err := json.Unmarshal(in, &args); err != nil {
 		return "", err
 	}
-	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: []string{"bash", "-c", args.Command}})
+	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: []string{"bash", "-c", args.Command}, FullOutputDir: filepath.Join(runDir, "tmp")})
 	if err != nil {
 		return "", err
 	}
@@ -283,7 +267,7 @@ func runCheckTool(ctx context.Context, runner CommandRunner, runDir string, run 
 		return "", fmt.Errorf("index %d is not a configured check (have %d)", args.Index, len(run.Checks))
 	}
 	argv := run.Checks[args.Index]
-	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: argv})
+	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: argv, FullOutputDir: filepath.Join(runDir, "tmp")})
 	if err != nil {
 		return "", err
 	}
@@ -293,14 +277,23 @@ func runCheckTool(ctx context.Context, runner CommandRunner, runDir string, run 
 	return formatResult(result), nil
 }
 
-// formatResult is what the model sees of a command: its output, then how it ended.
+// formatResult is what the model sees of a command: its output, then how it
+// ended. Output that was cut says what it kept, and where the whole of it is.
 func formatResult(result SandboxResult) string {
 	status := fmt.Sprintf("exit %d", result.ExitCode)
 	if result.TimedOut {
 		status = "timed out"
 	}
+	output := result.Output
 	if result.Truncated {
-		status += " (output truncated)"
+		note := fmt.Sprintf("[Output was cut: showing the last %d bytes.", len(output))
+		if result.FullOutputPath != "" {
+			note += " The whole output is in " + result.FullOutputPath + "; search it with a narrower command."
+		}
+		if result.FullOutputIncomplete {
+			note += " That copy is incomplete."
+		}
+		output = note + "]\n" + output
 	}
-	return result.Output + "\n[" + status + "]"
+	return output + "\n[" + status + "]"
 }

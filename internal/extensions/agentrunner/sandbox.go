@@ -19,7 +19,11 @@ var ErrSandboxUnsupported = errors.New("sandbox unsupported on this platform")
 // config: a run's cost ceiling is part of what the owner agreed to.
 const (
 	defaultCommandTimeout = 5 * time.Minute
-	defaultOutputCap      = 64 << 10
+	// outputTailBytes is how much of a command's output the model reads: the
+	// end, kept under the core's bound on one tool result so it is never cut
+	// from its start. maxFullOutput bounds the copy kept in the run directory.
+	outputTailBytes = 40 << 10
+	maxFullOutput   = 8 << 20
 	// sandboxExecExitFailed is what the sandbox-exec entry point returns when
 	// it cannot confine itself. The probe treats it as a failure, never as a
 	// denial that proves the sandbox works.
@@ -31,15 +35,24 @@ type SandboxSpec struct {
 	RunDir    string        // <data>/agent-runs/<id>; its ws/, home/ and tmp/ are the only writable paths
 	Argv      []string      // program and arguments; Argv[0] is resolved on the sandbox PATH
 	Timeout   time.Duration // zero means defaultCommandTimeout
-	OutputCap int           // zero means defaultOutputCap
+	OutputCap int           // bytes of the end of the output kept; zero means outputTailBytes
+	// FullOutputDir, when set, receives a new file holding the command's whole
+	// output, up to maxFullOutput. Its path comes back in the result.
+	FullOutputDir string
 }
 
-// SandboxResult is what one command produced.
+// SandboxResult is what one command produced. Output is the end of the
+// command's output; Truncated says whether anything before it was dropped.
 type SandboxResult struct {
 	ExitCode  int
 	Output    string
 	TimedOut  bool
 	Truncated bool
+	// FullOutputPath is the file holding the whole output, when one was asked
+	// for. FullOutputIncomplete says it stopped at maxFullOutput or on a write
+	// error.
+	FullOutputPath       string
+	FullOutputIncomplete bool
 }
 
 // runEnv is the complete environment a sandboxed command sees. It is built

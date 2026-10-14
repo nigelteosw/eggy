@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/agent"
@@ -24,10 +27,12 @@ type tokenBudget struct {
 }
 
 // budgetModel enforces the token ceiling on each model call, so a turn that
-// never stops calling tools ends at the cap instead of running on.
+// never stops calling tools ends at the cap instead of running on. record, when
+// set, sees each successful call's spend, so the run record can show it.
 type budgetModel struct {
 	inner  ports.Model
 	budget *tokenBudget
+	record func(spent int64, usage ports.ModelUsage)
 }
 
 func (b budgetModel) Generate(ctx context.Context, req ports.ModelRequest) (ports.ModelResponse, error) {
@@ -35,23 +40,44 @@ func (b budgetModel) Generate(ctx context.Context, req ports.ModelRequest) (port
 		return ports.ModelResponse{}, fmt.Errorf("%w (%d tokens)", errTokenBudget, maxRunTokens)
 	}
 	resp, err := b.inner.Generate(ctx, req)
-	total := resp.Usage.TotalTokens
-	if total == 0 {
-		total = resp.Usage.PromptTokens + resp.Usage.CompletionTokens
+	if err != nil {
+		return resp, err
 	}
-	b.budget.used += total
-	return resp, err
+	spent := newWorkTokens(resp.Usage)
+	b.budget.used += spent
+	if b.record != nil {
+		b.record(spent, resp.Usage)
+	}
+	return resp, nil
 }
 
-// codingPolicy is the context budget for a coding turn. A long turn compacts
-// and continues; MaxSteps is the one hard step limit.
+// newWorkTokens is what one model call adds to a run's budget: the prompt
+// tokens the provider did not serve from its cache, plus what it generated. A
+// coding loop resends its whole context each step, so the cached part is re-read
+// work the run did not choose to do. Counting it made the cap grow with the
+// square of the number of steps. A provider that reports only a total is
+// charged that total.
+func newWorkTokens(usage ports.ModelUsage) int64 {
+	if usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+		return usage.TotalTokens
+	}
+	return max(usage.PromptTokens-usage.CachedPromptTokens, 0) + usage.CompletionTokens
+}
+
+// codingPolicy is the context budget for a coding turn. Context only grows
+// between folds, and a fold takes the window down to FoldChars in one batch, so
+// the cached prefix survives most calls. Excerpts keep their lines, and folds
+// name the files touched, so the model can edit from what it re-reads.
+// MaxSteps is the one hard step limit.
 func codingPolicy() agent.ContextPolicy {
 	return agent.ContextPolicy{
-		BudgetChars:        96000,
-		RecentSteps:        16,
+		BudgetChars:        320000,
+		RecentSteps:        maxCodingSteps,
 		OutputExcerptChars: 8192,
 		RequestChars:       320000,
 		ReserveChars:       16000,
+		FoldChars:          160000,
+		PreserveExcerpts:   true,
 		MaxSteps:           maxCodingSteps,
 	}
 }
@@ -259,7 +285,9 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, re
 
 	budget := &tokenBudget{used: run.UsedTokens}
 	target := s.opts.Models[s.opts.Model]
-	target.Model = budgetModel{inner: target.Model, budget: budget}
+	target.Model = budgetModel{inner: target.Model, budget: budget, record: func(spent int64, usage ports.ModelUsage) {
+		s.note(ctx, run.ID, "model", fmt.Sprintf("model call: %d new tokens (%d of %d prompt tokens cached)", spent, usage.CachedPromptTokens, usage.PromptTokens))
+	}}
 	loop := agent.NewSelectedLoop(map[string]agent.ModelTarget{s.opts.Model: target}, agent.StaticTools(tools), codingPolicy())
 
 	remaining := maxRunActive - run.UsedActive
@@ -286,6 +314,16 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, re
 		return s.finish(ctx, run, ports.AgentRunFailed, "wall-time limit reached", "")
 	case active.Question() != "":
 		run.Question = active.Question()
+		// Earlier legs' notes arrive in the brief, not the checkpoint, so they are
+		// carried forward here; otherwise a second question would drop the first
+		// leg's findings.
+		notes := result.Checkpoint
+		if earlier := s.readHandoff(run.ID); earlier != "" {
+			notes = earlier + "\n" + notes
+		}
+		if err := s.saveHandoff(run.ID, keepTail(notes, maxHandoffBytes)); err != nil {
+			return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact("saving the run's notes: "+err.Error()), "")
+		}
 		return s.waitFor(ctx, run)
 	case err != nil:
 		return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact("coding turn: "+err.Error()), "")
@@ -293,10 +331,54 @@ func (s *Service) codingTurn(ctx, runCtx context.Context, run ports.AgentRun, re
 	return s.publish(ctx, run, repo, active.results(), result.Message.Content)
 }
 
-// turnInput is the brief, plus the owner's answer when the run is resuming.
+// handoffFile holds what a turn did before it asked the owner a question. It
+// lives in the run directory, which is kept while the run waits, so the resumed
+// turn starts from the same findings rather than exploring again.
+const handoffFile = "handoff.txt"
+
+// maxHandoffBytes bounds the notes a run carries across its legs. The newest
+// notes are kept, since they describe the state the question was asked in.
+const maxHandoffBytes = 48 << 10
+
+// keepTail returns the last limit bytes of text, starting on a line boundary
+// when one is near the cut.
+func keepTail(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := text[len(text)-limit:]
+	for i := 0; i < utf8.UTFMax && !utf8.RuneStart(cut[0]); i++ {
+		cut = cut[1:]
+	}
+	if i := strings.Index(cut, "\n"); i >= 0 && i < 200 {
+		cut = cut[i+1:]
+	}
+	return cut
+}
+
+func (s *Service) saveHandoff(runID, checkpoint string) error {
+	return os.WriteFile(filepath.Join(s.opts.Workspaces.Dir(runID), handoffFile), []byte(checkpoint), 0o600)
+}
+
+// readHandoff returns the saved notes of an earlier leg, or "" when there are
+// none. It is the agent's own record, but its excerpts are quoted tool output,
+// so it reaches the turn as data.
+func (s *Service) readHandoff(runID string) string {
+	body, err := os.ReadFile(filepath.Join(s.opts.Workspaces.Dir(runID), handoffFile))
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+// turnInput is the brief, plus on resume the earlier leg's notes and the owner's
+// answer.
 func (s *Service) turnInput(run ports.AgentRun) ports.Message {
 	text := run.Brief
 	if run.Answer != "" {
+		if notes := s.readHandoff(run.ID); notes != "" {
+			text += "\n\nYour earlier work on this run, before you asked the owner. It is a summary, not exact file text: re-read a file before you edit it.\n" + notes
+		}
 		text += "\n\nYou asked the owner: " + run.Question + "\nTheir answer: " + run.Answer
 	}
 	return ports.Message{Role: ports.RoleUser, Content: text}

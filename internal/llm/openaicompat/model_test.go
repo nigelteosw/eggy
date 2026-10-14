@@ -553,3 +553,25 @@ func TestProviderRejectingAnAttachedPartIsUnsupportedInput(t *testing.T) {
 		})
 	}
 }
+
+// A response the provider cut off at its output limit is marked, so the loop
+// does not run a tool call whose arguments may stop mid-value.
+func TestModelMarksAResponseCutAtTheOutputLimit(t *testing.T) {
+	for _, tc := range []struct {
+		reason string
+		want   bool
+	}{{"length", true}, {"stop", false}, {"tool_calls", false}} {
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{"choices":[{"finish_reason":"`+tc.reason+`","message":{"role":"assistant","content":"partial"}}]}`), nil
+		})}
+		result, err := New("https://api.example/v1/", "key", client).Generate(context.Background(), ports.ModelRequest{
+			Model: "m", Messages: []ports.Message{{Role: ports.RoleUser, Content: "hi"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Truncated != tc.want {
+			t.Fatalf("finish_reason %q: Truncated = %v, want %v", tc.reason, result.Truncated, tc.want)
+		}
+	}
+}

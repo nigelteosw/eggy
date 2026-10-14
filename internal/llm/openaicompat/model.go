@@ -284,7 +284,8 @@ func (m *Model) translateMessage(message ports.Message) (providerRequestMessage,
 func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 	var result struct {
 		Choices []struct {
-			Message providerResponseMessage `json:"message"`
+			Message      providerResponseMessage `json:"message"`
+			FinishReason string                  `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens         int64 `json:"prompt_tokens"`
@@ -326,7 +327,9 @@ func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 	if reasoning == "" {
 		reasoning = providerResult.Reasoning
 	}
-	return ports.ModelResponse{Message: message, ReasoningContent: reasoning, Usage: ports.ModelUsage{
+	// "length" is the Chat Completions finish reason for output cut at max_tokens.
+	truncated := result.Choices[0].FinishReason == "length"
+	return ports.ModelResponse{Message: message, ReasoningContent: reasoning, Truncated: truncated, Usage: ports.ModelUsage{
 		PromptTokens: result.Usage.PromptTokens, CompletionTokens: result.Usage.CompletionTokens, TotalTokens: result.Usage.TotalTokens,
 		CachedPromptTokens: max(result.Usage.PromptTokensDetails.CachedTokens, result.Usage.PromptCacheHitTokens),
 		CacheWriteTokens:   result.Usage.PromptTokensDetails.CacheWriteTokens,

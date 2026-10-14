@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -51,7 +52,7 @@ func diffWorkspace(ws, base string, secrets []string) ([]change, error) {
 			return nil
 		}
 		if entry.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("symlink %s is not allowed in a change", rel)
+			return addSymlink(&changes, seen, base, rel, path, secrets)
 		}
 		if entry.IsDir() {
 			return nil
@@ -114,6 +115,51 @@ func diffWorkspace(ws, base string, secrets []string) ([]change, error) {
 	}
 	slices.SortFunc(changes, func(a, b change) int { return strings.Compare(a.path, b.path) })
 	return changes, nil
+}
+
+// addSymlink records one link in the workspace. A link the base already has,
+// with the same target, is not a change. A new or changed link is recorded by
+// its target text, which is all git stores for a link. The link is never
+// followed, so nothing outside the repository is read through it.
+func addSymlink(changes *[]change, seen map[string]bool, base, rel, path string, secrets []string) error {
+	seen[rel] = true
+	target, err := os.Readlink(path)
+	if err != nil {
+		return err
+	}
+	if baseTarget, err := os.Readlink(filepath.Join(base, rel)); err == nil && baseTarget == target {
+		return nil
+	}
+	if err := checkChangePath(rel); err != nil {
+		return err
+	}
+	if err := checkLinkTarget(rel, target); err != nil {
+		return err
+	}
+	for _, secret := range secrets {
+		if len(secret) >= minSecretLength && strings.Contains(target, secret) {
+			return fmt.Errorf("%s contains a secret value; the change was not published", rel)
+		}
+	}
+	*changes = append(*changes, change{path: rel, mode: fs.ModeSymlink, content: []byte(target)})
+	return nil
+}
+
+// checkLinkTarget refuses a link that leaves the repository: an absolute target,
+// or a relative one that climbs out of the tree, or one that points into the
+// git or CI directories.
+func checkLinkTarget(rel, target string) error {
+	if filepath.IsAbs(target) {
+		return fmt.Errorf("symlink %s points outside the repository", rel)
+	}
+	resolved := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(rel), target))
+	if resolved == ".." || strings.HasPrefix(resolved, "../") {
+		return fmt.Errorf("symlink %s points outside the repository", rel)
+	}
+	if err := checkChangePath(resolved); err != nil {
+		return fmt.Errorf("symlink %s points into %s", rel, resolved)
+	}
+	return nil
 }
 
 // checkChangePath refuses paths a change may never touch: anything inside a
@@ -186,6 +232,15 @@ func applyChanges(pub string, changes []change) error {
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
+		}
+		if c.mode == fs.ModeSymlink {
+			if err := os.Remove(target); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			if err := os.Symlink(string(c.content), target); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := os.WriteFile(target, c.content, 0o600); err != nil {
 			return err

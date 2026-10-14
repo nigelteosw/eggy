@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -483,5 +484,82 @@ func TestDiffWorkspaceRefusesDeletingAWorkflowFile(t *testing.T) {
 	}
 	if _, err := diffWorkspace(ws, base, nil); err == nil || !strings.Contains(err.Error(), ".github") {
 		t.Fatalf("deleted workflow file: err = %v, want a refusal", err)
+	}
+}
+
+// docs/CLAUDE.md is a symlink committed to the repository. A checkout always has
+// it, so an unchanged link must not stop a run, the same as an unchanged CI file.
+func TestDiffWorkspaceAllowsAnUnchangedSymlink(t *testing.T) {
+	base, ws := t.TempDir(), t.TempDir()
+	for _, dir := range []string{base, ws} {
+		if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("AGENTS.md", filepath.Join(dir, "docs", "CLAUDE.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changes, err := diffWorkspace(ws, base, nil)
+	if err != nil || len(changes) != 0 {
+		t.Fatalf("unchanged symlink: changes = %+v err = %v", changes, err)
+	}
+}
+
+// A new symlink that stays inside the repository is a change, recorded as a
+// link whose content is its target text. Nothing reads through it.
+func TestDiffWorkspaceRecordsANewRelativeSymlink(t *testing.T) {
+	base, ws := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../AGENTS.md", filepath.Join(ws, "docs", "GUIDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := diffWorkspace(ws, base, nil)
+	if err != nil || len(changes) != 1 || changes[0].path != "docs/GUIDE.md" || changes[0].mode != fs.ModeSymlink || string(changes[0].content) != "../AGENTS.md" {
+		t.Fatalf("new symlink: changes = %+v err = %v", changes, err)
+	}
+}
+
+// A link that leaves the repository, by an absolute path or by climbing out, is
+// refused: committing it would hand the repository a path outside itself.
+func TestDiffWorkspaceRefusesAnEscapingSymlink(t *testing.T) {
+	for _, target := range []string{"/etc/passwd", "../../outside"} {
+		ws := t.TempDir()
+		if err := os.Symlink(target, filepath.Join(ws, "link")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := diffWorkspace(ws, t.TempDir(), nil); err == nil || !strings.Contains(err.Error(), "outside the repository") {
+			t.Fatalf("link to %s: err = %v, want a refusal", target, err)
+		}
+	}
+}
+
+func TestApplyChangesWritesASymlink(t *testing.T) {
+	pub := t.TempDir()
+	if err := applyChanges(pub, []change{{path: "docs/GUIDE.md", mode: fs.ModeSymlink, content: []byte("../AGENTS.md")}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Readlink(filepath.Join(pub, "docs", "GUIDE.md"))
+	if err != nil || got != "../AGENTS.md" {
+		t.Fatalf("link = %q err = %v", got, err)
+	}
+}
+
+// A new in-repository link is committed as a link, so the repository keeps the
+// relationship rather than a copy of the target's text.
+func TestPublishCommitsANewSymlinkAsALink(t *testing.T) {
+	p := newPubEnv(t)
+	run := p.newRun("00000000000000000000000000000010")
+	if err := os.Symlink("README.md", filepath.Join(p.ws(run.ID), "GUIDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	p.publish(run, passingGoTest)
+	if got := p.state(run.ID); got.State != ports.AgentRunCompleted {
+		t.Fatalf("run = %+v", got)
+	}
+	tree := gitT(t, p.bare, "ls-tree", "eggy/"+run.ID, "GUIDE.md")
+	if !strings.HasPrefix(tree, "120000 ") {
+		t.Fatalf("GUIDE.md tree entry = %q, want a symlink (mode 120000)", tree)
 	}
 }

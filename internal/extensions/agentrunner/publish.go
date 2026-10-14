@@ -59,9 +59,6 @@ func diffWorkspace(ws, base string, secrets []string) ([]change, error) {
 		if !entry.Type().IsRegular() {
 			return fmt.Errorf("special file %s is not allowed in a change", rel)
 		}
-		if err := checkChangePath(rel); err != nil {
-			return err
-		}
 		seen[rel] = true
 		info, err := entry.Info()
 		if err != nil {
@@ -74,6 +71,11 @@ func diffWorkspace(ws, base string, secrets []string) ([]change, error) {
 		mode := gitMode(info.Mode())
 		if unchanged(filepath.Join(base, rel), content, mode) {
 			return nil
+		}
+		// Only a change is refused. A checkout's own workflow files are unchanged,
+		// and refusing them would stop every run on a repository that has CI.
+		if err := checkChangePath(rel); err != nil {
+			return err
 		}
 		for _, secret := range secrets {
 			if len(secret) >= minSecretLength && bytes.Contains(content, []byte(secret)) {
@@ -100,6 +102,9 @@ func diffWorkspace(ws, base string, secrets []string) ([]change, error) {
 		}
 		if entry.IsDir() || seen[rel] {
 			return nil
+		}
+		if err := checkChangePath(rel); err != nil {
+			return err
 		}
 		changes = append(changes, change{path: rel, remove: true})
 		return nil

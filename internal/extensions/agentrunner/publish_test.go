@@ -443,3 +443,45 @@ func TestPublishRedactsSecretFromPRBody(t *testing.T) {
 		t.Fatalf("secret reached the PR body:\n%s", body)
 	}
 }
+
+// A checkout always carries the repository's own workflow files. Those are the
+// base's bytes, not a change, so they must not stop a run that changed nothing
+// under .github. Only a change to them is refused.
+func TestDiffWorkspaceAllowsAnUnchangedWorkflowFile(t *testing.T) {
+	base, ws := t.TempDir(), t.TempDir()
+	for _, dir := range []string{base, ws} {
+		if err := os.MkdirAll(filepath.Join(dir, ".github", "workflows"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".github", "workflows", "ci.yml"), []byte("on: push\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(ws, "README.md"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "README.md"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := diffWorkspace(ws, base, nil)
+	if err != nil {
+		t.Fatalf("unchanged workflow file refused: %v", err)
+	}
+	if len(changes) != 1 || changes[0].path != "README.md" {
+		t.Fatalf("changes = %+v, want only README.md", changes)
+	}
+}
+
+// Deleting a workflow file is a change to CI too, and is refused the same way.
+func TestDiffWorkspaceRefusesDeletingAWorkflowFile(t *testing.T) {
+	base, ws := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, ".github", "workflows"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, ".github", "workflows", "ci.yml"), []byte("on: push\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := diffWorkspace(ws, base, nil); err == nil || !strings.Contains(err.Error(), ".github") {
+		t.Fatalf("deleted workflow file: err = %v, want a refusal", err)
+	}
+}

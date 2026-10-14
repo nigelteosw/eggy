@@ -50,6 +50,18 @@ func (f *fakeAgentRunner) RunSteps(_ context.Context, id string) ([]ports.AgentR
 func (f *fakeAgentRunner) CancelRun(ctx context.Context, id string) (ports.AgentRun, error) {
 	return f.Run(ctx, id)
 }
+
+func (f *fakeAgentRunner) DeleteRun(_ context.Context, id string) error {
+	run, ok := f.runs[id]
+	if !ok {
+		return ports.ErrAgentRunNotFound
+	}
+	if !run.State.Finished() {
+		return ports.ErrAgentRunActive
+	}
+	delete(f.runs, id)
+	return nil
+}
 func (f *fakeAgentRunner) AnswerRun(ctx context.Context, id, _ string) (ports.AgentRun, error) {
 	return f.Run(ctx, id)
 }
@@ -303,5 +315,27 @@ func TestAgentRunViewCarriesUsageAndBranches(t *testing.T) {
 	}
 	if got.BaseBranch != "main" || got.Branch != "eggy/r1" || got.UsedTokens != 150000 || got.ActiveSeconds != 95 || got.PRTitle != "Paginate finance entries" {
 		t.Fatalf("view = %+v", got)
+	}
+}
+
+// Deleting a finished run answers 200 and the run is gone. A run still in
+// progress is refused with 409, and the run is kept.
+func TestAgentRunDeleteRefusesAnActiveRun(t *testing.T) {
+	fake := &fakeAgentRunner{runs: map[string]ports.AgentRun{
+		"done":   {ID: "done", Repository: "eggy", State: ports.AgentRunCompleted},
+		"moving": {ID: "moving", Repository: "eggy", State: ports.AgentRunRunning},
+	}}
+	mux := serveAgentRunner(fake)
+	if rec := do(t, mux, http.MethodDelete, "/api/agent-runner/runs/moving", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("active delete status = %d, want 409", rec.Code)
+	}
+	if _, ok := fake.runs["moving"]; !ok {
+		t.Fatal("active run was deleted")
+	}
+	if rec := do(t, mux, http.MethodDelete, "/api/agent-runner/runs/done", ""); rec.Code != http.StatusOK {
+		t.Fatalf("finished delete status = %d, want 200", rec.Code)
+	}
+	if _, ok := fake.runs["done"]; ok {
+		t.Fatal("finished run survived the delete")
 	}
 }

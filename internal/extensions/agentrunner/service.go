@@ -234,6 +234,16 @@ func (s *Service) List(ctx context.Context) ([]ports.AgentRun, error) {
 
 // Cancel stops a run. A queued or waiting run is cancelled at once. A running
 // one is cancelled through its context and the worker records the outcome.
+// Delete removes a finished run for its owner: the record and its steps first,
+// then the workspace. If the workspace cannot be removed, what is left is an
+// orphan directory the sweep removes, never a record pointing at nothing.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if err := s.opts.Store.DeleteAgentRun(ctx, id); err != nil {
+		return err
+	}
+	return s.opts.Workspaces.Remove(id)
+}
+
 func (s *Service) Cancel(ctx context.Context, id string) (ports.AgentRun, error) {
 	run, err := s.opts.Store.GetAgentRun(ctx, id)
 	if err != nil {

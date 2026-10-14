@@ -75,6 +75,8 @@ Open a run for its full story:
 - **What happened**, the run's steps in order: when it started, each tool call and whether it succeeded, questions, publish stages, and the outcome. A tool step records the tool's name and whether it worked, not what it returned. The model's own calls are hidden until you choose to show them.
 - **What the run produced**, the summary or output, collapsed by default.
 
+A finished run, one that completed, failed, was cancelled or was interrupted, can be deleted from its page. Deleting removes the run record, its steps and its working directory. A pull request it opened stays on GitHub. A run still in progress must be cancelled first.
+
 The same status is available in Telegram with `/code status`.
 
 ### Questions and cancellation

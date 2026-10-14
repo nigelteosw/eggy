@@ -331,3 +331,36 @@ func (s *Store) ListAgentRunEvents(ctx context.Context, runID string) ([]ports.A
 	}
 	return events, rows.Err()
 }
+
+// DeleteAgentRun removes a finished run and its steps in one transaction. The
+// state is read inside the transaction, so a run cannot start moving between
+// the check and the delete.
+func (s *Store) DeleteAgentRun(ctx context.Context, id string) error {
+	account, err := accountOf(ctx)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var state string
+	err = tx.QueryRowContext(ctx, `SELECT state FROM agent_runs WHERE id = ? AND account_id = ?`, id, account).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ports.ErrAgentRunNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !ports.AgentRunState(state).Finished() {
+		return ports.ErrAgentRunActive
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_run_events WHERE run_id = ? AND account_id = ?`, id, account); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_runs WHERE id = ? AND account_id = ?`, id, account); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

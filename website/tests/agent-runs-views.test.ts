@@ -139,3 +139,11 @@ test("a run with no steps yet says so instead of showing an empty section", () =
   );
   expect(markup).toContain("No steps recorded yet.");
 });
+
+test("a finished run offers delete, and a run in progress does not", () => {
+  const props = { busy: false, onBack: () => {}, onCancel: () => {}, onAnswer: () => {}, onDelete: () => {} };
+  const finished = renderToStaticMarkup(createElement(AgentRunDetailView, { ...props, run: { ...failed, stage: "" } }));
+  expect(finished).toContain("Delete run");
+  const moving = renderToStaticMarkup(createElement(AgentRunDetailView, { ...props, run: base }));
+  expect(moving).not.toContain("Delete run");
+});

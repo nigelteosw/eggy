@@ -284,3 +284,27 @@ func TestRunRecordsItsSteps(t *testing.T) {
 		t.Fatalf("tool step = %q, want the tool name and its status, not its output", steps[2].Text)
 	}
 }
+
+// A finished run can be deleted: its record, its steps and its workspace go with
+// it. A run still moving cannot be deleted, and its workspace stays.
+func TestDeleteRunRemovesItsRecordAndWorkspace(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	run := prepared(t, h, startRun(t, h, "x"))
+	if err := h.svc.Delete(acct("a"), run.ID); !errors.Is(err, ports.ErrAgentRunActive) {
+		t.Fatalf("queued delete = %v, want ErrAgentRunActive", err)
+	}
+	run.State = ports.AgentRunCompleted
+	run, err := h.store.UpdateAgentRun(acct("a"), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.Delete(acct("a"), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.GetAgentRun(acct("a"), run.ID); !errors.Is(err, ports.ErrAgentRunNotFound) {
+		t.Fatalf("deleted run still readable: %v", err)
+	}
+	if _, err := os.Stat(h.svc.opts.Workspaces.Dir(run.ID)); !os.IsNotExist(err) {
+		t.Fatalf("workspace survived the delete: %v", err)
+	}
+}

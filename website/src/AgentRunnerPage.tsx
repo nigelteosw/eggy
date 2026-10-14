@@ -4,6 +4,7 @@ import {
   SessionExpiredError,
   addAgentRepository,
   answerAgentRun,
+  deleteAgentRun,
   cancelAgentRun,
   getAgentStatus,
   listAgentRepos,
@@ -707,6 +708,13 @@ export function AgentRunnerPage({
                   "Answer sent.",
                 )
               }
+              onDelete={async () => {
+                const done = await perform(
+                  () => deleteAgentRun(selected.id),
+                  "Run deleted.",
+                );
+                if (done !== undefined) setSelectedId(null);
+              }}
             />
           )}
         </div>

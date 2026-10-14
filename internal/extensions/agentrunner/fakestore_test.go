@@ -176,3 +176,22 @@ func (m *memStore) ListAgentRunEvents(ctx context.Context, runID string) ([]port
 	}
 	return append([]ports.AgentRunEvent(nil), m.steps[runID]...), nil
 }
+
+func (m *memStore) DeleteAgentRun(ctx context.Context, id string) error {
+	account, err := owner(ctx)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run, ok := m.runs[id]
+	if !ok || run.AccountID != account {
+		return ports.ErrAgentRunNotFound
+	}
+	if !run.State.Finished() {
+		return ports.ErrAgentRunActive
+	}
+	delete(m.runs, id)
+	delete(m.steps, id)
+	return nil
+}

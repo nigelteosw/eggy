@@ -208,3 +208,42 @@ func TestAgentRunEventsConcurrentAppendsGetDistinctNumbers(t *testing.T) {
 		}
 	}
 }
+
+// Deleting a finished run removes it and its steps for its owner. A run still in
+// flight cannot be deleted, and another account sees the run as not found.
+func TestDeleteAgentRunRemovesFinishedRunAndSteps(t *testing.T) {
+	db := newTestStore(t, 0)
+	created := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	done := agentRun("done", "eggy", created)
+	done.State = ports.AgentRunCompleted
+	active := agentRun("active", "eggy", created)
+	active.State = ports.AgentRunRunning
+	for _, run := range []ports.AgentRun{done, active} {
+		if err := db.CreateAgentRun(as("a"), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.AppendAgentRunEvent(as("a"), "done", ports.AgentRunEvent{At: created, Kind: "started", Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteAgentRun(as("b"), "done"); !errors.Is(err, ports.ErrAgentRunNotFound) {
+		t.Fatalf("other account delete = %v, want ErrAgentRunNotFound", err)
+	}
+	if err := db.DeleteAgentRun(as("a"), "active"); !errors.Is(err, ports.ErrAgentRunActive) {
+		t.Fatalf("active delete = %v, want ErrAgentRunActive", err)
+	}
+	if err := db.DeleteAgentRun(as("a"), "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetAgentRun(as("a"), "done"); !errors.Is(err, ports.ErrAgentRunNotFound) {
+		t.Fatalf("deleted run still readable: %v", err)
+	}
+	steps, err := db.ListAgentRunEvents(as("a"), "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps survived the delete: %+v", steps)
+	}
+}

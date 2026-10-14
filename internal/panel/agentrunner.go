@@ -26,6 +26,7 @@ type AgentRunnerService interface {
 	Run(ctx context.Context, id string) (ports.AgentRun, error)
 	RunSteps(ctx context.Context, id string) ([]ports.AgentRunEvent, error)
 	CancelRun(ctx context.Context, id string) (ports.AgentRun, error)
+	DeleteRun(ctx context.Context, id string) error
 	AnswerRun(ctx context.Context, id, text string) (ports.AgentRun, error)
 	Repositories(ctx context.Context) ([]AgentRepository, error)
 	SetRepositoryEnabled(ctx context.Context, name string, enabled bool) error
@@ -102,6 +103,8 @@ func writeAgentFailure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ports.ErrAgentRunNotFound):
 		writeWebError(w, http.StatusNotFound, "run not found")
+	case errors.Is(err, ports.ErrAgentRunActive):
+		writeWebError(w, http.StatusConflict, "the run is still in progress; cancel it first")
 	case errors.Is(err, ports.ErrNoPrincipal):
 		writeWebError(w, http.StatusUnauthorized, "sign in to use the agent runner")
 	default:
@@ -126,6 +129,7 @@ func mountAgentRunnerRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) htt
 	mux.Handle("GET /api/agent-runner/runs/{id}", guard(agentRunGet(svc)))
 	mux.Handle("GET /api/agent-runner/runs/{id}/steps", guard(agentRunSteps(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/cancel", guard(agentRunCancel(svc)))
+	mux.Handle("DELETE /api/agent-runner/runs/{id}", guard(agentRunDelete(svc)))
 	mux.Handle("POST /api/agent-runner/runs/{id}/answer", guard(agentRunAnswer(svc)))
 	mux.Handle("GET /api/agent-runner/repos", guard(agentRepos(svc, configPath)))
 	mux.Handle("POST /api/agent-runner/repos/{name}", guard(agentRepoToggle(svc, configPath)))
@@ -215,6 +219,16 @@ func agentRunCancel(svc AgentRunnerService) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, agentRunView(run))
+	}
+}
+
+func agentRunDelete(svc AgentRunnerService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := svc.DeleteRun(r.Context(), r.PathValue("id")); err != nil {
+			writeAgentFailure(w, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"deleted": true})
 	}
 }
 

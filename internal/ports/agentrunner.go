@@ -11,6 +11,20 @@ import (
 // one on purpose, so a caller cannot probe which ids exist.
 var ErrAgentRunNotFound = errors.New("agent run not found")
 
+// ErrAgentRunActive reports a delete of a run that is still queued, running,
+// waiting, or publishing. Only a finished run can be deleted.
+var ErrAgentRunActive = errors.New("agent run is still in progress")
+
+// Finished reports whether a run has stopped moving for good. Only a finished
+// run may be deleted.
+func (s AgentRunState) Finished() bool {
+	switch s {
+	case AgentRunCompleted, AgentRunFailed, AgentRunCancelled, AgentRunInterrupted:
+		return true
+	}
+	return false
+}
+
 // ErrAgentRunConflict reports an update written against a stale revision: the
 // run changed since the caller read it, so the caller must re-read and decide
 // again rather than overwrite.
@@ -104,6 +118,9 @@ type AgentRunStore interface {
 	NextQueuedAgentRun(ctx context.Context) (AgentRun, bool, error)
 	// AgentRunsInStates returns runs in any of the given states, across accounts.
 	AgentRunsInStates(ctx context.Context, states ...AgentRunState) ([]AgentRun, error)
+	// DeleteAgentRun removes a finished run and its steps the acting account
+	// owns. A run still in flight is refused with ErrAgentRunActive.
+	DeleteAgentRun(ctx context.Context, id string) error
 	// AppendAgentRunEvent records one step of a run the acting account owns,
 	// numbered after the run's last event. A run that is not theirs is refused.
 	AppendAgentRunEvent(ctx context.Context, runID string, event AgentRunEvent) error

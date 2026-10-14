@@ -132,6 +132,11 @@ export function isActive(state: string): boolean {
   return ["queued", "running", "publishing"].includes(state);
 }
 
+// Only a finished run can be deleted: the same states the server accepts.
+export function canDelete(state: string): boolean {
+  return ["completed", "failed", "cancelled", "interrupted"].includes(state);
+}
+
 export function isStopped(state: string): boolean {
   return ["failed", "cancelled", "interrupted"].includes(state);
 }

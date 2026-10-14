@@ -219,6 +219,10 @@ func (p panelAgentRunner) CancelRun(ctx context.Context, id string) (ports.Agent
 	return p.service.Cancel(ctx, id)
 }
 
+func (p panelAgentRunner) DeleteRun(ctx context.Context, id string) error {
+	return p.service.Delete(ctx, id)
+}
+
 func (p panelAgentRunner) AnswerRun(ctx context.Context, id, text string) (ports.AgentRun, error) {
 	return p.service.Answer(ctx, id, text)
 }

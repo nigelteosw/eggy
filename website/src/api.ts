@@ -869,6 +869,12 @@ export function listAgentRunSteps(id: string): Promise<AgentRunStep[]> {
   return request<AgentRunStep[]>(`/api/agent-runner/runs/${encodeURIComponent(id)}/steps`);
 }
 
+// deleteAgentRun removes a finished run and its steps. The server refuses a run
+// still in progress, and says so in the message the page shows.
+export function deleteAgentRun(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/api/agent-runner/runs/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function cancelAgentRun(id: string): Promise<AgentRun> {
   return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
 }

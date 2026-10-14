@@ -6,6 +6,7 @@ import {
   RUN_FILTERS,
   canCancel,
   briefTitle,
+  canDelete,
   filterRuns,
   formatDuration,
   formatTokens,
@@ -142,6 +143,7 @@ export function AgentRunDetailView({
   onBack,
   onCancel,
   onAnswer,
+  onDelete,
 }: {
   run: AgentRun;
   steps?: AgentRunStep[];
@@ -149,8 +151,10 @@ export function AgentRunDetailView({
   onBack: () => void;
   onCancel: () => void;
   onAnswer: (text: string) => void;
+  onDelete?: () => void;
 }) {
   const [answer, setAnswer] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [showModel, setShowModel] = useState(false);
   const modelCalls = steps.filter((step) => isModelStep(step.kind)).length;
   const visibleSteps = showModel ? steps : steps.filter((step) => !isModelStep(step.kind));
@@ -165,6 +169,22 @@ export function AgentRunDetailView({
           <button type="button" disabled={busy} onClick={onCancel} className={SECONDARY_BUTTON}>
             Cancel run
           </button>
+        )}
+        {onDelete && canDelete(run.state) && !confirming && (
+          <button type="button" onClick={() => setConfirming(true)} className={SECONDARY_BUTTON}>
+            Delete run
+          </button>
+        )}
+        {onDelete && canDelete(run.state) && confirming && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-neutral-700">Delete this run and its steps? A pull request it opened stays on GitHub.</span>
+            <button type="button" disabled={busy} onClick={onDelete} className={SECONDARY_BUTTON}>
+              Yes, delete
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} className={SECONDARY_BUTTON}>
+              Keep it
+            </button>
+          </div>
         )}
       </div>
 

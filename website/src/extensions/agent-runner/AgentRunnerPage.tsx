@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { cn } from "./lib/utils";
+import { cn } from "../../lib/utils";
 import {
   SessionExpiredError,
   addAgentRepository,
@@ -18,13 +18,13 @@ import {
   type AgentRun,
   type AgentRunStep,
   type AgentStatus,
-} from "./api";
-import { CardHeader } from "./components/ui/card-header";
-import { CloseIcon } from "./components/ui/icons";
-import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./components/ui/form";
-import { Input } from "./components/ui/input";
-import { Select } from "./components/ui/select";
-import { Switch } from "./components/ui/switch";
+} from "../../api";
+import { CardHeader } from "../../components/ui/card-header";
+import { CloseIcon } from "../../components/ui/icons";
+import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
+import { Switch } from "../../components/ui/switch";
 import {
   AGENT_START_COPY,
   MAX_CHECKS,
@@ -32,7 +32,7 @@ import {
   sandboxNotice,
   waitingRuns,
   type RunFilter,
-} from "./lib/agent-runner";
+} from "./agent-runner";
 import { AgentRunDetailView, AgentRunRow, AgentRunsList, Badge, Section } from "./AgentRunsView";
 
 // serverText joins a result's title and detail, so the page says what the

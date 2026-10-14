@@ -12,13 +12,13 @@ import {
   type FinanceInput,
   type FinancePatch,
   type FinanceSummary,
-} from "./api";
-import { CardHeader } from "./components/ui/card-header";
-import { ErrorBanner } from "./components/ui/error-banner";
-import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./components/ui/form";
-import { CloseIcon } from "./components/ui/icons";
-import { Input } from "./components/ui/input";
-import { Select } from "./components/ui/select";
+} from "../../api";
+import { CardHeader } from "../../components/ui/card-header";
+import { ErrorBanner } from "../../components/ui/error-banner";
+import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
+import { CloseIcon } from "../../components/ui/icons";
+import { Input } from "../../components/ui/input";
+import { Select } from "../../components/ui/select";
 import { CategoriesPanel, CategoryChip } from "./FinanceCategories";
 import { CurrencySwitch, DailyStrip, Insights, Overview, Spending, Trend } from "./FinanceOverview";
 import { FinanceToolbar } from "./FinanceToolbar";
@@ -34,9 +34,9 @@ import {
   shiftMonth,
   signedAmount,
   type Kind,
-} from "./lib/finance";
-import { DEFAULT_VIEW, isFiltered, listRequest, type EntryView } from "./lib/finance-list";
-import { cn, errorMessage } from "./lib/utils";
+} from "./finance";
+import { DEFAULT_VIEW, isFiltered, listRequest, type EntryView } from "./finance-list";
+import { cn, errorMessage } from "../../lib/utils";
 
 // Money is text all the way down: the server formats every amount and sizes
 // every bar, so nothing here adds, compares or converts it.

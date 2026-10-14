@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowsUpDownIcon, ChevronDownIcon, PlusIcon, SearchIcon, SlidersIcon } from "./components/ui/icons";
-import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "./components/ui/form";
-import { Select } from "./components/ui/select";
-import { KIND_LABEL, KINDS } from "./lib/finance";
-import { SEARCH_DEBOUNCE_MS, SORTS, SORT_KEYS, chooseSort, filterCount, isFiltered, type EntryView } from "./lib/finance-list";
-import { cn } from "./lib/utils";
+import { ArrowsUpDownIcon, ChevronDownIcon, PlusIcon, SearchIcon, SlidersIcon } from "../../components/ui/icons";
+import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "../../components/ui/form";
+import { Select } from "../../components/ui/select";
+import { KIND_LABEL, KINDS } from "./finance";
+import { SEARCH_DEBOUNCE_MS, SORTS, SORT_KEYS, chooseSort, filterCount, isFiltered, type EntryView } from "./finance-list";
+import { cn } from "../../lib/utils";
 
 type Menu = "filter" | "sort" | null;
 

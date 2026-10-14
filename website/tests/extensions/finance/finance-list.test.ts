@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DEFAULT_VIEW, SORT_KEYS, chooseSort, filterCount, isFiltered, listRequest, type EntryView } from "../src/lib/finance-list";
+import { DEFAULT_VIEW, SORT_KEYS, chooseSort, filterCount, isFiltered, listRequest, type EntryView } from "../../../src/extensions/finance/finance-list";
 
 const range = { from: "2026-10-01", to: "2026-10-31" };
 

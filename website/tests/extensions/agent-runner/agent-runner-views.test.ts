@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AddRepositoryForm, AgentRunStartForm, AgentRunnerPage } from "../src/AgentRunnerPage";
-import { AgentRunnerSettingsView } from "../src/AgentRunnerCard";
-import { GitHubTokenView } from "../src/GitHubTokenField";
-import { runningExtensions } from "../src/extensions";
-import { AGENT_START_COPY } from "../src/lib/agent-runner";
+import { AddRepositoryForm, AgentRunStartForm, AgentRunnerPage } from "../../../src/extensions/agent-runner/AgentRunnerPage";
+import { AgentRunnerSettingsView } from "../../../src/extensions/agent-runner/AgentRunnerCard";
+import { GitHubTokenView } from "../../../src/GitHubTokenField";
+import { runningExtensions } from "../../../src/extensions";
+import { AGENT_START_COPY } from "../../../src/extensions/agent-runner/agent-runner";
 
 const repos = [{ name: "eggy", enabled: true, push_access: true, checks: [], pending: false, removed: false, needs_restart: false }];
 
@@ -103,7 +103,7 @@ test("the add-repository form refuses an empty name or URL before sending", () =
 // The extension window has a fixed height, so the page must scroll itself. The
 // finance page does it with this wrapper; without it, content is clipped.
 test("the Agent Runner page owns its scrolling, as the finance page does", async () => {
-  const source = await Bun.file(new URL("../src/AgentRunnerPage.tsx", import.meta.url)).text();
+  const source = await Bun.file(new URL("../../../src/extensions/agent-runner/AgentRunnerPage.tsx", import.meta.url)).text();
   expect(source).toContain("h-full min-h-0 overflow-y-auto");
 });
 

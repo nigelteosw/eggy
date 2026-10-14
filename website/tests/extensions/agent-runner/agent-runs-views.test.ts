@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AgentRunDetailView, AgentRunsList } from "../src/AgentRunsView";
-import type { AgentRun } from "../src/api";
+import { AgentRunDetailView, AgentRunsList } from "../../../src/extensions/agent-runner/AgentRunsView";
+import type { AgentRun } from "../../../src/api";
 
 const base: AgentRun = { id: "r1", repository: "eggy", state: "running", draft: false, created_at: "2026-10-13T12:59:40Z" };
 const failed: AgentRun = {

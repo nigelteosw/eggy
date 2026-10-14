@@ -12,11 +12,11 @@ import {
   updateFinanceEntry,
   type FinanceEntry,
   type FinanceSummary,
-} from "../src/api";
-import { CategoriesPanel } from "../src/FinanceCategories";
-import { AddEntryForm, FinanceReport } from "../src/FinancePage";
-import { FinanceSettingsView } from "../src/FinanceCard";
-import { daysOfRange, monthLabel, shiftMonth } from "../src/lib/finance";
+} from "../../../src/api";
+import { CategoriesPanel } from "../../../src/extensions/finance/FinanceCategories";
+import { AddEntryForm, FinanceReport } from "../../../src/extensions/finance/FinancePage";
+import { FinanceSettingsView } from "../../../src/extensions/finance/FinanceCard";
+import { daysOfRange, monthLabel, shiftMonth } from "../../../src/extensions/finance/finance";
 test("months shift across year boundaries and read as words", () => {
   expect(shiftMonth("2026-10", -1)).toBe("2026-09");
   expect(shiftMonth("2026-10", 1)).toBe("2026-11");

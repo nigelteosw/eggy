@@ -1,8 +1,8 @@
-import { CardHeader } from "./components/ui/card-header";
-import type { FinanceFlow, FinanceSpending, FinanceTrendPoint, FinanceDay } from "./api";
+import { CardHeader } from "../../components/ui/card-header";
+import type { FinanceFlow, FinanceSpending, FinanceTrendPoint, FinanceDay } from "../../api";
 import { CategoryDot } from "./FinanceCategories";
-import { categoryHex, daysOfRange, dayLabel, entriesWord, money, monthShort, movement, percentOf, type Movement } from "./lib/finance";
-import { cn } from "./lib/utils";
+import { categoryHex, daysOfRange, dayLabel, entriesWord, money, monthShort, movement, percentOf, type Movement } from "./finance";
+import { cn } from "../../lib/utils";
 
 // The figures and charts for one currency. Everything here is drawn from values
 // the server computed: amounts as text, bars and changes as shares and

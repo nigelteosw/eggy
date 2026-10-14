@@ -9,7 +9,7 @@ import {
   skillsFromField,
   skillsToField,
   stateLabel,
-} from "../src/lib/agent-runner";
+} from "../../../src/extensions/agent-runner/agent-runner";
 
 test("the start and extension copy are the spec's wording, verbatim", () => {
   expect(AGENT_START_COPY).toBe(

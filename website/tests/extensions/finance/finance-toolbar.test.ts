@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { FinanceSummary } from "../src/api";
-import { FinanceReport } from "../src/FinancePage";
-import { FinanceToolbar } from "../src/FinanceToolbar";
-import { DEFAULT_VIEW } from "../src/lib/finance-list";
+import type { FinanceSummary } from "../../../src/api";
+import { FinanceReport } from "../../../src/extensions/finance/FinancePage";
+import { FinanceToolbar } from "../../../src/extensions/finance/FinanceToolbar";
+import { DEFAULT_VIEW } from "../../../src/extensions/finance/finance-list";
 
 const toolbar = (categories: string[] = ["food", "transport"]) =>
   renderToStaticMarkup(createElement(FinanceToolbar, { view: DEFAULT_VIEW, categories, onChange: () => {}, onAdd: () => {} }));

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { FinancePage } from "./FinancePage";
-import { FileCodeIcon, WalletIcon } from "./components/ui/icons";
-import { AgentRunnerPage } from "./AgentRunnerPage";
+import { FinancePage } from "./finance/FinancePage";
+import { FileCodeIcon, WalletIcon } from "../components/ui/icons";
+import { AgentRunnerPage } from "./agent-runner/AgentRunnerPage";
 
 // The feature extensions the web panel can open. Each one is listed under the
 // rail's Extensions menu and opens as a window over the current view. An extension

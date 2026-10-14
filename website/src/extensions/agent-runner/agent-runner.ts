@@ -1,4 +1,4 @@
-import type { AgentRun } from "../api";
+import type { AgentRun } from "../../api";
 
 // Pure rules for the agent runner's panel: the wording the spec fixes, what a
 // restart is needed for, and how the form's text maps to config. The components

@@ -4,7 +4,7 @@
 // decides "this month"). Nothing here adds, compares or converts money: amounts
 // arrive formatted, and shares and percentages arrive computed.
 
-import type { FinanceEntry, FinanceSummary } from "../api";
+import type { FinanceEntry, FinanceSummary } from "../../api";
 
 export function shiftMonth(month: string, delta: number): string {
   const [year, number] = month.split("-").map(Number);

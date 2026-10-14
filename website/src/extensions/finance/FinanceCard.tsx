@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { useConfigSection } from "./useConfigSection";
-import { CardHeader } from "./components/ui/card-header";
-import { ErrorBanner } from "./components/ui/error-banner";
-import { PRIMARY_BUTTON } from "./components/ui/form";
-import { Select } from "./components/ui/select";
-import { Switch } from "./components/ui/switch";
+import { useConfigSection } from "../../useConfigSection";
+import { CardHeader } from "../../components/ui/card-header";
+import { ErrorBanner } from "../../components/ui/error-banner";
+import { PRIMARY_BUTTON } from "../../components/ui/form";
+import { Select } from "../../components/ui/select";
+import { Switch } from "../../components/ui/switch";
 
 // The presentational half, so the restart rule can be tested without a server.
 //

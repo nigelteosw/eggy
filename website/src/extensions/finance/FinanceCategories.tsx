@@ -1,9 +1,9 @@
 import { useState } from "react";
-import type { FinanceCategory } from "./api";
-import { FIELD_COMPACT, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./components/ui/form";
-import { Input } from "./components/ui/input";
-import { categoryHex, entriesWord } from "./lib/finance";
-import { cn } from "./lib/utils";
+import type { FinanceCategory } from "../../api";
+import { FIELD_COMPACT, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
+import { Input } from "../../components/ui/input";
+import { categoryHex, entriesWord } from "./finance";
+import { cn } from "../../lib/utils";
 
 // The colour dot every category wears on the page. The colour comes from the
 // server's palette name, so a category draws the same everywhere.

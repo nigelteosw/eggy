@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useConfigSection } from "./useConfigSection";
-import { CardHeader } from "./components/ui/card-header";
-import { ErrorBanner } from "./components/ui/error-banner";
-import { FIELD_LABEL, PRIMARY_BUTTON, FIELD } from "./components/ui/form";
-import { Input } from "./components/ui/input";
-import { Switch } from "./components/ui/switch";
-import { AGENT_SKILLS, EXTENSION_COPY, needsRestart, skillsFromField, skillsToField } from "./lib/agent-runner";
+import { useConfigSection } from "../../useConfigSection";
+import { CardHeader } from "../../components/ui/card-header";
+import { ErrorBanner } from "../../components/ui/error-banner";
+import { FIELD_LABEL, PRIMARY_BUTTON, FIELD } from "../../components/ui/form";
+import { Input } from "../../components/ui/input";
+import { Switch } from "../../components/ui/switch";
+import { AGENT_SKILLS, EXTENSION_COPY, needsRestart, skillsFromField, skillsToField } from "./agent-runner";
 
 // The presentational half, so the restart rule and the copy can be tested
 // without a server. savedEnabled is what config.yaml says; running is what this

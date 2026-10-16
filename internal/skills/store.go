@@ -1,6 +1,7 @@
 // Package skills persists procedural skills as flat Markdown files, one per
-// skill, each with a small YAML frontmatter block (name, description, and an
-// optional disabled flag) followed by the skill's instructions. There is no
+// skill, each with a small YAML frontmatter block (name, description, an
+// optional disabled flag and source, and any other keys, which are preserved)
+// followed by the skill's instructions. There is no
 // database and no bundled scripts/assets: a skill is text the agent reads,
 // never something Eggy executes, matching docs/adr/0005-procedural-skills.md.
 package skills
@@ -41,10 +42,15 @@ func ValidateName(name string) error {
 	return nil
 }
 
+// frontmatter holds the keys Eggy reads and writes. Source records where a
+// marketplace skill came from. Extra keeps every other key a skill author or
+// installer put in the block, so a rewrite never drops them.
 type frontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Disabled    bool   `yaml:"disabled,omitempty"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Disabled    bool           `yaml:"disabled,omitempty"`
+	Source      string         `yaml:"source,omitempty"`
+	Extra       map[string]any `yaml:",inline"`
 }
 
 type Store struct {
@@ -93,7 +99,7 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 			summaries = append(summaries, ports.SkillSummary{Name: stem, Invalid: err.Error()})
 			continue
 		}
-		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description, Disabled: front.Disabled})
+		summaries = append(summaries, ports.SkillSummary{Name: front.Name, Description: front.Description, Disabled: front.Disabled, Source: front.Source})
 	}
 	slices.SortFunc(summaries, func(a, b ports.SkillSummary) int { return cmp.Compare(a.Name, b.Name) })
 	return summaries, nil
@@ -112,7 +118,7 @@ func (s *Store) Read(ctx context.Context, name string) (ports.Skill, error) {
 	if err != nil {
 		return ports.Skill{}, err
 	}
-	return ports.Skill{Name: front.Name, Description: front.Description, Body: body, Disabled: front.Disabled}, nil
+	return ports.Skill{Name: front.Name, Description: front.Description, Body: body, Disabled: front.Disabled, Source: front.Source}, nil
 }
 
 // load reads and validates one skill file. The frontmatter name must match
@@ -178,19 +184,21 @@ func (s *Store) Write(ctx context.Context, name, description, body string) error
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// A new skill starts enabled. An existing one keeps its disabled flag,
-	// which lives in a file this write is about to replace, so a file that
-	// cannot be read is refused rather than overwritten: its flag is unknown.
-	disabled := false
+	// A new skill starts enabled with no source. An existing one keeps its
+	// disabled flag, source, and unknown keys, which live in a file this write
+	// is about to replace, so a file that cannot be read is refused rather
+	// than overwritten: its contents are unknown.
+	var front frontmatter
 	existing, _, err := s.load(name)
 	switch {
 	case err == nil:
-		disabled = existing.Disabled
+		front = existing
 	case errors.Is(err, ports.ErrSkillNotFound):
 	default:
 		return fmt.Errorf("skill %q cannot be rewritten until its file is repaired or removed: %w", name, err)
 	}
-	data, err := render(name, description, body, disabled)
+	front.Name, front.Description = name, description
+	data, err := render(front, body)
 	if err != nil {
 		return err
 	}
@@ -218,7 +226,8 @@ func (s *Store) SetDisabled(ctx context.Context, name string, disabled bool) err
 	if err != nil {
 		return err
 	}
-	data, err := render(name, front.Description, body, disabled)
+	front.Disabled = disabled
+	data, err := render(front, body)
 	if err != nil {
 		return err
 	}
@@ -268,8 +277,8 @@ func parse(data []byte) (frontmatter, string, error) {
 	return front, body, nil
 }
 
-func render(name, description, body string, disabled bool) ([]byte, error) {
-	encoded, err := yaml.Marshal(frontmatter{Name: name, Description: description, Disabled: disabled})
+func render(front frontmatter, body string) ([]byte, error) {
+	encoded, err := yaml.Marshal(front)
 	if err != nil {
 		return nil, err
 	}

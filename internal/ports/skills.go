@@ -18,6 +18,9 @@ type SkillSummary struct {
 	// Disabled is the owner's frontmatter choice; a disabled skill is kept
 	// out of the model's index and refused by skill_read.
 	Disabled bool `json:"disabled"`
+	// Source names where a marketplace-installed skill came from. Empty means
+	// hand-placed by the owner.
+	Source string `json:"source,omitempty"`
 	// Invalid says why a file in the skills directory cannot be used, so the
 	// panel can show it instead of silently hiding it. Empty for usable skills.
 	Invalid string `json:"invalid,omitempty"`
@@ -36,6 +39,8 @@ type Skill struct {
 	Description string `json:"description"`
 	Body        string `json:"body"`
 	Disabled    bool   `json:"disabled"`
+	// Source is empty for hand-placed skills.
+	Source string `json:"source,omitempty"`
 }
 
 // SkillsStore persists procedural skills as one Markdown file per skill.

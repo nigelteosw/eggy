@@ -70,6 +70,7 @@ An approval past its 30-minute window is shown as expired rather than hidden: it
 - A `telegram_select` tap is an ordinary message.
 - Adding an MCP server is a configuration-time trust decision, not a per-call approval.
 - Repository inspection requires no mutation approval because the shipped repository boundary is read-only.
+- An [Agent Runner](/eggy/configure/agent-runner/) run is not a tool call either. Its push and pull request are authorized by the 24-hour mandate you create from the panel or `/code run`, and no `/mode` changes that mandate.
 
 ## Gating an MCP tool
 

@@ -56,8 +56,8 @@ lives at `internal/<family>/<provider>/` (`internal/llm/openaicompat`,
 `internal/channel/telegram`, `internal/storage/sqlite`), and a capability with
 one provider is its own family (`internal/mcp`, `internal/google`). Contracts
 stay in `internal/ports`; `internal/core` is the provider-neutral agent, turn,
-and service code. There is no `extensions/` directory: the name is reserved for owner-addable
-feature extensions, not adapters.
+and service code. Feature extensions live under `internal/extensions/<name>/` (today `agentrunner`
+and `finance`); an adapter never goes there.
 
 A new provider (model backend, chat channel, repository host, runner, etc.)
 should only ever add a new package under

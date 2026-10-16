@@ -31,8 +31,10 @@ At most one repository can set `self: true`. The flag grants nothing; it tells E
 
 That is the whole repository surface. There is no tree listing, no content search, and no shell.
 
+Changing code is not part of this surface. The [Agent Runner](/eggy/configure/agent-runner/) extension makes changes in separate, sandboxed runs on repositories you allow. It has its own switch, its own GitHub token, and its own checks, and it is off by default.
+
 ## Restrictions
 
 Paths must remain inside the trusted checkout. Processes keep timeouts, output caps, environment allowlisting, and process-group termination.
 
-The shipped agent tool surface cannot edit repository files, run a general shell, commit, push, create pull requests, or choose a new remote from Telegram.
+The read-only agent tool surface cannot edit repository files, run a general shell, commit, push, create pull requests, or choose a new remote from Telegram.

@@ -5,10 +5,12 @@ Telegram and an optional authenticated web chat, routes requests to configured
 model providers, keeps conversation/context memory, and exposes a small tool
 registry.
 
-The repository boundary is intentionally read-only. Eggy can clone configured
-repositories, inspect files and GitHub metadata, and keep a checkout attached
-to a conversation. It cannot edit repository files, run an agent shell,
-commit, push, or create pull requests.
+Repository inspection is read-only. Eggy can clone configured repositories,
+inspect files and GitHub metadata, and keep a checkout attached to a
+conversation. The one exception is the optional Agent Runner extension (see
+Extensions below): on a repository you allow, it makes a change in a sandboxed
+run, runs that repository's listed checks, and opens a pull request for review.
+It never approves or merges, and it runs only under a mandate you create.
 
 ## Owner surfaces
 
@@ -22,6 +24,7 @@ choices. Its command surface is deliberately limited to:
 - `/model [alias]`
 - `/mcp [add|remove|enable|disable|login|logout]`
 - `/mode [strict|normal|auto]`
+- `/code` (only when Agent Runner is on)
 - `/restart`
 
 The agent can call `telegram_select` with its own prompt and 2–8 labelled
@@ -154,7 +157,16 @@ Capability families (`internal/`)
 - `auth/session`, `auth/grants`, `auth/connections` — sign-in primitives, sealed OAuth grants, sealed chat credentials.
 - `panel/webui` — the embedded panel assets; `fsutil/atomicfile`, `fsutil/filelock` — durable writes and cross-process locks.
 
-There is no `extensions/` directory; the name is reserved for owner-addable feature extensions.
+Optional feature extensions live in `internal/extensions/<name>/`, one package each, and are not adapters. See Extensions below.
+
+## Extensions
+
+An extension is an optional feature built into Eggy and switched on by its own `enabled` key. It can add a tool, a page under Extensions in the web panel, and a command. Nothing is loaded at runtime, and a disabled extension costs nothing.
+
+- **Finance** (`finance`): logs spending by chat or receipt photo, per person. See `docs/src/content/docs/configure/finance.md`.
+- **Agent Runner** (`agent_runner`): makes a change in an allowed repository, runs its checks, and opens a pull request for review. See `docs/src/content/docs/configure/agent-runner.md`.
+
+See `docs/src/content/docs/configure/extensions.md` for how they are switched on and what each adds.
 
 ## Development
 

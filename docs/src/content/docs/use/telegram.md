@@ -81,6 +81,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/model available <provider> [filter]` | List what a provider actually serves |
 | `/model add <alias> <provider> <model> [efforts]` | Write a new alias into `config.yaml` |
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
+| `/code run \<repository\> \<task\>`, `/code status`, `/code answer`, `/code cancel` | Start, follow, answer and cancel coding runs. Present only when [Agent Runner](/eggy/configure/agent-runner/) is on |
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |

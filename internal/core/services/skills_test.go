@@ -2,8 +2,12 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,10 +16,12 @@ import (
 
 type fakeSkillsStore struct {
 	skills map[string]ports.Skill
+	// refs holds reference files per directory skill: name -> file -> content.
+	refs map[string]map[string]string
 }
 
 func newFakeSkillsStore() *fakeSkillsStore {
-	return &fakeSkillsStore{skills: map[string]ports.Skill{}}
+	return &fakeSkillsStore{skills: map[string]ports.Skill{}, refs: map[string]map[string]string{}}
 }
 
 func (s *fakeSkillsStore) List(context.Context) ([]ports.SkillSummary, error) {
@@ -41,6 +47,9 @@ func (s *fakeSkillsStore) Read(_ context.Context, name string) (ports.Skill, err
 	if !ok {
 		return ports.Skill{}, errors.New("not found")
 	}
+	if files := s.refs[name]; len(files) > 0 {
+		skill.Files = slices.Sorted(maps.Keys(files))
+	}
 	return skill, nil
 }
 
@@ -51,7 +60,11 @@ func (s *fakeSkillsStore) Write(_ context.Context, name, description, body strin
 }
 
 func (s *fakeSkillsStore) ReadFile(_ context.Context, name, file string) (string, error) {
-	return "", fmt.Errorf("fake has no reference file %q of skill %q", file, name)
+	content, ok := s.refs[name][file]
+	if !ok {
+		return "", fmt.Errorf("fake has no reference file %q of skill %q", file, name)
+	}
+	return content, nil
 }
 
 func (s *fakeSkillsStore) WriteBundle(_ context.Context, b ports.SkillBundle) error {
@@ -175,5 +188,98 @@ func TestAdminMutationsValidateNamesBeforeTouchingTheStore(t *testing.T) {
 	}
 	if err := service.Delete(ctx, "fine"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSkillReadListsFiles(t *testing.T) {
+	store := newFakeSkillsStore()
+	store.skills["pdf"] = ports.Skill{Name: "pdf", Description: "does pdf", Body: "steps"}
+	store.refs["pdf"] = map[string]string{"reference.md": "details"}
+	tools := NewSkillTools(NewSkillsService(store))
+
+	out, err := tools[0].Execute(context.Background(), []byte(`{"name":"pdf"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Files []string `json:"files"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Files, []string{"reference.md"}) {
+		t.Fatalf("files=%v output=%s", got.Files, out)
+	}
+}
+
+func TestSkillReadFile(t *testing.T) {
+	store := newFakeSkillsStore()
+	store.skills["pdf"] = ports.Skill{Name: "pdf", Description: "does pdf", Body: "steps"}
+	store.refs["pdf"] = map[string]string{"reference.md": "details"}
+	tools := NewSkillTools(NewSkillsService(store))
+
+	out, err := tools[0].Execute(context.Background(), []byte(`{"name":"pdf","file":"reference.md"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Name    string `json:"name"`
+		File    string `json:"file"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "pdf" || got.File != "reference.md" || got.Content != "details" {
+		t.Fatalf("output=%s", out)
+	}
+}
+
+func TestSkillReadFileRefusedWhenDisabled(t *testing.T) {
+	store := newFakeSkillsStore()
+	store.skills["pdf"] = ports.Skill{Name: "pdf", Description: "does pdf", Body: "steps", Disabled: true}
+	store.refs["pdf"] = map[string]string{"reference.md": "details"}
+	service := NewSkillsService(store)
+
+	if _, err := service.ReadFile(context.Background(), "pdf", "reference.md"); err == nil {
+		t.Fatal("service returned a reference file of a disabled skill")
+	}
+	out, err := NewSkillTools(service)[0].Execute(context.Background(), []byte(`{"name":"pdf","file":"reference.md"}`))
+	if err == nil {
+		t.Fatalf("skill_read returned a reference file of a disabled skill: %s", out)
+	}
+}
+
+func TestSkillReadStillReadOnly(t *testing.T) {
+	def := NewSkillTools(NewSkillsService(newFakeSkillsStore()))[0].Definition()
+	if !reflect.DeepEqual(def.Effect, ports.ReadOnlyTool()) {
+		t.Fatalf("effect=%#v", def.Effect)
+	}
+	want := `{"type":"object","properties":{"name":{"type":"string","minLength":1},"file":{"type":"string","minLength":1}},"required":["name"],"additionalProperties":false}`
+	if string(def.Schema) != want {
+		t.Fatalf("schema=%s", def.Schema)
+	}
+}
+
+func TestSkillServicePassthroughsValidateNames(t *testing.T) {
+	store := newFakeSkillsStore()
+	service := NewSkillsService(store)
+	ctx := context.Background()
+
+	if _, err := service.ReadFile(ctx, "../escape", "reference.md"); err == nil {
+		t.Fatal("expected invalid name to be refused by ReadFile")
+	}
+	if err := service.WriteBundle(ctx, ports.SkillBundle{Name: "Bad Name", Description: "d", Body: "b"}); err == nil {
+		t.Fatal("expected invalid name to be refused by WriteBundle")
+	}
+	if len(store.skills) != 0 {
+		t.Fatalf("store changed on invalid names: %#v", store.skills)
+	}
+
+	if err := service.WriteBundle(ctx, ports.SkillBundle{Name: "fine", Description: "Use when fine", Body: "steps"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.WriteBundle(ctx, ports.SkillBundle{Name: "fine", Description: "Use when fine", Body: "steps"}); !errors.Is(err, ports.ErrSkillExists) {
+		t.Fatalf("second create err=%v, want ErrSkillExists", err)
 	}
 }

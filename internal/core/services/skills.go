@@ -74,6 +74,25 @@ func (s *SkillsService) Show(ctx context.Context, name string) (ports.Skill, err
 	return skill, nil
 }
 
+// ReadFile is the model's read of one reference file of a directory skill.
+// It shares Show's refusal: a disabled skill's files are as unreadable as its
+// body, so disabling takes effect on the next read.
+func (s *SkillsService) ReadFile(ctx context.Context, name, file string) (string, error) {
+	if _, err := s.Show(ctx, name); err != nil {
+		return "", err
+	}
+	return s.store.ReadFile(ctx, name, file)
+}
+
+// WriteBundle writes a whole skill, reference files included, after checking
+// its name the same way the single-file writes do.
+func (s *SkillsService) WriteBundle(ctx context.Context, bundle ports.SkillBundle) error {
+	if err := validateSkillName(bundle.Name); err != nil {
+		return err
+	}
+	return s.store.WriteBundle(ctx, bundle)
+}
+
 // Inspect reads one skill for the owner, disabled included.
 func (s *SkillsService) Inspect(ctx context.Context, name string) (ports.Skill, error) {
 	if err := validateSkillName(name); err != nil {

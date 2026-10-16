@@ -9,6 +9,10 @@ import (
 // the panel can answer 404 without matching message text.
 var ErrSkillNotFound = errors.New("skill does not exist")
 
+// ErrSkillExists is what a skills store returns when a bundle would create a
+// skill whose name is already taken and the caller did not ask to replace it.
+var ErrSkillExists = errors.New("skill already exists")
+
 // SkillSummary is the compact, always-in-context view of one installed
 // skill: enough for the agent to decide whether to load its full body with
 // skill_read, without paying for that body on every turn.
@@ -41,6 +45,23 @@ type Skill struct {
 	Disabled    bool   `json:"disabled"`
 	// Source is empty for hand-placed skills.
 	Source string `json:"source,omitempty"`
+	// Files lists the sorted relative paths of a directory skill's reference
+	// files. Nil for a flat skill. Reference files are text the agent may read
+	// through ReadFile; Eggy never executes them.
+	Files []string `json:"files,omitempty"`
+}
+
+// SkillBundle is a whole skill to write at once: the SKILL.md fields plus any
+// reference files, which make it a directory skill. Replace allows overwriting
+// an existing skill of either layout, keeping its disabled state.
+type SkillBundle struct {
+	Name        string
+	Description string
+	Body        string
+	Source      string
+	Extra       map[string]any
+	Files       map[string]string
+	Replace     bool
 }
 
 // SkillsStore persists procedural skills as one Markdown file per skill.
@@ -56,4 +77,10 @@ type SkillsStore interface {
 	Write(context.Context, string, string, string) error
 	SetDisabled(context.Context, string, bool) error
 	Delete(context.Context, string) error
+	// ReadFile returns one reference file of a directory skill. The path is
+	// relative to the skill directory and must be an allowlisted text file.
+	ReadFile(ctx context.Context, name, file string) (string, error)
+	// WriteBundle writes a whole skill, creating it or, with Replace set,
+	// replacing it as one step.
+	WriteBundle(context.Context, SkillBundle) error
 }

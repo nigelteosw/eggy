@@ -50,6 +50,18 @@ func (s *fakeSkillsStore) Write(_ context.Context, name, description, body strin
 	return nil
 }
 
+func (s *fakeSkillsStore) ReadFile(_ context.Context, name, file string) (string, error) {
+	return "", fmt.Errorf("fake has no reference file %q of skill %q", file, name)
+}
+
+func (s *fakeSkillsStore) WriteBundle(_ context.Context, b ports.SkillBundle) error {
+	if _, exists := s.skills[b.Name]; exists && !b.Replace {
+		return ports.ErrSkillExists
+	}
+	s.skills[b.Name] = ports.Skill{Name: b.Name, Description: b.Description, Body: b.Body, Source: b.Source}
+	return nil
+}
+
 func (s *fakeSkillsStore) Delete(_ context.Context, name string) error {
 	if _, ok := s.skills[name]; !ok {
 		return errors.New("not found")

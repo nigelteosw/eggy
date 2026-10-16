@@ -83,7 +83,8 @@ plugin.
 
 What groups them is the install record in SQLite, which exists so the owner can
 update, disable, or remove what one install brought in as one unit. Deleting
-every record would leave a working Eggy with hand-placed-looking skills, which
+every record would leave a working Eggy whose installed skills differ from
+hand-placed ones only by a `source` frontmatter key (see *Index budget*), which
 is the property that keeps this from being a second skill system.
 
 ### Directory skills (core, prerequisite)
@@ -317,6 +318,54 @@ on the read-only allowlist and the turn still cannot mutate anything or reach
 MCP. There is no runtime notion of where a skill came from, except for the index
 budget's ordering below.
 
+### Index budget: names stay, yours keep descriptions longest
+
+Decided 2026-10-16, after comparing the references. Claude Code budgets its
+skill listing at 1% of the context window, always lists every name, and drops
+descriptions first from the least-invoked skills. Pi and Hermes document no
+total budget; Pi caps a description at 1,024 characters, Hermes shrinks the
+index by hiding skills per platform or when a tool already covers them. Eggy
+today drops a skill that does not fit **whole**, name included, so the model
+cannot know it exists. With installs able to add dozens of skills at once, that
+is the wrong failure.
+
+The 16 KiB `ports.SkillIndexBudget` stays. `SkillsService.Enabled` fills it in
+two passes, in a fixed order, so the same skills on disk always render the same
+bytes and the prompt cache is not disturbed:
+
+1. **Names.** Every enabled, valid skill gets its name in the index. If the
+   names alone exceed the budget, installed skills' names are dropped first, in
+   reverse name order, then hand-placed ones, with the existing capacity
+   warning. This is the only case in which a skill disappears from the index.
+2. **Descriptions.** With what remains, descriptions are added: hand-placed
+   skills in name order, then installed skills in name order. A description
+   that does not fit is omitted, not truncated mid-sentence, and the next one
+   is tried.
+
+A name-only entry renders as `name: (description omitted; call skill_read)` so
+the model knows it can still load it; `renderSkills` keeps its name-order output
+and is otherwise unchanged. Claude Code's least-invoked ordering is declined: it
+needs usage counters and reorders the prompt from turn to turn, which costs
+cache hits.
+
+Telling installed from hand-placed needs one fact at runtime, and it lives in
+the file rather than the marketplace's tables, so the core never imports the
+extension: the installer writes a `source: <source-name>/<item>` frontmatter
+key into each `SKILL.md` it writes. `ports.SkillSummary` gains `Source string`
+(empty for hand-placed). `SkillsStore.Write` preserves `source` as it already
+preserves `disabled`, so editing an installed skill in the panel does not make
+it look hand-placed; deleting the key by hand does, which is the owner's
+choice. Like `disabled`, `source` is excluded from the content hash that
+detects local edits. This is the one recorded exception to "a plugin exists
+only at install time": a single frontmatter key, read only by the budget.
+
+The install review shows the index bytes the install adds — names and
+descriptions — and, when the index would overflow, which descriptions would be
+omitted ("12 installed skills would be listed by name only").
+
+This ordering helps hand-placed skills even with the marketplace disabled, so it
+lands in Delivery step 1 with directory skills.
+
 ### Disable and remove
 
 - **Disable** sets `disabled` on every skill the install wrote and
@@ -393,6 +442,11 @@ each, `make smoke` where Docker is available.
    `skill_read` `file` argument. Tests: both layouts list; collision is
    invalid; a traversal in `file` is refused; a non-allowlisted file is never
    read; bounded reads at each limit; unknown frontmatter keys preserved.
+   Index budget: every name listed before any description; hand-placed
+   descriptions before installed ones; names dropped (installed first) only when
+   names alone overflow; the rendered index is byte-identical across runs for
+   the same files; `Write` preserves `source`; a name-only entry renders the
+   `skill_read` hint.
 2. **Archive and catalog parsing.** `archive.go`, `catalog.go`, `plan.go` with
    no network: fixture tarballs for `anthropics/skills`-shaped and Claude
    plugin-shaped repositories, and malicious ones (symlink, `..`, bomb,
@@ -415,7 +469,8 @@ each, `make smoke` where Docker is available.
 
 ## Budget
 
-- Production Go: ~200–300 lines for directory skills (step 1), ~800–1,100 for
+- Production Go: ~250–350 lines for directory skills and the index budget
+  (step 1), ~800–1,100 for
   the extension (steps 2–5), ~100 for the Connectors enable flow. SPA: one tab and its views.
 - Config keys: `marketplace.enabled`, `marketplace.sources` (with a settings
   card).

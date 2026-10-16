@@ -185,6 +185,12 @@ Components, all inside the extension package:
 | MCP stdio entry (`command`) | Skipped: "runs a downloaded program". |
 | `commands/`, `agents/`, `hooks/`, `bin/`, `.lsp.json`, monitors, themes, `userConfig` | Skipped: "not supported in Eggy". |
 
+A skill whose body names a file the plan skips (a script, say `scripts/fill.py`)
+is flagged in the review: "this skill refers to files Eggy will not install and
+may not work". Much of `anthropics/skills` is instructions for running bundled
+code, and installing it would add an index entry that cannot do what it says.
+The flag is a warning, not a refusal.
+
 Skill names keep their own name. A name that already exists — hand-placed or
 from another install — makes the plan refuse with a conflict, and the owner may
 choose a different name for that skill in the review (Hermes' `--name`). A plan
@@ -207,7 +213,10 @@ never overwrites a file it did not install.
    same principle as a payload-bound approval, without a staging directory.
 5. Skills are written through the skills store; MCP entries through
    `internal/config` under its one file lock. Then the install record is
-   committed.
+   committed. Skills take effect on the next turn. An added MCP entry is
+   disabled and loads only once enabled, through the existing reload path; if
+   that path needs a restart, the Installed view says "restart to load" rather
+   than implying the server is live.
 
 If a write fails midway, the service removes what it wrote for this install
 and records nothing, so a failed install leaves no half-plugin. A failure
@@ -314,7 +323,7 @@ non-nil, with `marketplace` added to `/api/session`'s `features` (never
 
 | Failure | Behaviour |
 |---|---|
-| GitHub unreachable or rate-limited (60/h unauthenticated) | The request fails with the HTTP status and reset time; installed skills are untouched. |
+| GitHub unreachable or rate-limited (60/h unauthenticated; listing a source costs a ref lookup and one tarball, and planning a plugin with its own `github` source costs two more) | The request fails with the HTTP status and reset time; installed skills are untouched. |
 | Archive over a limit, or carrying a link or traversal | Whole archive rejected, with the rule it broke. |
 | Malformed `marketplace.json` or `plugin.json` | The source or item is listed with the parse error; others still list. |
 | Digest mismatch at approve | Refused: "the content changed since you reviewed it; review again". |

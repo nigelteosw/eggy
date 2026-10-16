@@ -151,7 +151,10 @@ Components, all inside the extension package:
   (`GET /repos/{o}/{r}/tarball/{sha}`). Fixed host `api.github.com`,
   unexported, for the same reason Google's endpoints are: a configurable host
   would be an exfiltration primitive that looks like configurability. It sends
-  no credential in v1. No `git` process is ever run.
+  no credential in v1 — decided 2026-10-16: public repositories at 60
+  requests an hour are enough for manual browse, install, and check, and no
+  credential leaves with catalog traffic. `GITHUB_TOKEN` is the agent runner's
+  push-capable token and is never sent here. No `git` process is ever run.
 - `archive.go` — reads the tarball in a stream with hard limits: 20 MiB
   compressed, 64 MiB uncompressed, 5,000 entries, regular files only. A symlink,
   hard link, device, absolute path, or `..` component rejects the whole archive.
@@ -278,6 +281,42 @@ There is no loop. **Check for updates** is a button, per source or for all:
 - A catalog entry that disappeared upstream marks the install "removed
   upstream". Nothing is deleted until the owner removes it.
 
+### Enabling a plugin's MCP server
+
+`require_approval` takes exact tool names, which a server reveals only once
+connected, so an MCP entry cannot be gated at install time. Enabling is
+where the trust decision is made, and it is made in **Customize → Connectors**,
+the one home for MCP. A plugin's MCP server is an ordinary entry there, with a
+"from <plugin>" label, not a second list in the Plugins tab.
+
+1. A plugin-added entry shows as disabled with **Review and enable**.
+2. That connects once without enabling and lists the tools the server
+   advertises with their descriptions. The existing `Manager.Probe` cannot do
+   this — it returns early for a disabled server and reports only a tool
+   count — so the manager gains one method, `Preview(ctx, name)`, that opens a
+   session from the entry's config, runs discovery, closes the session, and
+   returns the tool names and descriptions without registering anything. An
+   `auth: oauth` server needs its login first; the dialog runs the existing
+   login flow before the preview when no grant is held.
+3. The owner chooses which tools need approval. All are ticked by default:
+   for a server from a catalog, the safe default is to ask.
+4. Saving writes `enabled: true` and `require_approval` through
+   `internal/config` in one locked write, then loads the server through the
+   existing reload path.
+
+A server that advertises a tool later (`tools/list_changed`) gets the existing
+warning path; a new tool is not in `require_approval` until the owner adds it,
+exactly as for a hand-added server. Hand-added servers keep today's flow; the
+picker is offered to them too, but nothing forces it.
+
+### Installed skills on every turn
+
+An installed skill is an ordinary skill after review. It is offered on every
+turn a hand-placed skill is, unprompted turns included, where `skill_read` is
+on the read-only allowlist and the turn still cannot mutate anything or reach
+MCP. There is no runtime notion of where a skill came from, except for the index
+budget's ordering below.
+
 ### Disable and remove
 
 - **Disable** sets `disabled` on every skill the install wrote and
@@ -366,7 +405,9 @@ each, `make smoke` where Docker is available.
    removed upstream. Bootstrap test: disabled extension registers no route and
    `features` lacks `marketplace`.
 5. **Config and panel.** `ext_marketplace.go` config with validation and the
-   sources settings card; routes with session and CSRF tests.
+   sources settings card; routes with session and CSRF tests. The Connectors
+   "Review and enable" flow: probe without enabling, tool list, one locked
+   write of `enabled` and `require_approval`, all tools ticked by default.
 6. **SPA.** Plugins tab, Discover, review, Installed. `bun test`,
    `bun run build`, and a browser check at phone and desktop widths against
    `anthropics/skills` and one real Claude plugin marketplace.
@@ -375,7 +416,7 @@ each, `make smoke` where Docker is available.
 ## Budget
 
 - Production Go: ~200–300 lines for directory skills (step 1), ~800–1,100 for
-  the extension (steps 2–5). SPA: one tab and its views.
+  the extension (steps 2–5), ~100 for the Connectors enable flow. SPA: one tab and its views.
 - Config keys: `marketplace.enabled`, `marketplace.sources` (with a settings
   card).
 - Tools: 0 new. `skill_read` gains one optional argument.

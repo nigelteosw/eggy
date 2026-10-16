@@ -453,6 +453,26 @@ func writeWebError(w http.ResponseWriter, status int, message string) {
 	_, _ = w.Write(body)
 }
 
+// maxJSONBodyBytes bounds a JSON request body. The panel's bodies are small
+// forms, so a larger one is a mistake or an attempt to exhaust memory.
+const maxJSONBodyBytes = 1 << 20
+
+// decodeJSONBody reads one JSON body into into, refusing one over
+// maxJSONBodyBytes.
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, into any) error {
+	return json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)).Decode(into)
+}
+
+// decodeStrictJSONBody is decodeJSONBody for routes that refuse any field the
+// struct does not know. That is what keeps an account, an owner or a
+// destination out of a body: the struct has no place for one, so sending it is
+// an error rather than something quietly ignored.
+func decodeStrictJSONBody(w http.ResponseWriter, r *http.Request, into any) error {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxJSONBodyBytes))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(into)
+}
+
 func httpStatusForState(state string) int {
 	switch state {
 	case webError:

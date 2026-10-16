@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"net/http"
@@ -71,15 +70,6 @@ func writeFinanceFailure(w http.ResponseWriter, err error) {
 	}
 }
 
-// decodeFinanceBody refuses any field it does not know. That is what keeps an
-// account, an id or a source out of a request body: the struct has no place
-// for them, so sending one is an error rather than something quietly ignored.
-func decodeFinanceBody(r *http.Request, into any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(into)
-}
-
 func newFinanceListHandler(svc FinanceService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
@@ -119,7 +109,7 @@ func newFinanceCreateHandler(svc FinanceService) http.HandlerFunc {
 			Merchant string `json:"merchant"`
 			Note     string `json:"note"`
 		}
-		if err := decodeFinanceBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -149,7 +139,7 @@ func newFinanceUpdateHandler(svc FinanceService) http.HandlerFunc {
 			Merchant *string `json:"merchant"`
 			Note     *string `json:"note"`
 		}
-		if err := decodeFinanceBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -339,7 +329,7 @@ func newFinanceCategoryHandler(svc FinanceService) http.HandlerFunc {
 			Color  *string `json:"color"`
 			Rename *string `json:"rename"`
 		}
-		if err := decodeFinanceBody(r, &body); err != nil || (body.Color == nil && body.Rename == nil) {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil || (body.Color == nil && body.Rename == nil) {
 			writeWebError(w, http.StatusBadRequest, "send a colour, a new name, or both")
 			return
 		}

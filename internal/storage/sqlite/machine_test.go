@@ -153,10 +153,11 @@ func TestScheduleStoreCreateIsUniqueAndTimesKeepTheirOffset(t *testing.T) {
 	if err := schedules.Create(as("owner"), job); err == nil {
 		t.Fatal("a second schedule took an id that was already taken")
 	}
-	stored, err := schedules.Get(as("owner"), "morning")
-	if err != nil {
-		t.Fatal(err)
+	listed, err := schedules.List(as("owner"))
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("listed=%+v err=%v", listed, err)
 	}
+	stored := listed[0]
 	// A "09:00 daily" job computed in the owner's location must come back
 	// with that location's offset, not normalized to UTC.
 	if _, offset := stored.NextRun.Zone(); offset != 8*3600 {
@@ -169,9 +170,6 @@ func TestScheduleStoreCreateIsUniqueAndTimesKeepTheirOffset(t *testing.T) {
 
 func TestScheduleStoreReportsMissingJobsAndDeletesIdempotently(t *testing.T) {
 	schedules := newTestStore(t, 0).Schedules()
-	if _, err := schedules.Get(as("owner"), "absent"); !errors.Is(err, ports.ErrScheduleNotFound) {
-		t.Fatalf("err=%v", err)
-	}
 	if err := schedules.Update(as("owner"), "absent", func(*ports.Schedule) error { return nil }); !errors.Is(err, ports.ErrScheduleNotFound) {
 		t.Fatalf("err=%v", err)
 	}

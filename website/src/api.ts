@@ -13,6 +13,16 @@ export type CommandResult = {
 
 export class SessionExpiredError extends Error {}
 
+// RequestError is a refusal from the server, carrying its status so a caller can
+// tell "the route is not there" (404) from a failure worth showing.
+export class RequestError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 // Session is what GET /api/session establishes: the signed-in person and
 // the CSRF token every mutating request must send. It is held here, in the
 // one module every request goes through, so the token rides along without
@@ -50,7 +60,7 @@ async function request<T = CommandResult>(path: string, init?: RequestInit): Pro
     throw new SessionExpiredError(body.title ?? "Not authenticated");
   }
   if (!response.ok) {
-    throw new Error(body.title ?? "Request failed");
+    throw new RequestError(body.title ?? "Request failed", response.status);
   }
   return body;
 }
@@ -859,10 +869,6 @@ export function listAgentRuns(): Promise<AgentRun[]> {
 
 export function startAgentRun(input: { repository: string; task: string }): Promise<AgentRun> {
   return request<AgentRun>("/api/agent-runner/runs", { method: "POST", body: JSON.stringify(input) });
-}
-
-export function getAgentRun(id: string): Promise<AgentRun> {
-  return request<AgentRun>(`/api/agent-runner/runs/${encodeURIComponent(id)}`);
 }
 
 export function listAgentRunSteps(id: string): Promise<AgentRunStep[]> {

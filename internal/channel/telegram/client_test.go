@@ -365,3 +365,17 @@ func TestClientDeliverFallsBackToPlainTextWhenTelegramRejectsFormatting(t *testi
 		t.Fatalf("fallback attempt=%#v", requests[1])
 	}
 }
+
+func TestClientTransportErrorDoesNotCarryTheToken(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	baseURL := server.URL
+	server.Close()
+	client := NewClient(baseURL, "123456:secret-token", nil, nil)
+	_, err := client.call(context.Background(), "getMe", map[string]any{})
+	if err == nil {
+		t.Fatal("expected a transport error")
+	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("error leaks the bot token: %v", err)
+	}
+}

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,7 +26,11 @@ type toolBreaker struct {
 type serverRuntime struct {
 	config  ServerConfig
 	session clientSession
-	status  ServerStatus
+	// repairMu serializes everything that replaces this server's session.
+	// Two repairs racing would each read the same previous session, and the
+	// second install would drop the first one without closing it.
+	repairMu sync.Mutex
+	status   ServerStatus
 	// tools is this server's catalog as of the last successful discovery.
 	// The flattened manager catalog is derived from it, so a reconnect or a
 	// tools/list_changed notification only has to replace this slice.
@@ -231,13 +236,7 @@ func (m *Manager) rebuildLocked() {
 	}
 	m.protected = protected
 	slices.SortFunc(catalog, func(left, right ports.Tool) int {
-		if left.Definition().Name < right.Definition().Name {
-			return -1
-		}
-		if left.Definition().Name > right.Definition().Name {
-			return 1
-		}
-		return 0
+		return cmp.Compare(left.Definition().Name, right.Definition().Name)
 	})
 	m.tools = catalog
 }
@@ -312,13 +311,7 @@ func filterTools(tools []*sdk.Tool, filter ToolFilter) ([]*sdk.Tool, []string) {
 		}
 	}
 	slices.SortFunc(selected, func(left, right *sdk.Tool) int {
-		if left.Name < right.Name {
-			return -1
-		}
-		if left.Name > right.Name {
-			return 1
-		}
-		return 0
+		return cmp.Compare(left.Name, right.Name)
 	})
 	return selected, warnings
 }
@@ -362,13 +355,7 @@ func (m *Manager) Statuses() []ServerStatus {
 		statuses = append(statuses, runtime.snapshot())
 	}
 	slices.SortFunc(statuses, func(left, right ServerStatus) int {
-		if left.Name < right.Name {
-			return -1
-		}
-		if left.Name > right.Name {
-			return 1
-		}
-		return 0
+		return cmp.Compare(left.Name, right.Name)
 	})
 	return statuses
 }
@@ -397,6 +384,15 @@ func (m *Manager) Reconnect(ctx context.Context, name string) error {
 		m.mu.Unlock()
 		return fmt.Errorf("MCP server %q is disabled", name)
 	}
+	m.mu.Unlock()
+	runtime.repairMu.Lock()
+	defer runtime.repairMu.Unlock()
+	return m.reconnectLocked(ctx, runtime)
+}
+
+// reconnectLocked is Reconnect's body. The caller holds runtime.repairMu.
+func (m *Manager) reconnectLocked(ctx context.Context, runtime *serverRuntime) error {
+	m.mu.Lock()
 	previous := runtime.session
 	runtime.session = nil
 	config := runtime.config
@@ -409,7 +405,7 @@ func (m *Manager) Reconnect(ctx context.Context, name string) error {
 	m.applyServerLocked(runtime, session, remote, state, diagnostic)
 	m.mu.Unlock()
 	if state != StateReady {
-		return fmt.Errorf("MCP server %q is %s: %s", name, state, diagnostic)
+		return fmt.Errorf("MCP server %q is %s: %s", config.Name, state, diagnostic)
 	}
 	return nil
 }
@@ -427,13 +423,15 @@ func (m *Manager) Refresh(ctx context.Context, name string) error {
 	if !runtime.config.Enabled {
 		return fmt.Errorf("MCP server %q is disabled", name)
 	}
+	runtime.repairMu.Lock()
+	defer runtime.repairMu.Unlock()
 	session := m.sessionFor(name)()
 	if session == nil {
-		return m.Reconnect(ctx, name)
+		return m.reconnectLocked(ctx, runtime)
 	}
 	remote, err := m.discover(ctx, runtime.config, session)
 	if err != nil {
-		return m.Reconnect(ctx, name)
+		return m.reconnectLocked(ctx, runtime)
 	}
 	m.mu.Lock()
 	m.applyServerLocked(runtime, session, remote, StateReady, "")

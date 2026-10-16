@@ -73,6 +73,11 @@ type Service struct {
 	wake    chan struct{}
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc
+	// admitMu makes the one-queued-run check and the insert a single step, so
+	// two submissions cannot both see no queued run. One process runs Eggy, so
+	// a mutex is enough; the check is not a database constraint because a run
+	// waiting for an answer goes back to queued and must not then fail.
+	admitMu sync.Mutex
 }
 
 // New validates the options and returns the service.
@@ -154,36 +159,38 @@ func (s *Service) repository(name string) (config.RepositoryConfig, bool) {
 func (s *Service) Start(ctx context.Context, req StartRequest) (ports.AgentRun, error) {
 	repo, ok := s.repository(req.Repository)
 	if !ok {
-		return ports.AgentRun{}, fmt.Errorf("unknown repository %q", req.Repository)
+		return ports.AgentRun{}, fmt.Errorf("%w: unknown repository %q", ports.ErrAgentRunInvalid, req.Repository)
 	}
 	enabled, err := s.opts.Store.EnabledRepositories(ctx)
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
 	if !slices.Contains(enabled, repo.Name) {
-		return ports.AgentRun{}, fmt.Errorf("repository %q is not enabled for your account; enable it first", repo.Name)
+		return ports.AgentRun{}, fmt.Errorf("%w: repository %q is not enabled for your account; enable it first", ports.ErrAgentRunInvalid, repo.Name)
 	}
 	status, err := s.accessStatus(ctx)
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
 	if !status.Connected {
-		return ports.AgentRun{}, errors.New("connect a GitHub token in settings first")
+		return ports.AgentRun{}, fmt.Errorf("%w: connect a GitHub token in settings first", ports.ErrAgentRunInvalid)
 	}
 	if !status.Repositories[repo.Name] {
-		return ports.AgentRun{}, fmt.Errorf("your GitHub token has no push access to %q", repo.Name)
+		return ports.AgentRun{}, fmt.Errorf("%w: your GitHub token has no push access to %q", ports.ErrAgentRunInvalid, repo.Name)
 	}
 	task := strings.TrimSpace(req.Task)
 	if task == "" || len(task) > maxBriefBytes {
-		return ports.AgentRun{}, fmt.Errorf("the task must be 1 to %d bytes", maxBriefBytes)
+		return ports.AgentRun{}, fmt.Errorf("%w: the task must be 1 to %d bytes", ports.ErrAgentRunInvalid, maxBriefBytes)
 	}
+	s.admitMu.Lock()
+	defer s.admitMu.Unlock()
 	recent, err := s.opts.Store.ListAgentRuns(ctx, listLimit)
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
 	for _, run := range recent {
 		if run.State == ports.AgentRunQueued {
-			return ports.AgentRun{}, errors.New("you already have a queued run; wait for it to start or cancel it")
+			return ports.AgentRun{}, ports.ErrAgentRunQueued
 		}
 	}
 	used, err := s.opts.Workspaces.Usage()
@@ -191,7 +198,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (ports.AgentRun, 
 		return ports.AgentRun{}, err
 	}
 	if used >= maxWorkspaceBytes {
-		return ports.AgentRun{}, errors.New("the agent runner's disk is full; wait for old runs to be removed")
+		return ports.AgentRun{}, fmt.Errorf("%w: the agent runner's disk is full; wait for old runs to be removed", ports.ErrAgentRunInvalid)
 	}
 	now := s.opts.Now().UTC()
 	digest := sha256.Sum256([]byte(task))
@@ -267,7 +274,7 @@ func (s *Service) Cancel(ctx context.Context, id string) (ports.AgentRun, error)
 		}
 		return updated, err
 	default:
-		return run, fmt.Errorf("run is already %s", run.State)
+		return run, fmt.Errorf("%w: run is already %s", ports.ErrAgentRunInvalid, run.State)
 	}
 }
 
@@ -276,17 +283,17 @@ func (s *Service) Cancel(ctx context.Context, id string) (ports.AgentRun, error)
 func (s *Service) Answer(ctx context.Context, id, text string) (ports.AgentRun, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return ports.AgentRun{}, errors.New("the answer is empty")
+		return ports.AgentRun{}, fmt.Errorf("%w: the answer is empty", ports.ErrAgentRunInvalid)
 	}
 	run, err := s.opts.Store.GetAgentRun(ctx, id)
 	if err != nil {
 		return ports.AgentRun{}, err
 	}
 	if run.State != ports.AgentRunWaitingForUser {
-		return ports.AgentRun{}, fmt.Errorf("run is %s, not waiting for an answer", run.State)
+		return ports.AgentRun{}, fmt.Errorf("%w: run is %s, not waiting for an answer", ports.ErrAgentRunInvalid, run.State)
 	}
 	if !s.opts.Now().Before(run.MandateExpires) {
-		return ports.AgentRun{}, errors.New("the run's mandate has expired")
+		return ports.AgentRun{}, fmt.Errorf("%w: the run's mandate has expired", ports.ErrAgentRunInvalid)
 	}
 	run.Answer = text
 	run.State = ports.AgentRunQueued
@@ -328,7 +335,7 @@ func (s *Service) Repositories(ctx context.Context) ([]RepoStatus, error) {
 // a repository the owner just turned off.
 func (s *Service) SetRepositoryEnabled(ctx context.Context, name string, enabled bool) error {
 	if _, ok := s.repository(name); !ok {
-		return fmt.Errorf("unknown repository %q", name)
+		return fmt.Errorf("%w: unknown repository %q", ports.ErrAgentRunInvalid, name)
 	}
 	if !enabled {
 		runs, err := s.opts.Store.ListAgentRuns(ctx, listLimit)

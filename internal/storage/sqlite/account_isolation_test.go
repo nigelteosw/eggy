@@ -62,7 +62,6 @@ func TestPrivateStoresRequireAPrincipal(t *testing.T) {
 		"State.Update":        func() error { _, err := db.State().Update(ctx, 0, func(*ports.State) error { return nil }); return err },
 		"Schedules.List":      func() error { _, err := db.Schedules().List(ctx); return err },
 		"Schedules.Create":    func() error { return db.Schedules().Create(ctx, ports.Schedule{ID: "s", Instruction: "x"}) },
-		"Schedules.Get":       func() error { _, err := db.Schedules().Get(ctx, "s"); return err },
 		"Schedules.Update":    func() error { return db.Schedules().Update(ctx, "s", func(*ports.Schedule) error { return nil }) },
 		"Schedules.Delete":    func() error { return db.Schedules().Delete(ctx, "s") },
 	}
@@ -234,8 +233,8 @@ func TestSchedulesAreScopedByAccount(t *testing.T) {
 	if err := schedules.Create(as("b"), ports.Schedule{ID: "morning", Kind: ports.ScheduleExact, Instruction: "y", NextRun: time.Now()}); err == nil {
 		t.Fatal("duplicate id across accounts must fail")
 	}
-	if _, err := schedules.Get(as("b"), "morning"); !errors.Is(err, ports.ErrScheduleNotFound) {
-		t.Fatalf("cross-account get err = %v", err)
+	if listed, _ := schedules.List(as("b")); len(listed) != 0 {
+		t.Fatalf("b sees a's schedule: %+v", listed)
 	}
 	if err := schedules.Update(as("b"), "morning", func(s *ports.Schedule) error { s.Instruction = "hijacked"; return nil }); !errors.Is(err, ports.ErrScheduleNotFound) {
 		t.Fatalf("cross-account update err = %v", err)
@@ -246,9 +245,9 @@ func TestSchedulesAreScopedByAccount(t *testing.T) {
 	if listed, _ := schedules.List(as("b")); len(listed) != 0 {
 		t.Fatalf("b lists %d schedules", len(listed))
 	}
-	got, err := schedules.Get(as("a"), "morning")
-	if err != nil || got.Instruction != "x" || got.Owner != "a" {
-		t.Fatalf("a's schedule = %+v err=%v", got, err)
+	owned, err := schedules.List(as("a"))
+	if err != nil || len(owned) != 1 || owned[0].Instruction != "x" || owned[0].Owner != "a" {
+		t.Fatalf("a's schedules = %+v err=%v", owned, err)
 	}
 	all, err := schedules.ListAll(context.Background())
 	if err != nil || len(all) != 1 || all[0].Owner != "a" {

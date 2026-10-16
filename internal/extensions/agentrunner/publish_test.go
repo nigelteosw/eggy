@@ -126,10 +126,7 @@ func (p *pubEnv) api(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"protected":false}`))
 		}
 	case r.URL.Path == "/repos/o/r/pulls" && r.Method == http.MethodGet:
-		var matches []map[string]any
-		for _, pr := range p.prs {
-			matches = append(matches, pr)
-		}
+		matches := append([]map[string]any{}, p.prs...)
 		_ = json.NewEncoder(w).Encode(matches)
 	case r.URL.Path == "/repos/o/r/pulls" && r.Method == http.MethodPost:
 		raw, _ := io.ReadAll(r.Body)

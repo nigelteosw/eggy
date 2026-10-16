@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -528,5 +529,20 @@ func TestALongApprovedResultKeepsItsSummary(t *testing.T) {
 	plain := boundApprovedResult(json.RawMessage(`{"log":"`+long+`"}`), approvedResultLimit)
 	if len(plain) <= approvedResultLimit || !strings.Contains(plain, "truncated") {
 		t.Fatalf("a summaryless result was not reported truncated: %d bytes", len(plain))
+	}
+}
+
+func TestTruncateResultNeverSplitsARune(t *testing.T) {
+	// "é" is two bytes, so a cut at byte 3 lands in the middle of the second
+	// one. The cut must back up to the start of that rune.
+	got := truncateResult("aéé", 2)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated result is not valid UTF-8: %q", got)
+	}
+	if !strings.HasPrefix(got, "a") || strings.HasPrefix(got, "a\xc3") {
+		t.Fatalf("got %q", got)
+	}
+	if got := truncateResult("short", 10); got != "short" {
+		t.Fatalf("got %q", got)
 	}
 }

@@ -11,6 +11,10 @@ import (
 // failure -- and the core may not import the adapter that raises it.
 var ErrScheduleNotFound = errors.New("schedule not found")
 
+// ErrScheduleInvalid reports an id that is not a valid schedule id, so no
+// record can carry it. A caller can refuse it as a bad request.
+var ErrScheduleInvalid = errors.New("invalid schedule id")
+
 type ScheduleKind string
 
 const (

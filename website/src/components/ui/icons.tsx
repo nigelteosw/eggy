@@ -55,13 +55,6 @@ export const PlugIcon = (p: IconProps) => (
   </Icon>
 );
 
-export const GoogleIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <circle cx="10" cy="10" r="7" />
-    <path d="M10 6.5h3.5v3.5a3.5 3.5 0 1 1-1-2.5" />
-  </Icon>
-);
-
 export const WrenchIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M13.2 3.4a4 4 0 0 0-5 5L3.5 13.1a1.6 1.6 0 0 0 2.3 2.3l4.7-4.7a4 4 0 0 0 5-5l-2.3 2.3-2-2Z" />
@@ -150,13 +143,6 @@ export const SettingsIcon = (p: IconProps) => (
 );
 
 // The reasoning-effort control: a dial, because the levels are ordered.
-export const GaugeIcon = (p: IconProps) => (
-  <Icon {...p}>
-    <path d="M3.5 14a7 7 0 1 1 13 0" />
-    <path d="m10 11.5 3-3" />
-  </Icon>
-);
-
 // The approval control. A closed shackle for a gate that asks; ArrowUpIcon
 // aside, this is the only icon in the composer row that changes meaning with
 // its label, so the label carries the mode and this only says "approvals".

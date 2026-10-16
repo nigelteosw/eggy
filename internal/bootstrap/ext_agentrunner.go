@@ -204,7 +204,7 @@ func (p panelAgentRunner) Runs(ctx context.Context) ([]ports.AgentRun, error) {
 }
 
 func (p panelAgentRunner) StartRun(ctx context.Context, repository, task string) (ports.AgentRun, error) {
-	return codeAdapter{service: p.service}.StartPanelRun(ctx, repository, task)
+	return codeAdapter(p).StartPanelRun(ctx, repository, task)
 }
 
 func (p panelAgentRunner) Run(ctx context.Context, id string) (ports.AgentRun, error) {

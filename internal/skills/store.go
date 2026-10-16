@@ -178,9 +178,17 @@ func (s *Store) Write(ctx context.Context, name, description, body string) error
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A new skill starts enabled. An existing one keeps its disabled flag,
+	// which lives in a file this write is about to replace, so a file that
+	// cannot be read is refused rather than overwritten: its flag is unknown.
 	disabled := false
-	if existing, _, err := s.load(name); err == nil {
+	existing, _, err := s.load(name)
+	switch {
+	case err == nil:
 		disabled = existing.Disabled
+	case errors.Is(err, ports.ErrSkillNotFound):
+	default:
+		return fmt.Errorf("skill %q cannot be rewritten until its file is repaired or removed: %w", name, err)
 	}
 	data, err := render(name, description, body, disabled)
 	if err != nil {

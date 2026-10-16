@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -68,7 +69,11 @@ func newScheduleDeleteHandler(schedules ScheduleDirectory) http.HandlerFunc {
 		// tool follows, so the two surfaces cannot disagree about what a
 		// second delete means.
 		if err := schedules.Remove(r.Context(), r.PathValue("id")); err != nil {
-			writeWebError(w, http.StatusInternalServerError, err.Error())
+			if errors.Is(err, ports.ErrScheduleInvalid) {
+				writeWebError(w, http.StatusBadRequest, ports.ErrScheduleInvalid.Error())
+				return
+			}
+			writeWebError(w, http.StatusInternalServerError, "could not cancel the schedule")
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Schedule cancelled."})

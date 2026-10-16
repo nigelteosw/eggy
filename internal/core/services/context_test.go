@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +29,11 @@ func TestSecretGuardRejectsCredentials(t *testing.T) {
 
 func memoryToolFor(t *testing.T, secrets []string) (ports.Tool, ports.ContextStore) {
 	t.Helper()
-	store := contextmarkdown.InDir(t.TempDir(), contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes)
+	dir := t.TempDir()
+	store := contextmarkdown.Open(contextmarkdown.Paths{
+		Soul:     filepath.Join(dir, "SOUL.md"),
+		Memories: func(string) (string, error) { return dir, nil },
+	}, contextmarkdown.DefaultUserMaxBytes, contextmarkdown.DefaultMemoryMaxBytes, 0)
 	tools := NewContextTools(store, NewSecretGuard(secrets))
 	if len(tools) != 1 || tools[0].Definition().Name != "memory" {
 		t.Fatalf("expected a single memory tool, got %d", len(tools))

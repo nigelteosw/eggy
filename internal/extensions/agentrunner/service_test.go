@@ -222,3 +222,33 @@ func TestStartChecksAccessForARepositoryAddedAfterTheToken(t *testing.T) {
 		t.Fatalf("a new repository was refused although the stored token can push to it: %v", err)
 	}
 }
+
+// Submissions that arrive together must admit one queued run between them: each
+// one checks for a queued run and inserts, and those two steps are one.
+func TestConcurrentStartsAdmitOneQueuedRun(t *testing.T) {
+	h := newHarness(t, nil, nil)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	admitted, refused := 0, 0
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := h.svc.Start(acct("a"), StartRequest{Repository: "r", Task: "x", Channel: "web", Destination: "panel"})
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				admitted++
+			case errors.Is(err, ports.ErrAgentRunQueued):
+				refused++
+			default:
+				t.Errorf("unexpected error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if admitted != 1 || refused != 7 {
+		t.Fatalf("admitted=%d refused=%d, want 1 and 7", admitted, refused)
+	}
+}

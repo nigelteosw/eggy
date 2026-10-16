@@ -400,6 +400,9 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
   // Only the newest load may land: stepping through months quickly, or
   // retyping a search, must not end on whichever response arrived last.
   const latest = useRef(0);
+  // True while a month load is in flight. A view change during that load asks
+  // for the month again, under the new view, rather than refining the old one.
+  const monthLoading = useRef(false);
 
   const fail = useCallback(
     (err: unknown, fallback: string) => {
@@ -416,6 +419,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
   const loadMonth = useCallback(
     async (target: string, next: EntryView) => {
       const mine = ++latest.current;
+      monthLoading.current = true;
       try {
         const nextSummary = await getFinanceSummary(target || undefined);
         const nextList = await getFinanceEntries(listRequest(nextSummary, next));
@@ -425,6 +429,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
         setError(null);
       } catch (err) {
         if (mine === latest.current) fail(err, "Could not load finance");
+      } finally {
+        if (mine === latest.current) monthLoading.current = false;
       }
     },
     [fail],
@@ -455,6 +461,10 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
 
   // Nothing to refine until a month has loaded; the month load above fetches it.
   useEffect(() => {
+    if (monthLoading.current) {
+      void loadMonth(month, view);
+      return;
+    }
     if (summary) void loadList(summary, view);
   }, [view]);
 

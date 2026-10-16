@@ -172,7 +172,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		}
 	}()
 	app := &App{
-		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.schedules),
+		config: config, store: stateStore, context: contextStore, scheduler: schedulerlocal.New(opened.schedules, location),
 		database: database, location: location,
 		now: options.Now, eventQueue: make(chan events.Event, 64), heartbeatWake: make(chan time.Duration, 1), logger: options.Logger,
 		restart: make(chan struct{}),

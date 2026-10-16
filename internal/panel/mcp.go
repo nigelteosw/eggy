@@ -4,7 +4,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"maps"
 	"net/http"
 	"slices"
@@ -40,7 +39,7 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 func webMCPSetRoute(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var values config.Values
-		if err := json.NewDecoder(r.Body).Decode(&values); err != nil {
+		if err := decodeJSONBody(w, r, &values); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

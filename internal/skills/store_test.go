@@ -244,3 +244,32 @@ func TestReadLimitedNeverHoldsMoreThanLimit(t *testing.T) {
 		t.Fatalf("len=%d err=%v", len(data), err)
 	}
 }
+
+// A skill's disabled flag lives in the file a write replaces. When that file
+// cannot be read the flag is unknown, so the write is refused and the file is
+// left as it was, rather than re-enabling a skill the owner turned off.
+func TestStoreWriteRefusesToOverwriteAnUnreadableSkill(t *testing.T) {
+	dir := t.TempDir()
+	store := Open(dir, 32<<10)
+	ctx := context.Background()
+	if err := store.Write(ctx, "turned-off", "Use when turned off", "body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDisabled(ctx, "turned-off", true); err != nil {
+		t.Fatal(err)
+	}
+	broken := []byte("---\nname: [\n---\n\nbody\n")
+	if err := os.WriteFile(filepath.Join(dir, "turned-off.md"), broken, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Write(ctx, "turned-off", "Use when turned off, revised", "new steps"); err == nil {
+		t.Fatal("expected the unreadable skill to be refused")
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "turned-off.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(broken) {
+		t.Fatalf("refused write still changed the file: %q", after)
+	}
+}

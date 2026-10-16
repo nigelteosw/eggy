@@ -13,7 +13,10 @@ import (
 func testStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	dir := t.TempDir()
-	return InDir(dir, DefaultUserMaxBytes, DefaultMemoryMaxBytes), dir
+	return Open(Paths{
+		Soul:     filepath.Join(dir, "SOUL.md"),
+		Memories: func(string) (string, error) { return dir, nil },
+	}, DefaultUserMaxBytes, DefaultMemoryMaxBytes, 0), dir
 }
 
 func TestContextStoreCreatesPreservesAndEditsDocuments(t *testing.T) {
@@ -163,7 +166,10 @@ func TestContextStoreReadsDocumentsWrittenByTheSectionedStore(t *testing.T) {
 // unreadable -- while the write that would grow it further is refused.
 func TestContextStoreBudgetIsEnforcedOnWriteNotLoad(t *testing.T) {
 	dir := t.TempDir()
-	store := InDir(dir, DefaultUserMaxBytes, 64)
+	store := Open(Paths{
+		Soul:     filepath.Join(dir, "SOUL.md"),
+		Memories: func(string) (string, error) { return dir, nil },
+	}, DefaultUserMaxBytes, 64, 0)
 	ctx := as("owner")
 	oversized := "# Eggy Memory\n\n- " + strings.Repeat("x", 200) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(oversized), 0o600); err != nil {

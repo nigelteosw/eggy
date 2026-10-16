@@ -36,9 +36,20 @@ func asOwner(ctx context.Context, schedule ports.Schedule) context.Context {
 // after a run succeeds or fails -- over jobs a Store keeps. It holds no
 // schedule state of its own, so every claim and completion is read back from
 // the store rather than cached across ticks.
-type Scheduler struct{ store Store }
+// Scheduler evaluates recurring expressions in one zone, the deployment's.
+// Reading the zone back from a stored time would not do: the store keeps only
+// an offset, so a job would drift an hour across a daylight-saving change.
+type Scheduler struct {
+	store    Store
+	location *time.Location
+}
 
-func New(store Store) *Scheduler { return &Scheduler{store: store} }
+func New(store Store, location *time.Location) *Scheduler {
+	if location == nil {
+		location = time.UTC
+	}
+	return &Scheduler{store: store, location: location}
+}
 
 func (s *Scheduler) Add(ctx context.Context, schedule ports.Schedule) error {
 	if schedule.ID == "" || schedule.Instruction == "" {
@@ -70,12 +81,15 @@ func (s *Scheduler) List(ctx context.Context) ([]ports.Schedule, error) { return
 
 // Due claims every schedule whose next run has arrived by stamping it with a
 // pending run, so a second tick -- or a second reader -- never picks up a job
-// already in flight.
+// already in flight. A job that cannot be claimed does not stop the others: it
+// is reported in the error, which may come back alongside the jobs that were
+// claimed, and those must still be dispatched or they stall until restart.
 func (s *Scheduler) Due(ctx context.Context, now time.Time) ([]ports.Schedule, error) {
 	schedules, err := s.store.ListAll(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var claimErr error
 	due := make([]ports.Schedule, 0)
 	for _, schedule := range schedules {
 		if !schedule.Enabled || !schedule.PendingRun.IsZero() || schedule.NextRun.After(now) {
@@ -95,11 +109,12 @@ func (s *Scheduler) Due(ctx context.Context, now time.Time) ([]ports.Schedule, e
 			continue
 		}
 		if err != nil {
-			return nil, err
+			claimErr = errors.Join(claimErr, fmt.Errorf("claim schedule %s: %w", schedule.ID, err))
+			continue
 		}
 		due = append(due, claimed)
 	}
-	return due, nil
+	return due, claimErr
 }
 
 var errNotDue = errors.New("schedule is no longer due")
@@ -118,7 +133,7 @@ func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, compl
 			if err != nil {
 				return err
 			}
-			next, err := cron.Next(completedAt.In(schedule.NextRun.Location()))
+			next, err := cron.Next(completedAt.In(s.location))
 			if err != nil {
 				return err
 			}
@@ -177,5 +192,5 @@ func (s *Scheduler) Next(expression string, after time.Time) (time.Time, error) 
 	if err != nil {
 		return time.Time{}, err
 	}
-	return cron.Next(after)
+	return cron.Next(after.In(s.location))
 }

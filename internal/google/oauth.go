@@ -189,6 +189,10 @@ func (a *Auth) clearPending() error {
 // stays, so an approval granted against the old connection cannot be
 // consumed by the next one.
 func (a *Auth) Logout() error {
+	// Held across the write so an exchange in progress in CompleteLogin cannot
+	// land its new tokens over the cleared record and undo the disconnect.
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	return a.store.Update(func(stored *TokenRecord) error {
 		generation := stored.Generation + 1
 		*stored = TokenRecord{Version: 1, Generation: generation}

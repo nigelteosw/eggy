@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -38,7 +37,7 @@ func newSoulSetRoute(documents ContextDocuments) http.HandlerFunc {
 		var body struct {
 			Content string `json:"content"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

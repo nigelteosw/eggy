@@ -238,3 +238,74 @@ func TestReadListsFiles(t *testing.T) {
 		t.Fatalf("files=%#v", skill.Files)
 	}
 }
+
+func TestSymlinkedFlatSkillIsFollowed(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "linked.md")
+	content := "---\nname: linked\ndescription: Linked flat skill\n---\n\nsteps\n"
+	if err := os.WriteFile(outside, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "linked.md")); err != nil {
+		t.Fatal(err)
+	}
+	store := Open(dir, 32<<10)
+	summaries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].Invalid != "" {
+		t.Fatalf("symlinked flat skill summaries=%#v", summaries)
+	}
+	if skill, err := store.Read(context.Background(), "linked"); err != nil || skill.Body != "steps" {
+		t.Fatalf("symlinked flat skill read=%#v err=%v", skill, err)
+	}
+}
+
+func TestSymlinkedDirectorySkillIsListed(t *testing.T) {
+	dir := t.TempDir()
+	target := t.TempDir()
+	content := "---\nname: linked\ndescription: Linked directory skill\n---\n\nsteps\n"
+	if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "reference.md"), []byte("ref"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	store := Open(dir, 32<<10)
+	summaries, err := store.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 || summaries[0].Name != "linked" || summaries[0].Invalid != "" {
+		t.Fatalf("symlinked directory skill summaries=%#v", summaries)
+	}
+	skill, err := store.Read(context.Background(), "linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(skill.Files, []string{"reference.md"}) {
+		t.Fatalf("files=%#v", skill.Files)
+	}
+}
+
+func TestWriteBundleFileCountBoundary(t *testing.T) {
+	store := Open(t.TempDir(), 32<<10)
+	ctx := context.Background()
+	refs := func(n int) map[string]string {
+		files := map[string]string{}
+		for i := 0; i < n; i++ {
+			files[fmt.Sprintf("ref%02d.md", i)] = "x"
+		}
+		return files
+	}
+	if err := store.WriteBundle(ctx, ports.SkillBundle{Name: "edge", Description: "Edge", Body: "steps", Files: refs(63)}); err != nil {
+		t.Fatalf("63 references plus SKILL.md should be accepted: %v", err)
+	}
+	if err := store.WriteBundle(ctx, ports.SkillBundle{Name: "over", Description: "Over", Body: "steps", Files: refs(64)}); err == nil {
+		t.Fatal("64 references plus SKILL.md should be refused")
+	}
+}

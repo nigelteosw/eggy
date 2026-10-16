@@ -119,15 +119,21 @@ func statReference(dir, clean string) (string, error) {
 // relative to the skill directory. SKILL.md, symlinks, and files with an
 // extension outside the allowlist are left out.
 func referenceFiles(dir string) ([]string, error) {
+	// WalkDir does not follow a symlinked root, so walk the resolved directory
+	// when the skill directory is itself a symlink.
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, err
+	}
 	var files []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, err := filepath.Rel(dir, path)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
@@ -144,10 +150,10 @@ func referenceFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-// lstatIfExists returns nil and no error when path does not exist, so callers
-// can tell absence from failure without matching error text.
-func lstatIfExists(path string) (fs.FileInfo, error) {
-	info, err := os.Lstat(path)
+// statIfExists follows symlinks and returns nil and no error when path does not
+// exist, so callers can tell absence from failure without matching error text.
+func statIfExists(path string) (fs.FileInfo, error) {
+	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}

@@ -107,10 +107,11 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		switch {
-		case entry.IsDir():
+		// A symlink counts as a directory skill when it points at one, so it
+		// is listed like any other rather than dropped.
+		if info, err := os.Stat(filepath.Join(s.dir, name)); err == nil && info.IsDir() {
 			stems[name] = true
-		case strings.HasSuffix(name, ".md"):
+		} else if strings.HasSuffix(name, ".md") {
 			stems[strings.TrimSuffix(name, ".md")] = true
 		}
 	}
@@ -193,26 +194,24 @@ func (s *Store) ReadFile(ctx context.Context, name, file string) (string, error)
 
 // locate finds the file that holds name's SKILL text. dir is the skill's
 // directory for a directory skill and empty for a flat one. A name present in
-// both layouts, a directory with no SKILL.md, and a symlinked skill are errors
-// rather than guesses. Nothing is created.
+// both layouts and a directory with no SKILL.md are errors rather than guesses.
+// Symlinked skill files and directories are followed, as they always were.
+// Nothing is created.
 func (s *Store) locate(name string) (file, dir string, err error) {
 	flat := s.path(name)
 	dir = filepath.Join(s.dir, name)
 	skill := filepath.Join(dir, skillFileName)
-	dirInfo, err := lstatIfExists(dir)
+	dirInfo, err := statIfExists(dir)
 	if err != nil {
 		return "", "", err
 	}
-	if dirInfo != nil && dirInfo.Mode()&fs.ModeSymlink != 0 {
-		return "", "", fmt.Errorf("skill %q is a symlink", name)
-	}
-	flatInfo, err := lstatIfExists(flat)
+	flatInfo, err := statIfExists(flat)
 	if err != nil {
 		return "", "", err
 	}
 	var skillInfo fs.FileInfo
 	if dirInfo != nil && dirInfo.IsDir() {
-		if skillInfo, err = lstatIfExists(skill); err != nil {
+		if skillInfo, err = statIfExists(skill); err != nil {
 			return "", "", err
 		}
 	}
@@ -463,10 +462,12 @@ func (s *Store) placeBundle(name, original string, data []byte, files map[string
 		}
 	}
 	if err := os.Rename(stage, filepath.Join(s.dir, name)); err != nil {
-		if old != "" {
-			os.Rename(old, original)
-		}
 		os.RemoveAll(stage)
+		if old != "" {
+			if rerr := os.Rename(old, original); rerr != nil {
+				return fmt.Errorf("install skill %q: %w; restoring the previous skill also failed (it is kept at %s): %v", name, err, old, rerr)
+			}
+		}
 		return err
 	}
 	if old != "" {

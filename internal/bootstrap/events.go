@@ -134,7 +134,7 @@ func decodeMessage(event events.Event) (events.Message, error) {
 // proactiveDestination is where scheduled agent turns and messages report.
 // Telegram's, deliberately and for now: the web UI is a pull surface the
 // owner opens, not one Eggy pushes to, and one proactive channel keeps the
-// rather than per-channel.
+// routing simple rather than per-channel.
 //
 // This is a decision, not a default. Every proactive path stamps it on ctx
 // explicitly instead of relying on destination.FromContext's Telegram

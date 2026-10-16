@@ -5,7 +5,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -274,7 +273,7 @@ func checkGoogleApprovals(entries []string, catalog map[string]GoogleProductActi
 func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var named map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&named); err != nil {
+		if err := decodeJSONBody(w, r, &named); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -79,5 +80,27 @@ func TestLoginThrottleWindowExpires(t *testing.T) {
 	now = now.Add(16 * time.Minute)
 	if delay := throttle.Delay("1.2.3.4"); delay != 0 {
 		t.Fatalf("expected delay to clear after the window expires, got %v", delay)
+	}
+}
+
+// Probing the throttle must not remember the key, and failures from keys whose
+// window has passed must not stay in the map.
+func TestLoginThrottleDoesNotGrowFromProbesOrStaleFailures(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	clock := now
+	throttle := NewLoginThrottle(func() time.Time { return clock })
+	for i := range 100 {
+		throttle.Delay(fmt.Sprintf("probe-%d", i))
+	}
+	if len(throttle.attempts) != 0 {
+		t.Fatalf("probes left %d entries", len(throttle.attempts))
+	}
+	for i := range 50 {
+		throttle.RecordFailure(fmt.Sprintf("fail-%d", i))
+	}
+	clock = clock.Add(throttleWindow + time.Second)
+	throttle.RecordFailure("late")
+	if len(throttle.attempts) != 1 {
+		t.Fatalf("expired windows kept: %d entries", len(throttle.attempts))
 	}
 }

@@ -116,3 +116,30 @@ func TestApprovalServiceDecideRetiresAnExpiredApproval(t *testing.T) {
 		t.Fatalf("err=%v, want ErrNotAuthorized once retired", err)
 	}
 }
+
+// An approved approval that expires before it is used must stay retired. The
+// refusal is returned, but the expiry it records has to be committed, or the
+// approval would still look Approved and a second attempt would fail for the
+// wrong reason.
+func TestApprovalServiceAuthorizeCommitsExpiry(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	clock := now
+	service := NewApprovalService(newFakeStateStore(), func() time.Time { return clock }, 30*time.Minute, ports.ModeNormal)
+	payload := map[string]string{"id": "42"}
+
+	approval, err := service.Request(asAccount("42"), "calendar.delete", payload, "Delete the 3pm sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Decide(asAccount("42"), approval.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	clock = now.Add(time.Hour)
+
+	if err := service.Authorize(asAccount("42"), "calendar.delete", payload, approval.ID); !errors.Is(err, approvals.ErrExpired) {
+		t.Fatalf("err=%v, want ErrExpired", err)
+	}
+	if err := service.Authorize(asAccount("42"), "calendar.delete", payload, approval.ID); !errors.Is(err, approvals.ErrNotAuthorized) {
+		t.Fatalf("err=%v, want ErrNotAuthorized once the expiry is recorded", err)
+	}
+}

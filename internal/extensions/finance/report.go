@@ -77,9 +77,12 @@ func (s *Service) Report(ctx context.Context, month string) (ports.FinanceReport
 	report := ports.FinanceReport{Month: from[:7], From: from, To: to, AllCats: categories}
 	report.Flows = s.flowsOf(totals)
 	report.Previous = s.flowsOf(previous)
-	elapsed := s.elapsedDays(from, to)
-	for i := range report.Flows {
-		report.Flows[i].DailyAverage = report.Flows[i].Outflow / elapsed
+	// A month that has not started has no days behind it, so it has no daily
+	// average to report rather than the whole month's outflow.
+	if elapsed := s.elapsedDays(from, to); elapsed > 0 {
+		for i := range report.Flows {
+			report.Flows[i].DailyAverage = report.Flows[i].Outflow / elapsed
+		}
 	}
 	report.Trend = s.trendOf(months, start)
 	report.Categories = s.categoryLines(totals, previous, colors)
@@ -136,6 +139,8 @@ func (s *Service) flowsOf(totals ports.FinanceTotals) []ports.FinanceFlow {
 // elapsedDays is how many days of the period have happened, so a daily average
 // in the middle of the month is not diluted by days still to come. It is never
 // less than one, which keeps the division safe for a month not yet begun.
+// elapsedDays counts the days of a month that have begun, up to today. It is 0
+// for a month that has not started yet.
 func (s *Service) elapsedDays(from, to string) int64 {
 	start, _ := time.Parse(dateLayout, from)
 	end := to
@@ -143,8 +148,10 @@ func (s *Service) elapsedDays(from, to string) int64 {
 		end = today
 	}
 	last, _ := time.Parse(dateLayout, end)
-	days := int64(last.Sub(start).Hours()/24) + 1
-	return max(days, 1)
+	if last.Before(start) {
+		return 0
+	}
+	return int64(last.Sub(start).Hours()/24) + 1
 }
 
 // trendOf lays out the trend window ending at the month on screen, oldest first,

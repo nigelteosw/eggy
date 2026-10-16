@@ -15,6 +15,11 @@ func (a *App) Run(ctx context.Context) error {
 	if a.database != nil {
 		defer a.database.Close()
 	}
+	// Deferred before the drain so it runs after it: defers unwind last-in
+	// first, and MCP sessions must stay open until in-flight turns finish.
+	if a.mcp != nil {
+		defer a.mcp.Close()
+	}
 	defer a.workers.Wait()
 	// The coding-run worker is a long-lived goroutine on the workers group, so
 	// the drain below waits for it. Its own context ends on the way out, before
@@ -27,9 +32,6 @@ func (a *App) Run(ctx context.Context) error {
 				slog.Error("agent runner stopped", "error", err)
 			}
 		})
-	}
-	if a.mcp != nil {
-		defer a.mcp.Close()
 	}
 	// Thread-attached checkouts are durable, so a restart inherits whatever
 	// the last process left on the volume. Reconcile before serving a turn:
@@ -104,13 +106,16 @@ func (a *App) onScheduleTick(ctx context.Context, now time.Time) error {
 	// reaper for it: the change that branched it never owned it and
 	// has nothing to release.
 	if a.workspaces != nil {
+		// A checkout that cannot be removed is a housekeeping failure, not a
+		// reason to stop serving: log it and still dispatch the due schedules.
 		if _, err := a.workspaces.CleanupIdle(ctx, cutoff); err != nil {
-			return err
+			slog.Error("idle workspace cleanup failed", "error", err)
 		}
 	}
 	due, err := a.scheduler.Due(ctx, now)
 	if err != nil {
-		return err
+		// Whatever was claimed still runs below; the rest are retried next minute.
+		slog.Error("some schedules could not be claimed", "error", err)
 	}
 	for _, schedule := range due {
 		ownerCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: schedule.Owner})

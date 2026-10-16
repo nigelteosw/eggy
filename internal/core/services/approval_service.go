@@ -223,7 +223,13 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 	if err != nil {
 		return err
 	}
+	// A refusal that changes the record (expiry, a stale generation) is
+	// committed and returned afterwards: a store discards the whole update
+	// when the mutation errors, so returning the error here would throw the
+	// status change away and leave the approval looking usable.
+	var refusal error
 	_, err = s.store.Update(ctx, state.Version, func(state *ports.State) error {
+		refusal = nil
 		approval, ok := state.Approvals[approvalID]
 		if !ok || approval.Action != action || approval.Status != approvals.Approved {
 			return approvals.ErrNotAuthorized
@@ -238,7 +244,8 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 		if !s.now().Before(approval.ExpiresAt) {
 			approval.Status = approvals.Expired
 			state.Approvals[approvalID] = approval
-			return approvals.ErrExpired
+			refusal = approvals.ErrExpired
+			return nil
 		}
 		if approval.PayloadDigest != digest {
 			return approvals.ErrPayloadMismatch
@@ -247,13 +254,17 @@ func (s *ApprovalService) Authorize(ctx context.Context, action approvals.Action
 			approval.Status = approvals.Invalidated
 			approval.DecidedAt = s.now()
 			state.Approvals[approvalID] = approval
-			return approvals.ErrStaleGeneration
+			refusal = approvals.ErrStaleGeneration
+			return nil
 		}
 		approval.Status = approvals.Used
 		state.Approvals[approvalID] = approval
 		return nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return refusal
 }
 
 func canonicalPayload(payload any) (json.RawMessage, string, error) {

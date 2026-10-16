@@ -86,16 +86,18 @@ func newThreadID() string {
 // doesn't exist, so a deleted-out-from-under-an-open-tab or malformed
 // thread ID never reaches the handler's real work. Returns ok=false when
 // the response has already been written.
-func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ThreadDirectory) (id string, ok bool) {
+func requireExistingThread(w http.ResponseWriter, r *http.Request, threads ThreadDirectory) (id string, thread ports.Thread, ok bool) {
 	id = r.PathValue("id")
-	if _, found, err := threads.GetThread(r.Context(), id); err != nil {
+	thread, found, err := threads.GetThread(r.Context(), id)
+	if err != nil {
 		writeWebError(w, http.StatusInternalServerError, err.Error())
-		return "", false
-	} else if !found {
-		writeWebError(w, http.StatusNotFound, "thread not found")
-		return "", false
+		return "", ports.Thread{}, false
 	}
-	return id, true
+	if !found {
+		writeWebError(w, http.StatusNotFound, "thread not found")
+		return "", ports.Thread{}, false
+	}
+	return id, thread, true
 }
 
 func newThreadListHandler(threads ThreadDirectory) http.HandlerFunc {
@@ -140,14 +142,14 @@ const threadTitleMaxLength = 200
 
 func newThreadRenameHandler(threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, threads)
+		id, _, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}
 		var input struct {
 			Title string `json:"title"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -174,14 +176,8 @@ func newThreadRenameHandler(threads ThreadDirectory) http.HandlerFunc {
 // deleted row is a checkout nothing will ever clean up.
 func newThreadDeleteHandler(threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		thread, found, err := threads.GetThread(r.Context(), id)
-		if err != nil {
-			writeWebError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if !found {
-			writeWebError(w, http.StatusNotFound, "thread not found")
+		id, thread, ok := requireExistingThread(w, r, threads)
+		if !ok {
 			return
 		}
 		if thread.Workspace != "" {
@@ -198,7 +194,7 @@ func newThreadDeleteHandler(threads ThreadDirectory) http.HandlerFunc {
 
 func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, threads)
+		id, _, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}
@@ -221,7 +217,7 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 
 func newThreadSendHandler(enqueue func(context.Context, events.Event) error, threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, threads)
+		id, _, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}
@@ -229,7 +225,7 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, thr
 			Text  string        `json:"text"`
 			Quote *events.Quote `json:"quote"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -267,7 +263,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error) ht
 			ApprovalID string `json:"approval_id"`
 			Approved   bool   `json:"approved"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -304,7 +300,7 @@ func newChatApproveHandler(enqueue func(context.Context, events.Event) error) ht
 // already runs is the clock.
 func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory, revalidate func(*http.Request) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, ok := requireExistingThread(w, r, threads)
+		id, _, ok := requireExistingThread(w, r, threads)
 		if !ok {
 			return
 		}

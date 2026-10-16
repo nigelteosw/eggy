@@ -239,7 +239,12 @@ func (c *Client) call(ctx context.Context, method string, payload any) (json.Raw
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("Telegram request: %w", err)
+		// The transport error names the request URL, and the bot token is
+		// in its path. Keep the message fixed so no error ever carries it.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, errors.New("Telegram request failed")
 	}
 	defer response.Body.Close()
 	var result struct {

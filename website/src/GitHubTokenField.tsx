@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SessionExpiredError, deleteAgentPAT, getAgentPAT, setAgentPAT, type AgentPAT } from "./api";
+import { RequestError, SessionExpiredError, deleteAgentPAT, getAgentPAT, setAgentPAT, type AgentPAT } from "./api";
 import { ErrorBanner } from "./components/ui/error-banner";
 import { FIELD, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "./components/ui/form";
 import { Input } from "./components/ui/input";
@@ -80,6 +80,7 @@ export function GitHubTokenView({
 export function GitHubTokenField({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [status, setStatus] = useState<AgentPAT | null>(null);
   const [absent, setAbsent] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +91,12 @@ export function GitHubTokenField({ onSessionExpired }: { onSessionExpired: () =>
       .catch((err) => {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();
-        } else {
+        } else if (err instanceof RequestError && err.status === 404) {
+          // The runner is off, so there is no token route to read.
           setAbsent(true);
+        } else {
+          // Shown, not hidden: a failed load is not the same as no token.
+          setLoadError(err instanceof Error ? err.message : "Could not load the GitHub token");
         }
       });
   }, [onSessionExpired]);
@@ -113,6 +118,9 @@ export function GitHubTokenField({ onSessionExpired }: { onSessionExpired: () =>
     }
   }
 
+  if (loadError) {
+    return <ErrorBanner>{loadError}</ErrorBanner>;
+  }
   if (absent || !status) {
     return null;
   }

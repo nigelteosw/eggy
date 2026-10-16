@@ -70,16 +70,6 @@ func Open(paths Paths, userMaxBytes, memoryMaxBytes, watchMaxBytes int64) *Store
 	return &Store{paths: paths, userMaxBytes: userMaxBytes, memoryMaxBytes: memoryMaxBytes, watchMaxBytes: watchMaxBytes}
 }
 
-// InDir returns a store using Eggy's former flat layout, where every context
-// document sat directly in one directory. Tests and any caller that only
-// needs a scratch home keep using it.
-func InDir(dir string, userMaxBytes, memoryMaxBytes int64) *Store {
-	return Open(Paths{
-		Soul:     filepath.Join(dir, "SOUL.md"),
-		Memories: func(string) (string, error) { return dir, nil },
-	}, userMaxBytes, memoryMaxBytes, 0)
-}
-
 // privateDir resolves the acting account's memories directory. It fails
 // closed on a missing principal and refuses a directory that is a symlink,
 // so neither a forged account nor a planted link can move a write outside

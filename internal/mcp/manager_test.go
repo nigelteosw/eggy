@@ -558,3 +558,44 @@ func TestManagerKeepsApprovalGateAcrossACatalogRebuild(t *testing.T) {
 		t.Fatal("a rebuild gated a tool config never named")
 	}
 }
+
+// Concurrent repairs of one server each replace its session. Every session
+// that is replaced must be closed; only the one left installed may stay open.
+func TestConcurrentReconnectsCloseEverySessionTheyReplace(t *testing.T) {
+	var mu sync.Mutex
+	var made []*fakeSession
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		session := &fakeSession{tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}}
+		mu.Lock()
+		made = append(made, session)
+		mu.Unlock()
+		return session, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{{Name: "example", URL: "https://mcp.example", Enabled: true, Timeout: time.Second, MaxOutputBytes: 4096}}, Options{Connect: connect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := manager.Reconnect(context.Background(), "example"); err != nil {
+				t.Errorf("reconnect: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	open := 0
+	for _, session := range made {
+		if !session.closed {
+			open++
+		}
+	}
+	if open != 1 {
+		t.Fatalf("%d of %d sessions left open, want only the installed one", open, len(made))
+	}
+}

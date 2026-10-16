@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"reflect"
@@ -98,26 +97,25 @@ func agentRunView(run ports.AgentRun) agentRunJSON {
 
 // writeAgentFailure says whose fault a refusal was, as the finance routes do: a
 // refused request is a 400 with its reason, a run that is not the caller's is
-// a 404, and anything else is a 500 that does not repeat the error.
+// a 404, a conflict with the run's state is a 409, and anything else is a 500
+// that does not repeat the error, which may name a path or a statement.
 func writeAgentFailure(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ports.ErrAgentRunNotFound):
 		writeWebError(w, http.StatusNotFound, "run not found")
 	case errors.Is(err, ports.ErrAgentRunActive):
 		writeWebError(w, http.StatusConflict, "the run is still in progress; cancel it first")
+	case errors.Is(err, ports.ErrAgentRunQueued):
+		writeWebError(w, http.StatusConflict, ports.ErrAgentRunQueued.Error())
+	case errors.Is(err, ports.ErrAgentRunConflict):
+		writeWebError(w, http.StatusConflict, "the run changed; reload it and try again")
+	case errors.Is(err, ports.ErrAgentRunInvalid):
+		writeWebError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), ports.ErrAgentRunInvalid.Error()+": "))
 	case errors.Is(err, ports.ErrNoPrincipal):
 		writeWebError(w, http.StatusUnauthorized, "sign in to use the agent runner")
 	default:
-		writeWebError(w, http.StatusBadRequest, err.Error())
+		writeWebError(w, http.StatusInternalServerError, "could not complete the agent runner request")
 	}
-}
-
-// decodeAgentBody refuses any field it does not know. That is what keeps an
-// account, an owner or a destination from being smuggled into a request body.
-func decodeAgentBody(r *http.Request, into any) error {
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	return decoder.Decode(into)
 }
 
 // mountAgentRunnerRoutes registers the agent runner's API. It is called only
@@ -171,7 +169,7 @@ func agentRunStart(svc AgentRunnerService) http.HandlerFunc {
 			Repository string `json:"repository"`
 			Task       string `json:"task"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -237,7 +235,7 @@ func agentRunAnswer(svc AgentRunnerService) http.HandlerFunc {
 		var body struct {
 			Text string `json:"text"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -319,7 +317,7 @@ func agentRepoToggle(svc AgentRunnerService, configPath string) http.HandlerFunc
 		var body struct {
 			Enabled bool `json:"enabled"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -355,7 +353,7 @@ func agentPATSet(svc AgentRunnerService) http.HandlerFunc {
 		var body struct {
 			Token string `json:"token"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil || strings.TrimSpace(body.Token) == "" {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil || strings.TrimSpace(body.Token) == "" {
 			writeWebError(w, http.StatusBadRequest, "a GitHub token is required")
 			return
 		}
@@ -391,7 +389,7 @@ func agentChecksSet(configPath string) http.HandlerFunc {
 		var body struct {
 			Checks [][]string `json:"checks"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -426,7 +424,7 @@ func agentRepoAdd(configPath string, restarter commands.Restarter, getenv func(s
 			CloneURL   string `json:"clone_url"`
 			BaseBranch string `json:"base_branch"`
 		}
-		if err := decodeAgentBody(r, &body); err != nil {
+		if err := decodeStrictJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

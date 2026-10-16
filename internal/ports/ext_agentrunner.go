@@ -25,6 +25,15 @@ func (s AgentRunState) Finished() bool {
 	return false
 }
 
+// ErrAgentRunInvalid wraps every refusal of a run request's contents or of the
+// run's state: an unknown or disabled repository, a bad task, a missing token.
+// The panel shows the message after the prefix; anything else is a server fault.
+var ErrAgentRunInvalid = errors.New("invalid agent run request")
+
+// ErrAgentRunQueued reports a second run started while the account already has
+// one queued. Only one may wait for a worker at a time.
+var ErrAgentRunQueued = errors.New("you already have a queued run; wait for it to start or cancel it")
+
 // ErrAgentRunConflict reports an update written against a stale revision: the
 // run changed since the caller read it, so the caller must re-read and decide
 // again rather than overwrite.

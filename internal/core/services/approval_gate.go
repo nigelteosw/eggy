@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -305,5 +306,11 @@ func truncateResult(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	return value[:limit] + fmt.Sprintf("… (%d bytes truncated)", len(value)-limit)
+	// Back up to a rune boundary so a multi-byte character is never split:
+	// a split one reaches the owner as a replacement character.
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + fmt.Sprintf("… (%d bytes truncated)", len(value)-cut)
 }

@@ -43,7 +43,12 @@ func NewLoginThrottle(now func() time.Time) *LoginThrottle {
 func (t *LoginThrottle) Delay(key string) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	state := t.stateLocked(key)
+	state, ok := t.attempts[key]
+	// A key with no live window has nothing to delay. Checking without
+	// inserting keeps a stranger's probe from growing the map.
+	if !ok || t.now().Sub(state.windowStart) > throttleWindow {
+		return 0
+	}
 	if state.failures < throttleThreshold {
 		return 0
 	}
@@ -53,13 +58,20 @@ func (t *LoginThrottle) Delay(key string) time.Duration {
 	return 0
 }
 
-// RecordFailure counts one more failed attempt from key.
+// RecordFailure counts one more failed attempt from key. It also drops every
+// window that has expired, so the map holds only keys that failed recently.
 func (t *LoginThrottle) RecordFailure(key string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	now := t.now()
+	for k, state := range t.attempts {
+		if now.Sub(state.windowStart) > throttleWindow {
+			delete(t.attempts, k)
+		}
+	}
 	state := t.stateLocked(key)
 	state.failures++
-	state.lastFailure = t.now()
+	state.lastFailure = now
 }
 
 // Reset clears key's failure count, e.g. after a successful login.

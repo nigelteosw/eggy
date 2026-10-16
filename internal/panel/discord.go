@@ -5,7 +5,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -74,7 +73,7 @@ func discordSetRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc 
 			ApplicationID string `json:"application_id"`
 			BotToken      string `json:"bot_token"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

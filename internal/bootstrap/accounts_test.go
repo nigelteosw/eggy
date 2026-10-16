@@ -85,10 +85,11 @@ func TestScheduleForARemovedAccountIsDisabledNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.workers.Wait()
-	schedule, err := app.database.Schedules().Get(partner, "later")
-	if err != nil {
-		t.Fatal(err)
+	schedules, err := app.database.Schedules().List(partner)
+	if err != nil || len(schedules) != 1 {
+		t.Fatalf("partner schedules: %+v, %v", schedules, err)
 	}
+	schedule := schedules[0]
 	if schedule.Enabled || !schedule.PendingRun.IsZero() {
 		t.Fatalf("schedule after tick: %+v", schedule)
 	}

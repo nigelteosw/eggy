@@ -442,7 +442,7 @@ func telegramEnabledRoute(configPath string, webConfig WebUIConfig) http.Handler
 		var input struct {
 			Enabled bool `json:"enabled"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
@@ -485,7 +485,7 @@ func expectedEmailSetRoute(configPath string) http.HandlerFunc {
 		var input struct {
 			Email string `json:"email"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		if err := decodeJSONBody(w, r, &input); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

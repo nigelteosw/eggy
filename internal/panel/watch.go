@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -61,7 +60,7 @@ func newWatchSetRoute(watch ContextDocuments) http.HandlerFunc {
 		var body struct {
 			Content string `json:"content"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}

@@ -22,6 +22,17 @@ func seed(t *testing.T, svc *Service, entries ...ports.FinanceInput) {
 	}
 }
 
+// A month that has not started has no daily average: the whole month's outflow
+// divided by zero days would read as a daily figure it is not.
+func TestReportHasNoDailyAverageForAMonthThatHasNotStarted(t *testing.T) {
+	now := time.Date(2026, 10, 10, 4, 0, 0, 0, time.UTC)
+	svc, _ := newService(t, now)
+	seed(t, svc, ports.FinanceInput{Amount: "1000", Category: "food", Date: "2026-11-03"})
+	if got := flowFor(report(t, svc, "2026-11").Flows, "SGD").DailyAverage; got != 0 {
+		t.Fatalf("daily average = %d for a future month, want 0", got)
+	}
+}
+
 func report(t *testing.T, svc *Service, month string) ports.FinanceReport {
 	t.Helper()
 	got, err := svc.Report(asAccount("a"), month)

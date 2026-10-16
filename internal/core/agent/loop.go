@@ -293,8 +293,6 @@ func truncatedCallResults(calls []ports.ToolCall) []ports.Message {
 	return messages
 }
 
-// ToolNames returns the tools available for a turn after applying the same
-// allowlist filter used for the model request.
 // ToolDefinitions is the exact tool set a turn run with options would send to
 // the model. It is what /capabilities and /context report on, so the manifest
 // stays "only the tools actually available to the current turn".
@@ -303,6 +301,8 @@ func (l *Loop) ToolDefinitions(options RunOptions) []ports.ToolDefinition {
 	return definitions
 }
 
+// ToolNames returns the tools available for a turn after applying the same
+// allowlist filter used for the model request.
 func (l *Loop) ToolNames(options RunOptions) []string {
 	_, definitions := l.filteredTools(options)
 	names := make([]string, 0, len(definitions))

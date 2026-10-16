@@ -61,24 +61,13 @@ func (s *ScheduleStore) list(ctx context.Context, query string, args ...any) ([]
 	return schedules, nil
 }
 
-func (s *ScheduleStore) Get(ctx context.Context, id string) (ports.Schedule, error) {
-	if !namePattern.MatchString(id) {
-		return ports.Schedule{}, errors.New("invalid schedule id")
-	}
-	account, err := accountOf(ctx)
-	if err != nil {
-		return ports.Schedule{}, err
-	}
-	return getSchedule(ctx, s.db, account, id)
-}
-
 // Create writes a job only when its id is free, so two schedules can never
 // collapse into one record. The id is global: the scheduler claims by id
 // alone, so two accounts cannot share one even though neither can see the
 // other's.
 func (s *ScheduleStore) Create(ctx context.Context, schedule ports.Schedule) error {
 	if !namePattern.MatchString(schedule.ID) {
-		return errors.New("invalid schedule id")
+		return ports.ErrScheduleInvalid
 	}
 	if strings.TrimSpace(schedule.Instruction) == "" {
 		return errors.New("instruction is required")
@@ -102,7 +91,7 @@ func (s *ScheduleStore) Create(ctx context.Context, schedule ports.Schedule) err
 // written.
 func (s *ScheduleStore) Update(ctx context.Context, id string, mutate func(*ports.Schedule) error) error {
 	if !namePattern.MatchString(id) {
-		return errors.New("invalid schedule id")
+		return ports.ErrScheduleInvalid
 	}
 	account, err := accountOf(ctx)
 	if err != nil {
@@ -139,7 +128,7 @@ func (s *ScheduleStore) Update(ctx context.Context, id string, mutate func(*port
 // not an error: the owner asked for it to be absent, and it is.
 func (s *ScheduleStore) Delete(ctx context.Context, id string) error {
 	if !namePattern.MatchString(id) {
-		return errors.New("invalid schedule id")
+		return ports.ErrScheduleInvalid
 	}
 	account, err := accountOf(ctx)
 	if err != nil {

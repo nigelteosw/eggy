@@ -114,7 +114,9 @@ skills/
   skill directory, validated against traversal and the allowlist. This is the
   only schema change, and it is small and serves hand-placed directory skills
   equally. The tool stays `ReadOnlyTool()`.
-- Writes keep locking, atomic replacement, and active-secret filtering.
+- Writes keep locking and atomic replacement. (The skills store applies no
+  secret filtering today, and installed text comes from outside Eggy, so none
+  is claimed here.)
 
 This step is useful on its own and lands before anything marketplace-specific.
 
@@ -258,8 +260,10 @@ CREATE TABLE IF NOT EXISTS marketplace_files (
 );
 ```
 
-A skill file's content hash is over its description and body, not its raw
-bytes, so toggling `disabled` in frontmatter does not read as a local edit.
+A skill's content hash is over its description, body, and reference files, not
+its raw bytes, so toggling `disabled` or `source` in frontmatter does not read
+as a local edit. Edits are tracked per skill, not per file: the store reads and
+writes a skill as one unit, and so does the review.
 
 Skills are deployment-wide, as they are today. The record notes who installed,
 for the panel to show, and is not an ownership check: every account may update
@@ -273,10 +277,10 @@ There is no loop. **Check for updates** is a button, per source or for all:
   install from that source, compute the new plan and diff it against the
   record.
 - Show per install: files added, changed (with a text diff), removed, MCP
-  entries added or removed, and **locally edited** files — those whose current
+  entries added or removed, and **locally edited** skills — those whose current
   hash differs from the recorded one.
-- **Update** is the same digest-bound approval as install. A locally edited file
-  is left alone unless the owner ticks "replace my edits" for that file. An
+- **Update** is the same digest-bound approval as install. A locally edited
+  skill is left alone unless the owner ticks "replace my edits" for that skill. An
   MCP entry the owner has edited in config is never replaced; a new MCP entry
   arrives disabled.
 - A catalog entry that disappeared upstream marks the install "removed
@@ -303,7 +307,9 @@ the one home for MCP. A plugin's MCP server is an ordinary entry there, with a
    for a server from a catalog, the safe default is to ask.
 4. Saving writes `enabled: true` and `require_approval` through
    `internal/config` in one locked write, then loads the server through the
-   existing reload path.
+   existing reload path. A server written to config after boot is unknown to
+   the running manager, so `Preview` answers "restart to load" for it, and the
+   dialog offers the restart instead of a tool list.
 
 A server that advertises a tool later (`tools/list_changed`) gets the existing
 warning path; a new tool is not in `require_approval` until the owner adds it,
@@ -373,9 +379,9 @@ lands in Delivery step 1 with directory skills.
   turns off as one unit and turns back on to the state it had. Individual
   skills remain togglable in the Skills tab.
 - **Remove** shows what will be deleted and asks once. It deletes the files and
-  MCP entries the record lists, then the record. A locally edited file is
-  listed and kept unless the owner ticks it for deletion; a directory left empty
-  is removed.
+  MCP entries the record lists, then the record. A locally edited skill is
+  listed and kept unless the owner ticks it for deletion; a kept skill has its
+  `source` key cleared, so it is hand-placed from then on.
 
 ### Panel
 

@@ -7,11 +7,13 @@ import { SkillDetail } from "./SkillDetail";
 import { Input } from "./components/ui/input";
 import { PRIMARY_BUTTON } from "./components/ui/form";
 import { SearchIcon } from "./components/ui/icons";
+import { PluginsTab } from "./extensions/marketplace/PluginsTab";
+import { pluginsEnabled } from "./extensions/marketplace/marketplace";
 
 // The page's address holds where the owner is, so refresh, a shared link and
 // browser back all land in the same place. `skill` is "new" for the create form,
 // a skill name for its detail page, or absent for the list.
-type Tab = "skills" | "connectors";
+type Tab = "skills" | "connectors" | "plugins";
 type Route = { tab: Tab; skill: string | null };
 
 const TABS: { id: Tab; label: string }[] = [
@@ -19,10 +21,17 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "connectors", label: "Connectors" },
 ];
 
+// Plugins is offered only when the marketplace runs, so it costs nothing and
+// shows nothing otherwise.
+function tabsFor(features: string[]): { id: Tab; label: string }[] {
+  return pluginsEnabled(features) ? [...TABS, { id: "plugins", label: "Plugins" }] : TABS;
+}
+
 function readRoute(): Route {
   if (typeof window === "undefined") return { tab: "skills", skill: null };
   const params = new URLSearchParams(window.location.search);
-  return { tab: params.get("tab") === "connectors" ? "connectors" : "skills", skill: params.get("skill") };
+  const tab = params.get("tab");
+  return { tab: tab === "connectors" || tab === "plugins" ? tab : "skills", skill: params.get("skill") };
 }
 
 function routeUrl(route: Route): string {
@@ -31,7 +40,7 @@ function routeUrl(route: Route): string {
   return `${window.location.pathname}?${params}`;
 }
 
-export function CustomizePage({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function CustomizePage({ onSessionExpired, features }: { onSessionExpired: () => void; features: string[] }) {
   const [route, setRoute] = useState<Route>(readRoute);
   const [query, setQuery] = useState("");
 
@@ -72,7 +81,7 @@ export function CustomizePage({ onSessionExpired }: { onSessionExpired: () => vo
 
             <div className="flex flex-wrap items-center gap-3">
               <div role="tablist" aria-label="Customize" className="flex gap-1 rounded-xl bg-neutral-100 p-1">
-                {TABS.map((item) => (
+                {tabsFor(features).map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -115,6 +124,7 @@ export function CustomizePage({ onSessionExpired }: { onSessionExpired: () => vo
               {route.tab === "skills" && (
                 <SkillsPanel query={query} onOpen={(name) => go({ tab: "skills", skill: name })} onSessionExpired={onSessionExpired} />
               )}
+              {route.tab === "plugins" && pluginsEnabled(features) && <PluginsTab onSessionExpired={onSessionExpired} />}
               {route.tab === "connectors" && (
                 <>
                   <McpCard onSessionExpired={onSessionExpired} />

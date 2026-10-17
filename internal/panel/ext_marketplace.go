@@ -89,11 +89,13 @@ type MarketplaceApproval struct {
 }
 
 type MarketplacePlanSkill struct {
-	Name         string   `json:"name"`
-	UpstreamName string   `json:"upstream_name"`
-	Description  string   `json:"description"`
-	Files        []string `json:"files"`
-	Warnings     []string `json:"warnings,omitempty"`
+	Name         string            `json:"name"`
+	UpstreamName string            `json:"upstream_name"`
+	Description  string            `json:"description"`
+	Body         string            `json:"body"`
+	Contents     map[string]string `json:"contents,omitempty"`
+	Files        []string          `json:"files"`
+	Warnings     []string          `json:"warnings,omitempty"`
 }
 
 type MarketplacePlanMCP struct {

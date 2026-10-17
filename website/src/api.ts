@@ -50,7 +50,7 @@ export function clearSession(): void {
 
 const CSRF_HEADER = "X-Eggy-CSRF";
 
-async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const csrf: Record<string, string> = session?.csrf && method !== "GET" && method !== "HEAD" ? { [CSRF_HEADER]: session.csrf } : {};
   const response = await fetch(path, {

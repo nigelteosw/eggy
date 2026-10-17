@@ -196,7 +196,7 @@ func planToPanel(plan marketplace.Plan) panel.MarketplacePlan {
 		sort.Strings(files)
 		out.Skills = append(out.Skills, panel.MarketplacePlanSkill{
 			Name: skill.Name, UpstreamName: skill.UpstreamName, Description: skill.Description,
-			Files: files, Warnings: skill.Warnings,
+			Files: files, Warnings: skill.Warnings, Body: skill.Body, Contents: skill.Files,
 		})
 	}
 	for _, server := range plan.MCP {

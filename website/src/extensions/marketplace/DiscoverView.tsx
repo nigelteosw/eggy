@@ -27,6 +27,7 @@ export function DiscoverView({ onSessionExpired, onInstalled }: { onSessionExpir
     if (!source) return;
     let current = true;
     setItems([]);
+    setError(null);
     listItems(source)
       .then((list) => {
         if (current) setItems(list);

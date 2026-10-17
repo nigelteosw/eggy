@@ -43,7 +43,8 @@ type fakeSkill struct {
 }
 
 type fakeSkills struct {
-	skills map[string]*fakeSkill
+	skills    map[string]*fakeSkill
+	deleteErr error
 }
 
 func (f *fakeSkills) List(context.Context) ([]ports.SkillSummary, error) {
@@ -98,6 +99,9 @@ func (f *fakeSkills) SetDisabled(_ context.Context, name string, disabled bool) 
 }
 
 func (f *fakeSkills) Delete(_ context.Context, name string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	if _, ok := f.skills[name]; !ok {
 		return ports.ErrSkillNotFound
 	}

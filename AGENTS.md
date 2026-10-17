@@ -121,7 +121,9 @@ should only ever add a new package under
   `internal/channel/discord/client.go` behind a fakeable transport.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
-  consolidates their approvals.
+  consolidates their approvals. A marketplace install is the one owner-panel
+  exception: its payload-bound approval is the digest review described under
+  *Decided*, not an `approvals.Action`, because no model tool call is involved.
 - Generic Telegram selections can never satisfy an approval, authorize a
   mutation, or be read as approve/reject. Discord has no decision surface at
   all: an approval raised there is a notice pointing at the web panel.
@@ -335,7 +337,10 @@ review of the digest in the web panel, not an `approvals.Action`: it is an owner
 action at a verified session, not a model tool call. For an update, the choice to
 replace an owner-edited skill is made in the same review but is not part of the
 digest; it can only overwrite a skill the owner already edited, and what is written
-is still the reviewed content.
+is still the reviewed content. Enabling a catalog MCP server pins its
+`tool_filter.include` to the tools the owner reviewed, so a tool the server adds
+later stays off until it is reviewed: `require_approval` alone names only the tools
+it protects, and would let a new one run unasked.
 
 ## Declined capabilities — do not re-propose
 

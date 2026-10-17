@@ -140,10 +140,8 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
           <McpEnableDialog
             server={reviewing}
             onClose={() => setReviewing(null)}
-            onEnabled={() => {
-              setReviewing(null);
-              load();
-            }}
+            // The dialog stays open on its saved notice; Close dismisses it.
+            onEnabled={load}
             onSessionExpired={onSessionExpired}
           />
         )}

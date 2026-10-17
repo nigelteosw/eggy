@@ -124,32 +124,29 @@ func TestRemoveSkipsAHandDeletedSkill(t *testing.T) {
 	}
 }
 
-func TestUpdateDoesNotRecreateAHandDeletedSkill(t *testing.T) {
+// The owner deleted a skill by hand. No later update brings it back: the
+// record keeps it as owned, so each update knows it is the owner's deletion.
+func TestUpdatesNeverRecreateAHandDeletedSkill(t *testing.T) {
 	h := newHarness(t)
 	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	delete(h.skills.skills, "pdf")
-	h.fetch.refs["o/team@main"] = sha2Commit
-	h.fetch.trees["o/team@"+sha2Commit] = deployRepo("Fill forms v2.")
-
-	req := ApproveRequest{PlanRequest: PlanRequest{Source: "team", Item: "deploy-tools", InstallID: inst.ID}}
-	plan, err := h.svc.Plan(h.ctx, req.PlanRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
-	updated, err := h.svc.Update(h.ctx, inst.ID, req, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := h.skills.skills["pdf"]; ok {
-		t.Fatal("update brought back a skill the owner deleted")
-	}
-	for _, f := range updated.Files {
-		if f.Kind == kindSkill && f.Target == "pdf" {
-			t.Fatal("record still owns the deleted skill")
+	for i, commit := range []string{sha2Commit, shaExt} {
+		h.fetch.refs["o/team@main"] = commit
+		h.fetch.trees["o/team@"+commit] = deployRepo("Fill forms v" + string(rune('2'+i)) + ".")
+		req := ApproveRequest{PlanRequest: PlanRequest{Source: "team", Item: "deploy-tools", InstallID: inst.ID}}
+		plan, err := h.svc.Plan(h.ctx, req.PlanRequest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
+		if _, err := h.svc.Update(h.ctx, inst.ID, req, nil); err != nil {
+			t.Fatalf("update %d: %v", i+1, err)
+		}
+		if _, ok := h.skills.skills["pdf"]; ok {
+			t.Fatalf("update %d brought back a skill the owner deleted", i+1)
 		}
 	}
 }
@@ -211,5 +208,47 @@ func TestRemoveKeepsFrontmatterExtrasOnAKeptSkill(t *testing.T) {
 	kept := h.skills.skills["pdf"]
 	if kept == nil || kept.source != "" || kept.extra["license"] != "MIT" {
 		t.Fatalf("kept skill = %+v, want hand-placed with license kept", kept)
+	}
+}
+
+func TestPlanRejectsANonSHAExternalPin(t *testing.T) {
+	h := newHarness(t)
+	h.fetch.trees["o/team@"+sha1Commit] = memTree(map[string]string{
+		".claude-plugin/marketplace.json": `{"name":"team","plugins":[{"name":"ext-tools","source":{"source":"github","repo":"o/ext","sha":"main"}}]}`,
+	})
+	if _, err := h.svc.Plan(h.ctx, PlanRequest{Source: "team", Item: "ext-tools"}); err == nil || !strings.Contains(err.Error(), "not a full commit") {
+		t.Fatalf("err = %v, want a refusal of the branch name pin", err)
+	}
+}
+
+// A crafted update for install A naming item B must not write B under A.
+func TestUpdateIsBoundToTheInstallRecord(t *testing.T) {
+	h := newHarness(t)
+	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := ApproveRequest{PlanRequest: PlanRequest{Source: "team", Item: "something-else", InstallID: inst.ID}, SHA: sha1Commit}
+	plan, err := h.svc.Plan(h.ctx, PlanRequest{Source: "team", Item: "deploy-tools", InstallID: inst.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Digest = plan.Digest
+	updated, err := h.svc.Update(h.ctx, inst.ID, req, nil)
+	if err != nil {
+		t.Fatalf("update with a mismatched item in the body: %v", err)
+	}
+	if updated.Item != "deploy-tools" || updated.SourceName != "team" {
+		t.Fatalf("record = %+v, want it still bound to team/deploy-tools", updated)
+	}
+}
+
+func TestAnIncompleteRollbackIsReported(t *testing.T) {
+	h := newHarness(t)
+	h.mcp.addErr = errors.New("config write failed")
+	h.skills.deleteErr = errors.New("disk is read-only")
+	_, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err == nil || !strings.Contains(err.Error(), "rollback incomplete") {
+		t.Fatalf("err = %v, want it to say the rollback was incomplete", err)
 	}
 }

@@ -20,6 +20,7 @@ type Phase =
   | { kind: "tools"; tools: MCPToolPreview[] }
   | { kind: "restart" }
   | { kind: "login" }
+  | { kind: "saved" }
   | { kind: "error"; message: string };
 
 export function McpEnableDialog({
@@ -78,7 +79,13 @@ export function McpEnableDialog({
   async function save(tools: MCPToolPreview[]) {
     setSaving(true);
     try {
-      await setMCPApproval(server, true, approvalPayload(tools, ticked));
+      await setMCPApproval(
+        server,
+        true,
+        approvalPayload(tools, ticked),
+        tools.map((tool) => tool.name),
+      );
+      setPhase({ kind: "saved" });
       onEnabled();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -128,6 +135,12 @@ export function McpEnableDialog({
             {saving ? "Enabling..." : "Enable server"}
           </Button>
         </>
+      )}
+      {phase.kind === "saved" && (
+        <p role="status" className="text-xs leading-relaxed text-neutral-700">
+          Saved. Restart Eggy to connect this server. Only the tools you reviewed are allowed; a tool the server adds later stays off
+          until you review it again.
+        </p>
       )}
       {phase.kind === "error" && <ErrorBanner>{phase.message}</ErrorBanner>}
       <Button type="button" variant="ghost" size="sm" onClick={onClose} className="self-end">

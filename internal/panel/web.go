@@ -295,7 +295,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}
 	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "agent_runner"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "marketplace", "agent_runner"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
 	}

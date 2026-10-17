@@ -59,6 +59,13 @@ export function CustomizePage({ onSessionExpired, features }: { onSessionExpired
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // A ?tab=plugins link on a deployment without the marketplace lands on Skills
+  // rather than on an empty panel.
+  useEffect(() => {
+    if (route.tab === "plugins" && !pluginsEnabled(features)) go({ tab: "skills", skill: null }, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.tab, features]);
+
   const backToList = () => go({ tab: "skills", skill: null });
 
   return (

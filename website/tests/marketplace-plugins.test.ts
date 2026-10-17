@@ -16,7 +16,7 @@ const plan: Plan = {
   source: "anthropic",
   repo: "anthropics/skills",
   sha: "abc123",
-  catalog_sha: "abc123",
+  catalog_sha: "cat456",
   item: "pdf",
   digest: "d1g3st",
   skills: [],
@@ -40,7 +40,8 @@ describe("install approval", () => {
   test("posts the digest and commit the owner was shown", () => {
     const approval = approvalFor(plan, {});
     expect(approval.digest).toBe("d1g3st");
-    expect(approval.sha).toBe("abc123");
+    // The approval names the catalog commit, never the content commit.
+    expect(approval.sha).toBe("cat456");
     expect(approval.source).toBe("anthropic");
     expect(approval.item).toBe("pdf");
   });

@@ -852,7 +852,7 @@ func TestSetMCPServerApproval(t *testing.T) {
 	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://mcp.example.com/mcp"); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetMCPServerApproval(path, "deploy-tools-api", true, []string{"search"}); err != nil {
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, []string{"search"}, []string{"search", "read"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := LoadDocument(path)
@@ -863,7 +863,16 @@ func TestSetMCPServerApproval(t *testing.T) {
 	if !server.Enabled || !slices.Equal(server.RequireApproval, []string{"search"}) {
 		t.Fatalf("server = %+v, want enabled with require_approval [search]", server)
 	}
-	if err := SetMCPServerApproval(path, "missing", true, nil); err == nil {
+	if !slices.Equal(server.ToolFilter.Include, []string{"search", "read"}) {
+		t.Fatalf("tool_filter.include = %v, want the reviewed tools pinned", server.ToolFilter.Include)
+	}
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, nil, nil); err == nil {
+		t.Fatal("enabled a server with no reviewed tools, which would allow every tool")
+	}
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, []string{"upload"}, []string{"read"}); err == nil {
+		t.Fatal("require_approval named a tool that was not reviewed")
+	}
+	if err := SetMCPServerApproval(path, "missing", true, nil, []string{"read"}); err == nil {
 		t.Fatal("set approval on an unconfigured server")
 	}
 }
@@ -874,7 +883,7 @@ func TestSetMCPServerApprovalRefusesStdio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SetMCPServerApproval(path, "local", true, nil); err == nil || !strings.Contains(err.Error(), "stdio") {
+	if err := SetMCPServerApproval(path, "local", true, nil, []string{"read"}); err == nil || !strings.Contains(err.Error(), "stdio") {
 		t.Fatalf("err = %v, want a stdio refusal", err)
 	}
 	after, _ := os.ReadFile(path)

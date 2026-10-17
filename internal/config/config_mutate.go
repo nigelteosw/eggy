@@ -729,10 +729,13 @@ func AddMCPServerDisabled(path, name, url string) error {
 	})
 }
 
-// SetMCPServerApproval sets one server's enabled flag and its require_approval
-// list in a single locked write. The list is the owner's choice of which tools
-// need approval; an empty list means none do.
-func SetMCPServerApproval(path, name string, enabled bool, requireApproval []string) error {
+// SetMCPServerApproval enables or disables one server, sets require_approval,
+// and pins tool_filter.include to the tools the owner reviewed, all in one locked
+// write. The pin is what keeps the review meaningful: require_approval names only
+// the tools it protects, so a tool the server adds later would otherwise run
+// unasked. With the pin, a new tool stays off until the server is reviewed again.
+// Enabling with no reviewed tools is refused, since an empty include allows all.
+func SetMCPServerApproval(path, name string, enabled bool, requireApproval, reviewedTools []string) error {
 	return mutate(path, func(cfg *Config) error {
 		server, ok := cfg.MCP.Servers[name]
 		if !ok {
@@ -743,8 +746,19 @@ func SetMCPServerApproval(path, name string, enabled bool, requireApproval []str
 		if server.Transport == "stdio" {
 			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
 		}
+		if enabled && len(reviewedTools) == 0 {
+			return fmt.Errorf("MCP server %q advertised no tools to review", name)
+		}
+		for _, tool := range requireApproval {
+			if !slices.Contains(reviewedTools, tool) {
+				return fmt.Errorf("MCP server %q require_approval names %q, which was not reviewed", name, tool)
+			}
+		}
 		server.Enabled = enabled
 		server.RequireApproval = requireApproval
+		if enabled {
+			server.ToolFilter.Include = reviewedTools
+		}
 		cfg.MCP.Servers[name] = server
 		return nil
 	})

@@ -40,7 +40,15 @@ func registerMCPApprovalRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) 
 	mux.Handle("PUT /api/config/mcp/{name}/approval", guard(mcpApprovalRoute(configPath)))
 	if previewer != nil {
 		mux.Handle("POST /api/config/mcp/{name}/preview", guard(mcpPreviewRoute(previewer)))
+		return
 	}
+	// No MCP manager runs: no server existed at boot. Any server added since
+	// loads after a restart, which is what the review then says.
+	mux.Handle("POST /api/config/mcp/{name}/preview", guard(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]any{"restart": true, "error": ErrMCPRestartRequired.Error()})
+	}))
 }
 
 func mcpApprovalRoute(configPath string) http.HandlerFunc {
@@ -48,12 +56,15 @@ func mcpApprovalRoute(configPath string) http.HandlerFunc {
 		var body struct {
 			Enabled         bool     `json:"enabled"`
 			RequireApproval []string `json:"require_approval"`
+			// Tools is every tool the owner reviewed; it becomes the server's
+			// include filter, so a tool added later stays off until re-reviewed.
+			Tools []string `json:"tools"`
 		}
 		if err := decodeMarketplaceBody(w, r, &body); err != nil {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if err := config.SetMCPServerApproval(configPath, r.PathValue("name"), body.Enabled, body.RequireApproval); err != nil {
+		if err := config.SetMCPServerApproval(configPath, r.PathValue("name"), body.Enabled, body.RequireApproval, body.Tools); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}

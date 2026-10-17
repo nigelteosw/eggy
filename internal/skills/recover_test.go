@@ -109,3 +109,22 @@ func TestListLeavesTheOwnersDotFilesAlone(t *testing.T) {
 		}
 	}
 }
+
+func TestListRestoresAMovedAsideSymlinkedDirectorySkill(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(t.TempDir(), "pdf-real")
+	writeSkillDir(t, real)
+	if err := os.Symlink(real, filepath.Join(dir, ".old-pdf-"+leftoverSuffix)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Open(dir, 0).List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "pdf" || got[0].Invalid != "" {
+		t.Fatalf("list = %+v, want pdf restored", got)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "pdf")); err != nil || !info.IsDir() || exists(filepath.Join(dir, "pdf.md")) {
+		t.Fatal("a symlinked directory skill was not restored as a directory")
+	}
+}

@@ -213,3 +213,69 @@ func TestPlanDigestCoversRenames(t *testing.T) {
 		t.Fatal("different renames produced the same digest")
 	}
 }
+
+func TestPlanSkipsMCPServersTheConfigWouldRefuse(t *testing.T) {
+	item := Item{Name: "deploy-tools", Kind: "plugin", Root: "plugins/deploy"}
+	tree := memTree(map[string]string{
+		"plugins/deploy/.mcp.json": `{"mcpServers":{
+			"local":{"url":"http://localhost:3000/mcp"},
+			"bad name":{"url":"https://mcp.example.com/a"},
+			"dup":{"url":"https://mcp.example.com/b"},
+			"taken":{"url":"https://mcp.example.com/c"}
+		}}`,
+		"plugins/deploy/.claude-plugin/plugin.json": `{"mcpServers":{"dup":{"url":"https://mcp.example.com/b2"}}}`,
+	})
+	in := planInput(item)
+	in.MCPExists = func(name string) bool { return name == "deploy-tools-taken" }
+	plan, err := buildPlan(in, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Conflicts) != 0 {
+		t.Fatalf("conflicts = %v; an MCP name cannot be renamed, so it must be skipped", plan.Conflicts)
+	}
+	if len(plan.MCP) != 1 || plan.MCP[0].Name != "deploy-tools-dup" {
+		t.Fatalf("mcp = %+v, want only the first dup", plan.MCP)
+	}
+	reasons := map[string]string{}
+	for _, s := range plan.Skipped {
+		reasons[s.Path] = s.Reason
+	}
+	for path, want := range map[string]string{
+		"plugins/deploy/.mcp.json#local":                "https",
+		"plugins/deploy/.mcp.json#bad name":             "not valid",
+		"plugins/deploy/.mcp.json#taken":                "already configured",
+		"plugins/deploy/.claude-plugin/plugin.json#dup": "more than once",
+	} {
+		if !strings.Contains(reasons[path], want) {
+			t.Fatalf("%s reason = %q, want it to mention %q", path, reasons[path], want)
+		}
+	}
+}
+
+func TestPlanSkipsASkillWithNoInstructions(t *testing.T) {
+	item := Item{Name: "p", Kind: "skill", Root: "skills/empty"}
+	tree := memTree(map[string]string{"skills/empty/SKILL.md": "---\nname: empty\ndescription: Nothing here\n---\n\n"})
+	plan, err := buildPlan(planInput(item), tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Skills) != 0 || len(plan.Skipped) != 1 || !strings.Contains(plan.Skipped[0].Reason, "no instructions") {
+		t.Fatalf("plan = %+v, want the empty skill skipped", plan)
+	}
+}
+
+func TestPlanSkipsFrontmatterThatCannotBeStored(t *testing.T) {
+	item := Item{Name: "p", Kind: "plugin", Root: "plugins/deploy"}
+	tree := memTree(map[string]string{
+		"plugins/deploy/skills/odd/SKILL.md":  "---\nname: odd\ndescription: Odd\nmetadata:\n  1: a\n---\n\nbody\n",
+		"plugins/deploy/skills/fine/SKILL.md": "---\nname: fine\ndescription: Fine\n---\n\nbody\n",
+	})
+	plan, err := buildPlan(planInput(item), tree)
+	if err != nil {
+		t.Fatalf("one unstorable skill failed the whole item: %v", err)
+	}
+	if len(plan.Skills) != 1 || plan.Skills[0].Name != "fine" {
+		t.Fatalf("skills = %+v, want only fine", plan.Skills)
+	}
+}

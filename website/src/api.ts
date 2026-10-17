@@ -353,7 +353,7 @@ export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
   return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance" | "agent_runner";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance" | "marketplace" | "agent_runner";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see
@@ -936,9 +936,11 @@ export function previewMCPServer(name: string): Promise<MCPPreviewResult> {
 
 // Enabling is a trust decision, so the owner's choice of which tools need
 // approval is saved in the same write as enabling the server.
-export function setMCPApproval(name: string, enabled: boolean, requireApproval: string[]): Promise<CommandResult> {
+// tools is every tool the owner reviewed. It is saved as the server's include
+// filter, so a tool the server adds later stays off until it is reviewed again.
+export function setMCPApproval(name: string, enabled: boolean, requireApproval: string[], tools: string[]): Promise<CommandResult> {
   return request(`/api/config/mcp/${encodeURIComponent(name)}/approval`, {
     method: "PUT",
-    body: JSON.stringify({ enabled, require_approval: requireApproval }),
+    body: JSON.stringify({ enabled, require_approval: requireApproval, tools }),
   });
 }

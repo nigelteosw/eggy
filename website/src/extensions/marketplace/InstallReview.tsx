@@ -27,6 +27,9 @@ export function InstallReview({
   const [replace, setReplace] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A plan request is in flight. The current plan stays on screen meanwhile,
+  // so a failed rename leaves the review and its inputs in place.
+  const [loading, setLoading] = useState(false);
   // After a refusal the plan has changed under the owner, so Install stays off
   // until they confirm they have read the new version.
   const [mustReread, setMustReread] = useState(false);
@@ -39,13 +42,17 @@ export function InstallReview({
 
   function load(nextRenames: Record<string, string>) {
     const id = latest.current.start();
-    setPlan(null);
+    setLoading(true);
     planItem(planRequestFor(request.source, request.item, nextRenames, request.install_id))
       .then((next) => {
-        if (latest.current.isLatest(id)) setPlan(next);
+        if (!latest.current.isLatest(id)) return;
+        setPlan(next);
+        setLoading(false);
       })
       .catch((err) => {
-        if (latest.current.isLatest(id)) handleFailure(err, onSessionExpired, setError, "Could not read the plan");
+        if (!latest.current.isLatest(id)) return;
+        setLoading(false);
+        handleFailure(err, onSessionExpired, setError, "Could not read the plan");
       });
   }
 
@@ -56,7 +63,9 @@ export function InstallReview({
   }, [request.source, request.item, request.install_id]);
 
   function applyRename(upstream: string) {
-    const next = { ...renames, [upstream]: draftRename[upstream] ?? "" };
+    const value = (draftRename[upstream] ?? "").trim();
+    if (!value) return;
+    const next = { ...renames, [upstream]: value };
     setRenames(next);
     load(next);
   }
@@ -107,12 +116,13 @@ export function InstallReview({
             any turn where they match.
           </p>
           <p className="text-xs text-neutral-700">
-            The skills add {plan.index_bytes} bytes to the index. Each one's name stays in the index even if its description has to be left out.
+            The skills add {plan.index_bytes} bytes to the index. When the index is full, descriptions are left out first, installed
+            skills before yours.
           </p>
 
           {plan.conflicts.length > 0 && (
             <div className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-3">
-              <p className="text-xs font-medium">These names already exist. Rename them to install.</p>
+              <p className="text-xs font-medium">These names are taken or not valid in Eggy. Rename them to install.</p>
               {plan.conflicts.map((upstream) => (
                 <div key={upstream} className="flex items-center gap-2">
                   <span className="text-[12.5px]">{upstream}</span>
@@ -193,7 +203,7 @@ export function InstallReview({
               I have read the new version, including the skills that changed
             </label>
           )}
-          <Button type="button" disabled={installBlocked(busy, plan, mustReread)} onClick={approve}>
+          <Button type="button" disabled={installBlocked(busy || loading, plan, mustReread)} onClick={approve}>
             {busy ? "Working..." : approveLabel}
           </Button>
         </>

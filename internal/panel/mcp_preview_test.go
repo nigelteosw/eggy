@@ -60,13 +60,15 @@ func TestMCPPreviewLoginIsConflict(t *testing.T) {
 	}
 }
 
-func TestMCPPreviewRouteOnlyMountedWithPreviewer(t *testing.T) {
+// With no MCP manager (no server at boot), a newly added server needs a
+// restart, and the preview route says so rather than answering 404.
+func TestMCPPreviewWithoutAManagerAsksForARestart(t *testing.T) {
 	mux := http.NewServeMux()
 	registerMCPApprovalRoutes(mux, passThroughGuard, "", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/config/mcp/example/preview", nil))
-	if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
-		t.Fatalf("preview route mounted without a previewer: status %d", rec.Code)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"restart":true`) {
+		t.Fatalf("status %d body %s, want a restart instruction", rec.Code, rec.Body.String())
 	}
 }
 

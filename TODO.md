@@ -35,41 +35,28 @@ Deletion budget: ~2,300–3,800 production lines (estimate), 3 config keys plus
 registry, 2 tables, 1 sealed record per account, 1 worker while enabled,
 1 system user.
 
-## Marketplace — open before merge (not ready to merge)
+## Marketplace — follow-ups after merge
 
-Whole-branch review of `marketplace` (2026-10-17) requested changes; the ticked
-items are fixed on the branch, pending an Opus re-review. Source:
-`docs/superpowers/specs/2026-10-16-marketplace-design.md`. Fixed so far:
-`624b2d6`, `5e1dbeb`.
+Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`. Two whole-branch
+reviews (2026-10-17, Haiku then Opus) found merge blockers; all are fixed on the
+`marketplace` branch, including transactional update and remove, kind-keyed
+ownership, safe MCP preview, the reviewed-tools pin on enable, crash recovery for
+skill replaces, and the sources lock. What remains is below.
 
-Blockers:
-- [x] Update is not atomic: a mid-update failure leaves files changed while the
-      record keeps the old hashes, with no rollback (`internal/extensions/marketplace/service.go` Update).
-- [x] Owner maps are keyed by name across kinds: an MCP entry can count as owning
-      a skill of the same name, so Update can overwrite a hand-placed skill (`service.go` owned/Replacing).
-- [x] Owner MCP tuning is discarded: `enabled` and `require_approval` changes are
-      not counted as edits, and a changed URL re-adds the server (`service.go` fileChanged, Update MCP step).
-- [x] Remove and Update break when an installed skill was deleted by hand: the
-      install is stuck until delete-edited is ticked (`service.go` fileChanged, releaseSkill).
-- [x] Stdio servers can run from Preview before approval, and the approval route
-      can enable a stdio server (`internal/mcp/preview.go`, `internal/config/config_mutate.go` SetMCPServerApproval).
-- [x] Preview changes the running manager: it stores OAuth state on the live
-      manager, and it builds no bearer handler for a disabled server (`internal/mcp/preview.go`).
-- [x] Sources save reads `marketplace.enabled` outside the config lock, so a concurrent
-      edit can be reverted (`internal/panel/ext_marketplace.go` sources PUT).
-- [x] Skill replace is not crash-safe: a crash between the two renames leaves the
-      owner's skill under a hidden `.old-*` name (`internal/skills/store.go` placeBundle).
-- [x] No tests for external (github/git-subdir) items, nor for the UI's refusal,
-      rename, and re-read paths (`InstallReview.tsx`).
-
-Lower priority:
-- [ ] `skill_read` schema grows for every owner, not only those with directory skills.
+- [ ] Remove's "delete my edits" ticks match by bare name, so an install owning a
+      skill and an MCP server of the same name deletes both (`service.go` Remove).
+- [ ] Restoring an MCP entry during a rollback brings it back disabled with default
+      settings; its OAuth client, timeouts, and filters are not snapshotted.
+- [ ] A disabled catalog MCP server's non-enable tuning (timeouts, OAuth client)
+      is lost when an upstream URL change re-adds it.
+- [ ] `skill_read`'s schema grows for every owner, not only those with directory skills.
 - [ ] The index-overflow warning logs on every turn (`internal/core/services/skills.go`).
-- [ ] Raw error text from the config and GitHub reaches the browser in a few places.
-- [ ] Connectors row lacks the "from plugin" label.
-- [ ] Session/CSRF guard tests for the new routes.
-
-Merge gate: the blockers above, then a re-review by a model stronger than Haiku.
+- [ ] Config write errors still reach the browser verbatim in a few routes (shared
+      pattern with `internal/panel/mcp.go`).
+- [ ] Connectors rows lack a "from plugin" label.
+- [ ] Session/CSRF guard tests for the new routes, and component-level tests for the
+      review screens (the decision logic is covered through pure helpers only).
+- [ ] A test for OAuth login on a disabled server completing without a reconnect.
 
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 

@@ -30,6 +30,19 @@ var unsupportedDirs = map[string]bool{
 	"themes": true, "output-styles": true, "workflows": true,
 }
 
+// mcpNamePattern is the config's rule for an MCP server name, applied here so a
+// server the config would refuse is skipped in the review.
+var mcpNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+func plannedMCP(plan *Plan, name string) bool {
+	for _, server := range plan.MCP {
+		if server.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 
 // PlanInput is everything a plan depends on besides the fetched tree. Renames,
@@ -188,12 +201,22 @@ func planMCP(plan *Plan, in PlanInput, tree Tree, file string, fromManifest bool
 		case (len(entry.Headers) > 0 && string(entry.Headers) != "null") || strings.Contains(string(entryRaw), "${"):
 			plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "needs configuration Eggy cannot infer"})
 		default:
+			// Everything the config would refuse is skipped here with its reason,
+			// so an approved install cannot fail on it later. A taken name is
+			// skipped too: renames apply to skills, so it cannot be cleared.
 			name := in.Item.Name + "-" + server
-			if in.MCPExists != nil && in.MCPExists(name) && !in.Replacing["mcp_server/"+name] {
-				plan.Conflicts = append(plan.Conflicts, name)
-				continue
+			switch {
+			case !mcpNamePattern.MatchString(name):
+				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "server name is not valid in Eggy"})
+			case !strings.HasPrefix(entry.URL, "https://"):
+				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "only https servers are supported"})
+			case plannedMCP(plan, name):
+				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "server is declared more than once"})
+			case in.MCPExists != nil && in.MCPExists(name) && !in.Replacing["mcp_server/"+name]:
+				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "a server with this name is already configured"})
+			default:
+				plan.MCP = append(plan.MCP, PlannedMCP{Name: name, URL: entry.URL, Hash: mcpHash(entry.URL)})
 			}
-			plan.MCP = append(plan.MCP, PlannedMCP{Name: name, URL: entry.URL, Hash: mcpHash(entry.URL)})
 		}
 	}
 	return nil
@@ -250,6 +273,10 @@ func planSkill(plan *Plan, in PlanInput, tree Tree, dir string, seen map[string]
 		plan.Skipped = append(plan.Skipped, Skipped{Path: skillFile, Reason: "frontmatter has no description"})
 		return
 	}
+	if body == "" {
+		plan.Skipped = append(plan.Skipped, Skipped{Path: skillFile, Reason: "SKILL.md has no instructions"})
+		return
+	}
 	if len(description) > maxDescriptionSize {
 		plan.Skipped = append(plan.Skipped, Skipped{Path: skillFile, Reason: fmt.Sprintf("description exceeds %d bytes", maxDescriptionSize)})
 		return
@@ -293,6 +320,13 @@ func planSkill(plan *Plan, in PlanInput, tree Tree, dir string, seen map[string]
 		default:
 			extra[k] = v
 		}
+	}
+	// The digest is JSON. Frontmatter JSON cannot hold, such as a map with
+	// number keys, would fail the whole item, so that one skill is skipped.
+	if _, err := json.Marshal(extra); err != nil {
+		plan.Skipped = append(plan.Skipped, Skipped{Path: skillFile, Reason: "frontmatter cannot be stored"})
+		delete(seen, name)
+		return
 	}
 	plan.Skills = append(plan.Skills, PlannedSkill{
 		Name:         name,

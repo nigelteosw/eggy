@@ -63,7 +63,7 @@ func (m *Manager) Preview(ctx context.Context, name string) ([]ToolPreview, erro
 		}
 	}
 
-	session, remote, state, diagnostic := m.connectServerWith(ctx, cfg, handler)
+	session, remote, state, diagnostic := m.connectServerWith(ctx, cfg, handler, false)
 	if session != nil {
 		defer session.Close()
 	}

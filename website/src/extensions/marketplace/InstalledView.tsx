@@ -44,8 +44,8 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
     setError(null);
     try {
       const result = await checkInstall(status.install.id);
-      setChecked({ ...checked, [status.install.id]: result.plan });
-      setInstalls(installs.map((s) => (s.install.id === status.install.id ? result.status : s)));
+      setChecked((current) => ({ ...current, [status.install.id]: result.plan }));
+      setInstalls((current) => current.map((s) => (s.install.id === status.install.id ? result.status : s)));
     } catch (err) {
       handleFailure(err, onSessionExpired, setError, "Could not check for updates");
     }

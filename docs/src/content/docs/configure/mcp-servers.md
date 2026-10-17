@@ -116,4 +116,6 @@ MCP tools are available to direct owner turns. Scheduled turns use a read-only a
 
 A remote server that comes from a marketplace plugin is added disabled. Open **Customize → Connectors** and choose **Review and enable**. Eggy connects once, lists the tools the server advertises, and asks which of them need your approval. Every tool starts ticked, so each call asks you first. Untick a tool only if you trust it to run without asking.
 
-If the server was added after Eggy started, the review asks you to restart first. If it needs an OAuth login, the review links to **Authorize** before it can list the tools.
+The tools you review become the server's allowed list (`tool_filter.include`). A tool the server adds later stays off until you review the server again, so it can never run unasked. Enabling takes effect after a restart.
+
+If the server was added after Eggy started, the review asks you to restart first. If it needs an OAuth login, the review links to **Authorize** before it can list the tools. Stdio servers run a local program and are not reviewed here; enable them in `config.yaml`.

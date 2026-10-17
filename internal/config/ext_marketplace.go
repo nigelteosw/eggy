@@ -85,3 +85,12 @@ func SetMarketplaceSources(path string, sources []MarketplaceSource) error {
 		return nil
 	})
 }
+
+// SetMarketplaceEnabled turns the marketplace on or off and leaves the sources
+// as they are, for the settings card. It applies on restart, like finance.
+func SetMarketplaceEnabled(path string, enabled bool) error {
+	return mutate(path, func(cfg *Config) error {
+		cfg.Marketplace.Enabled = enabled
+		return nil
+	})
+}

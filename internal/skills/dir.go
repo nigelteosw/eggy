@@ -202,7 +202,9 @@ func (s *Store) recoverLeftovers(entries []os.DirEntry) bool {
 			continue
 		}
 		target := filepath.Join(s.dir, skill)
-		if !entry.IsDir() {
+		// Stat follows a symlink, so a moved-aside symlinked directory skill
+		// is restored as a directory rather than as <name>.md.
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
 			target += ".md"
 		}
 		if err := os.Rename(path, target); err != nil {

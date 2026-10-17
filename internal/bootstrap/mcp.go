@@ -25,7 +25,9 @@ func newMCPManager(ctx context.Context, config config.Config, secrets config.Sec
 	needsOAuthStore := false
 	for _, name := range names {
 		configured := config.MCP.Servers[name]
-		if configured.Enabled && configured.Auth == "oauth" {
+		// Disabled OAuth servers need the store too: a catalog server arrives
+		// disabled, and its review asks for the login before it can be enabled.
+		if configured.Auth == "oauth" {
 			needsOAuthStore = true
 		}
 		servers = append(servers, mcpadapter.ServerConfig{

@@ -140,7 +140,7 @@ func (s *Service) Sources(ctx context.Context) ([]SourceStatus, error) {
 		status := SourceStatus{Source: src}
 		sha, err := s.opts.Fetch.resolve(ctx, src.Repo, src.Ref)
 		if err != nil {
-			status.Error = err.Error()
+			status.Error = sourceError(err)
 		} else {
 			status.SHA = sha
 		}
@@ -204,34 +204,37 @@ func (s *Service) Install(ctx context.Context, req ApproveRequest) (ports.Market
 		return ports.MarketplaceInstall{}, ConflictError{Conflicts: plan.Conflicts}
 	}
 
-	var writtenSkills, writtenMCP []string
-	rollback := func() {
-		s.rollbackWrites(ctx, writtenSkills, writtenMCP)
+	// The same journal Update and Remove use: a failure at any step removes
+	// what this call wrote.
+	var undo journal
+	fail := func(err error) (ports.MarketplaceInstall, error) {
+		return ports.MarketplaceInstall{}, undo.rollback(ctx, err)
 	}
 	for _, skill := range plan.Skills {
+		if err := s.snapshotSkill(ctx, &undo, skill.Name); err != nil {
+			return fail(err)
+		}
 		err := s.opts.Skills.WriteBundle(ctx, ports.SkillBundle{
 			Name: skill.Name, Description: skill.Description, Body: skill.Body,
 			Source: req.Source + "/" + req.Item, Extra: skill.Extra, Files: skill.Files,
 		})
 		if err != nil {
-			rollback()
-			return ports.MarketplaceInstall{}, err
+			return fail(err)
 		}
-		writtenSkills = append(writtenSkills, skill.Name)
 	}
 	for _, server := range plan.MCP {
-		if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
-			rollback()
-			return ports.MarketplaceInstall{}, err
+		if err := s.snapshotMCP(&undo, server.Name); err != nil {
+			return fail(err)
 		}
-		writtenMCP = append(writtenMCP, server.Name)
+		if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
+			return fail(err)
+		}
 	}
 
 	now := s.opts.Now()
 	id, err := newInstallID()
 	if err != nil {
-		rollback()
-		return ports.MarketplaceInstall{}, err
+		return fail(err)
 	}
 	install := ports.MarketplaceInstall{
 		ID: id, SourceName: req.Source, Repo: plan.Repo, Item: req.Item,
@@ -239,8 +242,7 @@ func (s *Service) Install(ctx context.Context, req ApproveRequest) (ports.Market
 		InstalledAt: now, UpdatedAt: now, Files: recordedFiles(plan),
 	}
 	if err := s.opts.Store.CreateInstall(ctx, install); err != nil {
-		rollback()
-		return ports.MarketplaceInstall{}, err
+		return fail(err)
 	}
 	return install, nil
 }
@@ -299,7 +301,10 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
 	}
+	// The record, not the request, names what is being updated, so a request
+	// cannot write another item's content under this install.
 	req.InstallID = id
+	req.Source, req.Item = install.SourceName, install.Item
 	owned := ownedKeys(install)
 	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, owned)
 	if err != nil {
@@ -325,8 +330,7 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	// skills and MCP entries back as they were and leaves the record unchanged.
 	var undo journal
 	fail := func(err error) (ports.MarketplaceInstall, error) {
-		undo.rollback(ctx)
-		return ports.MarketplaceInstall{}, err
+		return ports.MarketplaceInstall{}, undo.rollback(ctx, err)
 	}
 
 	planned := map[string]bool{}
@@ -337,7 +341,9 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		state := states[key]
 		switch {
 		case owned[key] && state.missing:
-			// The owner deleted it by hand. An update does not bring it back.
+			// The owner deleted it by hand. It stays in the record so this and
+			// every later update know not to bring it back.
+			files = append(files, recorded[key])
 			continue
 		case owned[key] && state.edited && !replace[skill.Name]:
 			files = append(files, recorded[key])
@@ -358,7 +364,11 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	}
 	for _, f := range install.Files {
 		key := fileKey(f.Kind, f.Target)
-		if f.Kind != kindSkill || planned[key] || states[key].missing {
+		if f.Kind != kindSkill || planned[key] {
+			continue
+		}
+		if states[key].missing {
+			// Gone by the owner's hand and gone upstream: nothing to keep.
 			continue
 		}
 		if err := s.snapshotSkill(ctx, &undo, f.Target); err != nil {
@@ -388,7 +398,9 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 				return fail(err)
 			}
 		case state.missing:
-			// The owner removed the server. An update does not bring it back.
+			// The owner removed the server. It stays in the record so later
+			// updates know not to bring it back.
+			files = append(files, recorded[key])
 			continue
 		case state.edited:
 			// The owner enabled or changed it: their trust decision stands.
@@ -481,8 +493,7 @@ func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) 
 	del := toSet(deleteEdited)
 	var undo journal
 	fail := func(err error) error {
-		undo.rollback(ctx)
-		return err
+		return undo.rollback(ctx, err)
 	}
 	for _, f := range install.Files {
 		state := states[fileKey(f.Kind, f.Target)]
@@ -591,6 +602,9 @@ func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, repla
 	repo := src.Repo
 	if ext := item.External; ext != nil {
 		extSHA := ext.SHA
+		if extSHA != "" && !shaPattern.MatchString(extSHA) {
+			return Plan{}, fmt.Errorf("the catalog pins %s to %q, which is not a full commit", ext.Repo, extSHA)
+		}
 		if extSHA == "" {
 			if extSHA, err = s.opts.Fetch.resolve(ctx, ext.Repo, ext.Ref); err != nil {
 				return Plan{}, err
@@ -767,12 +781,20 @@ type journal struct {
 
 func (j *journal) add(step func(context.Context) error) { j.steps = append(j.steps, step) }
 
-func (j *journal) rollback(ctx context.Context) {
+// rollback undoes every recorded step and returns cause, saying so when some
+// step could not be undone, so the owner is not told a failure left nothing behind.
+func (j *journal) rollback(ctx context.Context, cause error) error {
+	failed := 0
 	for i := len(j.steps) - 1; i >= 0; i-- {
 		if err := j.steps[i](ctx); err != nil {
+			failed++
 			slog.Warn("marketplace rollback step failed", "error", err)
 		}
 	}
+	if failed > 0 {
+		return fmt.Errorf("%w (rollback incomplete: %d change(s) could not be undone; see the logs)", cause, failed)
+	}
+	return cause
 }
 
 // snapshotSkill records how to restore a skill to what it is now: its content,
@@ -839,17 +861,15 @@ func (s *Service) snapshotMCP(j *journal, name string) error {
 	return nil
 }
 
-func (s *Service) rollbackWrites(ctx context.Context, skills, mcp []string) {
-	for i := len(mcp) - 1; i >= 0; i-- {
-		if err := s.opts.MCP.Remove(mcp[i]); err != nil {
-			slog.Warn("marketplace rollback: MCP server left in place", "server", mcp[i], "error", err)
-		}
+// sourceError is what the panel shows for a source that cannot be read. A rate
+// limit says so; anything else is a fixed message, and the detail goes to the log.
+func sourceError(err error) string {
+	var limited RateLimitError
+	if errors.As(err, &limited) {
+		return limited.Error()
 	}
-	for i := len(skills) - 1; i >= 0; i-- {
-		if err := s.opts.Skills.Delete(ctx, skills[i]); err != nil && !errors.Is(err, ports.ErrSkillNotFound) {
-			slog.Warn("marketplace rollback: skill left in place", "skill", skills[i], "error", err)
-		}
-	}
+	slog.Warn("marketplace: source could not be read", "error", err)
+	return "could not read this source from GitHub"
 }
 
 func recordedFiles(plan Plan) []ports.MarketplaceFile {

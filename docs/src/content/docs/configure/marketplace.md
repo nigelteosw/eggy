@@ -10,7 +10,7 @@ Eggy reads existing catalogs. It does not publish one.
 
 ## Turn it on
 
-The marketplace is off by default. Turn it on in `config.yaml`; the sources can then be edited in **Customize → Plugins → Sources**:
+The marketplace is off by default. Turn it on in **Settings → Marketplace**, or in `config.yaml`; the sources can then be edited in **Customize → Plugins → Sources**:
 
 ```yaml
 marketplace:
@@ -40,7 +40,7 @@ Turning the feature on or off takes effect after a restart. Source edits made in
    - every skill, with its full text and any reference files;
    - remote MCP servers, which are added **disabled**;
    - anything Eggy left out, with the reason.
-3. If a name already exists in your skills, the review asks you to rename the incoming skill before you can install.
+3. If a skill's name already exists in your skills, or is not a valid Eggy name, the review asks you to rename it before you can install.
 4. Approve. The install writes exactly what you reviewed. If the content at that commit changed while you were reading, the install is refused and you review it again.
 
 Skills are shared by every account on this Eggy, and their instructions can reach the model on any turn where they match.
@@ -50,7 +50,8 @@ Skills are shared by every account on this Eggy, and their instructions can reac
 - Scripts, binaries, and other files a skill's instructions might run. Eggy never executes skill files.
 - Hooks, commands, agents, `bin/` executables, themes, and monitors. The review lists them as not supported.
 - Stdio MCP servers, which run a downloaded program. They are listed as skipped.
-- MCP servers that need headers or configuration variables Eggy cannot infer. They are listed so you can add them by hand in Connectors.
+- MCP servers that need headers or configuration variables Eggy cannot infer, use a plain `http://` URL, or have a name Eggy cannot use. They are listed so you can add them by hand in Connectors.
+- An MCP server whose name is already configured. It is listed as left out rather than replacing yours.
 
 ## Updates
 
@@ -67,9 +68,9 @@ An update keeps any skill you have edited, unless you tick **Replace my local ed
 
 - GitHub allows 60 unauthenticated requests an hour. When the quota runs out, the panel shows a failure; try again later.
 - A skill's `SKILL.md` is limited to 32 KiB, a reference file to 64 KiB, and a skill folder to 256 KiB and 64 files in total.
-- A skill's description must be 1,024 bytes or less, and its name lowercase letters, digits, and hyphens, at most 64 characters. Otherwise the skill is listed as left out.
+- A skill's description must be 1,024 bytes or less, or the skill is listed as left out. Its name must be lowercase letters, digits, and hyphens, at most 64 characters; otherwise the review asks you to rename it.
 - Reference files must end in `.md`, `.txt`, `.json`, `.yaml`, `.yml`, or `.csv`. Other files are listed as left out.
 - Downloads are capped at 20 MiB compressed, 64 MiB uncompressed, and 5,000 entries. An archive with a symlink, a hard link, a device, or a path that climbs out of the repository is refused whole.
 - Eggy sends no credential with catalog requests, so it never sends your `GITHUB_TOKEN`.
 
-See [Skills](/use/skills/) for how installed skills are used, and [MCP servers](/configure/mcp-servers/) for enabling remote servers.
+See [Skills](/eggy/use/skills/) for how installed skills are used, and [MCP servers](/eggy/configure/mcp-servers/) for enabling remote servers.

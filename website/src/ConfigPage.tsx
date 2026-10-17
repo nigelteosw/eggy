@@ -10,6 +10,7 @@ import { SoulCard } from "./SoulCard";
 import { ToolsCard } from "./ToolsCard";
 import { TracingCard } from "./TracingCard";
 import { FinanceCard } from "./extensions/finance/FinanceCard";
+import { MarketplaceCard } from "./extensions/marketplace/MarketplaceCard";
 import { AgentRunnerCard } from "./extensions/agent-runner/AgentRunnerCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
@@ -213,6 +214,7 @@ export function ConfigPage({
             <>
               <ToolsCard onSessionExpired={onSessionExpired} />
               <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
+              <MarketplaceCard onSessionExpired={onSessionExpired} running={features.includes("marketplace")} />
               <AgentRunnerCard onSessionExpired={onSessionExpired} running={features.includes("agent_runner")} />
               <RestartCard onSessionExpired={onSessionExpired} />
             </>

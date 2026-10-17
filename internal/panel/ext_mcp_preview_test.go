@@ -3,9 +3,9 @@ package panel
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )

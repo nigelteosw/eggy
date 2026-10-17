@@ -10,7 +10,7 @@ Eggy reads existing catalogs. It does not publish one.
 
 ## Turn it on
 
-The marketplace is off by default. Add this to `config.yaml`, or turn it on in **Customize → Plugins → Sources**:
+The marketplace is off by default. Turn it on in `config.yaml`; the sources can then be edited in **Customize → Plugins → Sources**:
 
 ```yaml
 marketplace:
@@ -65,7 +65,7 @@ An update keeps any skill you have edited, unless you tick **Replace my local ed
 
 ## Limits
 
-- GitHub allows 60 unauthenticated requests an hour. A rate-limit refusal tells you when the quota resets.
+- GitHub allows 60 unauthenticated requests an hour. When the quota runs out, the panel reports a rate-limit refusal; try again later.
 - Downloads are capped at 20 MiB compressed, 64 MiB uncompressed, and 5,000 entries. An archive with a symlink, a hard link, a device, or a path that climbs out of the repository is refused whole.
 - Eggy sends no credential with catalog requests, so it never sends your `GITHUB_TOKEN`.
 

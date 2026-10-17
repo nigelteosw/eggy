@@ -79,6 +79,7 @@ export function canInstall(plan: Plan): boolean {
 // or a name collides. The message says what to do next.
 export function refusalMessage(err: unknown): string | null {
   if (!(err instanceof RequestError) || err.status !== 409) return null;
+  if (err.message === "already installed") return "This item is already installed.";
   if (Array.isArray(err.body.conflicts)) return "Some names already exist. Rename them and review again.";
   return "The content changed since you reviewed it. Review it again before installing.";
 }

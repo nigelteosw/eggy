@@ -85,4 +85,4 @@ A skill can be a folder: `skills/<name>/SKILL.md` with text reference files besi
 
 ## How the skill index is kept small
 
-Every enabled skill's name always stays in the index the model sees, so it can still load any skill it needs. When the index runs out of room, descriptions are left out, starting with the skills marketplace installs. Your own skills keep their descriptions longest. A skill with no description is listed as `(description omitted; call skill_read)`.
+Every enabled skill's name stays in the index the model sees, so it can load a skill by name, as long as the names alone fit the budget. When the index runs out of room, descriptions are left out first, starting with the skills marketplace installs; your own skills keep theirs longest. Only when the names alone overflow are names dropped, installed skills first. A skill with no description is listed as `(description omitted; call skill_read)`.

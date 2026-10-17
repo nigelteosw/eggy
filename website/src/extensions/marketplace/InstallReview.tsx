@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { Input } from "../../components/ui/input";
@@ -27,12 +27,31 @@ export function InstallReview({
   const [replace, setReplace] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // After a refusal the plan has changed under the owner, so Install stays off
+  // until they confirm they have read the new version.
+  const [mustReread, setMustReread] = useState(false);
+
+  // Only the newest plan request may land: a slower reply for an older rename
+  // set must not replace the plan the owner is reading. Unmounting invalidates
+  // any request still in flight.
+  const latest = useRef(0);
+  useEffect(
+    () => () => {
+      latest.current += 1;
+    },
+    [],
+  );
 
   function load(nextRenames: Record<string, string>) {
+    const seq = ++latest.current;
     setPlan(null);
     planItem(planRequestFor(request.source, request.item, nextRenames, request.install_id))
-      .then(setPlan)
-      .catch((err) => handleFailure(err, onSessionExpired, setError, "Could not read the plan"));
+      .then((next) => {
+        if (seq === latest.current) setPlan(next);
+      })
+      .catch((err) => {
+        if (seq === latest.current) handleFailure(err, onSessionExpired, setError, "Could not read the plan");
+      });
   }
 
   useEffect(() => {
@@ -57,6 +76,7 @@ export function InstallReview({
       const refusal = refusalMessage(err);
       if (refusal) {
         setError(refusal);
+        setMustReread(true);
         load(renames);
       } else {
         handleFailure(err, onSessionExpired, setError, "Could not install");
@@ -172,7 +192,13 @@ export function InstallReview({
             </div>
           )}
 
-          <Button type="button" disabled={busy || !canInstall(plan)} onClick={approve}>
+          {mustReread && (
+            <label className="flex items-center gap-2 text-[12.5px]">
+              <input type="checkbox" checked={false} onChange={() => setMustReread(false)} />
+              I have read the new version, including the skills that changed
+            </label>
+          )}
+          <Button type="button" disabled={busy || !canInstall(plan) || mustReread} onClick={approve}>
             {busy ? "Working..." : approveLabel}
           </Button>
         </>

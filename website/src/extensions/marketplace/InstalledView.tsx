@@ -129,7 +129,10 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
                 <Button type="button" variant="ghost" size="sm" onClick={() => toggle(status)}>
                   {install.disabled ? "Enable" : "Disable"}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setRemoving(status)}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => {
+                    setTicked(new Set());
+                    setRemoving(status);
+                  }}>
                   Remove
                 </Button>
               </div>
@@ -155,7 +158,10 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
                     <Button type="button" size="sm" onClick={() => confirmRemove(status)}>
                       Confirm remove
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setRemoving(null)}>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => {
+                        setTicked(new Set());
+                        setRemoving(null);
+                      }}>
                       Cancel
                     </Button>
                   </div>

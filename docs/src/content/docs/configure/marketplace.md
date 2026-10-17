@@ -65,7 +65,10 @@ An update keeps any skill you have edited, unless you tick **Replace my local ed
 
 ## Limits
 
-- GitHub allows 60 unauthenticated requests an hour. When the quota runs out, the panel reports a rate-limit refusal; try again later.
+- GitHub allows 60 unauthenticated requests an hour. When the quota runs out, the panel shows a failure; try again later.
+- A skill's `SKILL.md` is limited to 32 KiB, a reference file to 64 KiB, and a skill folder to 256 KiB and 64 files in total.
+- A skill's description must be 1,024 bytes or less, and its name lowercase letters, digits, and hyphens, at most 64 characters. Otherwise the skill is listed as left out.
+- Reference files must end in `.md`, `.txt`, `.json`, `.yaml`, `.yml`, or `.csv`. Other files are listed as left out.
 - Downloads are capped at 20 MiB compressed, 64 MiB uncompressed, and 5,000 entries. An archive with a symlink, a hard link, a device, or a path that climbs out of the repository is refused whole.
 - Eggy sends no credential with catalog requests, so it never sends your `GITHUB_TOKEN`.
 

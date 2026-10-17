@@ -330,6 +330,12 @@ installs or updates on a schedule; the model cannot install; a stdio MCP server,
 which runs a downloaded program, is listed and skipped; no credential is sent on
 catalog traffic. Eggy publishes no catalog of its own. Source:
 `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
+The owner's review is the approval for a marketplace install. It is a payload-bound
+review of the digest in the web panel, not an `approvals.Action`: it is an owner
+action at a verified session, not a model tool call. For an update, the choice to
+replace an owner-edited skill is made in the same review but is not part of the
+digest; it can only overwrite a skill the owner already edited, and what is written
+is still the reviewed content.
 
 ## Declined capabilities — do not re-propose
 

@@ -25,10 +25,18 @@ export function DiscoverView({ onSessionExpired, onInstalled }: { onSessionExpir
 
   useEffect(() => {
     if (!source) return;
+    let current = true;
     setItems([]);
     listItems(source)
-      .then(setItems)
-      .catch((err) => handleFailure(err, onSessionExpired, setError, "Could not list items"));
+      .then((list) => {
+        if (current) setItems(list);
+      })
+      .catch((err) => {
+        if (current) handleFailure(err, onSessionExpired, setError, "Could not list items");
+      });
+    return () => {
+      current = false;
+    };
   }, [source, onSessionExpired]);
 
   if (selected) {

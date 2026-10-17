@@ -151,7 +151,7 @@ func (s *Store) Read(ctx context.Context, name string) (ports.Skill, error) {
 			return ports.Skill{}, err
 		}
 	}
-	return ports.Skill{Name: front.Name, Description: front.Description, Body: body, Disabled: front.Disabled, Source: front.Source, Files: files}, nil
+	return ports.Skill{Name: front.Name, Description: front.Description, Body: body, Disabled: front.Disabled, Source: front.Source, Extra: front.Extra, Files: files}, nil
 }
 
 // ReadFile returns one reference file of a directory skill. The path is

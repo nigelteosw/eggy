@@ -513,11 +513,17 @@ func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, repla
 	if err != nil {
 		return Plan{}, err
 	}
+	if sha != "" && !shaPattern.MatchString(sha) {
+		// The approved commit must be a full SHA, or the install would record a
+		// branch name as its commit and lose the pin.
+		return Plan{}, fmt.Errorf("commit %q is not a full SHA", sha)
+	}
 	if sha == "" {
 		if sha, err = s.opts.Fetch.resolve(ctx, src.Repo, src.Ref); err != nil {
 			return Plan{}, err
 		}
 	}
+	catalogSHA := sha
 	tree, err := s.opts.Fetch.tarball(ctx, src.Repo, sha)
 	if err != nil {
 		return Plan{}, err
@@ -559,7 +565,7 @@ func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, repla
 	}
 	var mcpErr error
 	in := PlanInput{
-		Source: src, Repo: repo, SHA: sha, Item: item, Renames: req.Renames,
+		Source: src, Repo: repo, SHA: sha, CatalogSHA: catalogSHA, Item: item, Renames: req.Renames,
 		SkillExists: func(name string) bool { return installed[name] },
 		MCPExists: func(name string) bool {
 			_, _, exists, err := s.opts.MCP.Get(name)
@@ -676,7 +682,7 @@ func (s *Service) releaseSkill(ctx context.Context, name string) error {
 		files[rel] = content
 	}
 	return s.opts.Skills.WriteBundle(ctx, ports.SkillBundle{
-		Name: name, Description: skill.Description, Body: skill.Body, Files: files, Replace: true,
+		Name: name, Description: skill.Description, Body: skill.Body, Files: files, Extra: skill.Extra, Replace: true,
 	})
 }
 

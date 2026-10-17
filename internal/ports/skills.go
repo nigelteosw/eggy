@@ -50,6 +50,9 @@ type Skill struct {
 	Disabled    bool   `json:"disabled"`
 	// Source is empty for hand-placed skills.
 	Source string `json:"source,omitempty"`
+	// Extra holds the frontmatter keys Eggy does not own (license, metadata, ...).
+	// A rewrite of the skill must carry them, or they are lost.
+	Extra map[string]any `json:"-"`
 	// Files lists the sorted relative paths of a directory skill's reference
 	// files. Nil for a flat skill. Reference files are text the agent may read
 	// through ReadFile; Eggy never executes them.

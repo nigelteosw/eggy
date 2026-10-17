@@ -109,6 +109,7 @@ type MarketplacePlanSkipped struct {
 }
 
 type MarketplacePlan struct {
+	CatalogSHA string                   `json:"catalog_sha"`
 	Source     string                   `json:"source"`
 	Repo       string                   `json:"repo"`
 	SHA        string                   `json:"sha"`

@@ -39,6 +39,7 @@ type PlanInput struct {
 	Source      Source
 	Repo        string // repository the item's files came from
 	SHA         string
+	CatalogSHA  string // the catalog commit the item was read from
 	Item        Item
 	Renames     map[string]string // upstream skill name -> chosen name
 	SkillExists func(name string) bool
@@ -64,6 +65,7 @@ type Skipped struct{ Path, Reason string }
 // parts that would be written; warnings and skipped entries are for display.
 type Plan struct {
 	Source, Repo, SHA, Item string
+	CatalogSHA              string
 	Skills                  []PlannedSkill
 	MCP                     []PlannedMCP
 	Skipped                 []Skipped
@@ -74,7 +76,7 @@ type Plan struct {
 
 // buildPlan turns one item in one fetched tree into a plan. It does no I/O.
 func buildPlan(in PlanInput, tree Tree) (Plan, error) {
-	plan := Plan{Source: in.Source.Name, Repo: in.Repo, SHA: in.SHA, Item: in.Item.Name}
+	plan := Plan{Source: in.Source.Name, Repo: in.Repo, SHA: in.SHA, CatalogSHA: in.CatalogSHA, Item: in.Item.Name}
 	root := in.Item.Root
 
 	var dirs []string
@@ -402,12 +404,13 @@ func sha256Hex(raw []byte) string {
 }
 
 type digestDoc struct {
-	Source string        `json:"source"`
-	Repo   string        `json:"repo"`
-	SHA    string        `json:"sha"`
-	Item   string        `json:"item"`
-	Skills []digestSkill `json:"skills"`
-	MCP    []digestMCP   `json:"mcp"`
+	Source     string        `json:"source"`
+	Repo       string        `json:"repo"`
+	SHA        string        `json:"sha"`
+	CatalogSHA string        `json:"catalog_sha"`
+	Item       string        `json:"item"`
+	Skills     []digestSkill `json:"skills"`
+	MCP        []digestMCP   `json:"mcp"`
 }
 
 type digestSkill struct {
@@ -426,7 +429,7 @@ type digestMCP struct {
 // planDigest hashes what would be written, in a fixed order. Warnings and
 // skipped entries are left out: they change the display, not the write.
 func planDigest(plan Plan) (string, error) {
-	doc := digestDoc{Source: plan.Source, Repo: plan.Repo, SHA: plan.SHA, Item: plan.Item}
+	doc := digestDoc{Source: plan.Source, Repo: plan.Repo, SHA: plan.SHA, CatalogSHA: plan.CatalogSHA, Item: plan.Item}
 	for _, s := range plan.Skills {
 		doc.Skills = append(doc.Skills, digestSkill{Name: s.Name, Description: s.Description, Body: s.Body, Files: s.Files, Extra: s.Extra})
 	}

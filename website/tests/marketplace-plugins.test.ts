@@ -14,6 +14,7 @@ const plan: Plan = {
   source: "anthropic",
   repo: "anthropics/skills",
   sha: "abc123",
+  catalog_sha: "abc123",
   item: "pdf",
   digest: "d1g3st",
   skills: [],

@@ -184,7 +184,7 @@ func toApproveRequest(req panel.MarketplaceApproval) marketplace.ApproveRequest 
 
 func planToPanel(plan marketplace.Plan) panel.MarketplacePlan {
 	out := panel.MarketplacePlan{
-		Source: plan.Source, Repo: plan.Repo, SHA: plan.SHA, Item: plan.Item, Digest: plan.Digest,
+		CatalogSHA: plan.CatalogSHA, Source: plan.Source, Repo: plan.Repo, SHA: plan.SHA, Item: plan.Item, Digest: plan.Digest,
 		Conflicts: append([]string{}, plan.Conflicts...), IndexBytes: plan.IndexBytes,
 		Skills: []panel.MarketplacePlanSkill{}, MCP: []panel.MarketplacePlanMCP{}, Skipped: []panel.MarketplacePlanSkipped{},
 	}

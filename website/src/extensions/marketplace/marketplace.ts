@@ -11,6 +11,7 @@ export type Plan = {
   source: string;
   repo: string;
   sha: string;
+  catalog_sha: string;
   item: string;
   digest: string;
   skills: PlanSkill[];
@@ -54,7 +55,8 @@ export const saveSourcesConfig = (sources: SourceConfig[]) => request("/api/conf
 
 // The approval for a reviewed plan: exactly the commit and digest the owner saw.
 export function approvalFor(plan: Plan, renames: Record<string, string>): Approval {
-  return { source: plan.source, item: plan.item, renames, sha: plan.sha, digest: plan.digest };
+  // The approval names the catalog commit; the digest binds the external one too.
+  return { source: plan.source, item: plan.item, renames, sha: plan.catalog_sha, digest: plan.digest };
 }
 
 // What a rename change asks the server for. A new rename is a new plan, so the

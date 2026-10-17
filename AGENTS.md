@@ -340,7 +340,8 @@ digest; it can only overwrite a skill the owner already edited, and what is writ
 is still the reviewed content. Enabling a catalog MCP server pins its
 `tool_filter.include` to the tools the owner reviewed, so a tool the server adds
 later stays off until it is reviewed: `require_approval` alone names only the tools
-it protects, and would let a new one run unasked.
+it protects, and would let a new one run unasked. Such a server carries
+`review_required` until that review, and every other enable path refuses it.
 
 ## Declined capabilities — do not re-propose
 

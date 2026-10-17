@@ -13,7 +13,8 @@ export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpire
   const [draft, setDraft] = useState<boolean | null>(null);
   const fields = Object.fromEntries((result?.fields ?? []).map((field) => [field.label, field.value]));
   const savedEnabled = fields.enabled === "true";
-  const needsRestart = savedEnabled !== running;
+  // Nothing to compare until the saved state has loaded.
+  const needsRestart = result != null && savedEnabled !== running;
 
   async function handleSave() {
     if (await save({ enabled: String(draft ?? savedEnabled) })) setDraft(null);

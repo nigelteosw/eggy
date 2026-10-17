@@ -49,7 +49,10 @@ func TestMarketplaceConfigAcceptsValidSources(t *testing.T) {
 func TestSetMarketplaceRoundTrip(t *testing.T) {
 	path := marketplaceConfigPath(t, "")
 	sources := []MarketplaceSource{{Name: "anthropic-skills", Kind: "skills_repo", Repo: "anthropics/skills", Path: "skills"}}
-	if err := SetMarketplace(path, true, sources); err != nil {
+	if err := SetMarketplaceEnabled(path, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMarketplaceSources(path, sources); err != nil {
 		t.Fatal(err)
 	}
 	got, err := GetMarketplaceSources(path)
@@ -72,7 +75,7 @@ func TestSetMarketplaceRefusesInvalidSourceAndLeavesFile(t *testing.T) {
 	path := marketplaceConfigPath(t, "")
 	before, _ := os.ReadFile(path)
 	bad := []MarketplaceSource{{Name: "a", Kind: "git", Repo: "o/r"}}
-	if err := SetMarketplace(path, true, bad); err == nil {
+	if err := SetMarketplaceSources(path, bad); err == nil {
 		t.Fatal("accepted a bad kind")
 	}
 	after, _ := os.ReadFile(path)

@@ -337,6 +337,9 @@ func SetMCPServer(path string, input MCPServerInput) error {
 			// and validation rejects the pair, so clearing one clears both.
 			server.OAuthClientSecretEnv = ""
 		}
+		if input.Enabled && server.ReviewRequired {
+			return errReviewRequired(name)
+		}
 		server.Enabled = input.Enabled
 		cfg.MCP.Servers[name] = server
 		// A brand-new server needs the defaults applyDefaults would give it on
@@ -358,10 +361,19 @@ func SetMCPServerEnabled(path, name string, enabled bool) error {
 		if !ok {
 			return fmt.Errorf("MCP server %q is not configured", name)
 		}
+		if enabled && server.ReviewRequired {
+			return errReviewRequired(name)
+		}
 		server.Enabled = enabled
 		cfg.MCP.Servers[name] = server
 		return nil
 	})
+}
+
+// errReviewRequired refuses a plain enable of a catalog server. Its tools have not
+// been reviewed, so enabling it here would let every tool run unasked.
+func errReviewRequired(name string) error {
+	return fmt.Errorf("MCP server %q came from a marketplace plugin; enable it with Review and enable in Customize → Connectors", name)
 }
 
 // RemoveMCPServer deletes one MCP server's config entry. Persisted OAuth
@@ -724,7 +736,7 @@ func AddMCPServerDisabled(path, name, url string) error {
 		if _, ok := cfg.MCP.Servers[name]; ok {
 			return fmt.Errorf("MCP server %q is already configured", name)
 		}
-		cfg.MCP.Servers[name] = MCPServerConfig{URL: url, Transport: "streamable-http", Auth: "oauth"}
+		cfg.MCP.Servers[name] = MCPServerConfig{URL: url, Transport: "streamable-http", Auth: "oauth", ReviewRequired: true}
 		return cfg.applyDefaults()
 	})
 }
@@ -746,18 +758,37 @@ func SetMCPServerApproval(path, name string, enabled bool, requireApproval, revi
 		if server.Transport == "stdio" {
 			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
 		}
-		if enabled && len(reviewedTools) == 0 {
-			return fmt.Errorf("MCP server %q advertised no tools to review", name)
-		}
 		for _, tool := range requireApproval {
 			if !slices.Contains(reviewedTools, tool) {
 				return fmt.Errorf("MCP server %q require_approval names %q, which was not reviewed", name, tool)
 			}
 		}
+		// Allowed is what was reviewed, never wider than a filter the owner already
+		// wrote, and never a tool the exclude list blocks.
+		var allowed []string
+		for _, tool := range reviewedTools {
+			if slices.Contains(server.ToolFilter.Exclude, tool) {
+				continue
+			}
+			if len(server.ToolFilter.Include) > 0 && !slices.Contains(server.ToolFilter.Include, tool) {
+				continue
+			}
+			allowed = append(allowed, tool)
+		}
+		if enabled && len(allowed) == 0 {
+			return fmt.Errorf("MCP server %q has no reviewed tools to allow", name)
+		}
+		var gated []string
+		for _, tool := range requireApproval {
+			if slices.Contains(allowed, tool) {
+				gated = append(gated, tool)
+			}
+		}
 		server.Enabled = enabled
-		server.RequireApproval = requireApproval
+		server.RequireApproval = gated
 		if enabled {
-			server.ToolFilter.Include = reviewedTools
+			server.ToolFilter.Include = allowed
+			server.ReviewRequired = false
 		}
 		cfg.MCP.Servers[name] = server
 		return nil

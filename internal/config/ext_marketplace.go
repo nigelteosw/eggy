@@ -57,16 +57,6 @@ func (c Config) validateMarketplace() error {
 	return nil
 }
 
-// SetMarketplace saves the marketplace section under the config lock, with the
-// same validation as every other write. A refused save leaves the file alone.
-func SetMarketplace(path string, enabled bool, sources []MarketplaceSource) error {
-	return mutate(path, func(cfg *Config) error {
-		cfg.Marketplace.Enabled = enabled
-		cfg.Marketplace.Sources = sources
-		return nil
-	})
-}
-
 // GetMarketplaceSources reads the configured catalogs, for the settings card.
 func GetMarketplaceSources(path string) ([]MarketplaceSource, error) {
 	cfg, err := LoadDocument(path)

@@ -252,3 +252,50 @@ func TestAnIncompleteRollbackIsReported(t *testing.T) {
 		t.Fatalf("err = %v, want it to say the rollback was incomplete", err)
 	}
 }
+
+// The owner deleted skill pdf from an install and later wrote their own pdf.
+// The install's tombstone must not own it: no edit label, no update overwrite,
+// and Remove leaves it alone.
+func TestATombstoneNeverTouchesALaterSkillOfTheSameName(t *testing.T) {
+	h := newHarness(t)
+	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(h.skills.skills, "pdf")
+	h.fetch.refs["o/team@main"] = sha2Commit
+	h.fetch.trees["o/team@"+sha2Commit] = deployRepo("Fill forms v2.")
+	update := func() error {
+		req := ApproveRequest{PlanRequest: PlanRequest{Source: "team", Item: "deploy-tools", InstallID: inst.ID}}
+		plan, err := h.svc.Plan(h.ctx, req.PlanRequest)
+		if err != nil {
+			return err
+		}
+		req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
+		_, err = h.svc.Update(h.ctx, inst.ID, req, []string{"pdf"})
+		return err
+	}
+	if err := update(); err != nil {
+		t.Fatal(err)
+	}
+	h.skills.skills["pdf"] = &fakeSkill{desc: "mine", body: "the owner's own pdf", files: map[string]string{}}
+
+	statuses, err := h.svc.Installs(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range statuses[0].Edited {
+		if name == "pdf" {
+			t.Fatal("the owner's own pdf is labelled an edit of the install")
+		}
+	}
+	if err := update(); !errors.Is(err, ErrConflicts) {
+		t.Fatalf("update err = %v, want a conflict rather than an overwrite", err)
+	}
+	if err := h.svc.Remove(h.ctx, inst.ID, []string{"pdf"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.skills.skills["pdf"]; got == nil || got.body != "the owner's own pdf" {
+		t.Fatalf("pdf = %+v, want the owner's skill untouched", got)
+	}
+}

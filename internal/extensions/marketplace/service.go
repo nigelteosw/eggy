@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -54,6 +55,10 @@ type Options struct {
 // tests are thin callers of it.
 type Service struct {
 	opts Options
+	// mu serializes Install, Update, SetDisabled and Remove. Each snapshots
+	// state before changing it, so two running at once could restore over the
+	// other's work; one at a time keeps every rollback honest.
+	mu sync.Mutex
 }
 
 // ErrDigestMismatch means the content at the approved commit no longer matches
@@ -179,6 +184,8 @@ func (s *Service) Plan(ctx context.Context, req PlanRequest) (Plan, error) {
 // Install writes one reviewed item. Duplicate installs are refused before any
 // file is touched, and a failure part-way removes what this call wrote.
 func (s *Service) Install(ctx context.Context, req ApproveRequest) (ports.MarketplaceInstall, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	principal, err := ports.PrincipalFromContext(ctx)
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
@@ -297,6 +304,8 @@ func (s *Service) Check(ctx context.Context, id string) (InstallStatus, Plan, er
 // unless the owner names them in replaceEdited, and MCP entries the owner has
 // changed are never replaced.
 func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, replaceEdited []string) (ports.MarketplaceInstall, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	install, err := s.opts.Store.GetInstall(ctx, id)
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
@@ -340,10 +349,17 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		planned[key] = true
 		state := states[key]
 		switch {
+		case state.tombstone:
+			// Deleted by the owner earlier. The marker is kept while the name is
+			// free; once anything else holds the name, it is not this install's.
+			if state.missing {
+				files = append(files, recorded[key])
+			}
+			continue
 		case owned[key] && state.missing:
-			// The owner deleted it by hand. It stays in the record so this and
-			// every later update know not to bring it back.
-			files = append(files, recorded[key])
+			// The owner deleted it by hand. A tombstone records that, so no later
+			// update brings it back, and it owns nothing.
+			files = append(files, tombstone(kindSkill, skill.Name))
 			continue
 		case owned[key] && state.edited && !replace[skill.Name]:
 			files = append(files, recorded[key])
@@ -367,8 +383,9 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		if f.Kind != kindSkill || planned[key] {
 			continue
 		}
-		if states[key].missing {
-			// Gone by the owner's hand and gone upstream: nothing to keep.
+		if states[key].missing || states[key].tombstone {
+			// Gone by the owner's hand and gone upstream, or a tombstone whose
+			// name may now be someone else's: nothing to keep or delete.
 			continue
 		}
 		if err := s.snapshotSkill(ctx, &undo, f.Target); err != nil {
@@ -389,6 +406,12 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		key := fileKey(kindMCP, server.Name)
 		planned[key] = true
 		state := states[key]
+		if state.tombstone {
+			if state.missing {
+				files = append(files, recorded[key])
+			}
+			continue
+		}
 		switch {
 		case !owned[key]:
 			if err := s.snapshotMCP(&undo, server.Name); err != nil {
@@ -398,9 +421,9 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 				return fail(err)
 			}
 		case state.missing:
-			// The owner removed the server. It stays in the record so later
-			// updates know not to bring it back.
-			files = append(files, recorded[key])
+			// The owner removed the server. A tombstone keeps later updates from
+			// bringing it back, and owns nothing.
+			files = append(files, tombstone(kindMCP, server.Name))
 			continue
 		case state.edited:
 			// The owner enabled or changed it: their trust decision stands.
@@ -421,7 +444,7 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	}
 	for _, f := range install.Files {
 		key := fileKey(f.Kind, f.Target)
-		if f.Kind != kindMCP || planned[key] || states[key].missing {
+		if f.Kind != kindMCP || planned[key] || states[key].missing || states[key].tombstone {
 			continue
 		}
 		if states[key].edited {
@@ -451,11 +474,16 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 // Enabling restores skills only: an MCP server stays off until the owner enables
 // it in Connectors, because enabling a server is a trust decision.
 func (s *Service) SetDisabled(ctx context.Context, id string, disabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	install, err := s.opts.Store.GetInstall(ctx, id)
 	if err != nil {
 		return err
 	}
 	for _, f := range install.Files {
+		if f.ContentHash == tombstoneHash {
+			continue
+		}
 		switch f.Kind {
 		case "skill":
 			if err := s.opts.Skills.SetDisabled(ctx, f.Target, disabled); err != nil && !errors.Is(err, ports.ErrSkillNotFound) {
@@ -482,6 +510,8 @@ func (s *Service) SetDisabled(ctx context.Context, id string, disabled bool) err
 // the owner already deleted by hand is skipped. A failure at any step restores
 // what was changed and leaves the record in place.
 func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	install, err := s.opts.Store.GetInstall(ctx, id)
 	if err != nil {
 		return err
@@ -497,7 +527,7 @@ func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) 
 	}
 	for _, f := range install.Files {
 		state := states[fileKey(f.Kind, f.Target)]
-		if state.missing {
+		if state.missing || state.tombstone {
 			continue
 		}
 		keep := state.edited && !del[f.Target]
@@ -542,7 +572,7 @@ func (s *Service) OwnerOf(mcpServer string) string {
 	}
 	for _, install := range installs {
 		for _, f := range install.Files {
-			if f.Kind == "mcp_server" && f.Target == mcpServer {
+			if f.Kind == "mcp_server" && f.Target == mcpServer && f.ContentHash != tombstoneHash {
 				return install.SourceName + "/" + install.Item
 			}
 		}
@@ -658,9 +688,20 @@ func fileKey(kind, target string) string { return kind + "/" + target }
 func ownedKeys(install ports.MarketplaceInstall) map[string]bool {
 	owned := map[string]bool{}
 	for _, f := range install.Files {
+		if f.ContentHash == tombstoneHash {
+			continue
+		}
 		owned[fileKey(f.Kind, f.Target)] = true
 	}
 	return owned
+}
+
+// tombstoneHash marks a record entry the owner deleted by hand. It can never be a
+// real content hash, so the entry owns nothing and is never treated as an edit.
+const tombstoneHash = "deleted-by-owner"
+
+func tombstone(kind, target string) ports.MarketplaceFile {
+	return ports.MarketplaceFile{Kind: kind, Target: target, ContentHash: tombstoneHash}
 }
 
 // ownedTargets returns what an install owns, keyed by fileKey, or nil when there
@@ -679,8 +720,9 @@ func (s *Service) ownedTargets(ctx context.Context, id string) (map[string]bool,
 // fileState is how one written thing compares with what was written. A missing
 // file is the owner's deletion, not an edit, so it is skipped rather than kept.
 type fileState struct {
-	edited  bool
-	missing bool
+	edited    bool
+	missing   bool
+	tombstone bool // the owner deleted it earlier; missing says whether the name is still free
 }
 
 // fileStates reads every file an install owns. A skill is edited when its
@@ -690,6 +732,14 @@ func (s *Service) fileStates(ctx context.Context, install ports.MarketplaceInsta
 	states := map[string]fileState{}
 	for _, f := range install.Files {
 		key := fileKey(f.Kind, f.Target)
+		if f.ContentHash == tombstoneHash {
+			exists, err := s.targetExists(ctx, f)
+			if err != nil {
+				return nil, err
+			}
+			states[key] = fileState{tombstone: true, missing: !exists}
+			continue
+		}
 		switch f.Kind {
 		case kindSkill:
 			hash, err := s.currentSkillHash(ctx, f.Target)
@@ -731,6 +781,18 @@ func (s *Service) editedNames(ctx context.Context, install ports.MarketplaceInst
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func (s *Service) targetExists(ctx context.Context, f ports.MarketplaceFile) (bool, error) {
+	if f.Kind == kindMCP {
+		_, _, exists, err := s.opts.MCP.Get(f.Target)
+		return exists, err
+	}
+	_, err := s.opts.Skills.Inspect(ctx, f.Target)
+	if errors.Is(err, ports.ErrSkillNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func (s *Service) currentSkillHash(ctx context.Context, name string) (string, error) {

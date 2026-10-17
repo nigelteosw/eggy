@@ -891,3 +891,51 @@ func TestSetMCPServerApprovalRefusesStdio(t *testing.T) {
 		t.Fatal("a refused approval changed the file")
 	}
 }
+
+func TestCatalogMCPServerEnablesOnlyThroughReview(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "plugin-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", true); err == nil || !strings.Contains(err.Error(), "Review and enable") {
+		t.Fatalf("plain enable err = %v, want a refusal pointing at the review", err)
+	}
+	if err := SetMCPServer(path, MCPServerInput{Name: "plugin-api", URL: "https://mcp.example.com/mcp", Auth: "oauth", Enabled: true}); err == nil {
+		t.Fatal("the add form enabled a catalog server without its review")
+	}
+	if err := SetMCPServerApproval(path, "plugin-api", true, []string{"write"}, []string{"read", "write"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["plugin-api"]
+	if !server.Enabled || server.ReviewRequired {
+		t.Fatalf("server = %+v, want enabled and reviewed", server)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", true); err != nil {
+		t.Fatalf("re-enabling a reviewed server: %v", err)
+	}
+}
+
+func TestApprovalNeverWidensAnOwnerFilter(t *testing.T) {
+	path := marketplaceConfigPath(t, "\nmcp:\n  servers:\n    hand:\n      transport: streamable-http\n      url: https://mcp.example.com/mcp\n      auth: oauth\n      enabled: false\n      tool_filter:\n        include: [read, search]\n        exclude: [search]\n")
+	if err := SetMCPServerApproval(path, "hand", true, []string{"search", "read"}, []string{"read", "search", "write"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["hand"]
+	if !slices.Equal(server.ToolFilter.Include, []string{"read"}) {
+		t.Fatalf("include = %v, want only read: within the owner's filter and not excluded", server.ToolFilter.Include)
+	}
+	if !slices.Equal(server.RequireApproval, []string{"read"}) {
+		t.Fatalf("require_approval = %v, want the excluded tool dropped", server.RequireApproval)
+	}
+}

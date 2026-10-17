@@ -57,6 +57,12 @@ skill replaces, and the sources lock. What remains is below.
 - [ ] Session/CSRF guard tests for the new routes, and component-level tests for the
       review screens (the decision logic is covered through pure helpers only).
 - [ ] A test for OAuth login on a disabled server completing without a reconnect.
+- [ ] An update review still lists a skill the owner deleted as planned content,
+      though the update will not write it (the record keeps a tombstone).
+- [ ] A skill left at `.old-*` after a failed restore comes back on the next List,
+      even if the owner meant to discard it.
+- [ ] Installs and updates are serialized in-process only; one `eggyd` process is
+      the deployment model, so this holds, but it is not a cross-process lock.
 
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 

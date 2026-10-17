@@ -219,6 +219,7 @@ func TestPlanSkipsMCPServersTheConfigWouldRefuse(t *testing.T) {
 	tree := memTree(map[string]string{
 		"plugins/deploy/.mcp.json": `{"mcpServers":{
 			"local":{"url":"http://localhost:3000/mcp"},
+			"nohost":{"url":"https:///x"},
 			"bad name":{"url":"https://mcp.example.com/a"},
 			"dup":{"url":"https://mcp.example.com/b"},
 			"taken":{"url":"https://mcp.example.com/c"}

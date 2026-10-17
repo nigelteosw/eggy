@@ -119,9 +119,11 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                   <a href={`/auth/mcp/${encodeURIComponent(row[NAME])}`}>Authorize</a>
                 </Button>
               )}
-              {row[ENABLED] === "false" && row[TRANSPORT] !== "stdio" && (
+              {row[TRANSPORT] !== "stdio" && (
+                // Enabled servers can be reviewed again, so a tool added since
+                // the last review can be allowed on purpose.
                 <Button type="button" variant="ghost" size="sm" onClick={() => setReviewing(row[NAME])}>
-                  Review and enable
+                  {row[ENABLED] === "false" ? "Review and enable" : "Review tools"}
                 </Button>
               )}
               <Button

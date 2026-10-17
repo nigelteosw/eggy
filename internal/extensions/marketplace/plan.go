@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"path"
 	"regexp"
 	"sort"
@@ -33,6 +34,12 @@ var unsupportedDirs = map[string]bool{
 // mcpNamePattern is the config's rule for an MCP server name, applied here so a
 // server the config would refuse is skipped in the review.
 var mcpNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// httpsURL applies the config's rule: an https URL with a host.
+func httpsURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
 
 func plannedMCP(plan *Plan, name string) bool {
 	for _, server := range plan.MCP {
@@ -208,7 +215,7 @@ func planMCP(plan *Plan, in PlanInput, tree Tree, file string, fromManifest bool
 			switch {
 			case !mcpNamePattern.MatchString(name):
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "server name is not valid in Eggy"})
-			case !strings.HasPrefix(entry.URL, "https://"):
+			case !httpsURL(entry.URL):
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "only https servers are supported"})
 			case plannedMCP(plan, name):
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "server is declared more than once"})

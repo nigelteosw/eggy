@@ -22,6 +22,9 @@ export function InstallReview({
   onSessionExpired: () => void;
 }) {
   const [plan, setPlan] = useState<Plan | null>(null);
+  // The renames that produced the plan on screen. Approval sends these, never
+  // the draft renames, so a failed reload cannot pair a new rename with an old plan.
+  const [planRenames, setPlanRenames] = useState<Record<string, string>>({});
   const [renames, setRenames] = useState<Record<string, string>>({});
   const [draftRename, setDraftRename] = useState<Record<string, string>>({});
   const [replace, setReplace] = useState<Set<string>>(new Set());
@@ -47,6 +50,8 @@ export function InstallReview({
       .then((next) => {
         if (!latest.current.isLatest(id)) return;
         setPlan(next);
+        setPlanRenames(nextRenames);
+        setError(null);
         setLoading(false);
       })
       .catch((err) => {
@@ -75,7 +80,7 @@ export function InstallReview({
     setBusy(true);
     setError(null);
     try {
-      await onApprove(approvalFor(plan, renames), [...replace]);
+      await onApprove(approvalFor(plan, planRenames), [...replace]);
     } catch (err) {
       const refusal = refusalMessage(err);
       if (refusal) {

@@ -87,7 +87,7 @@ func readArchive(r io.Reader) (Tree, error) {
 			return Tree{}, fmt.Errorf("%w: hardlink %s", ErrArchiveRejected, name)
 		case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
 			return Tree{}, fmt.Errorf("%w: device or pipe %s", ErrArchiveRejected, name)
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg: // the reader maps the legacy TypeRegA to TypeReg
 		default:
 			return Tree{}, fmt.Errorf("%w: entry type %q at %s", ErrArchiveRejected, header.Typeflag, name)
 		}

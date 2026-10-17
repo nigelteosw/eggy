@@ -137,8 +137,7 @@ func TestTarballCached(t *testing.T) {
 }
 
 func TestRedirectMustStayHTTPS(t *testing.T) {
-	var target *httptest.Server
-	target = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "should not be fetched")
 	}))
 	t.Cleanup(target.Close)

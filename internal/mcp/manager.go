@@ -119,6 +119,12 @@ func (m *Manager) connectServer(ctx context.Context, cfg ServerConfig) (clientSe
 	m.mu.RLock()
 	handler := m.handlers[cfg.Name]
 	m.mu.RUnlock()
+	return m.connectServerWith(ctx, cfg, handler)
+}
+
+// connectServerWith connects with a given auth handler, so Preview can use a
+// handler it built for a disabled server without registering it.
+func (m *Manager) connectServerWith(ctx context.Context, cfg ServerConfig, handler auth.OAuthHandler) (clientSession, []*sdk.Tool, ServerState, string) {
 	if cfg.Auth == "oauth" && handler == nil {
 		return nil, nil, StateUnavailable, "OAuth storage is unavailable"
 	}

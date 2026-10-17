@@ -104,3 +104,22 @@ export function handleFailure(err: unknown, onSessionExpired: () => void, setErr
   }
   setError(errorMessage(err, fallback));
 }
+
+// Install stays off while a request is in flight, while names conflict, and
+// after a refusal until the owner confirms they read the new version.
+export function installBlocked(busy: boolean, plan: Plan, mustReread: boolean): boolean {
+  return busy || !canInstall(plan) || mustReread;
+}
+
+// Only the newest of several overlapping requests may update the view: a slow
+// reply for an older rename set must not replace the plan being read.
+export function latestOnly(): { start: () => number; isLatest: (id: number) => boolean; invalidate: () => void } {
+  let latest = 0;
+  return {
+    start: () => ++latest,
+    isLatest: (id: number) => id === latest,
+    invalidate: () => {
+      latest += 1;
+    },
+  };
+}

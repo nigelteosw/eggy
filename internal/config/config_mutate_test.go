@@ -867,3 +867,18 @@ func TestSetMCPServerApproval(t *testing.T) {
 		t.Fatal("set approval on an unconfigured server")
 	}
 }
+
+func TestSetMCPServerApprovalRefusesStdio(t *testing.T) {
+	path := marketplaceConfigPath(t, "\nmcp:\n  servers:\n    local:\n      transport: stdio\n      command: /usr/bin/true\n      auth: none\n      enabled: false\n")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerApproval(path, "local", true, nil); err == nil || !strings.Contains(err.Error(), "stdio") {
+		t.Fatalf("err = %v, want a stdio refusal", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("a refused approval changed the file")
+	}
+}

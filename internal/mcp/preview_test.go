@@ -60,3 +60,50 @@ func TestPreviewLoginRequired(t *testing.T) {
 		t.Fatalf("err = %v, want ErrLoginRequired", err)
 	}
 }
+
+func TestPreviewRefusesStdioWithoutStartingIt(t *testing.T) {
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		t.Fatal("preview started a stdio server")
+		return nil, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{
+		{Name: "local", Transport: TransportStdio, Command: "/usr/bin/true", Auth: "none", Enabled: false, Timeout: time.Second, MaxOutputBytes: 4096},
+	}, Options{Connect: connect, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Preview(context.Background(), "local"); !errors.Is(err, ErrStdioNotPreviewed) {
+		t.Fatalf("err = %v, want ErrStdioNotPreviewed", err)
+	}
+}
+
+func TestPreviewGivesADisabledBearerServerItsToken(t *testing.T) {
+	var gotHandler auth.OAuthHandler
+	session := &fakeSession{tools: []*sdk.Tool{{Name: "read", InputSchema: objectSchema()}}}
+	connect := func(_ context.Context, _ ServerConfig, _ *http.Client, handler auth.OAuthHandler, _ *sdk.ClientOptions) (clientSession, error) {
+		gotHandler = handler
+		return session, nil
+	}
+	manager, err := NewManager(context.Background(), []ServerConfig{
+		{Name: "api", URL: "https://mcp.example", Auth: "bearer-env", BearerToken: "token", Enabled: false, Timeout: time.Second, MaxOutputBytes: 4096},
+	}, Options{Connect: connect, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previews, err := manager.Preview(context.Background(), "api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotHandler == nil {
+		t.Fatal("bearer server previewed without its token")
+	}
+	if len(previews) != 1 {
+		t.Fatalf("previews = %+v", previews)
+	}
+	manager.mu.RLock()
+	stored := manager.handlers["api"]
+	manager.mu.RUnlock()
+	if stored != nil {
+		t.Fatal("preview registered a bearer handler on the running manager")
+	}
+}

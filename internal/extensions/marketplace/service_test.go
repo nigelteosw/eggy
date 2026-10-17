@@ -39,6 +39,7 @@ type fakeSkill struct {
 	desc, body, source string
 	disabled           bool
 	files              map[string]string
+	extra              map[string]any
 }
 
 type fakeSkills struct {
@@ -63,7 +64,7 @@ func (f *fakeSkills) Inspect(_ context.Context, name string) (ports.Skill, error
 		files = append(files, file)
 	}
 	sort.Strings(files)
-	return ports.Skill{Name: name, Description: s.desc, Body: s.body, Disabled: s.disabled, Source: s.source, Files: files}, nil
+	return ports.Skill{Name: name, Description: s.desc, Body: s.body, Disabled: s.disabled, Source: s.source, Extra: s.extra, Files: files}, nil
 }
 
 func (f *fakeSkills) ReadFile(_ context.Context, name, file string) (string, error) {
@@ -83,7 +84,7 @@ func (f *fakeSkills) WriteBundle(_ context.Context, b ports.SkillBundle) error {
 	if exists {
 		disabled = existing.disabled
 	}
-	f.skills[b.Name] = &fakeSkill{desc: b.Description, body: b.Body, source: b.Source, disabled: disabled, files: b.Files}
+	f.skills[b.Name] = &fakeSkill{desc: b.Description, body: b.Body, source: b.Source, disabled: disabled, files: b.Files, extra: b.Extra}
 	return nil
 }
 
@@ -146,7 +147,9 @@ func (m *fakeMCP) Remove(name string) error {
 }
 
 type fakeInstalls struct {
-	rows map[string]ports.MarketplaceInstall
+	rows       map[string]ports.MarketplaceInstall
+	replaceErr error
+	deleteErr  error
 }
 
 func (f *fakeInstalls) CreateInstall(_ context.Context, in ports.MarketplaceInstall) error {
@@ -160,6 +163,9 @@ func (f *fakeInstalls) CreateInstall(_ context.Context, in ports.MarketplaceInst
 }
 
 func (f *fakeInstalls) ReplaceInstall(_ context.Context, in ports.MarketplaceInstall) error {
+	if f.replaceErr != nil {
+		return f.replaceErr
+	}
 	if _, ok := f.rows[in.ID]; !ok {
 		return ports.ErrMarketplaceInstallNotFound
 	}
@@ -194,6 +200,9 @@ func (f *fakeInstalls) SetInstallDisabled(_ context.Context, id string, disabled
 }
 
 func (f *fakeInstalls) DeleteInstall(_ context.Context, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	if _, ok := f.rows[id]; !ok {
 		return ports.ErrMarketplaceInstallNotFound
 	}
@@ -262,7 +271,7 @@ func (h harness) approve(t *testing.T, req PlanRequest) ApproveRequest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ApproveRequest{PlanRequest: req, SHA: plan.SHA, Digest: plan.Digest}
+	return ApproveRequest{PlanRequest: req, SHA: plan.CatalogSHA, Digest: plan.Digest}
 }
 
 func deployReq() PlanRequest {
@@ -388,7 +397,7 @@ func TestUpdateKeepsLocalEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SHA, req.Digest = plan.SHA, plan.Digest
+	req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
 
 	if _, err := h.svc.Update(h.ctx, inst.ID, req, nil); err != nil {
 		t.Fatal(err)
@@ -422,7 +431,7 @@ func TestUpdateRenamedUpstreamConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req.SHA, req.Digest = plan.SHA, plan.Digest
+	req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
 
 	if _, err := h.svc.Update(h.ctx, inst.ID, req, nil); !errors.Is(err, ErrConflicts) {
 		t.Fatalf("err = %v, want ErrConflicts", err)

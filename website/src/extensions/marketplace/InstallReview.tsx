@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { Input } from "../../components/ui/input";
-import { handleFailure, Approval, approvalFor, canInstall, planItem, planRequestFor, Plan, PlanRequest, refusalMessage } from "./marketplace";
+import { handleFailure, Approval, approvalFor, installBlocked, latestOnly, planItem, planRequestFor, Plan, PlanRequest, refusalMessage } from "./marketplace";
 
 // The review every install and update goes through. The owner reads what will
 // be written, renames anything that collides, and approves exactly this plan.
@@ -34,23 +34,18 @@ export function InstallReview({
   // Only the newest plan request may land: a slower reply for an older rename
   // set must not replace the plan the owner is reading. Unmounting invalidates
   // any request still in flight.
-  const latest = useRef(0);
-  useEffect(
-    () => () => {
-      latest.current += 1;
-    },
-    [],
-  );
+  const latest = useRef(latestOnly());
+  useEffect(() => () => latest.current.invalidate(), []);
 
   function load(nextRenames: Record<string, string>) {
-    const seq = ++latest.current;
+    const id = latest.current.start();
     setPlan(null);
     planItem(planRequestFor(request.source, request.item, nextRenames, request.install_id))
       .then((next) => {
-        if (seq === latest.current) setPlan(next);
+        if (latest.current.isLatest(id)) setPlan(next);
       })
       .catch((err) => {
-        if (seq === latest.current) handleFailure(err, onSessionExpired, setError, "Could not read the plan");
+        if (latest.current.isLatest(id)) handleFailure(err, onSessionExpired, setError, "Could not read the plan");
       });
   }
 
@@ -198,7 +193,7 @@ export function InstallReview({
               I have read the new version, including the skills that changed
             </label>
           )}
-          <Button type="button" disabled={busy || !canInstall(plan) || mustReread} onClick={approve}>
+          <Button type="button" disabled={installBlocked(busy, plan, mustReread)} onClick={approve}>
             {busy ? "Working..." : approveLabel}
           </Button>
         </>

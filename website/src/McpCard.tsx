@@ -16,6 +16,7 @@ import { McpEnableDialog } from "./McpEnableDialog";
 const NAME = 0;
 const AUTH = 3;
 const ENABLED = 4;
+const TRANSPORT = 1;
 
 export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null);
@@ -118,7 +119,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                   <a href={`/auth/mcp/${encodeURIComponent(row[NAME])}`}>Authorize</a>
                 </Button>
               )}
-              {row[ENABLED] === "false" && (
+              {row[ENABLED] === "false" && row[TRANSPORT] !== "stdio" && (
                 <Button type="button" variant="ghost" size="sm" onClick={() => setReviewing(row[NAME])}>
                   Review and enable
                 </Button>

@@ -3,6 +3,8 @@ import { RequestError } from "../src/api";
 import {
   approvalFor,
   canInstall,
+  installBlocked,
+  latestOnly,
   planRequestFor,
   pluginsEnabled,
   refusalMessage,
@@ -86,5 +88,32 @@ describe("remove", () => {
 
   test("ticking nothing keeps every edit", () => {
     expect(removePayload(["pdf"], new Set())).toEqual([]);
+  });
+});
+
+describe("install review", () => {
+  test("Install is blocked after a refusal until the owner confirms the re-read", () => {
+    expect(installBlocked(false, plan, true)).toBe(true);
+    expect(installBlocked(false, plan, false)).toBe(false);
+  });
+
+  test("Install is blocked while names conflict or a request is in flight", () => {
+    expect(installBlocked(false, { ...plan, conflicts: ["pdf"] }, false)).toBe(true);
+    expect(installBlocked(true, plan, false)).toBe(true);
+  });
+
+  test("a slow reply for an older rename is ignored", () => {
+    const latest = latestOnly();
+    const older = latest.start();
+    const newer = latest.start();
+    expect(latest.isLatest(older)).toBe(false);
+    expect(latest.isLatest(newer)).toBe(true);
+  });
+
+  test("leaving the review ignores a reply still in flight", () => {
+    const latest = latestOnly();
+    const pending = latest.start();
+    latest.invalidate();
+    expect(latest.isLatest(pending)).toBe(false);
   });
 });

@@ -738,6 +738,11 @@ func SetMCPServerApproval(path, name string, enabled bool, requireApproval []str
 		if !ok {
 			return fmt.Errorf("MCP server %q is not configured", name)
 		}
+		// A stdio server is a local program and belongs in reviewed config, the
+		// same rule SetMCPServer holds.
+		if server.Transport == "stdio" {
+			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
+		}
 		server.Enabled = enabled
 		server.RequireApproval = requireApproval
 		cfg.MCP.Servers[name] = server

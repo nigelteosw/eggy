@@ -18,10 +18,16 @@ type ToolPreview struct {
 	Description string
 }
 
+// ErrStdioNotPreviewed means the server runs a local program. A review must not
+// start a process, so stdio servers are enabled from config.yaml, not previewed.
+var ErrStdioNotPreviewed = errors.New("stdio servers are not previewed: they run a local program")
+
 // Preview connects to a configured server once and lists the tools it
-// advertises, whether or not the server is enabled. Nothing is registered and
-// the running catalog and status are left as they were, so previewing a
-// server the owner has not enabled changes no behaviour.
+// advertises, whether or not the server is enabled. Nothing is added to the
+// running catalog and the server's status is left as it was. A bearer handler
+// for a disabled server is built for this call only. An OAuth provider is
+// recorded on the manager when the server has none, because the login the review
+// may ask for needs it; an existing provider is never replaced.
 func (m *Manager) Preview(ctx context.Context, name string) ([]ToolPreview, error) {
 	m.mu.RLock()
 	runtime, ok := m.runtimes[name]
@@ -31,21 +37,33 @@ func (m *Manager) Preview(ctx context.Context, name string) ([]ToolPreview, erro
 		return nil, ErrRestartRequired
 	}
 	cfg := runtime.config
-	if cfg.Auth == "oauth" && handler == nil {
-		// A server disabled at boot never had its OAuth handler built, because
-		// construction skips disabled servers. Build it the way construction
-		// does, so a preview can start the login.
-		if m.oauthStore == nil {
-			return nil, errors.New("OAuth storage is unavailable")
+	if cfg.Transport == TransportStdio {
+		return nil, ErrStdioNotPreviewed
+	}
+	if handler == nil {
+		switch cfg.Auth {
+		case "oauth":
+			// Construction skips disabled servers, so a server disabled at boot
+			// has no provider. Build one the way construction does.
+			if m.oauthStore == nil {
+				return nil, errors.New("OAuth storage is unavailable")
+			}
+			m.mu.Lock()
+			if existing := m.handlers[name]; existing != nil {
+				handler = existing
+			} else {
+				provider := newOAuthProvider(cfg, m.oauthStore, m.http)
+				m.oauth[name] = provider
+				m.handlers[name] = provider
+				handler = provider
+			}
+			m.mu.Unlock()
+		case "bearer-env":
+			handler = newBearerHandler(cfg.BearerToken)
 		}
-		provider := newOAuthProvider(cfg, m.oauthStore, m.http)
-		m.mu.Lock()
-		m.oauth[name] = provider
-		m.handlers[name] = provider
-		m.mu.Unlock()
 	}
 
-	session, remote, state, diagnostic := m.connectServer(ctx, cfg)
+	session, remote, state, diagnostic := m.connectServerWith(ctx, cfg, handler)
 	if session != nil {
 		defer session.Close()
 	}

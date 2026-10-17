@@ -13,6 +13,10 @@ import (
 // owner must restart before it can be previewed.
 var ErrMCPRestartRequired = errors.New("restart to load this server")
 
+// ErrMCPStdioNotPreviewed means the server runs a local program, which a review
+// must not start.
+var ErrMCPStdioNotPreviewed = errors.New("stdio servers are not previewed; enable them in config.yaml")
+
 // ErrMCPLoginRequired means the server needs an OAuth login before it can be
 // previewed.
 var ErrMCPLoginRequired = errors.New("login required")
@@ -70,6 +74,9 @@ func mcpPreviewRoute(previewer MCPPreviewer) http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]any{"login": true, "error": err.Error()})
+			return
+		case errors.Is(err, ErrMCPStdioNotPreviewed):
+			writeWebError(w, http.StatusConflict, err.Error())
 			return
 		case err != nil:
 			writeWebError(w, http.StatusBadGateway, "could not reach the MCP server")

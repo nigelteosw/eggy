@@ -35,6 +35,42 @@ Deletion budget: ~2,300–3,800 production lines (estimate), 3 config keys plus
 registry, 2 tables, 1 sealed record per account, 1 worker while enabled,
 1 system user.
 
+## Marketplace — open before merge (not ready to merge)
+
+Whole-branch review of `marketplace` (2026-10-17) requested changes; the ticked
+items are fixed on the branch, pending an Opus re-review. Source:
+`docs/superpowers/specs/2026-10-16-marketplace-design.md`. Fixed so far:
+`624b2d6`, `5e1dbeb`.
+
+Blockers:
+- [x] Update is not atomic: a mid-update failure leaves files changed while the
+      record keeps the old hashes, with no rollback (`internal/extensions/marketplace/service.go` Update).
+- [x] Owner maps are keyed by name across kinds: an MCP entry can count as owning
+      a skill of the same name, so Update can overwrite a hand-placed skill (`service.go` owned/Replacing).
+- [x] Owner MCP tuning is discarded: `enabled` and `require_approval` changes are
+      not counted as edits, and a changed URL re-adds the server (`service.go` fileChanged, Update MCP step).
+- [x] Remove and Update break when an installed skill was deleted by hand: the
+      install is stuck until delete-edited is ticked (`service.go` fileChanged, releaseSkill).
+- [x] Stdio servers can run from Preview before approval, and the approval route
+      can enable a stdio server (`internal/mcp/preview.go`, `internal/config/config_mutate.go` SetMCPServerApproval).
+- [x] Preview changes the running manager: it stores OAuth state on the live
+      manager, and it builds no bearer handler for a disabled server (`internal/mcp/preview.go`).
+- [ ] Sources save reads `marketplace.enabled` outside the config lock, so a concurrent
+      edit can be reverted (`internal/panel/ext_marketplace.go` sources PUT).
+- [ ] Skill replace is not crash-safe: a crash between the two renames leaves the
+      owner's skill under a hidden `.old-*` name (`internal/skills/store.go` placeBundle).
+- [x] No tests for external (github/git-subdir) items, nor for the UI's refusal,
+      rename, and re-read paths (`InstallReview.tsx`).
+
+Lower priority:
+- [ ] `skill_read` schema grows for every owner, not only those with directory skills.
+- [ ] The index-overflow warning logs on every turn (`internal/core/services/skills.go`).
+- [ ] Raw error text from the config and GitHub reaches the browser in a few places.
+- [ ] Connectors row lacks the "from plugin" label.
+- [ ] Session/CSRF guard tests for the new routes.
+
+Merge gate: the blockers above, then a re-review by a model stronger than Haiku.
+
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 
 Not started; scoped in conversation 2026-10-12. A fourth `View` in

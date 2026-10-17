@@ -300,10 +300,7 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		return ports.MarketplaceInstall{}, err
 	}
 	req.InstallID = id
-	owned, err := s.ownedTargets(ctx, id)
-	if err != nil {
-		return ports.MarketplaceInstall{}, err
-	}
+	owned := ownedKeys(install)
 	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, owned)
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
@@ -314,85 +311,116 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	if len(plan.Conflicts) > 0 {
 		return ports.MarketplaceInstall{}, ConflictError{Conflicts: plan.Conflicts}
 	}
-
-	edited, err := s.editedSet(ctx, install)
+	states, err := s.fileStates(ctx, install)
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
 	}
 	replace := toSet(replaceEdited)
-	oldHash := map[string]string{}
+	recorded := map[string]ports.MarketplaceFile{}
 	for _, f := range install.Files {
-		oldHash[f.Kind+"/"+f.Target] = f.ContentHash
+		recorded[fileKey(f.Kind, f.Target)] = f
+	}
+
+	// Every change below is snapshotted first, so a failure at any step puts the
+	// skills and MCP entries back as they were and leaves the record unchanged.
+	var undo journal
+	fail := func(err error) (ports.MarketplaceInstall, error) {
+		undo.rollback(ctx)
+		return ports.MarketplaceInstall{}, err
 	}
 
 	planned := map[string]bool{}
 	var files []ports.MarketplaceFile
 	for _, skill := range plan.Skills {
-		planned[skill.Name] = true
-		if owned[skill.Name] && edited[skill.Name] && !replace[skill.Name] {
-			files = append(files, ports.MarketplaceFile{Kind: "skill", Target: skill.Name, ContentHash: oldHash["skill/"+skill.Name]})
+		key := fileKey(kindSkill, skill.Name)
+		planned[key] = true
+		state := states[key]
+		switch {
+		case owned[key] && state.missing:
+			// The owner deleted it by hand. An update does not bring it back.
 			continue
+		case owned[key] && state.edited && !replace[skill.Name]:
+			files = append(files, recorded[key])
+			continue
+		}
+		if err := s.snapshotSkill(ctx, &undo, skill.Name); err != nil {
+			return fail(err)
 		}
 		err := s.opts.Skills.WriteBundle(ctx, ports.SkillBundle{
 			Name: skill.Name, Description: skill.Description, Body: skill.Body,
 			Source: req.Source + "/" + req.Item, Extra: skill.Extra, Files: skill.Files,
-			Replace: owned[skill.Name],
+			Replace: owned[key],
 		})
 		if err != nil {
-			return ports.MarketplaceInstall{}, err
+			return fail(err)
 		}
-		files = append(files, ports.MarketplaceFile{Kind: "skill", Target: skill.Name, ContentHash: skill.Hash})
+		files = append(files, ports.MarketplaceFile{Kind: kindSkill, Target: skill.Name, ContentHash: skill.Hash})
 	}
 	for _, f := range install.Files {
-		if f.Kind != "skill" || planned[f.Target] {
+		key := fileKey(f.Kind, f.Target)
+		if f.Kind != kindSkill || planned[key] || states[key].missing {
 			continue
 		}
-		if edited[f.Target] && !replace[f.Target] {
+		if err := s.snapshotSkill(ctx, &undo, f.Target); err != nil {
+			return fail(err)
+		}
+		if states[key].edited && !replace[f.Target] {
 			if err := s.releaseSkill(ctx, f.Target); err != nil {
-				return ports.MarketplaceInstall{}, err
+				return fail(err)
 			}
 			continue
 		}
 		if err := s.opts.Skills.Delete(ctx, f.Target); err != nil && !errors.Is(err, ports.ErrSkillNotFound) {
-			return ports.MarketplaceInstall{}, err
+			return fail(err)
 		}
 	}
 
 	for _, server := range plan.MCP {
-		url, _, exists, err := s.opts.MCP.Get(server.Name)
-		if err != nil {
-			return ports.MarketplaceInstall{}, err
-		}
+		key := fileKey(kindMCP, server.Name)
+		planned[key] = true
+		state := states[key]
 		switch {
-		case !owned[server.Name]:
-			if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
-				return ports.MarketplaceInstall{}, err
+		case !owned[key]:
+			if err := s.snapshotMCP(&undo, server.Name); err != nil {
+				return fail(err)
 			}
-		case edited[server.Name]:
-			files = append(files, ports.MarketplaceFile{Kind: "mcp_server", Target: server.Name, ContentHash: oldHash["mcp_server/"+server.Name]})
+			if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
+				return fail(err)
+			}
+		case state.missing:
+			// The owner removed the server. An update does not bring it back.
 			continue
-		case exists && mcpHash(url) == server.Hash:
-		default:
+		case state.edited:
+			// The owner enabled or changed it: their trust decision stands.
+			files = append(files, recorded[key])
+			continue
+		case recorded[key].ContentHash != server.Hash:
+			if err := s.snapshotMCP(&undo, server.Name); err != nil {
+				return fail(err)
+			}
 			if err := s.opts.MCP.Remove(server.Name); err != nil {
-				return ports.MarketplaceInstall{}, err
+				return fail(err)
 			}
 			if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
-				return ports.MarketplaceInstall{}, err
+				return fail(err)
 			}
 		}
-		planned["mcp/"+server.Name] = true
-		files = append(files, ports.MarketplaceFile{Kind: "mcp_server", Target: server.Name, ContentHash: server.Hash})
+		files = append(files, ports.MarketplaceFile{Kind: kindMCP, Target: server.Name, ContentHash: server.Hash})
 	}
 	for _, f := range install.Files {
-		if f.Kind != "mcp_server" || planned["mcp/"+f.Target] {
+		key := fileKey(f.Kind, f.Target)
+		if f.Kind != kindMCP || planned[key] || states[key].missing {
 			continue
 		}
-		if edited[f.Target] {
+		if states[key].edited {
 			files = append(files, f)
 			continue
 		}
+		if err := s.snapshotMCP(&undo, f.Target); err != nil {
+			return fail(err)
+		}
 		if err := s.opts.MCP.Remove(f.Target); err != nil {
-			return ports.MarketplaceInstall{}, err
+			return fail(err)
 		}
 	}
 
@@ -402,7 +430,7 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	install.UpdatedAt = s.opts.Now()
 	install.Files = files
 	if err := s.opts.Store.ReplaceInstall(ctx, install); err != nil {
-		return ports.MarketplaceInstall{}, err
+		return fail(err)
 	}
 	return install, nil
 }
@@ -438,40 +466,60 @@ func (s *Service) SetDisabled(ctx context.Context, id string, disabled bool) err
 }
 
 // Remove deletes an install's skills and MCP entries, except local edits the
-// owner did not name in deleteEdited. A kept skill becomes hand-placed.
+// owner did not name in deleteEdited. A kept skill becomes hand-placed. Anything
+// the owner already deleted by hand is skipped. A failure at any step restores
+// what was changed and leaves the record in place.
 func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) error {
 	install, err := s.opts.Store.GetInstall(ctx, id)
 	if err != nil {
 		return err
 	}
-	edited, err := s.editedSet(ctx, install)
+	states, err := s.fileStates(ctx, install)
 	if err != nil {
 		return err
 	}
 	del := toSet(deleteEdited)
+	var undo journal
+	fail := func(err error) error {
+		undo.rollback(ctx)
+		return err
+	}
 	for _, f := range install.Files {
-		keep := edited[f.Target] && !del[f.Target]
+		state := states[fileKey(f.Kind, f.Target)]
+		if state.missing {
+			continue
+		}
+		keep := state.edited && !del[f.Target]
 		switch f.Kind {
-		case "skill":
+		case kindSkill:
+			if err := s.snapshotSkill(ctx, &undo, f.Target); err != nil {
+				return fail(err)
+			}
 			if keep {
 				if err := s.releaseSkill(ctx, f.Target); err != nil {
-					return err
+					return fail(err)
 				}
 				continue
 			}
 			if err := s.opts.Skills.Delete(ctx, f.Target); err != nil && !errors.Is(err, ports.ErrSkillNotFound) {
-				return err
+				return fail(err)
 			}
-		case "mcp_server":
+		case kindMCP:
 			if keep {
 				continue
 			}
+			if err := s.snapshotMCP(&undo, f.Target); err != nil {
+				return fail(err)
+			}
 			if err := s.opts.MCP.Remove(f.Target); err != nil {
-				return err
+				return fail(err)
 			}
 		}
 	}
-	return s.opts.Store.DeleteInstall(ctx, id)
+	if err := s.opts.Store.DeleteInstall(ctx, id); err != nil {
+		return fail(err)
+	}
+	return nil
 }
 
 // OwnerOf names the install that brought an MCP server, for the Connectors label.
@@ -583,8 +631,26 @@ func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, repla
 	return plan, err
 }
 
-// ownedTargets returns the skill and MCP names an install owns, or nil when
-// there is no install.
+const (
+	kindSkill = "skill"
+	kindMCP   = "mcp_server"
+)
+
+// fileKey names one thing an install wrote by its kind as well as its name, so
+// an MCP entry can never count as owning a skill that happens to share its name.
+func fileKey(kind, target string) string { return kind + "/" + target }
+
+// ownedKeys is what an install owns, keyed by fileKey.
+func ownedKeys(install ports.MarketplaceInstall) map[string]bool {
+	owned := map[string]bool{}
+	for _, f := range install.Files {
+		owned[fileKey(f.Kind, f.Target)] = true
+	}
+	return owned
+}
+
+// ownedTargets returns what an install owns, keyed by fileKey, or nil when there
+// is no install.
 func (s *Service) ownedTargets(ctx context.Context, id string) (map[string]bool, error) {
 	if id == "" {
 		return nil, nil
@@ -593,61 +659,64 @@ func (s *Service) ownedTargets(ctx context.Context, id string) (map[string]bool,
 	if err != nil {
 		return nil, err
 	}
-	owned := map[string]bool{}
-	for _, f := range install.Files {
-		owned[f.Target] = true
-	}
-	return owned, nil
+	return ownedKeys(install), nil
 }
 
-// editedNames lists the skills and MCP entries an install owns that differ from
-// what was written.
+// fileState is how one written thing compares with what was written. A missing
+// file is the owner's deletion, not an edit, so it is skipped rather than kept.
+type fileState struct {
+	edited  bool
+	missing bool
+}
+
+// fileStates reads every file an install owns. A skill is edited when its
+// content hash differs. An MCP entry is edited when its URL differs or the owner
+// has enabled it: enabling is a trust decision, which an update must not undo.
+func (s *Service) fileStates(ctx context.Context, install ports.MarketplaceInstall) (map[string]fileState, error) {
+	states := map[string]fileState{}
+	for _, f := range install.Files {
+		key := fileKey(f.Kind, f.Target)
+		switch f.Kind {
+		case kindSkill:
+			hash, err := s.currentSkillHash(ctx, f.Target)
+			if errors.Is(err, ports.ErrSkillNotFound) {
+				states[key] = fileState{missing: true}
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			states[key] = fileState{edited: hash != f.ContentHash}
+		case kindMCP:
+			url, enabled, exists, err := s.opts.MCP.Get(f.Target)
+			if err != nil {
+				return nil, err
+			}
+			if !exists {
+				states[key] = fileState{missing: true}
+				continue
+			}
+			states[key] = fileState{edited: enabled || mcpHash(url) != f.ContentHash}
+		}
+	}
+	return states, nil
+}
+
+// editedNames lists the skills and MCP entries an install owns that the owner
+// has changed, for the Installed view.
 func (s *Service) editedNames(ctx context.Context, install ports.MarketplaceInstall) ([]string, error) {
-	edited, err := s.editedSet(ctx, install)
+	states, err := s.fileStates(ctx, install)
 	if err != nil {
 		return nil, err
 	}
 	var names []string
-	for name := range edited {
-		names = append(names, name)
+	for _, f := range install.Files {
+		if states[fileKey(f.Kind, f.Target)].edited {
+			names = append(names, f.Target)
+		}
 	}
 	sort.Strings(names)
 	return names, nil
-}
-
-func (s *Service) editedSet(ctx context.Context, install ports.MarketplaceInstall) (map[string]bool, error) {
-	edited := map[string]bool{}
-	for _, f := range install.Files {
-		changed, err := s.fileChanged(ctx, f)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			edited[f.Target] = true
-		}
-	}
-	return edited, nil
-}
-
-func (s *Service) fileChanged(ctx context.Context, f ports.MarketplaceFile) (bool, error) {
-	switch f.Kind {
-	case "skill":
-		hash, err := s.currentSkillHash(ctx, f.Target)
-		if errors.Is(err, ports.ErrSkillNotFound) {
-			return true, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return hash != f.ContentHash, nil
-	case "mcp_server":
-		url, _, exists, err := s.opts.MCP.Get(f.Target)
-		if err != nil {
-			return false, err
-		}
-		return !exists || mcpHash(url) != f.ContentHash, nil
-	}
-	return false, nil
 }
 
 func (s *Service) currentSkillHash(ctx context.Context, name string) (string, error) {
@@ -655,35 +724,119 @@ func (s *Service) currentSkillHash(ctx context.Context, name string) (string, er
 	if err != nil {
 		return "", err
 	}
-	files := map[string]string{}
-	for _, rel := range skill.Files {
-		content, err := s.opts.Skills.ReadFile(ctx, name, rel)
-		if err != nil {
-			return "", err
-		}
-		files[rel] = content
+	files, err := s.readSkillFiles(ctx, name, skill.Files)
+	if err != nil {
+		return "", err
 	}
 	return skillHash(skill.Description, skill.Body, files), nil
 }
 
+func (s *Service) readSkillFiles(ctx context.Context, name string, rels []string) (map[string]string, error) {
+	files := map[string]string{}
+	for _, rel := range rels {
+		content, err := s.opts.Skills.ReadFile(ctx, name, rel)
+		if err != nil {
+			return nil, err
+		}
+		files[rel] = content
+	}
+	return files, nil
+}
+
 // releaseSkill keeps an owner-edited skill and clears its install marker, so it
-// is hand-placed from then on.
+// is hand-placed from then on. Its unknown frontmatter keys are carried over.
 func (s *Service) releaseSkill(ctx context.Context, name string) error {
 	skill, err := s.opts.Skills.Inspect(ctx, name)
 	if err != nil {
 		return err
 	}
-	files := map[string]string{}
-	for _, rel := range skill.Files {
-		content, err := s.opts.Skills.ReadFile(ctx, name, rel)
-		if err != nil {
-			return err
-		}
-		files[rel] = content
+	files, err := s.readSkillFiles(ctx, name, skill.Files)
+	if err != nil {
+		return err
 	}
 	return s.opts.Skills.WriteBundle(ctx, ports.SkillBundle{
 		Name: name, Description: skill.Description, Body: skill.Body, Files: files, Extra: skill.Extra, Replace: true,
 	})
+}
+
+// journal records how to undo each change an update or removal makes, so a
+// failure part-way can put everything back. Rollback runs newest first.
+type journal struct {
+	steps []func(context.Context) error
+}
+
+func (j *journal) add(step func(context.Context) error) { j.steps = append(j.steps, step) }
+
+func (j *journal) rollback(ctx context.Context) {
+	for i := len(j.steps) - 1; i >= 0; i-- {
+		if err := j.steps[i](ctx); err != nil {
+			slog.Warn("marketplace rollback step failed", "error", err)
+		}
+	}
+}
+
+// snapshotSkill records how to restore a skill to what it is now: its content,
+// marker, frontmatter and disabled flag, or its absence.
+func (s *Service) snapshotSkill(ctx context.Context, j *journal, name string) error {
+	skill, err := s.opts.Skills.Inspect(ctx, name)
+	if errors.Is(err, ports.ErrSkillNotFound) {
+		j.add(func(ctx context.Context) error {
+			if err := s.opts.Skills.Delete(ctx, name); err != nil && !errors.Is(err, ports.ErrSkillNotFound) {
+				return err
+			}
+			return nil
+		})
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	files, err := s.readSkillFiles(ctx, name, skill.Files)
+	if err != nil {
+		return err
+	}
+	bundle := ports.SkillBundle{
+		Name: name, Description: skill.Description, Body: skill.Body,
+		Source: skill.Source, Extra: skill.Extra, Files: files, Replace: true,
+	}
+	disabled := skill.Disabled
+	j.add(func(ctx context.Context) error {
+		if err := s.opts.Skills.WriteBundle(ctx, bundle); err != nil {
+			return err
+		}
+		return s.opts.Skills.SetDisabled(ctx, name, disabled)
+	})
+	return nil
+}
+
+// snapshotMCP records how to restore an MCP entry. A restored entry comes back
+// disabled: its require_approval list is not known here, and enabling a server
+// without it would widen trust, so the owner re-enables it in Connectors.
+func (s *Service) snapshotMCP(j *journal, name string) error {
+	url, _, exists, err := s.opts.MCP.Get(name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		j.add(func(context.Context) error {
+			if _, _, still, err := s.opts.MCP.Get(name); err != nil || !still {
+				return err
+			}
+			return s.opts.MCP.Remove(name)
+		})
+		return nil
+	}
+	j.add(func(context.Context) error {
+		if _, _, still, err := s.opts.MCP.Get(name); err != nil {
+			return err
+		} else if still {
+			if err := s.opts.MCP.Remove(name); err != nil {
+				return err
+			}
+		}
+		return s.opts.MCP.Add(name, url)
+	})
+	return nil
 }
 
 func (s *Service) rollbackWrites(ctx context.Context, skills, mcp []string) {

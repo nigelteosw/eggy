@@ -135,7 +135,7 @@ func TestPlanExistingNameIsConflict(t *testing.T) {
 		t.Fatalf("conflicts = %v, want pdf", plan.Conflicts)
 	}
 
-	in.Replacing = map[string]bool{"pdf": true}
+	in.Replacing = map[string]bool{"skill/pdf": true}
 	plan, err = buildPlan(in, tree)
 	if err != nil {
 		t.Fatal(err)

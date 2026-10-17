@@ -44,7 +44,7 @@ type PlanInput struct {
 	Renames     map[string]string // upstream skill name -> chosen name
 	SkillExists func(name string) bool
 	MCPExists   func(name string) bool
-	Replacing   map[string]bool // names this install already owns (update)
+	Replacing   map[string]bool // "skill/<name>" and "mcp_server/<name>" this install already owns (update)
 }
 
 // PlannedSkill is one skill the install would write.
@@ -189,7 +189,7 @@ func planMCP(plan *Plan, in PlanInput, tree Tree, file string, fromManifest bool
 			plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "needs configuration Eggy cannot infer"})
 		default:
 			name := in.Item.Name + "-" + server
-			if in.MCPExists != nil && in.MCPExists(name) && !in.Replacing[name] {
+			if in.MCPExists != nil && in.MCPExists(name) && !in.Replacing["mcp_server/"+name] {
 				plan.Conflicts = append(plan.Conflicts, name)
 				continue
 			}
@@ -263,7 +263,7 @@ func planSkill(plan *Plan, in PlanInput, tree Tree, dir string, seen map[string]
 		plan.Conflicts = append(plan.Conflicts, upstream)
 		return
 	}
-	if in.SkillExists != nil && in.SkillExists(name) && !in.Replacing[name] {
+	if in.SkillExists != nil && in.SkillExists(name) && !in.Replacing["skill/"+name] {
 		plan.Conflicts = append(plan.Conflicts, upstream)
 		return
 	}

@@ -156,6 +156,8 @@ func (a *mcpAdmin) Preview(ctx context.Context, server string) ([]panel.MCPToolP
 		return nil, panel.ErrMCPRestartRequired
 	case errors.Is(err, mcpadapter.ErrLoginRequired):
 		return nil, panel.ErrMCPLoginRequired
+	case errors.Is(err, mcpadapter.ErrStdioNotPreviewed):
+		return nil, panel.ErrMCPStdioNotPreviewed
 	case err != nil:
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -166,4 +167,75 @@ func randomSuffix() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b[:]), nil
+}
+
+// recoverLeftovers repairs what an interrupted replace left behind. It runs
+// under the store mutex, which every replace also holds, so no replace is in
+// progress: a staging directory is stale, and a skill that was moved aside
+// without its new copy arriving is put back. Only names placeBundle itself
+// produces are touched, so a dot-file the owner made is left alone. It reports
+// whether anything changed.
+func (s *Store) recoverLeftovers(entries []os.DirEntry) bool {
+	changed := false
+	for _, entry := range entries {
+		name := entry.Name()
+		path := filepath.Join(s.dir, name)
+		if skill, ok := leftoverSkillName(name, ".stage-"); ok {
+			if err := os.RemoveAll(path); err != nil {
+				slog.Warn("skills: could not remove an interrupted staging directory", "skill", skill, "error", err)
+				continue
+			}
+			changed = true
+			continue
+		}
+		skill, ok := leftoverSkillName(name, ".old-")
+		if !ok {
+			continue
+		}
+		if s.skillPresent(skill) {
+			// The new copy landed before the old one was removed.
+			if err := os.RemoveAll(path); err != nil {
+				slog.Warn("skills: could not remove a replaced skill", "skill", skill, "error", err)
+				continue
+			}
+			changed = true
+			continue
+		}
+		target := filepath.Join(s.dir, skill)
+		if !entry.IsDir() {
+			target += ".md"
+		}
+		if err := os.Rename(path, target); err != nil {
+			slog.Warn("skills: could not restore a skill after an interrupted replace", "skill", skill, "error", err)
+			continue
+		}
+		slog.Info("skills: restored a skill after an interrupted replace", "skill", skill)
+		changed = true
+	}
+	return changed
+}
+
+// leftoverSkillName parses "<prefix><skill>-<16 hex>", the only shape
+// placeBundle writes, and checks the skill name is valid.
+func leftoverSkillName(entry, prefix string) (string, bool) {
+	rest, ok := strings.CutPrefix(entry, prefix)
+	if !ok || len(rest) < 18 || rest[len(rest)-17] != '-' {
+		return "", false
+	}
+	if _, err := hex.DecodeString(rest[len(rest)-16:]); err != nil {
+		return "", false
+	}
+	skill := rest[:len(rest)-17]
+	if ValidateName(skill) != nil {
+		return "", false
+	}
+	return skill, true
+}
+
+func (s *Store) skillPresent(name string) bool {
+	if _, err := os.Lstat(filepath.Join(s.dir, name)); err == nil {
+		return true
+	}
+	_, err := os.Lstat(filepath.Join(s.dir, name+".md"))
+	return err == nil
 }

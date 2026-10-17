@@ -101,6 +101,11 @@ func (s *Store) List(ctx context.Context) ([]ports.SkillSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.recoverLeftovers(entries) {
+		if entries, err = os.ReadDir(s.dir); err != nil {
+			return nil, err
+		}
+	}
 	stems := map[string]bool{}
 	for _, entry := range entries {
 		name := entry.Name()

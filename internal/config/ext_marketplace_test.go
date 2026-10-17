@@ -91,3 +91,21 @@ func TestMarketplaceSourcesEmptyByDefault(t *testing.T) {
 		t.Fatalf("default sources = %+v, want none", got)
 	}
 }
+
+func TestSetMarketplaceSourcesKeepsEnabled(t *testing.T) {
+	path := marketplaceConfigPath(t, "\nmarketplace:\n  enabled: true\n  sources:\n    - name: a\n      kind: skills_repo\n      repo: o/a\n")
+	next := []MarketplaceSource{{Name: "b", Kind: "claude_marketplace", Repo: "o/b"}}
+	if err := SetMarketplaceSources(path, next); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Marketplace.Enabled {
+		t.Fatal("saving sources turned the marketplace off")
+	}
+	if !slices.Equal(cfg.Marketplace.Sources, next) {
+		t.Fatalf("sources = %+v, want %+v", cfg.Marketplace.Sources, next)
+	}
+}

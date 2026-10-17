@@ -55,9 +55,9 @@ Blockers:
       can enable a stdio server (`internal/mcp/preview.go`, `internal/config/config_mutate.go` SetMCPServerApproval).
 - [x] Preview changes the running manager: it stores OAuth state on the live
       manager, and it builds no bearer handler for a disabled server (`internal/mcp/preview.go`).
-- [ ] Sources save reads `marketplace.enabled` outside the config lock, so a concurrent
+- [x] Sources save reads `marketplace.enabled` outside the config lock, so a concurrent
       edit can be reverted (`internal/panel/ext_marketplace.go` sources PUT).
-- [ ] Skill replace is not crash-safe: a crash between the two renames leaves the
+- [x] Skill replace is not crash-safe: a crash between the two renames leaves the
       owner's skill under a hidden `.old-*` name (`internal/skills/store.go` placeBundle).
 - [x] No tests for external (github/git-subdir) items, nor for the UI's refusal,
       rename, and re-read paths (`InstallReview.tsx`).

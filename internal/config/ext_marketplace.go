@@ -75,3 +75,13 @@ func GetMarketplaceSources(path string) ([]MarketplaceSource, error) {
 	}
 	return cfg.Marketplace.Sources, nil
 }
+
+// SetMarketplaceSources replaces the source list and leaves enabled as it is,
+// inside the one locked write, so saving sources can never revert a concurrent
+// change to marketplace.enabled.
+func SetMarketplaceSources(path string, sources []MarketplaceSource) error {
+	return mutate(path, func(cfg *Config) error {
+		cfg.Marketplace.Sources = sources
+		return nil
+	})
+}

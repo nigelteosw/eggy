@@ -193,16 +193,12 @@ func marketplaceSourcesSetRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		cfg, err := config.LoadDocument(configPath)
-		if err != nil {
-			writeWebError(w, http.StatusInternalServerError, "could not read the marketplace settings")
-			return
-		}
 		sources := make([]config.MarketplaceSource, 0, len(body.Sources))
 		for _, s := range body.Sources {
 			sources = append(sources, config.MarketplaceSource{Name: s.Name, Kind: s.Kind, Repo: s.Repo, Path: s.Path, Ref: s.Ref})
 		}
-		if err := config.SetMarketplace(configPath, cfg.Marketplace.Enabled, sources); err != nil {
+		// Sources only: enabled is left to the locked write, never read here.
+		if err := config.SetMarketplaceSources(configPath, sources); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}

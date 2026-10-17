@@ -32,8 +32,13 @@ type SkillSummary struct {
 
 // SkillIndexBudget bounds the summaries the model sees each turn. It is
 // applied to enabled skills only, after filtering, so disabled ones never
-// crowd active ones out of the index.
+// crowd active ones out of the index. Every name is kept before any
+// description is added; a description that does not fit is omitted.
 const SkillIndexBudget = 16 << 10
+
+// SkillNameOnlyHint stands in for a description the index could not fit. The
+// model still sees the name and knows it can load the body with skill_read.
+const SkillNameOnlyHint = "(description omitted; call skill_read)"
 
 // Skill is one installed skill's full content, returned only when fetched
 // by name (skill_read, /skills show), never held resident across a whole

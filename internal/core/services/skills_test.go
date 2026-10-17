@@ -27,7 +27,7 @@ func newFakeSkillsStore() *fakeSkillsStore {
 func (s *fakeSkillsStore) List(context.Context) ([]ports.SkillSummary, error) {
 	summaries := make([]ports.SkillSummary, 0, len(s.skills))
 	for _, skill := range s.skills {
-		summaries = append(summaries, ports.SkillSummary{Name: skill.Name, Description: skill.Description, Disabled: skill.Disabled})
+		summaries = append(summaries, ports.SkillSummary{Name: skill.Name, Description: skill.Description, Disabled: skill.Disabled, Source: skill.Source})
 	}
 	return summaries, nil
 }
@@ -123,18 +123,155 @@ func TestEnabledOmitsDisabledAndInvalidAndBudgetsOnlyEnabledSkills(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	used := 0
 	for _, summary := range enabled {
 		if summary.Disabled || summary.Invalid != "" {
 			t.Fatalf("model index includes %#v", summary)
 		}
-		used += len(summary.Name) + len(summary.Description) + 2
 	}
-	if used > ports.SkillIndexBudget {
+	if used := indexBytes(enabled); used > ports.SkillIndexBudget {
 		t.Fatalf("index uses %d bytes, over budget", used)
 	}
 	if len(enabled) == 0 || enabled[0].Name != "b-on-00" {
 		t.Fatalf("enabled=%#v", enabled)
+	}
+}
+
+// indexBytes is what the model receives for a set of entries: each rendered
+// line plus its newline, with the name-only hint standing in for an omitted
+// description.
+func indexBytes(enabled []ports.SkillSummary) int {
+	total := 0
+	for _, s := range enabled {
+		if s.Description == "" {
+			total += len(s.Name) + 2 + len(ports.SkillNameOnlyHint) + 1
+			continue
+		}
+		total += len(s.Name) + 2 + len(s.Description) + 1
+	}
+	return total
+}
+
+func TestIndexKeepsEveryNameBeforeAnyDescription(t *testing.T) {
+	store := newFakeSkillsStore()
+	long := strings.Repeat("d", 400)
+	for i := range 200 {
+		name := fmt.Sprintf("skill-%03d", i)
+		store.skills[name] = ports.Skill{Name: name, Description: long, Body: "x"}
+	}
+	enabled, err := NewSkillsService(store).Enabled(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enabled) != 200 {
+		t.Fatalf("kept %d of 200 names", len(enabled))
+	}
+	if used := indexBytes(enabled); used > ports.SkillIndexBudget {
+		t.Fatalf("index uses %d bytes, over budget", used)
+	}
+	described := 0
+	for _, s := range enabled {
+		if s.Description != "" {
+			described++
+		}
+	}
+	if described == 0 || described == 200 {
+		t.Fatalf("expected some descriptions kept and some shed, got %d of 200", described)
+	}
+}
+
+func TestIndexHandPlacedDescriptionsFirst(t *testing.T) {
+	store := newFakeSkillsStore()
+	long := strings.Repeat("d", 9000)
+	store.skills["aa"] = ports.Skill{Name: "aa", Description: long, Body: "x", Source: "mk/aa"}
+	store.skills["zz"] = ports.Skill{Name: "zz", Description: long, Body: "x"}
+	enabled, err := NewSkillsService(store).Enabled(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ports.SkillSummary{}
+	for _, s := range enabled {
+		byName[s.Name] = s
+	}
+	if byName["zz"].Description != long {
+		t.Fatalf("hand-placed zz lost its description")
+	}
+	if byName["aa"].Description != "" {
+		t.Fatalf("installed aa kept its description over hand-placed zz")
+	}
+}
+
+func TestIndexDropsInstalledNamesFirstWhenNamesOverflow(t *testing.T) {
+	store := newFakeSkillsStore()
+	for i := range 300 {
+		name := fmt.Sprintf("inst-%03d", i)
+		store.skills[name] = ports.Skill{Name: name, Description: "does a thing", Body: "x", Source: "mk/" + name}
+	}
+	for i := range 40 {
+		name := fmt.Sprintf("hand-%03d", i)
+		store.skills[name] = ports.Skill{Name: name, Description: "does a thing", Body: "x"}
+	}
+	enabled, err := NewSkillsService(store).Enabled(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := map[string]bool{}
+	for _, s := range enabled {
+		kept[s.Name] = true
+	}
+	for i := range 40 {
+		if name := fmt.Sprintf("hand-%03d", i); !kept[name] {
+			t.Fatalf("hand-placed %s dropped while installed names remained", name)
+		}
+	}
+	// 340 names at 49 bytes each is 16660 against a 16384 budget: six installed
+	// names (294 bytes) must go, the six greatest, and inst-293 must stay.
+	for i := 294; i < 300; i++ {
+		if name := fmt.Sprintf("inst-%03d", i); kept[name] {
+			t.Fatalf("installed %s kept; greatest installed names should drop first", name)
+		}
+	}
+	if !kept["inst-293"] {
+		t.Fatalf("inst-293 dropped; only the six greatest installed names should go")
+	}
+	if used := indexBytes(enabled); used > ports.SkillIndexBudget {
+		t.Fatalf("index uses %d bytes, over budget", used)
+	}
+}
+
+// reorderedSkillsStore lists a fixed sequence, so determinism can be checked
+// against a store that returns the same skills in a different order.
+type reorderedSkillsStore struct {
+	*fakeSkillsStore
+	order []ports.SkillSummary
+}
+
+func (s *reorderedSkillsStore) List(context.Context) ([]ports.SkillSummary, error) {
+	return slices.Clone(s.order), nil
+}
+
+func TestIndexIsDeterministic(t *testing.T) {
+	var summaries []ports.SkillSummary
+	for i := range 120 {
+		name := fmt.Sprintf("s-%03d", i)
+		summary := ports.SkillSummary{Name: name, Description: strings.Repeat("x", 100+i*7)}
+		if i%3 == 0 {
+			summary.Source = "mk/" + name
+		}
+		summaries = append(summaries, summary)
+	}
+	reversed := slices.Clone(summaries)
+	slices.Reverse(reversed)
+
+	forward, err := NewSkillsService(&reorderedSkillsStore{fakeSkillsStore: newFakeSkillsStore(), order: summaries}).Enabled(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	backward, err := NewSkillsService(&reorderedSkillsStore{fakeSkillsStore: newFakeSkillsStore(), order: reversed}).Enabled(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(forward, backward) {
+		t.Fatal("index depends on store order")
 	}
 }
 

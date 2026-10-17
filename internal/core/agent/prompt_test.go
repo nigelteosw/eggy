@@ -146,6 +146,16 @@ func TestBuildInstructionsRendersSkillsIndexOrNoneInstalled(t *testing.T) {
 	}
 }
 
+func TestRenderSkillsNameOnlyHint(t *testing.T) {
+	out := renderSkills([]SkillDescriptor{{Name: "pdf"}, {Name: "docx", Description: "Does docs"}})
+	if !strings.Contains(out, "pdf: (description omitted; call skill_read)") {
+		t.Fatalf("name-only entry not rendered with hint: %s", out)
+	}
+	if !strings.Contains(out, "docx: Does docs") {
+		t.Fatalf("described entry changed: %s", out)
+	}
+}
+
 // Only the two agent-writable documents carry a capacity indicator: SOUL.md
 // is owner-editable, so showing the agent a budget it cannot spend would be
 // noise.

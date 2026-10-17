@@ -149,7 +149,13 @@ func renderSkills(skills []SkillDescriptor) string {
 	}
 	lines := make([]string, 0, len(sorted))
 	for _, skill := range sorted {
-		lines = append(lines, skill.Name+": "+skill.Description)
+		description := skill.Description
+		if description == "" {
+			// The index could not fit this skill's description; the name
+			// stays so the model can still load it with skill_read.
+			description = ports.SkillNameOnlyHint
+		}
+		lines = append(lines, skill.Name+": "+description)
 	}
 	return "Available skills\n" + strings.Join(lines, "\n")
 }

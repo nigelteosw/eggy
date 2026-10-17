@@ -62,6 +62,7 @@ type Config struct {
 	Google           GoogleConfig                `yaml:"google,omitempty"`
 	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
 	Finance          FinanceConfig               `yaml:"finance,omitempty"`
+	Marketplace      MarketplaceConfig           `yaml:"marketplace,omitempty"`
 	AgentRunner      AgentRunnerConfig           `yaml:"agent_runner,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`

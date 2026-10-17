@@ -712,3 +712,35 @@ func DescribeOpenRouterRouting(routing *OpenRouterRoutingConfig) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// AddMCPServerDisabled adds a remote MCP server a plugin brought, disabled and
+// with OAuth auth, so the owner decides when it runs. An existing name is
+// refused rather than overwritten, so a hand-configured server is never replaced.
+func AddMCPServerDisabled(path, name, url string) error {
+	return mutate(path, func(cfg *Config) error {
+		if cfg.MCP.Servers == nil {
+			cfg.MCP.Servers = map[string]MCPServerConfig{}
+		}
+		if _, ok := cfg.MCP.Servers[name]; ok {
+			return fmt.Errorf("MCP server %q is already configured", name)
+		}
+		cfg.MCP.Servers[name] = MCPServerConfig{URL: url, Transport: "streamable-http", Auth: "oauth"}
+		return cfg.applyDefaults()
+	})
+}
+
+// SetMCPServerApproval sets one server's enabled flag and its require_approval
+// list in a single locked write. The list is the owner's choice of which tools
+// need approval; an empty list means none do.
+func SetMCPServerApproval(path, name string, enabled bool, requireApproval []string) error {
+	return mutate(path, func(cfg *Config) error {
+		server, ok := cfg.MCP.Servers[name]
+		if !ok {
+			return fmt.Errorf("MCP server %q is not configured", name)
+		}
+		server.Enabled = enabled
+		server.RequireApproval = requireApproval
+		cfg.MCP.Servers[name] = server
+		return nil
+	})
+}

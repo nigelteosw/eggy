@@ -131,6 +131,9 @@ func (c Config) Validate() error {
 	if err := c.validateMCP(); err != nil {
 		return err
 	}
+	if err := c.validateMarketplace(); err != nil {
+		return err
+	}
 	if err := c.validateGoogle(); err != nil {
 		return err
 	}

@@ -273,3 +273,90 @@ func TestStoreWriteRefusesToOverwriteAnUnreadableSkill(t *testing.T) {
 		t.Fatalf("refused write still changed the file: %q", after)
 	}
 }
+
+func writeRaw(t *testing.T, dir, file, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readRaw(t *testing.T, dir, file string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+const sourcedSkill = "---\nname: pdf\ndescription: Fill PDFs\nsource: anthropic-skills/pdf\nlicense: MIT\nallowed-tools: [Bash]\n---\n\nbody\n"
+
+func TestWritePreservesSourceAndUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	writeRaw(t, dir, "pdf.md", sourcedSkill)
+	s := Open(dir, 0)
+	if err := s.Write(ctx, "pdf", "Fill PDF forms", "new body"); err != nil {
+		t.Fatal(err)
+	}
+	got := readRaw(t, dir, "pdf.md")
+	for _, want := range []string{"source: anthropic-skills/pdf", "license: MIT", "allowed-tools:"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lost %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "source:") != 1 {
+		t.Fatalf("known key duplicated into extras:\n%s", got)
+	}
+	sk, err := s.Read(ctx, "pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sk.Source != "anthropic-skills/pdf" || sk.Body != "new body" {
+		t.Fatalf("%+v", sk)
+	}
+}
+
+func TestSetDisabledPreservesSource(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	writeRaw(t, dir, "pdf.md", sourcedSkill)
+	s := Open(dir, 0)
+	if err := s.SetDisabled(ctx, "pdf", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDisabled(ctx, "pdf", false); err != nil {
+		t.Fatal(err)
+	}
+	got := readRaw(t, dir, "pdf.md")
+	for _, want := range []string{"source: anthropic-skills/pdf", "license: MIT", "allowed-tools:"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("round trip lost %q:\n%s", want, got)
+		}
+	}
+	sk, err := s.Read(ctx, "pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sk.Source != "anthropic-skills/pdf" || sk.Disabled {
+		t.Fatalf("%+v", sk)
+	}
+}
+
+func TestListReportsSource(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	writeRaw(t, dir, "pdf.md", sourcedSkill)
+	s := Open(dir, 0)
+	if err := s.Write(ctx, "hand", "Hand placed", "body"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0].Name != "hand" || list[0].Source != "" || list[1].Name != "pdf" || list[1].Source != "anthropic-skills/pdf" {
+		t.Fatalf("list=%#v", list)
+	}
+}

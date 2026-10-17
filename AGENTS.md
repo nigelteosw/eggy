@@ -121,7 +121,9 @@ should only ever add a new package under
   `internal/channel/discord/client.go` behind a fakeable transport.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
-  consolidates their approvals.
+  consolidates their approvals. A marketplace install is the one owner-panel
+  exception: its payload-bound approval is the digest review described under
+  *Decided*, not an `approvals.Action`, because no model tool call is involved.
 - Generic Telegram selections can never satisfy an approval, authorize a
   mutation, or be read as approve/reject. Discord has no decision surface at
   all: an approval raised there is a notice pointing at the web panel.
@@ -322,6 +324,25 @@ rule forces it: config may not import an extension package. If a third copy appe
 invert it — let the adapter validate its own product names and have config check
 only the shape.
 
+**Marketplaces are read, reviewed, and never automatic.** Eggy installs skills and
+remote MCP servers from Claude Code marketplaces and SKILL.md repositories on
+GitHub through one path: the owner reads a plan at one commit SHA, and the
+install writes exactly that plan, refused if the digest no longer matches. Nothing
+installs or updates on a schedule; the model cannot install; a stdio MCP server,
+which runs a downloaded program, is listed and skipped; no credential is sent on
+catalog traffic. Eggy publishes no catalog of its own. Source:
+`docs/superpowers/specs/2026-10-16-marketplace-design.md`.
+The owner's review is the approval for a marketplace install. It is a payload-bound
+review of the digest in the web panel, not an `approvals.Action`: it is an owner
+action at a verified session, not a model tool call. For an update, the choice to
+replace an owner-edited skill is made in the same review but is not part of the
+digest; it can only overwrite a skill the owner already edited, and what is written
+is still the reviewed content. Enabling a catalog MCP server pins its
+`tool_filter.include` to the tools the owner reviewed, so a tool the server adds
+later stays off until it is reviewed: `require_approval` alone names only the tools
+it protects, and would let a new one run unasked. Such a server carries
+`review_required` until that review, and every other enable path refuses it.
+
 ## Declined capabilities — do not re-propose
 
 Each is something a comparable project (OpenClaw, Hermes Agent) has and Eggy will
@@ -348,13 +369,6 @@ framework, which "Do not introduce" forbids by name, and it needs a second loop,
 which the boundary rules forbid by name. It is also the single largest net-new-
 code item either reference has. If parallelism is ever needed, the answer is a
 scheduled turn, not a child loop.
-
-**A plugin marketplace or hub.** An on-demand installer for third-party skills
-and plugins. Eggy's skills are reviewed files placed by the owner in `skills/`,
-and that review is the security model. An installer that fetches agent-readable
-instructions from the internet deletes it. Letting the *agent* write skills into
-the owner's own directory is a different trust boundary from fetching a
-stranger's.
 
 **Runtime-loaded plugins.** Both discover plugins from directories and entry
 points at runtime. Go's build model makes it worse than it is for Python or Node.

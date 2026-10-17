@@ -9,9 +9,11 @@ words, in a Markdown file. Eggy carries a one-line summary of each one in every
 prompt and reads the full instructions only when the task matches, so a long
 procedure costs a line of context until the moment it is useful.
 
-Skills are files in `skills/` under the Eggy home. There is no registry, no
-installer, and no download step — **you put the file there, and that placement
-is the review**. Eggy reads a skill; it never executes one.
+Skills are files in `skills/` under the Eggy home. **You put the file there, and
+that placement is the review.** With the [marketplace](/eggy/configure/marketplace/)
+turned on, you can also install skills from catalogs on GitHub; each install shows
+you every file first and writes exactly what you approved. Eggy reads a skill; it
+never executes one.
 
 ## Write a skill
 
@@ -53,9 +55,9 @@ the model calls `skill_read` with the exact name and receives the full body.
 That two-step is the entire mechanism, and it is what makes a large skills
 directory affordable: bodies are never resident, only summaries are.
 
-The index itself is bounded at 16 KB of summaries. Once it is full, the
-remaining files are skipped and each one is named in a warning in the logs — an
-index at capacity is reported, never silently trimmed. A file that is oversized,
+The index itself is bounded at 16 KB of summaries. When it is full, descriptions
+are left out first, as described below; names are dropped only when the names
+alone do not fit, and each dropped name is reported in the logs. A file that is oversized,
 unreadable, or has malformed frontmatter is skipped the same way, with a warning
 naming it, so one bad file cannot take out the skills that still work.
 
@@ -69,12 +71,20 @@ A skill is instructions, not authority.
   and every step asks in `strict`. See [Approvals](/eggy/use/approvals/).
 - It cannot override hard runtime policy or `SOUL.md`.
 
-This is why Eggy has no skill marketplace and no installer. The security model
-*is* that a skill is a file you wrote or read before saving; fetching
-agent-readable instructions from the internet would delete it.
+The security model is that a skill is text you read before it is used. A file you
+place yourself is read as you write or save it. A marketplace install is read in its
+review, which shows every file it will write and is approved by digest.
 
 ## Where they live
 
 `skills/` sits in the Eggy home beside `memories/` and `eggy.db`, with mode
 `0700`. Back it up as ordinary text along with `config.yaml` and `memories/` —
 see [Persistence and memory](/eggy/operate/persistence-memory/).
+
+## Skills as folders
+
+A skill can be a folder: `skills/<name>/SKILL.md` with text reference files beside it, such as `reference.md` or `examples/fill.md`. A flat `skills/<name>.md` keeps working. The model can read a folder skill's reference files with `skill_read`, passing the relative path as `file`. Only text files with `.md`, `.txt`, `.json`, `.yaml`, `.yml`, or `.csv` extensions are readable, and a file that climbs out of the skill's folder is refused.
+
+## How the skill index is kept small
+
+Every enabled skill's name stays in the index the model sees, so it can load a skill by name, as long as the names alone fit the budget. When the index runs out of room, descriptions are left out first, starting with the skills marketplace installs; your own skills keep theirs longest. Only when the names alone overflow are names dropped, installed skills first. A skill with no description is listed as `(description omitted; call skill_read)`.

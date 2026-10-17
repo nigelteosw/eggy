@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -822,5 +823,119 @@ func TestProviderDiscoveryDefaultsOnAndRoundTripsAnOptOut(t *testing.T) {
 	}
 	if !reloaded.Providers["deepseek"].DiscoversModels() {
 		t.Fatal("one provider opting out must not opt the others out")
+	}
+}
+
+func TestAddMCPServerDisabled(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, ok := cfg.MCP.Servers["deploy-tools-api"]
+	if !ok {
+		t.Fatal("server not written")
+	}
+	if server.Enabled || server.Auth != "oauth" || server.Transport != "streamable-http" || server.URL != "https://mcp.example.com/mcp" {
+		t.Fatalf("server = %+v, want disabled oauth streamable-http", server)
+	}
+	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://other.example.com/mcp"); err == nil {
+		t.Fatal("re-added an existing server name")
+	}
+}
+
+func TestSetMCPServerApproval(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, []string{"search"}, []string{"search", "read"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["deploy-tools-api"]
+	if !server.Enabled || !slices.Equal(server.RequireApproval, []string{"search"}) {
+		t.Fatalf("server = %+v, want enabled with require_approval [search]", server)
+	}
+	if !slices.Equal(server.ToolFilter.Include, []string{"search", "read"}) {
+		t.Fatalf("tool_filter.include = %v, want the reviewed tools pinned", server.ToolFilter.Include)
+	}
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, nil, nil); err == nil {
+		t.Fatal("enabled a server with no reviewed tools, which would allow every tool")
+	}
+	if err := SetMCPServerApproval(path, "deploy-tools-api", true, []string{"upload"}, []string{"read"}); err == nil {
+		t.Fatal("require_approval named a tool that was not reviewed")
+	}
+	if err := SetMCPServerApproval(path, "missing", true, nil, []string{"read"}); err == nil {
+		t.Fatal("set approval on an unconfigured server")
+	}
+}
+
+func TestSetMCPServerApprovalRefusesStdio(t *testing.T) {
+	path := marketplaceConfigPath(t, "\nmcp:\n  servers:\n    local:\n      transport: stdio\n      command: /usr/bin/true\n      auth: none\n      enabled: false\n")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerApproval(path, "local", true, nil, []string{"read"}); err == nil || !strings.Contains(err.Error(), "stdio") {
+		t.Fatalf("err = %v, want a stdio refusal", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("a refused approval changed the file")
+	}
+}
+
+func TestCatalogMCPServerEnablesOnlyThroughReview(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "plugin-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", true); err == nil || !strings.Contains(err.Error(), "Review and enable") {
+		t.Fatalf("plain enable err = %v, want a refusal pointing at the review", err)
+	}
+	if err := SetMCPServer(path, MCPServerInput{Name: "plugin-api", URL: "https://mcp.example.com/mcp", Auth: "oauth", Enabled: true}); err == nil {
+		t.Fatal("the add form enabled a catalog server without its review")
+	}
+	if err := SetMCPServerApproval(path, "plugin-api", true, []string{"write"}, []string{"read", "write"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["plugin-api"]
+	if !server.Enabled || server.ReviewRequired {
+		t.Fatalf("server = %+v, want enabled and reviewed", server)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMCPServerEnabled(path, "plugin-api", true); err != nil {
+		t.Fatalf("re-enabling a reviewed server: %v", err)
+	}
+}
+
+func TestApprovalNeverWidensAnOwnerFilter(t *testing.T) {
+	path := marketplaceConfigPath(t, "\nmcp:\n  servers:\n    hand:\n      transport: streamable-http\n      url: https://mcp.example.com/mcp\n      auth: oauth\n      enabled: false\n      tool_filter:\n        include: [read, search]\n        exclude: [search]\n")
+	if err := SetMCPServerApproval(path, "hand", true, []string{"search", "read"}, []string{"read", "search", "write"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := cfg.MCP.Servers["hand"]
+	if !slices.Equal(server.ToolFilter.Include, []string{"read"}) {
+		t.Fatalf("include = %v, want only read: within the owner's filter and not excluded", server.ToolFilter.Include)
+	}
+	if !slices.Equal(server.RequireApproval, []string{"read"}) {
+		t.Fatalf("require_approval = %v, want the excluded tool dropped", server.RequireApproval)
 	}
 }

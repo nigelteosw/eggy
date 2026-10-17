@@ -54,12 +54,13 @@ type Manager struct {
 	tools    []ports.Tool
 	// protected is the flattened catalog's approval-gated names, rebuilt with
 	// the catalog so a reconnect can never drop a gate.
-	protected map[string]bool
-	now       func() time.Time
-	oauth     map[string]*oauthProvider
-	handlers  map[string]auth.OAuthHandler
-	connect   connector
-	http      *http.Client
+	protected  map[string]bool
+	now        func() time.Time
+	oauth      map[string]*oauthProvider
+	handlers   map[string]auth.OAuthHandler
+	connect    connector
+	http       *http.Client
+	oauthStore *OAuthStore
 }
 
 func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*Manager, error) {
@@ -73,12 +74,13 @@ func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*
 		options.HTTPClient = http.DefaultClient
 	}
 	manager := &Manager{
-		runtimes: map[string]*serverRuntime{},
-		oauth:    map[string]*oauthProvider{},
-		handlers: map[string]auth.OAuthHandler{},
-		now:      options.Now,
-		connect:  options.Connect,
-		http:     options.HTTPClient,
+		runtimes:   map[string]*serverRuntime{},
+		oauth:      map[string]*oauthProvider{},
+		handlers:   map[string]auth.OAuthHandler{},
+		now:        options.Now,
+		connect:    options.Connect,
+		http:       options.HTTPClient,
+		oauthStore: options.OAuthStore,
 	}
 	for _, cfg := range configs {
 		cfg = cfg.withDefaults()
@@ -117,12 +119,23 @@ func (m *Manager) connectServer(ctx context.Context, cfg ServerConfig) (clientSe
 	m.mu.RLock()
 	handler := m.handlers[cfg.Name]
 	m.mu.RUnlock()
+	return m.connectServerWith(ctx, cfg, handler, true)
+}
+
+// connectServerWith connects with a given auth handler, so Preview can use a
+// handler it built for a disabled server without registering it.
+//
+// watch installs the tools/list_changed handler. Preview passes false: its
+// short-lived session must not mark the server stale or refresh a live one.
+func (m *Manager) connectServerWith(ctx context.Context, cfg ServerConfig, handler auth.OAuthHandler, watch bool) (clientSession, []*sdk.Tool, ServerState, string) {
 	if cfg.Auth == "oauth" && handler == nil {
 		return nil, nil, StateUnavailable, "OAuth storage is unavailable"
 	}
 	opts := &sdk.ClientOptions{Capabilities: &sdk.ClientCapabilities{}}
-	opts.ToolListChangedHandler = func(handlerCtx context.Context, _ *sdk.ToolListChangedRequest) {
-		m.onToolListChanged(handlerCtx, cfg.Name)
+	if watch {
+		opts.ToolListChangedHandler = func(handlerCtx context.Context, _ *sdk.ToolListChangedRequest) {
+			m.onToolListChanged(handlerCtx, cfg.Name)
+		}
 	}
 	connectCtx, cancel := withTimeout(ctx, cfg.ConnectTimeout)
 	session, err := m.connect(connectCtx, cfg, m.http, handler, opts)
@@ -512,6 +525,14 @@ func (m *Manager) CompleteLogin(ctx context.Context, name, code, state, issuer s
 	}
 	if err := provider.CompleteLogin(ctx, code, state, issuer); err != nil {
 		return err
+	}
+	// A disabled server keeps its grant and connects once the owner enables it.
+	// Reconnecting it now would fail and report a login that worked as failed.
+	m.mu.RLock()
+	runtime, ok := m.runtimes[name]
+	m.mu.RUnlock()
+	if ok && !runtime.config.Enabled {
+		return nil
 	}
 	return m.Reconnect(ctx, name)
 }

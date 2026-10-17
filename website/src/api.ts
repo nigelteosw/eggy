@@ -17,9 +17,13 @@ export class SessionExpiredError extends Error {}
 // tell "the route is not there" (404) from a failure worth showing.
 export class RequestError extends Error {
   status: number;
-  constructor(message: string, status: number) {
+  // body is the parsed response, so a caller can read a refusal's flags (for
+  // example a 409 that says the server needs a restart).
+  body: Record<string, unknown>;
+  constructor(message: string, status: number, body: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -46,7 +50,7 @@ export function clearSession(): void {
 
 const CSRF_HEADER = "X-Eggy-CSRF";
 
-async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const csrf: Record<string, string> = session?.csrf && method !== "GET" && method !== "HEAD" ? { [CSRF_HEADER]: session.csrf } : {};
   const response = await fetch(path, {
@@ -60,7 +64,7 @@ async function request<T = CommandResult>(path: string, init?: RequestInit): Pro
     throw new SessionExpiredError(body.title ?? "Not authenticated");
   }
   if (!response.ok) {
-    throw new RequestError(body.title ?? "Request failed", response.status);
+    throw new RequestError(body.title ?? "Request failed", response.status, body as Record<string, unknown>);
   }
   return body;
 }
@@ -349,7 +353,7 @@ export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
   return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance" | "agent_runner";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "appearance" | "finance" | "marketplace" | "agent_runner";
 
 // The theme is owner config rather than browser state, so it survives logging
 // in from a different machine. Applying it locally is separate (see
@@ -919,4 +923,24 @@ export function addAgentRepository(input: { name: string; clone_url: string; bas
 
 export function removeAgentRepository(name: string): Promise<CommandResult> {
   return request<CommandResult>(`/api/agent-runner/repositories/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+// The enable review: connect once and list the tools the server advertises. A
+// 409 carries restart or login, which the dialog turns into an instruction.
+export type MCPToolPreview = { name: string; description: string };
+export type MCPPreviewResult = { tools: MCPToolPreview[] };
+
+export function previewMCPServer(name: string): Promise<MCPPreviewResult> {
+  return request<MCPPreviewResult>(`/api/config/mcp/${encodeURIComponent(name)}/preview`, { method: "POST" });
+}
+
+// Enabling is a trust decision, so the owner's choice of which tools need
+// approval is saved in the same write as enabling the server.
+// tools is every tool the owner reviewed. It is saved as the server's include
+// filter, so a tool the server adds later stays off until it is reviewed again.
+export function setMCPApproval(name: string, enabled: boolean, requireApproval: string[], tools: string[]): Promise<CommandResult> {
+  return request(`/api/config/mcp/${encodeURIComponent(name)}/approval`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled, require_approval: requireApproval, tools }),
+  });
 }

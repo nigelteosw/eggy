@@ -62,6 +62,7 @@ type Config struct {
 	Google           GoogleConfig                `yaml:"google,omitempty"`
 	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
 	Finance          FinanceConfig               `yaml:"finance,omitempty"`
+	Marketplace      MarketplaceConfig           `yaml:"marketplace,omitempty"`
 	AgentRunner      AgentRunnerConfig           `yaml:"agent_runner,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`
@@ -456,10 +457,14 @@ type MCPServerConfig struct {
 	// in YAML; the secret never does, and is named here and read from the
 	// environment like every other secret. Leaving the secret env empty is a
 	// public client, authorized by PKCE alone.
-	OAuthClientID             string   `yaml:"oauth_client_id,omitempty"`
-	OAuthClientSecretEnv      string   `yaml:"oauth_client_secret_env,omitempty"`
-	OAuthScopes               []string `yaml:"oauth_scopes,omitempty"`
-	Enabled                   bool     `yaml:"enabled"`
+	OAuthClientID        string   `yaml:"oauth_client_id,omitempty"`
+	OAuthClientSecretEnv string   `yaml:"oauth_client_secret_env,omitempty"`
+	OAuthScopes          []string `yaml:"oauth_scopes,omitempty"`
+	Enabled              bool     `yaml:"enabled"`
+	// ReviewRequired marks a server a marketplace plugin added. It can be enabled
+	// only through Review and enable, which pins its reviewed tools; a plain
+	// enable would let every tool, and any added later, run unasked.
+	ReviewRequired            bool     `yaml:"review_required,omitempty"`
 	ConnectTimeout            Duration `yaml:"connect_timeout"`
 	Timeout                   Duration `yaml:"timeout"`
 	MaxOutputBytes            int64    `yaml:"max_output_bytes"`

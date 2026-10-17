@@ -71,6 +71,9 @@ type WebUIConfig struct {
 	// section; this is only the part config cannot do -- starting an OAuth
 	// flow against a live connection.
 	MCP MCPLoginStarter
+	// MCPPreview lists a server's tools for the enable review. Nil when there is no
+	// running MCP manager, which leaves the preview route unmounted.
+	MCPPreview MCPPreviewer
 	// Skills is the owner's view of the skills directory. Skills are core, so
 	// bootstrap always supplies it; nil leaves the skills routes unmounted.
 	Skills SkillsAdmin
@@ -115,6 +118,10 @@ type WebUIConfig struct {
 	// keeps "finance" out of the session's feature list, so the panel draws no
 	// Finance tab: an absent capability is absent, not empty.
 	Finance FinanceService
+	// Marketplace is the plugin marketplace, or nil when marketplace.enabled is
+	// off. Nil mounts no routes, reports no feature, and leaves the settings card
+	// absent, the same rule as Finance.
+	Marketplace MarketplaceService
 	// AgentRunner is the coding-run extension. Nil unless agent_runner.enabled,
 	// and then the page and its routes exist; nil mounts nothing.
 	AgentRunner AgentRunnerService
@@ -283,9 +290,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.AgentRunner != nil {
 		features = append(features, "agent_runner")
 	}
+	if webConfig.Marketplace != nil {
+		features = append(features, "marketplace")
+	}
 	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "agent_runner"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "marketplace", "agent_runner"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
 	}
@@ -334,6 +344,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", guard(webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", guard(webMCPRemoveRoute(configPath)))
+	registerMCPApprovalRoutes(mux, guard, configPath, webConfig.MCPPreview)
 	// Starting an OAuth flow is owner-only: an anonymous visitor who could
 	// reach this would bind their own account as Eggy's credential for that
 	// server. The matching callback is deliberately not session-gated -- it is
@@ -369,6 +380,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("DELETE /api/finance/entries/{id}", guard(newFinanceDeleteHandler(webConfig.Finance)))
 		mux.Handle("GET /api/finance/summary", guard(newFinanceSummaryHandler(webConfig.Finance)))
 		mux.Handle("PUT /api/finance/categories/{name}", guard(newFinanceCategoryHandler(webConfig.Finance)))
+	}
+	if webConfig.Marketplace != nil {
+		registerMarketplaceRoutes(mux, guard, webConfig.Marketplace, configPath)
 	}
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))

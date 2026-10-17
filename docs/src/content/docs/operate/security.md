@@ -42,11 +42,18 @@ MCP servers are trusted at configuration time: a server's tools run without aski
 
 ## Skills and traces
 
-A skill is a Markdown file you placed in `skills/`. That placement is the review,
-which is why Eggy has no skill installer or marketplace: fetching agent-readable
-instructions from the internet would delete the security model. A skill is text
-the agent reads, never something Eggy executes, and it grants no tool and lifts
-no approval. See [Skills](/eggy/use/skills/).
+A skill reaches Eggy one of two ways, and both are reviewed. You place a Markdown
+file in `skills/`, and that placement is the review. Or, with the marketplace on,
+you install one from a catalog on GitHub: Eggy shows you every file it will write at
+one commit, and writes exactly what you approved, refused if the content changed.
+Nothing installs or updates by itself, and the model cannot install anything. A
+skill is text the agent reads, never something Eggy executes, and it grants no tool
+and lifts no approval. See [Skills](/eggy/use/skills/) and
+[Marketplace](/eggy/configure/marketplace/).
+
+A remote MCP server from a catalog arrives disabled. Enabling it is a review of its
+tools: the tools you review become its allowed list, so a tool it adds later stays
+off until you review it again.
 
 Traces record the exact prompt behind every model call, which makes them the most
 sensitive records Eggy holds — a prompt carries `SOUL.md`, `USER.md`, `MEMORY.md`,

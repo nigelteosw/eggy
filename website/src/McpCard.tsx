@@ -9,16 +9,22 @@ import { Switch } from "./components/ui/switch";
 import { CardHeader } from "./components/ui/card-header";
 import { ErrorBanner } from "./components/ui/error-banner";
 import { FIELD } from "./components/ui/form";
+import { McpEnableDialog } from "./McpEnableDialog";
 
 // Column positions in the rows /api/config/mcp returns. Named here so the row
 // actions below read as intent rather than as indexes into an anonymous array.
 const NAME = 0;
 const AUTH = 3;
+const ENABLED = 4;
+const TRANSPORT = 1;
 
 export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The server whose enable review is open. Enabling is a trust decision, so a
+  // disabled server is never switched on from the row alone.
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState("streamable-http");
@@ -113,6 +119,13 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                   <a href={`/auth/mcp/${encodeURIComponent(row[NAME])}`}>Authorize</a>
                 </Button>
               )}
+              {row[TRANSPORT] !== "stdio" && (
+                // Enabled servers can be reviewed again, so a tool added since
+                // the last review can be allowed on purpose.
+                <Button type="button" variant="ghost" size="sm" onClick={() => setReviewing(row[NAME])}>
+                  {row[ENABLED] === "false" ? "Review and enable" : "Review tools"}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="ghost"
@@ -125,6 +138,15 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
             </div>
           )}
         />
+        {reviewing && (
+          <McpEnableDialog
+            server={reviewing}
+            onClose={() => setReviewing(null)}
+            // The dialog stays open on its saved notice; Close dismisses it.
+            onEnabled={load}
+            onSessionExpired={onSessionExpired}
+          />
+        )}
         <details className="rounded-2xl bg-neutral-100 p-4">
           <summary className="cursor-pointer text-[12.5px] font-medium">Add MCP server</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">

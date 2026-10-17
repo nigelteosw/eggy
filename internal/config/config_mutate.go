@@ -337,6 +337,9 @@ func SetMCPServer(path string, input MCPServerInput) error {
 			// and validation rejects the pair, so clearing one clears both.
 			server.OAuthClientSecretEnv = ""
 		}
+		if input.Enabled && server.ReviewRequired {
+			return errReviewRequired(name)
+		}
 		server.Enabled = input.Enabled
 		cfg.MCP.Servers[name] = server
 		// A brand-new server needs the defaults applyDefaults would give it on
@@ -358,10 +361,19 @@ func SetMCPServerEnabled(path, name string, enabled bool) error {
 		if !ok {
 			return fmt.Errorf("MCP server %q is not configured", name)
 		}
+		if enabled && server.ReviewRequired {
+			return errReviewRequired(name)
+		}
 		server.Enabled = enabled
 		cfg.MCP.Servers[name] = server
 		return nil
 	})
+}
+
+// errReviewRequired refuses a plain enable of a catalog server. Its tools have not
+// been reviewed, so enabling it here would let every tool run unasked.
+func errReviewRequired(name string) error {
+	return fmt.Errorf("MCP server %q came from a marketplace plugin; enable it with Review and enable in Customize → Connectors", name)
 }
 
 // RemoveMCPServer deletes one MCP server's config entry. Persisted OAuth
@@ -711,4 +723,74 @@ func DescribeOpenRouterRouting(routing *OpenRouterRoutingConfig) string {
 		parts = append(parts, "sort:"+routing.Sort)
 	}
 	return strings.Join(parts, " ")
+}
+
+// AddMCPServerDisabled adds a remote MCP server a plugin brought, disabled and
+// with OAuth auth, so the owner decides when it runs. An existing name is
+// refused rather than overwritten, so a hand-configured server is never replaced.
+func AddMCPServerDisabled(path, name, url string) error {
+	return mutate(path, func(cfg *Config) error {
+		if cfg.MCP.Servers == nil {
+			cfg.MCP.Servers = map[string]MCPServerConfig{}
+		}
+		if _, ok := cfg.MCP.Servers[name]; ok {
+			return fmt.Errorf("MCP server %q is already configured", name)
+		}
+		cfg.MCP.Servers[name] = MCPServerConfig{URL: url, Transport: "streamable-http", Auth: "oauth", ReviewRequired: true}
+		return cfg.applyDefaults()
+	})
+}
+
+// SetMCPServerApproval enables or disables one server, sets require_approval,
+// and pins tool_filter.include to the tools the owner reviewed, all in one locked
+// write. The pin is what keeps the review meaningful: require_approval names only
+// the tools it protects, so a tool the server adds later would otherwise run
+// unasked. With the pin, a new tool stays off until the server is reviewed again.
+// Enabling with no reviewed tools is refused, since an empty include allows all.
+func SetMCPServerApproval(path, name string, enabled bool, requireApproval, reviewedTools []string) error {
+	return mutate(path, func(cfg *Config) error {
+		server, ok := cfg.MCP.Servers[name]
+		if !ok {
+			return fmt.Errorf("MCP server %q is not configured", name)
+		}
+		// A stdio server is a local program and belongs in reviewed config, the
+		// same rule SetMCPServer holds.
+		if server.Transport == "stdio" {
+			return fmt.Errorf("MCP server %q uses the stdio transport; edit it in config.yaml", name)
+		}
+		for _, tool := range requireApproval {
+			if !slices.Contains(reviewedTools, tool) {
+				return fmt.Errorf("MCP server %q require_approval names %q, which was not reviewed", name, tool)
+			}
+		}
+		// Allowed is what was reviewed, never wider than a filter the owner already
+		// wrote, and never a tool the exclude list blocks.
+		var allowed []string
+		for _, tool := range reviewedTools {
+			if slices.Contains(server.ToolFilter.Exclude, tool) {
+				continue
+			}
+			if len(server.ToolFilter.Include) > 0 && !slices.Contains(server.ToolFilter.Include, tool) {
+				continue
+			}
+			allowed = append(allowed, tool)
+		}
+		if enabled && len(allowed) == 0 {
+			return fmt.Errorf("MCP server %q has no reviewed tools to allow", name)
+		}
+		var gated []string
+		for _, tool := range requireApproval {
+			if slices.Contains(allowed, tool) {
+				gated = append(gated, tool)
+			}
+		}
+		server.Enabled = enabled
+		server.RequireApproval = gated
+		if enabled {
+			server.ToolFilter.Include = allowed
+			server.ReviewRequired = false
+		}
+		cfg.MCP.Servers[name] = server
+		return nil
+	})
 }

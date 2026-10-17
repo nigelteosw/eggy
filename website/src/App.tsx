@@ -338,7 +338,7 @@ export function App() {
           </div>
         ) : view === "customize" ? (
           <div className="min-h-0 min-w-0 flex-1">
-            <CustomizePage onSessionExpired={onSessionExpired} />
+            <CustomizePage onSessionExpired={onSessionExpired} features={features ?? []} />
           </div>
         ) : view === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">

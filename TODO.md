@@ -35,14 +35,43 @@ Deletion budget: ~2,300–3,800 production lines (estimate), 3 config keys plus
 registry, 2 tables, 1 sealed record per account, 1 worker while enabled,
 1 system user.
 
+## Marketplace — follow-ups after merge
+
+Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`. Two whole-branch
+reviews (2026-10-17, Haiku then Opus) found merge blockers; all are fixed on the
+`marketplace` branch, including transactional update and remove, kind-keyed
+ownership, safe MCP preview, the reviewed-tools pin on enable, crash recovery for
+skill replaces, and the sources lock. What remains is below.
+
+- [ ] Remove's "delete my edits" ticks match by bare name, so an install owning a
+      skill and an MCP server of the same name deletes both (`service.go` Remove).
+- [ ] Restoring an MCP entry during a rollback brings it back disabled with default
+      settings; its OAuth client, timeouts, and filters are not snapshotted.
+- [ ] A disabled catalog MCP server's non-enable tuning (timeouts, OAuth client)
+      is lost when an upstream URL change re-adds it.
+- [ ] `skill_read`'s schema grows for every owner, not only those with directory skills.
+- [ ] The index-overflow warning logs on every turn (`internal/core/services/skills.go`).
+- [ ] Config write errors still reach the browser verbatim in a few routes (shared
+      pattern with `internal/panel/mcp.go`).
+- [ ] Connectors rows lack a "from plugin" label.
+- [ ] Session/CSRF guard tests for the new routes, and component-level tests for the
+      review screens (the decision logic is covered through pure helpers only).
+- [ ] A test for OAuth login on a disabled server completing without a reconnect.
+- [ ] An update review still lists a skill the owner deleted as planned content,
+      though the update will not write it (the record keeps a tombstone).
+- [ ] A skill left at `.old-*` after a failed restore comes back on the next List,
+      even if the owner meant to discard it.
+- [ ] Installs and updates are serialized in-process only; one `eggyd` process is
+      the deployment model, so this holds, but it is not a cross-process lock.
+
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 
 Not started; scoped in conversation 2026-10-12. A fourth `View` in
 `website/src/routing.ts` (`customize`, `/customize`) with a rail entry under
 Scheduled, and a `CustomizePage` with `Skills | Connectors | Plugins` tabs,
 search, sort and an Add menu. Yours only: no Discover tab and no fetch-from-URL
-install, since a marketplace is declined in `AGENTS.md`. Plugins are placed on
-disk by the owner.
+install from Discover, which is the marketplace in
+`docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 Build in this order, test-first, each step landing on its own:
 
@@ -56,13 +85,8 @@ Build in this order, test-first, each step landing on its own:
    including the OAuth start and failure detail. No backend change: the existing
    `internal/panel/mcp.go` list and set routes already carry it. One home, not
    two.
-3. **Skills as directories.** `skills/<name>/SKILL.md` with room for reference
-   files; flat `skills/<name>.md` keeps loading so an existing home does not
-   break.
-4. **Plugins.** A plugin directory holds a manifest (name, version, description,
-   categories), its skills and optional MCP server entries; one toggle enables
-   them as a unit. Settle the manifest shape with the owner before building.
-   No hooks: Eggy has no hook surface and none is added here.
+3. **Skills as directories.** Done (`1257379`, fix `cf63933`).
+4. **Plugins.** Superseded by `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 Deletion budget: net-new, roughly 600–900 production lines (estimate) plus the
 SPA, 0 config keys beyond the plugin toggle, 0 tools (`skill_read` stays the

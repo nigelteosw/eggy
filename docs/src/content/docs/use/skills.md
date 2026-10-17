@@ -78,3 +78,11 @@ agent-readable instructions from the internet would delete it.
 `skills/` sits in the Eggy home beside `memories/` and `eggy.db`, with mode
 `0700`. Back it up as ordinary text along with `config.yaml` and `memories/` —
 see [Persistence and memory](/eggy/operate/persistence-memory/).
+
+## Skills as folders
+
+A skill can be a folder: `skills/<name>/SKILL.md` with text reference files beside it, such as `reference.md` or `examples/fill.md`. A flat `skills/<name>.md` keeps working. The model can read a folder skill's reference files with `skill_read`, passing the relative path as `file`. Only text files with `.md`, `.txt`, `.json`, `.yaml`, `.yml`, or `.csv` extensions are readable, and a file that climbs out of the skill's folder is refused.
+
+## How the skill index is kept small
+
+Every enabled skill's name always stays in the index the model sees, so it can still load any skill it needs. When the index runs out of room, descriptions are left out, starting with the skills marketplace installs. Your own skills keep their descriptions longest. A skill with no description is listed as `(description omitted; call skill_read)`.

@@ -41,8 +41,8 @@ Not started; scoped in conversation 2026-10-12. A fourth `View` in
 `website/src/routing.ts` (`customize`, `/customize`) with a rail entry under
 Scheduled, and a `CustomizePage` with `Skills | Connectors | Plugins` tabs,
 search, sort and an Add menu. Yours only: no Discover tab and no fetch-from-URL
-install, since a marketplace is declined in `AGENTS.md`. Plugins are placed on
-disk by the owner.
+install from Discover, which is the marketplace in
+`docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 Build in this order, test-first, each step landing on its own:
 
@@ -56,13 +56,8 @@ Build in this order, test-first, each step landing on its own:
    including the OAuth start and failure detail. No backend change: the existing
    `internal/panel/mcp.go` list and set routes already carry it. One home, not
    two.
-3. **Skills as directories.** `skills/<name>/SKILL.md` with room for reference
-   files; flat `skills/<name>.md` keeps loading so an existing home does not
-   break.
-4. **Plugins.** A plugin directory holds a manifest (name, version, description,
-   categories), its skills and optional MCP server entries; one toggle enables
-   them as a unit. Settle the manifest shape with the owner before building.
-   No hooks: Eggy has no hook surface and none is added here.
+3. **Skills as directories.** Done (`1257379`, fix `cf63933`).
+4. **Plugins.** Superseded by `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 Deletion budget: net-new, roughly 600–900 production lines (estimate) plus the
 SPA, 0 config keys beyond the plugin toggle, 0 tools (`skill_read` stays the

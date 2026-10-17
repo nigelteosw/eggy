@@ -3,6 +3,9 @@
 Status: proposed; not approved for implementation.
 Date: 2026-10-12.
 
+Superseded in part, 2026-10-16: plugins and directory skills are covered by
+`2026-10-16-marketplace-design.md`.
+
 ## Outcome
 
 One Customize page where a user manages skills and MCP connections, instead of

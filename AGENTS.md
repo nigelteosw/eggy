@@ -322,6 +322,15 @@ rule forces it: config may not import an extension package. If a third copy appe
 invert it — let the adapter validate its own product names and have config check
 only the shape.
 
+**Marketplaces are read, reviewed, and never automatic.** Eggy installs skills and
+remote MCP servers from Claude Code marketplaces and SKILL.md repositories on
+GitHub through one path: the owner reads a plan at one commit SHA, and the
+install writes exactly that plan, refused if the digest no longer matches. Nothing
+installs or updates on a schedule; the model cannot install; a stdio MCP server,
+which runs a downloaded program, is listed and skipped; no credential is sent on
+catalog traffic. Eggy publishes no catalog of its own. Source:
+`docs/superpowers/specs/2026-10-16-marketplace-design.md`.
+
 ## Declined capabilities — do not re-propose
 
 Each is something a comparable project (OpenClaw, Hermes Agent) has and Eggy will
@@ -348,13 +357,6 @@ framework, which "Do not introduce" forbids by name, and it needs a second loop,
 which the boundary rules forbid by name. It is also the single largest net-new-
 code item either reference has. If parallelism is ever needed, the answer is a
 scheduled turn, not a child loop.
-
-**A plugin marketplace or hub.** An on-demand installer for third-party skills
-and plugins. Eggy's skills are reviewed files placed by the owner in `skills/`,
-and that review is the security model. An installer that fetches agent-readable
-instructions from the internet deletes it. Letting the *agent* write skills into
-the owner's own directory is a different trust boundary from fetching a
-stranger's.
 
 **Runtime-loaded plugins.** Both discover plugins from directories and entry
 points at runtime. Go's build model makes it worse than it is for Python or Node.

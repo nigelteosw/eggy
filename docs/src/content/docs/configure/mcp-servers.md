@@ -111,3 +111,9 @@ A stdio server runs as the same operating-system user as Eggy. Only `PATH`, `HOM
 Use exact include and exclude filters to reduce the exposed surface. Consecutive failures quarantine only the failing tool for the configured cooldown; other tools and servers remain available.
 
 MCP tools are available to direct owner turns. Scheduled turns use a read-only allowlist and do not inherit arbitrary external authority.
+
+## Review and enable a plugin's server
+
+A remote server that comes from a marketplace plugin is added disabled. Open **Customize → Connectors** and choose **Review and enable**. Eggy connects once, lists the tools the server advertises, and asks which of them need your approval. Every tool starts ticked, so each call asks you first. Untick a tool only if you trust it to run without asking.
+
+If the server was added after Eggy started, the review asks you to restart first. If it needs an OAuth login, the review links to **Authorize** before it can list the tools.

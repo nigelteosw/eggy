@@ -71,6 +71,9 @@ type WebUIConfig struct {
 	// section; this is only the part config cannot do -- starting an OAuth
 	// flow against a live connection.
 	MCP MCPLoginStarter
+	// MCPPreview lists a server's tools for the enable review. Nil when there is no
+	// running MCP manager, which leaves the preview route unmounted.
+	MCPPreview MCPPreviewer
 	// Skills is the owner's view of the skills directory. Skills are core, so
 	// bootstrap always supplies it; nil leaves the skills routes unmounted.
 	Skills SkillsAdmin
@@ -341,6 +344,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath)))
 	mux.Handle("POST /api/config/mcp", guard(webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", guard(webMCPRemoveRoute(configPath)))
+	registerMCPApprovalRoutes(mux, guard, configPath, webConfig.MCPPreview)
 	// Starting an OAuth flow is owner-only: an anonymous visitor who could
 	// reach this would bind their own account as Eggy's credential for that
 	// server. The matching callback is deliberately not session-gated -- it is

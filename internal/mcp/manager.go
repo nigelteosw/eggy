@@ -54,12 +54,13 @@ type Manager struct {
 	tools    []ports.Tool
 	// protected is the flattened catalog's approval-gated names, rebuilt with
 	// the catalog so a reconnect can never drop a gate.
-	protected map[string]bool
-	now       func() time.Time
-	oauth     map[string]*oauthProvider
-	handlers  map[string]auth.OAuthHandler
-	connect   connector
-	http      *http.Client
+	protected  map[string]bool
+	now        func() time.Time
+	oauth      map[string]*oauthProvider
+	handlers   map[string]auth.OAuthHandler
+	connect    connector
+	http       *http.Client
+	oauthStore *OAuthStore
 }
 
 func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*Manager, error) {
@@ -73,12 +74,13 @@ func NewManager(ctx context.Context, configs []ServerConfig, options Options) (*
 		options.HTTPClient = http.DefaultClient
 	}
 	manager := &Manager{
-		runtimes: map[string]*serverRuntime{},
-		oauth:    map[string]*oauthProvider{},
-		handlers: map[string]auth.OAuthHandler{},
-		now:      options.Now,
-		connect:  options.Connect,
-		http:     options.HTTPClient,
+		runtimes:   map[string]*serverRuntime{},
+		oauth:      map[string]*oauthProvider{},
+		handlers:   map[string]auth.OAuthHandler{},
+		now:        options.Now,
+		connect:    options.Connect,
+		http:       options.HTTPClient,
+		oauthStore: options.OAuthStore,
 	}
 	for _, cfg := range configs {
 		cfg = cfg.withDefaults()

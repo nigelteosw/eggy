@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -140,6 +141,34 @@ func (a *mcpAdmin) commandsView() commands.MCPRuntime {
 }
 
 func (a *mcpAdmin) webView() panel.MCPLoginStarter {
+	if a == nil {
+		return nil
+	}
+	return a
+}
+
+// Preview lists a server's tools through the manager, translating the adapter's
+// refusals into the panel's vocabulary so the enable review can say what to do.
+func (a *mcpAdmin) Preview(ctx context.Context, server string) ([]panel.MCPToolPreview, error) {
+	tools, err := a.manager.Preview(ctx, server)
+	switch {
+	case errors.Is(err, mcpadapter.ErrRestartRequired):
+		return nil, panel.ErrMCPRestartRequired
+	case errors.Is(err, mcpadapter.ErrLoginRequired):
+		return nil, panel.ErrMCPLoginRequired
+	case err != nil:
+		return nil, err
+	}
+	out := make([]panel.MCPToolPreview, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, panel.MCPToolPreview{Name: tool.Name, Description: tool.Description})
+	}
+	return out, nil
+}
+
+// previewView hands out the preview interface, with an explicit nil so a nil
+// admin never reaches the panel as a non-nil interface.
+func (a *mcpAdmin) previewView() panel.MCPPreviewer {
 	if a == nil {
 		return nil
 	}

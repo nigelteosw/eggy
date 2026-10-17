@@ -115,6 +115,10 @@ type WebUIConfig struct {
 	// keeps "finance" out of the session's feature list, so the panel draws no
 	// Finance tab: an absent capability is absent, not empty.
 	Finance FinanceService
+	// Marketplace is the plugin marketplace, or nil when marketplace.enabled is
+	// off. Nil mounts no routes, reports no feature, and leaves the settings card
+	// absent, the same rule as Finance.
+	Marketplace MarketplaceService
 	// AgentRunner is the coding-run extension. Nil unless agent_runner.enabled,
 	// and then the page and its routes exist; nil mounts nothing.
 	AgentRunner AgentRunnerService
@@ -283,6 +287,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.AgentRunner != nil {
 		features = append(features, "agent_runner")
 	}
+	if webConfig.Marketplace != nil {
+		features = append(features, "marketplace")
+	}
 	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "agent_runner"} {
@@ -369,6 +376,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("DELETE /api/finance/entries/{id}", guard(newFinanceDeleteHandler(webConfig.Finance)))
 		mux.Handle("GET /api/finance/summary", guard(newFinanceSummaryHandler(webConfig.Finance)))
 		mux.Handle("PUT /api/finance/categories/{name}", guard(newFinanceCategoryHandler(webConfig.Finance)))
+	}
+	if webConfig.Marketplace != nil {
+		registerMarketplaceRoutes(mux, guard, webConfig.Marketplace, configPath)
 	}
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))

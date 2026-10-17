@@ -355,6 +355,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(financeTools...); err != nil {
 		return nil, err
 	}
+	// The marketplace: nil unless marketplace.enabled, so no route, no outbound
+	// request and no store access. It reads its sources from config on every call.
+	marketplaceService, err := newMarketplace(config, options.ConfigPath, database, skillsService, options.Now)
+	if err != nil {
+		return nil, err
+	}
 	// The agent runner: nil and no tool, worker or workspace root unless
 	// agent_runner.enabled. Its coding tools never reach this registry; they
 	// belong to the run's own loop.
@@ -541,6 +547,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// look enabled to the panel, mount its routes and list the feature.
 	if financeService != nil {
 		webConfig.Finance = financeService
+	}
+	if marketplaceService != nil {
+		webConfig.Marketplace = panelMarketplace{svc: marketplaceService}
 	}
 	if agentRunner != nil {
 		webConfig.AgentRunner = panelAgentRunner{service: agentRunner}

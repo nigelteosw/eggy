@@ -64,6 +64,16 @@ var ErrDigestMismatch = errors.New("the content changed since you reviewed it; r
 // does not own. The owner renames it and reviews again.
 var ErrConflicts = errors.New("rename the conflicting skills before installing")
 
+// ConflictError is ErrConflicts with the names that conflict, so the review can
+// ask for a rename of each one.
+type ConflictError struct {
+	Conflicts []string
+}
+
+func (e ConflictError) Error() string { return ErrConflicts.Error() }
+
+func (e ConflictError) Unwrap() error { return ErrConflicts }
+
 var errItemNotFound = errors.New("item is not in the catalog")
 
 // SourceStatus is one configured source with the commit its ref names now.
@@ -191,7 +201,7 @@ func (s *Service) Install(ctx context.Context, req ApproveRequest) (ports.Market
 		return ports.MarketplaceInstall{}, ErrDigestMismatch
 	}
 	if len(plan.Conflicts) > 0 {
-		return ports.MarketplaceInstall{}, ErrConflicts
+		return ports.MarketplaceInstall{}, ConflictError{Conflicts: plan.Conflicts}
 	}
 
 	var writtenSkills, writtenMCP []string
@@ -302,7 +312,7 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		return ports.MarketplaceInstall{}, ErrDigestMismatch
 	}
 	if len(plan.Conflicts) > 0 {
-		return ports.MarketplaceInstall{}, ErrConflicts
+		return ports.MarketplaceInstall{}, ConflictError{Conflicts: plan.Conflicts}
 	}
 
 	edited, err := s.editedSet(ctx, install)

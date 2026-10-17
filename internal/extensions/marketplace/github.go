@@ -198,3 +198,9 @@ func resetTime(resp *http.Response) time.Time {
 	}
 	return time.Unix(unix, 0)
 }
+
+// NewFetcher returns the GitHub adapter. Bootstrap uses it because the adapter's
+// methods are unexported, so the fetcher can only be built here.
+func NewFetcher() Fetcher {
+	return newGitHub()
+}

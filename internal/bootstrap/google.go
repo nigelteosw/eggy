@@ -48,7 +48,8 @@ func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOp
 	}
 	adapterConfig := googleadapter.Config{
 		ClientID: cfg.Google.ClientID, ClientSecret: secrets.GoogleClientSecret, ExpectedEmail: cfg.Google.ExpectedEmail,
-		Scopes: googleScopes(cfg.Google), Timeout: cfg.Google.Timeout.Value(), MaxOutputBytes: cfg.Google.MaxOutputBytes,
+		RedirectURL: googleRedirectURL(cfg),
+		Scopes:      googleScopes(cfg.Google), Timeout: cfg.Google.Timeout.Value(), MaxOutputBytes: cfg.Google.MaxOutputBytes,
 	}
 	client := options.HTTPClient
 	if client == nil {
@@ -56,6 +57,52 @@ func newGoogleWorkspace(cfg config.Config, secrets config.Secrets, options AppOp
 	}
 	auth := googleadapter.NewAuth(adapterConfig, store, client, options.Now)
 	return auth, googleadapter.NewWorkspace(auth, adapterConfig), nil
+}
+
+// googleRedirectURL is where a login returns. Empty leaves the adapter on its
+// loopback default, the Desktop client's paste flow; a Web client returns to
+// Eggy's own callback, built the same way the MCP callbacks are.
+func googleRedirectURL(cfg config.Config) string {
+	if cfg.Google.ClientType != config.GoogleClientWeb {
+		return ""
+	}
+	return strings.TrimRight(cfg.Server.PublicBaseURL, "/") + panel.GoogleCallbackPath
+}
+
+// googleCallbackReturn is where a finished login lands: the card the owner
+// pressed Connect on, now showing whose account is connected.
+const googleCallbackReturn = "/customize?tab=connectors"
+
+// googleLoginCompleter is the one thing the callback needs from the adapter.
+type googleLoginCompleter interface {
+	CompleteLogin(ctx context.Context, code, state string) error
+}
+
+// googleCallbackHandler finishes a Web client's login. It is the Google twin
+// of mcpCallbackHandler and unauthenticated for the same reason -- Google
+// redirects a browser here -- so state is required, not optional as it is
+// for a paste. What the exchange then checks is unchanged: the pending window,
+// the PKCE verifier, and whose account the grant belongs to.
+func googleCallbackHandler(auth googleLoginCompleter) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		if failure := query.Get("error"); failure != "" {
+			http.Error(response, "Google authorization was denied: "+failure, http.StatusBadRequest)
+			return
+		}
+		code, state := query.Get("code"), query.Get("state")
+		if code == "" || state == "" {
+			http.Error(response, "missing Google authorization response", http.StatusBadRequest)
+			return
+		}
+		if err := auth.CompleteLogin(request.Context(), code, state); err != nil {
+			// The owner holds the browser, and the reason is the repair: the
+			// wrong account, an expired login, or a client secret mismatch.
+			http.Error(response, "Google authorization failed: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Redirect(response, request, googleCallbackReturn, http.StatusFound)
+	})
 }
 
 // googleScopes prefers what the owner wrote. Falling back to the scope each
@@ -198,7 +245,7 @@ func (a *googleAdmin) Status() (commands.GoogleStatus, error) {
 		return commands.GoogleStatus{}, err
 	}
 	return commands.GoogleStatus{Authorized: status.Authorized, Scopes: status.Scopes, Expiry: status.Expiry,
-		Email: status.Email, ExpectedEmail: status.ExpectedEmail, Generation: status.Generation}, nil
+		Email: status.Email, ExpectedEmail: status.ExpectedEmail, Generation: status.Generation, Callback: a.auth.Callback()}, nil
 }
 
 // Connection is the panel's view of the same status, so the Google card can
@@ -217,6 +264,24 @@ func (a *googleAdmin) webView() panel.GoogleConnectionReader {
 		return nil
 	}
 	return a
+}
+
+// loginView is the Connect button's handoff: present only when the login
+// returns to Eggy's callback, so a Desktop client gets no button that would
+// strand the owner on a dead page.
+func (a *googleAdmin) loginView() panel.GoogleLoginStarter {
+	if a == nil || !a.auth.Callback() {
+		return nil
+	}
+	return a
+}
+
+// callbackRoute is the callback's handler, or nil when nothing returns there.
+func (a *googleAdmin) callbackRoute() http.Handler {
+	if a == nil || !a.auth.Callback() {
+		return nil
+	}
+	return googleCallbackHandler(a.auth)
 }
 
 // generation is what approvals bind to. Without Google there is no shared

@@ -100,6 +100,9 @@ type WebUIConfig struct {
 	// card can show the verified address against the expected one. Nil when
 	// Google is disabled.
 	GoogleConnection GoogleConnectionReader
+	// GoogleLogin starts the Connect button's login. Nil unless the running
+	// adapter's login completes at the callback.
+	GoogleLogin GoogleLoginStarter
 	// ModelDiscovery browses a provider's catalog so the models card can offer
 	// what is on sale instead of asking the owner to type an ID from memory.
 	// Nil leaves the route answering 404 and the card's browse control absent,
@@ -181,6 +184,13 @@ type GoogleConnection struct {
 	Authorized    bool
 	Email         string
 	ExpectedEmail string
+}
+
+// GoogleLoginStarter begins the Google login the Connect button redirects to.
+// Bootstrap hands one over only for a Web client: a Desktop client's login
+// comes back by paste, which only /google login can receive.
+type GoogleLoginStarter interface {
+	BeginLogin(ctx context.Context) (string, error)
 }
 
 // GoogleConnectionReader is bootstrap's handoff of the live connection state.
@@ -351,6 +361,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	// the provider's redirect, authenticated by the state parameter it carries.
 	if webConfig.MCP != nil {
 		mux.Handle("GET /auth/mcp/{server}", guard(webMCPLoginRoute(webConfig.MCP)))
+	}
+	if webConfig.GoogleLogin != nil {
+		mux.Handle("GET "+googleLoginPath, guard(webGoogleLoginRoute(webConfig.GoogleLogin)))
 	}
 
 	mux.Handle("GET /api/chat/threads", guard(newThreadListHandler(webConfig.Threads)))

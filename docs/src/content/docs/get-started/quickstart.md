@@ -13,7 +13,7 @@ carries over to [Railway](/eggy/get-started/deploy-railway/).
 - Go 1.26, Bun, Git
 - An API key for at least one model provider
 - A username and password for your own account
-- Optional: a Google Workspace user for Eggy itself, a Desktop OAuth client,
+- Optional: a Google Workspace user for Eggy itself, an OAuth client,
   a Telegram bot token and webhook secret
 
 ## Build
@@ -97,9 +97,10 @@ Browsers accept Eggy's `Secure` session cookie on `localhost` over plain
 
 ## Connect Google Workspace (optional)
 
-Under **Settings → Connections → Google Workspace**, set the Desktop client
-ID, the secret's variable name, and the products; save and restart. Run
-`/google login` in chat and, on the consent screen, sign in **as Eggy's own
+Under **Settings → Connections → Google Workspace**, set the client ID, the
+client type, the secret's variable name, and the products; save and restart.
+Press **Connect Google** (Web client) or run `/google login` in chat (Desktop
+client) and, on the consent screen, sign in **as Eggy's own
 Workspace user** — the expected address — never as yourself. Eggy verifies
 whose account the grant is and refuses any other. Then share calendars or
 files with, or forward mail to, that address.

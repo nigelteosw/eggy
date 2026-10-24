@@ -52,19 +52,21 @@ Fill in an app name and a support email. Nothing else on this screen matters to 
 
 > **External + Testing expires refresh tokens after seven days.** The grant will die weekly no matter how it was obtained, and this is not something Eggy can work around. Publish the app, or use an Internal client on a Workspace account.
 
-## 4. Create a Desktop OAuth client
+## 4. Create the OAuth client
 
-Under **APIs & Services → Credentials → Create credentials → OAuth client ID**, choose application type **Desktop app**.
+Under **APIs & Services → Credentials → Create credentials → OAuth client ID**, pick one of two application types. They differ only in how a login comes back to Eggy; both end in the same exchange and the same identity check.
 
-This choice is the reason authorization works without any of the usual infrastructure. Google grants desktop clients an implicit loopback redirect, so:
+**Web application — recommended when Eggy has a public HTTPS address.** Under **Authorized redirect URIs**, add Eggy's callback, exactly:
 
-- there is nothing to enter under Authorized redirect URIs;
-- `server.public_base_url` plays no part in authorization;
-- Eggy never has to be reachable from the browser you approve in.
+```
+https://<server.public_base_url>/auth/google/callback
+```
 
-A **Web application** client can be made to work — Google exempts localhost from its HTTPS rule, so `http://localhost:1` is a legal redirect URI to register — but it must be registered verbatim, and the match is exact down to the port. That makes port 1 load-bearing configuration in someone else's console: change `LoopbackRedirect` in the adapter and authorization breaks until the console is edited to match.
+The Google card in the web panel shows this address once the client type is set to Web. Nothing else is needed: no JavaScript origins, no root URL. Set `google.client_type: web`, and the login is a **Connect Google** button in the panel that brings you back to it connected.
 
-A Desktop client has no such entry, because loopback matching ignores the port. Keeping one client per integration also means a consent-screen or verification change to one does not move the other. If you already made a Web client for an MCP server, leave it alone.
+**Desktop app — when Eggy has no public address.** Google grants desktop clients an implicit loopback redirect, so there is nothing to enter under Authorized redirect URIs and Eggy never has to be reachable from the browser you approve in. The cost is a paste: the login ends on a page that fails to load, and you send its address back with `/google login`. This is the default (`google.client_type: desktop`).
+
+Keep one client per integration, so a consent-screen or verification change to one does not move the other. If you already made a Web client for an MCP server, leave it alone.
 
 Copy the client ID and client secret from the dialog.
 
@@ -89,6 +91,7 @@ google:
   enabled: true
   client_id: "xxxx.apps.googleusercontent.com"
   client_secret_env: "GOOGLE_CLIENT_SECRET"
+  client_type: "web"            # or "desktop", the default
   products: ["calendar", "gmail", "contacts"]
   scopes: []
   require_approval: ["gmail.send", "gmail.reply", "calendar.delete"]
@@ -168,7 +171,9 @@ instead, and remember that whatever Eggy can see is visible to every Eggy user.
 
 ## 6. Authorize
 
-From Telegram or the web chat:
+**With a Web client**, press **Connect Google** on the Google card in the web panel, sign in as Eggy's account, and approve. Google returns you to the card, which shows whose account is connected. `/google login` in chat works too: it returns the same link, and the login finishes on its own once you approve.
+
+**With a Desktop client**, from Telegram or the web chat:
 
 ```
 /google login

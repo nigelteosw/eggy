@@ -939,3 +939,46 @@ func TestApprovalNeverWidensAnOwnerFilter(t *testing.T) {
 		t.Fatalf("require_approval = %v, want the excluded tool dropped", server.RequireApproval)
 	}
 }
+
+// The client type is what the owner created in Google's console, and the
+// panel is where they say which. A write that does not name it must keep the
+// stored one, like every other field a surface may leave out.
+func TestSetGoogleCarriesTheClientType(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", ClientType: "web", Products: []string{"gmail"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetGoogle(path, GoogleInput{Enabled: true, Products: []string{"calendar"}}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := storedGoogle(path)
+	if err != nil || stored.ClientType != "web" {
+		t.Fatalf("client_type=%q err=%v, want web kept", stored.ClientType, err)
+	}
+}
+
+// A Web client sends Google's redirect to Eggy's public address, which Google
+// accepts only over HTTPS. Refusing it here is the difference between a
+// config error at save and a redirect_uri_mismatch in someone's browser.
+func TestGoogleClientTypeIsValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", ClientType: "installed", Products: []string{"gmail"}})
+	if err == nil || !strings.Contains(err.Error(), "google.client_type") {
+		t.Fatalf("error=%v, want an unknown client type refused", err)
+	}
+
+	insecure := strings.Replace(validConfig(), "https://eggy.example", "http://eggy.example", 1)
+	if err := os.WriteFile(path, []byte(insecure), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", ClientType: "web", Products: []string{"gmail"}})
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("error=%v, want a web client on plain http refused", err)
+	}
+}

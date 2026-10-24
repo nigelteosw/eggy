@@ -19,7 +19,10 @@ type Routes struct {
 	TelegramPath string
 	Telegram     http.Handler
 	MCPCallback  http.Handler
-	Web          http.Handler
+	// GoogleCallback finishes a Web client's Google login. Nil for a Desktop
+	// client, whose login comes back by paste, so the route is not mounted.
+	GoogleCallback http.Handler
+	Web            http.Handler
 }
 
 // DefaultTelegramWebhookPath is used when Routes.TelegramPath is empty.
@@ -56,6 +59,9 @@ func NewHTTPHandler(routes Routes) http.Handler {
 	}
 	if routes.MCPCallback != nil {
 		mux.Handle("GET /auth/mcp/{server}/callback", routes.MCPCallback)
+	}
+	if routes.GoogleCallback != nil {
+		mux.Handle("GET "+GoogleCallbackPath, routes.GoogleCallback)
 	}
 	if web != nil {
 		mux.Handle("/", web)

@@ -147,6 +147,19 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			result.TableHeaders = []string{"State", "Client ID", "Client secret env", "Products", "Connected as", "Expected email"}
 			result.TableRows = append(result.TableRows, []string{state, cfg.Google.ClientID, cfg.Google.ClientSecretEnv, strings.Join(cfg.Google.Products, ", "), connected, cfg.Google.ExpectedEmail})
 			result.Fields = googleApprovalFields(cfg, webConfig.GoogleActions)
+			clientType := cfg.Google.ClientType
+			if clientType == "" {
+				clientType = config.GoogleClientDesktop
+			}
+			result.Fields = append(result.Fields,
+				webField{Label: "client_type", Value: clientType},
+				webField{Label: "callback_url", Value: strings.TrimRight(cfg.Server.PublicBaseURL, "/") + GoogleCallbackPath})
+			// Offered only when the running adapter's login comes back here.
+			// The stored client type alone would offer it before the restart
+			// that makes it true.
+			if webConfig.GoogleLogin != nil {
+				result.Fields = append(result.Fields, webField{Label: "connect_url", Value: googleLoginPath})
+			}
 		case "heartbeat":
 			// One row, like Google: there is one heartbeat. A zero interval
 			// is reported as "off" rather than as "0s", because off is the

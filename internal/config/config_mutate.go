@@ -406,6 +406,7 @@ type GoogleInput struct {
 	Enabled         bool
 	ClientID        string
 	ClientSecretEnv string
+	ClientType      string
 	Products        []string
 	// RequireApproval carries three states through one pointer, because the
 	// setting itself has three and collapsing any two would silently change
@@ -433,6 +434,9 @@ func SetGoogle(path string, input GoogleInput) error {
 		}
 		if input.ClientSecretEnv != "" {
 			google.ClientSecretEnv = input.ClientSecretEnv
+		}
+		if input.ClientType != "" {
+			google.ClientType = input.ClientType
 		}
 		if len(input.Products) > 0 {
 			// Sorted on the way in so the written file has a stable order a

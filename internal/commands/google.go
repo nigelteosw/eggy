@@ -30,6 +30,9 @@ type GoogleStatus struct {
 	// ExpectedEmail is the configured Eggy identity, if any.
 	ExpectedEmail string
 	Generation    uint64
+	// Callback is true for a Web client, whose login lands back on Eggy by
+	// itself; false for a Desktop client, whose login is finished by paste.
+	Callback bool
 }
 
 func (s *CommandService) googleCommand(ctx context.Context, args []string) (string, bool, error) {
@@ -64,10 +67,12 @@ func (s *CommandService) googleCommand(ctx context.Context, args []string) (stri
 	}
 }
 
-// googleLogin is the Hermes flow, and the reason this integration authorizes
-// where the MCP one did not: the redirect is a loopback address nothing is
-// listening on, so the browser fails to connect and the owner pastes the URL
-// it failed on. Nothing has to be registered, reachable, or public.
+// googleLogin serves both client types. A Desktop client is the Hermes flow:
+// the redirect is a loopback address nothing is listening on, so the browser
+// fails to connect and the owner pastes the URL it failed on, and nothing has
+// to be registered, reachable, or public. A Web client redirects to Eggy's own
+// callback, which finishes the login, so the reply only says whose account to
+// sign in as.
 func (s *CommandService) googleLogin(ctx context.Context, args []string) (string, bool, error) {
 	if len(args) > 1 {
 		return "Usage: /google login [pasted redirect URL or code]", true, nil
@@ -76,6 +81,21 @@ func (s *CommandService) googleLogin(ctx context.Context, args []string) (string
 		authorizationURL, err := s.Google.BeginLogin(ctx)
 		if err != nil {
 			return fmt.Sprintf("Could not start the Google login: %v", err), true, nil
+		}
+		// A status read failure only costs the better wording: the paste
+		// instructions below are still right for a Desktop client and
+		// harmless for a Web one, whose callback finishes regardless.
+		if status, err := s.Google.Status(); err == nil && status.Callback {
+			account := "Eggy's own Google account"
+			if status.ExpectedEmail != "" {
+				account = status.ExpectedEmail
+			}
+			return strings.Join([]string{
+				"Authorize Google here:",
+				authorizationURL,
+				"",
+				"Sign in as " + account + ". Google returns you to Eggy and the connection finishes by itself.",
+			}, "\n"), true, nil
 		}
 		return strings.Join([]string{
 			"Authorize Google here:",

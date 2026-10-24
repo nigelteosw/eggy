@@ -27,8 +27,7 @@ accounts is who owns which private record.
   and Eggy uses no domain-wide delegation.
 
 No Google client is needed for sign-in. The only OAuth client in an accounts
-deployment is the Desktop client for Eggy's own Workspace grant, if you use
-it.
+deployment is the client for Eggy's own Workspace grant, if you use it.
 
 ## Configure
 

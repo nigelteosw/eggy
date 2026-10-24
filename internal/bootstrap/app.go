@@ -531,6 +531,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		ModelDiscovery:      discovery,
 		GoogleActions:       googleActionCatalog(),
 		GoogleConnection:    googleAdministration.webView(),
+		GoogleLogin:         googleAdministration.loginView(),
 		Restarter:           app,
 		Getenv:              options.Getenv,
 		TrustedProxyHops:    config.Server.TrustedProxyHops,
@@ -561,9 +562,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	webHandler := panel.NewWebHandler(options.ConfigPath, webConfig)
 	app.httpHandler = panel.NewHTTPHandler(panel.Routes{
 		Ready: app.Ready, TelegramPath: config.Server.TelegramWebhookPath,
-		Telegram:    telegramSurface.webhook(config, secrets, app.Enqueue),
-		MCPCallback: mcpCallbackHandler(app.mcp),
-		Web:         webHandler,
+		Telegram:       telegramSurface.webhook(config, secrets, app.Enqueue),
+		MCPCallback:    mcpCallbackHandler(app.mcp),
+		GoogleCallback: googleAdministration.callbackRoute(),
+		Web:            webHandler,
 	})
 	telegramSurface.registerCommands(context.Background(), app.logger)
 	keepMCP = true

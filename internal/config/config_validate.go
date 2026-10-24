@@ -219,6 +219,16 @@ func (c Config) validateGoogle() error {
 	if strings.TrimSpace(google.ClientID) == "" {
 		return errors.New("google.client_id is required when google.enabled is true")
 	}
+	switch google.ClientType {
+	case "", GoogleClientDesktop:
+	case GoogleClientWeb:
+		// Google accepts a non-loopback redirect only over HTTPS.
+		if !strings.HasPrefix(c.Server.PublicBaseURL, "https://") {
+			return errors.New("google.client_type web needs server.public_base_url to be https, because Google redirects the login there")
+		}
+	default:
+		return fmt.Errorf("google.client_type %q is not one of %s, %s", google.ClientType, GoogleClientDesktop, GoogleClientWeb)
+	}
 	if google.ClientSecretEnv != "" && !environmentNamePattern.MatchString(google.ClientSecretEnv) {
 		return fmt.Errorf("google.client_secret_env %q is not a valid environment variable name", google.ClientSecretEnv)
 	}

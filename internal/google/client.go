@@ -24,7 +24,11 @@ type Config struct {
 	// ExpectedEmail is the Workspace address the grant must belong to --
 	// Eggy's own user. Empty skips the check, which is the legacy single-
 	// owner shape where the owner's own account is the only one there is.
-	ExpectedEmail  string
+	ExpectedEmail string
+	// RedirectURL is where Google sends the browser after consent. Empty is
+	// LoopbackRedirect, the Desktop client's paste flow; a Web client sets
+	// Eggy's own callback, which must be registered in its console verbatim.
+	RedirectURL    string
 	Scopes         []string
 	Timeout        time.Duration
 	MaxOutputBytes int64

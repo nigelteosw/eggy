@@ -33,7 +33,7 @@ HTTP authentication may be `none`, `oauth`, or `bearer-env`. Bearer authenticati
 
 ## Servers without dynamic client registration
 
-> **For Google, use [Google Workspace](/eggy/configure/google-workspace) instead.** It authorizes with a Desktop client and a pasted redirect, needs no public address, and covers Gmail, Calendar, Drive, Docs, Sheets and Contacts on one grant. Google's remote MCP servers need a separate consent screen per product and cannot reach Contacts at all.
+> **For Google, use [Google Workspace](/eggy/configure/google-workspace) instead.** It authorizes once, from a Connect button or a pasted redirect, and covers Gmail, Calendar, Drive, Docs, Sheets and Contacts on one grant. Google's remote MCP servers need a separate consent screen per product and cannot reach Contacts at all.
 
 Eggy registers an OAuth client automatically when the authorization server implements RFC 7591. Many do not, and `/mcp login` then reports that the server does not support dynamic client registration.
 

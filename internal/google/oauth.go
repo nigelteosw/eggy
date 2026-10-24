@@ -28,6 +28,10 @@ import (
 //
 // It must match byte for byte between the authorization request and the token
 // exchange, so it is a constant rather than anything derived from config.
+//
+// It is the Desktop client's redirect. A Web client cannot use it unregistered,
+// and instead sends the browser to Eggy's own callback (Config.RedirectURL),
+// which is what lets a deployment with a public address skip the paste.
 const LoopbackRedirect = "http://localhost:1"
 
 // pendingWindow bounds a login in progress. Ten minutes is the same window the
@@ -67,6 +71,7 @@ type Auth struct {
 	clientID      string
 	clientSecret  string
 	expectedEmail string
+	redirectURL   string
 	scopes        []string
 	store         *TokenStore
 	client        *http.Client
@@ -81,14 +86,23 @@ func NewAuth(config Config, store *TokenStore, client *http.Client, now func() t
 	if now == nil {
 		now = time.Now
 	}
+	redirectURL := config.RedirectURL
+	if redirectURL == "" {
+		redirectURL = LoopbackRedirect
+	}
 	return &Auth{clientID: config.ClientID, clientSecret: config.ClientSecret, expectedEmail: strings.ToLower(strings.TrimSpace(config.ExpectedEmail)),
-		scopes: config.Scopes, store: store, client: client, now: now}
+		redirectURL: redirectURL, scopes: config.Scopes, store: store, client: client, now: now}
 }
+
+// Callback reports whether a login completes at Eggy's own callback route
+// rather than by the owner pasting the redirect back. The surfaces read it to
+// say which of the two the owner should expect.
+func (a *Auth) Callback() bool { return a.redirectURL != LoopbackRedirect }
 
 func (a *Auth) config() *oauth2.Config {
 	scopes := append(append([]string(nil), a.scopes...), identityScopes...)
 	return &oauth2.Config{
-		ClientID: a.clientID, ClientSecret: a.clientSecret, RedirectURL: LoopbackRedirect, Scopes: scopes,
+		ClientID: a.clientID, ClientSecret: a.clientSecret, RedirectURL: a.redirectURL, Scopes: scopes,
 		Endpoint: oauth2.Endpoint{AuthURL: authorizationEndpoint, TokenURL: tokenEndpoint, AuthStyle: oauth2.AuthStyleInParams},
 	}
 }
@@ -100,6 +114,11 @@ func (a *Auth) config() *oauth2.Config {
 // to this client, so a re-authorization after any earlier grant would hand
 // back an access token that cannot be renewed. The same lesson the MCP adapter
 // records, and Hermes forces consent for the same reason.
+//
+// select_account and login_hint point the consent screen at Eggy's own
+// account. A browser signed in as its person would otherwise offer that person
+// first, and the identity check would refuse the grant only after they had
+// consented to it.
 func (a *Auth) BeginLogin(context.Context) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -117,19 +136,26 @@ func (a *Auth) BeginLogin(context.Context) (string, error) {
 	}); err != nil {
 		return "", err
 	}
-	return a.config().AuthCodeURL(state,
+	options := []oauth2.AuthCodeOption{
 		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("prompt", "consent"),
+		oauth2.SetAuthURLParam("prompt", "select_account consent"),
 		oauth2.S256ChallengeOption(verifier),
-	), nil
+	}
+	if a.expectedEmail != "" {
+		options = append(options, oauth2.SetAuthURLParam("login_hint", a.expectedEmail))
+	}
+	return a.config().AuthCodeURL(state, options...), nil
 }
 
-// CompleteLogin exchanges a code the owner carried back by hand.
+// CompleteLogin exchanges a code the owner carried back by hand, or one the
+// callback route received.
 //
 // State is checked only when the paste carried one, because a bare code has
-// none to carry. What bounds the exchange is the pending window the owner
-// themselves opened minutes earlier, not an echoed parameter -- and unlike the
-// MCP callback route, nothing unauthenticated can reach this.
+// none to carry. What bounds a pasted exchange is the pending window the owner
+// themselves opened minutes earlier, not an echoed parameter. The callback
+// route is unauthenticated -- Google redirects a browser to it -- so it refuses
+// a request without state before calling this, exactly as the MCP callback
+// does; only the paste may omit it.
 func (a *Auth) CompleteLogin(ctx context.Context, code, state string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

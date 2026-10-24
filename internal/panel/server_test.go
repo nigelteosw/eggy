@@ -79,3 +79,25 @@ func TestWebHandlerServesApplicationRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPHandlerOptionalGoogleCallbackRoute(t *testing.T) {
+	called := 0
+	callback := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called++
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := NewHTTPHandler(Routes{Ready: func() error { return nil }, GoogleCallback: callback})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=x&state=y", nil))
+	if response.Code != http.StatusNoContent || called != 1 {
+		t.Fatalf("status=%d called=%d", response.Code, called)
+	}
+
+	// A desktop client has no callback, and then nothing answers there.
+	absent := NewHTTPHandler(Routes{Ready: func() error { return nil }})
+	response = httptest.NewRecorder()
+	absent.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/auth/google/callback?code=x&state=y", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want no Google callback without one configured", response.Code)
+	}
+}

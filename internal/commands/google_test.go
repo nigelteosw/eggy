@@ -231,3 +231,19 @@ func TestGoogleStatusNamesTheSharedIdentityAndFlagsAMismatch(t *testing.T) {
 		t.Fatalf("unverified output=%q", output)
 	}
 }
+
+// A Web client's login lands back on Eggy by itself, so the reply must not
+// tell the owner to expect a dead page and paste it back.
+func TestGoogleLoginWithAWebClientNeedsNoPaste(t *testing.T) {
+	runtime := &fakeGoogleRuntime{
+		loginURL: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+		status:   GoogleStatus{Callback: true, ExpectedEmail: "eggy@example.com"},
+	}
+	output := run(t, googleService(runtime), "/google login")
+	if !strings.Contains(output, runtime.loginURL) || !strings.Contains(output, "eggy@example.com") {
+		t.Fatalf("output=%q", output)
+	}
+	if strings.Contains(output, "paste") || strings.Contains(output, "fail to load") {
+		t.Fatalf("a web client's login asks for a paste: %q", output)
+	}
+}

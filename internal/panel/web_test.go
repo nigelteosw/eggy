@@ -596,6 +596,41 @@ func TestWebMCPLoginIsAbsentWithoutAManager(t *testing.T) {
 	}
 }
 
+type fakeGoogleLogin struct {
+	url      string
+	requests int
+}
+
+func (f *fakeGoogleLogin) BeginLogin(context.Context) (string, error) {
+	f.requests++
+	return f.url, nil
+}
+
+// TestWebGoogleLoginRedirectsAndRequiresSession is the Connect button. It is
+// owner-gated for the reason the MCP route is: an anonymous visitor who could
+// start the flow could race a pending login with a consent of their own.
+func TestWebGoogleLoginRedirectsAndRequiresSession(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	runtime := &fakeGoogleLogin{url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc"}
+	webConfig := testWebConfig(t, now)
+	webConfig.GoogleLogin = runtime
+	handler := NewWebHandler(writeConfigFile(t, validConfig()), webConfig)
+
+	anonymous := httptest.NewRecorder()
+	handler.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/auth/google", nil))
+	if anonymous.Code != http.StatusUnauthorized || runtime.requests != 0 {
+		t.Fatalf("anonymous status=%d requests=%d, want 401 and no flow started", anonymous.Code, runtime.requests)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/auth/google", nil)
+	request.AddCookie(webLoginCookie(t, handler))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusFound || response.Header().Get("Location") != runtime.url {
+		t.Fatalf("status=%d location=%q", response.Code, response.Header().Get("Location"))
+	}
+}
+
 // The Google section is the one an owner otherwise had to reach by editing
 // /data/config.yaml by hand. It round-trips through the same section routes
 // providers and models use.

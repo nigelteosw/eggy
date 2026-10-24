@@ -147,3 +147,13 @@ func assertFieldError(t *testing.T, err error, want FieldErrorKind) {
 		t.Fatalf("error kind = %q, want %q", fieldErr.Kind, want)
 	}
 }
+
+func TestGoogleClientTypeDecodes(t *testing.T) {
+	input, err := Values{"client_type": " Web "}.GoogleInput()
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if input.ClientType != "web" {
+		t.Fatalf("client_type = %q", input.ClientType)
+	}
+}

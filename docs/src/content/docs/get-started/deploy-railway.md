@@ -18,10 +18,12 @@ Workspace identity:
 1. **Create Eggy's own Workspace user** in Google Admin, for example
    `eggy@yourdomain`. An ordinary user with a mailbox and calendar, not a
    service account. This is who Eggy *is* on Google; everyone shares it.
-2. Create a **Desktop app** OAuth client for Eggy's Workspace grant and
-   enable the APIs for the products you want, per the
+2. Create a **Web application** OAuth client for Eggy's Workspace grant, with
+   `https://<your Railway domain>/auth/google/callback` as its one authorized
+   redirect URI, and enable the APIs for the products you want, per the
    [Google Workspace guide](/eggy/configure/google-workspace/). Note its client
-   ID and secret. Nothing is registered against your Railway domain.
+   ID and secret. Set the consent screen to **Internal** (or publish it), or
+   the grant expires every seven days.
 
 ## 2. Create the service
 
@@ -54,8 +56,8 @@ TELEGRAM_BOT_TOKEN
 TELEGRAM_WEBHOOK_SECRET
 ```
 
-Optional, for the Workspace grant: `GOOGLE_CLIENT_SECRET` (the Desktop
-client's secret). The Desktop client ID and products are set from Settings
+Optional, for the Workspace grant: `GOOGLE_CLIENT_SECRET` (the OAuth
+client's secret). The client ID, client type and products are set from Settings
 after the first sign-in, so nothing else is needed now.
 
 ### Headless setup (alternative)
@@ -73,11 +75,11 @@ show a one-time setup URL — open it, fill in your account ID, the model, and
 **Validate and start**. The page then shows the username/password form; sign
 in with `EGGY_UI_USER_EMAIL` and `EGGY_UI_PASSWORD`.
 
-Then, under **Settings → Connections → Google Workspace**, set the Desktop
-client ID, `client_secret_env: GOOGLE_CLIENT_SECRET`, and the products; save
-and **Restart Eggy**. In chat, run `/google login`, and on Google's consent
-screen sign in **as Eggy's Workspace user** — the expected address — not as
-yourself. A personal account is refused and nothing is stored. The Google card
+Then, under **Settings → Connections → Google Workspace**, set the client
+ID, client type **Web application**, `client_secret_env: GOOGLE_CLIENT_SECRET`,
+and the products; save and **Restart Eggy**. Press **Connect Google** on the
+same card, and on Google's consent screen sign in **as Eggy's Workspace user**
+— the expected address — not as yourself. A personal account is refused and nothing is stored. The Google card
 then shows "Connected as eggy@yourdomain · Shared with all Eggy users".
 
 Share the calendars and Drive files Eggy should see with that address, or

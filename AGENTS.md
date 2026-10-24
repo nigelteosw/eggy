@@ -182,9 +182,14 @@ should only ever add a new package under
   could reach `MEMORY.md` and recall unmasked. A reflection test now fails when a
   field is added to `Secrets` but not to `Values`.
 - Either OAuth flow must keep: forced consent so a refresh token is really
-  issued, granted-scope recording, the pending window, the loopback redirect
-  matching byte for byte, and per-record associated data binding a grant to the
-  server it was issued for.
+  issued, granted-scope recording, the pending window, the redirect matching
+  byte for byte between authorization and exchange, a callback route that
+  refuses a request without state (only a paste may omit it), and per-record
+  associated data binding a grant to the server it was issued for. Google's
+  redirect is the loopback constant for a Desktop client and
+  `/auth/google/callback` under `server.public_base_url` for a Web client;
+  `google.client_type` picks one, and both end in the same exchange and
+  identity check.
   MCP OAuth also keeps the RFC 9207 issuer check (a present `iss` must equal
   the recorded issuer, and one the server advertises must be present) and
   re-registers its client when discovery finds a different issuer; the

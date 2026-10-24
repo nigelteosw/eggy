@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func TestLoginCompletesFromAPastedRedirect(t *testing.T) {
 	if query.Get("redirect_uri") != LoopbackRedirect {
 		t.Fatalf("redirect_uri=%q, want the loopback address a desktop client needs no registration for", query.Get("redirect_uri"))
 	}
-	if query.Get("access_type") != "offline" || query.Get("prompt") != "consent" {
+	if query.Get("access_type") != "offline" || !slices.Contains(strings.Fields(query.Get("prompt")), "consent") {
 		t.Fatalf("a refresh token is not guaranteed by %s", authorizationURL)
 	}
 	if query.Get("code_challenge_method") != "S256" || query.Get("state") == "" {
@@ -106,6 +107,67 @@ func TestLoginCompletesFromAPastedRedirect(t *testing.T) {
 	}
 	if record.State != "" || record.CodeVerifier != "" {
 		t.Fatalf("pending login survived the exchange: %#v", record)
+	}
+}
+
+// TestWebClientLoginRedirectsToEggysCallback is the other client type: a Web
+// client registers Eggy's own callback, so the browser lands back on Eggy and
+// nobody pastes anything. The redirect must be the same byte for byte at the
+// authorization and the exchange, or Google refuses the code.
+func TestWebClientLoginRedirectsToEggysCallback(t *testing.T) {
+	endpoint := &authServer{refreshToken: "refresh-token"}
+	endpoint.start(t)
+	const callback = "https://eggy.example.com/auth/google/callback"
+	auth := NewAuth(Config{ClientID: "eggy.apps.googleusercontent.com", ClientSecret: "secret", RedirectURL: callback,
+		Scopes: []string{"https://www.googleapis.com/auth/calendar"}}, testStore(t), http.DefaultClient, time.Now)
+	if !auth.Callback() {
+		t.Fatal("a web client must report that its login completes at the callback")
+	}
+
+	authorizationURL, err := auth.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(authorizationURL)
+	if got := parsed.Query().Get("redirect_uri"); got != callback {
+		t.Fatalf("redirect_uri=%q, want %q", got, callback)
+	}
+	if err := auth.CompleteLogin(context.Background(), "4/code", parsed.Query().Get("state")); err != nil {
+		t.Fatal(err)
+	}
+	if got := endpoint.form.Get("redirect_uri"); got != callback {
+		t.Fatalf("exchange redirect_uri=%q, want %q", got, callback)
+	}
+}
+
+// TestLoginHintsEggysAccount steers the consent screen at the one account the
+// grant may belong to. A browser signed in as its person would otherwise
+// offer that person first, and the identity check would refuse the result
+// only after they had consented.
+func TestLoginHintsEggysAccount(t *testing.T) {
+	auth := expectingAuth(t, testStore(t), "eggy@example.com")
+	if auth.Callback() {
+		t.Fatal("a desktop client completes by paste, not at a callback")
+	}
+	authorizationURL, err := auth.BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(authorizationURL)
+	query := parsed.Query()
+	if query.Get("login_hint") != "eggy@example.com" {
+		t.Fatalf("login_hint=%q", query.Get("login_hint"))
+	}
+	if !slices.Contains(strings.Fields(query.Get("prompt")), "select_account") {
+		t.Fatalf("prompt=%q, want the account chooser shown", query.Get("prompt"))
+	}
+
+	unhinted, err := testAuth(t, testStore(t)).BeginLogin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, _ := url.Parse(unhinted); parsed.Query().Has("login_hint") {
+		t.Fatalf("no expected account, yet the URL hints one: %s", unhinted)
 	}
 }
 

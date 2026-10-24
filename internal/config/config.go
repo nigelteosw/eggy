@@ -262,6 +262,13 @@ func parseClock(value string) (int, error) {
 // Google grants those an implicit loopback redirect, so authorization needs
 // nothing registered in the console and no publicly reachable address, and
 // server.public_base_url plays no part in it.
+// The two values google.client_type takes. Bootstrap reads them to choose the
+// login redirect, and the panel offers them, so the spelling lives here once.
+const (
+	GoogleClientDesktop = "desktop"
+	GoogleClientWeb     = "web"
+)
+
 type GoogleConfig struct {
 	Enabled bool `yaml:"enabled"`
 	// ClientID is not a secret -- it travels in the authorization URL -- so it
@@ -270,6 +277,14 @@ type GoogleConfig struct {
 	// OAuth sense, but it is still a credential and is treated as one.
 	ClientID        string `yaml:"client_id,omitempty"`
 	ClientSecretEnv string `yaml:"client_secret_env,omitempty"`
+	// ClientType is the kind of OAuth client created in Google's console, and
+	// it decides how a login comes back. "desktop", the default, redirects to
+	// a dead loopback address and the owner pastes the URL it failed on.
+	// "web" redirects to Eggy's own /auth/google/callback under
+	// server.public_base_url, which must be registered on the client, and the
+	// login completes by itself. Neither is a second way to authorize: both
+	// end in the same exchange and the same identity check.
+	ClientType string `yaml:"client_type,omitempty"`
 	// ExpectedEmail is the Workspace address the shared grant must belong to:
 	// Eggy's own user, never a person's. A connection whose verified identity
 	// is any other address is refused before it can replace the stored

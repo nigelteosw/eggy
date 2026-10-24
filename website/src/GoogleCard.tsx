@@ -26,8 +26,27 @@ const EXPECTED_EMAIL = 5;
 // GoogleIdentity shows whose account the one shared grant is, beside whose
 // it should be. The grant is every Eggy user's, and the line says so: a
 // mailbox connected here is not a private one.
-export function GoogleIdentity({ connected, expected }: { connected: string; expected: string }) {
+export function GoogleIdentity({
+  connected,
+  expected,
+  connectUrl = "",
+}: {
+  connected: string;
+  expected: string;
+  connectUrl?: string;
+}) {
+  const account = expected || "Eggy's own Google account";
   if (!connected || connected === "not connected") {
+    if (connectUrl) {
+      return (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild>
+            <a href={connectUrl}>Connect Google</a>
+          </Button>
+          <p className="text-sm text-neutral-700">Sign in as {account}, not your own account.</p>
+        </div>
+      );
+    }
     return (
       <p className="mx-0.5 text-sm text-neutral-700">
         Not connected.{expected ? ` Connect as ${expected} with /google login in chat.` : ""}
@@ -49,6 +68,13 @@ export function GoogleIdentity({ connected, expected }: { connected: string; exp
       {connected === "unverified" && expected && (
         <p className="mt-1.5 text-accent-900">Its identity has not been verified yet; tools will verify it against {expected} on first use.</p>
       )}
+      {connectUrl && (
+        <p className="mt-1.5">
+          <a href={connectUrl} className="text-xs underline">
+            Reconnect as {account}
+          </a>
+        </p>
+      )}
     </div>
   );
 }
@@ -65,6 +91,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
   const { result, error, saving, save } = useConfigSection("google", onSessionExpired);
   const [clientId, setClientId] = useState("");
   const [clientSecretEnv, setClientSecretEnv] = useState("GOOGLE_CLIENT_SECRET");
+  const [clientType, setClientType] = useState("desktop");
   const [products, setProducts] = useState<string[]>(["calendar"]);
   const [enabled, setEnabled] = useState(true);
   // Defaults on means no list is stored at all, which is not the same as a
@@ -83,6 +110,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
     setEnabled(row[STATE] === "enabled");
     if (row[CLIENT_ID]) setClientId(row[CLIENT_ID]);
     if (row[SECRET_ENV]) setClientSecretEnv(row[SECRET_ENV]);
+    if (field(result, "client_type")) setClientType(field(result, "client_type"));
     if (row[PRODUCT_LIST]) setProducts(row[PRODUCT_LIST].split(", ").filter(Boolean));
     const custom = field(result, "require_approval_mode") === "custom";
     setUseDefaults(!custom);
@@ -116,6 +144,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
       enabled: enabled ? "true" : "false",
       client_id: clientId,
       client_secret_env: clientSecretEnv,
+      client_type: clientType,
       products: products.join(","),
       require_approval_mode: useDefaults ? "default" : "custom",
       require_approval: useDefaults ? "" : gated.join(","),
@@ -128,15 +157,19 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
         title="Google Workspace"
         description={
           <>
-            One grant across every product checked. The OAuth client must be a <strong>Desktop app</strong> client — a Web
-            application client cannot authorize this way.
+            One grant across every product checked, connected as Eggy&apos;s own Google account and shared with every Eggy
+            user.
           </>
         }
       />
       <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers?.slice(0, 4)} rows={result?.table_rows?.map((row) => row.slice(0, 4))} empty="Google is not configured yet." />
         {result?.table_rows?.[0] && (
-          <GoogleIdentity connected={result.table_rows[0][CONNECTED_AS] ?? ""} expected={result.table_rows[0][EXPECTED_EMAIL] ?? ""} />
+          <GoogleIdentity
+            connected={result.table_rows[0][CONNECTED_AS] ?? ""}
+            expected={result.table_rows[0][EXPECTED_EMAIL] ?? ""}
+            connectUrl={field(result, "connect_url")}
+          />
         )}
         <details className="rounded-2xl bg-neutral-100 p-4">
           <summary className="cursor-pointer text-[12.5px] font-medium">Configure Google Workspace</summary>
@@ -148,6 +181,35 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
               required
               className={FIELD}
             />
+            <fieldset className="flex flex-col gap-2 rounded-2xl bg-background p-3.5">
+              <legend className="px-0.5 pb-2.5 text-[12.5px] font-medium">OAuth client type</legend>
+              {(
+                [
+                  ["web", "Web application", "Connect from this panel and Google brings you back. Register the redirect URI below on the client."],
+                  ["desktop", "Desktop app", "Nothing to register. Run /google login in chat and paste back the page that fails to load."],
+                ] as const
+              ).map(([value, label, help]) => (
+                <label key={value} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="google-client-type"
+                    value={value}
+                    checked={clientType === value}
+                    onChange={() => setClientType(value)}
+                    className="mt-1 h-4 w-4 accent-primary"
+                  />
+                  <span>
+                    <span className="font-medium">{label}</span>
+                    <span className="block text-xs text-neutral-700">{help}</span>
+                  </span>
+                </label>
+              ))}
+              {clientType === "web" && field(result, "callback_url") && (
+                <p className="text-xs text-neutral-700">
+                  Authorized redirect URI: <code className="select-all break-all">{field(result, "callback_url")}</code>
+                </p>
+              )}
+            </fieldset>
             <fieldset className="rounded-2xl bg-background p-3.5">
               <legend className="px-0.5 pb-2.5 text-[12.5px] font-medium">Products</legend>
               <div className="flex flex-wrap gap-1.5">
@@ -227,7 +289,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
         </details>
         <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
           The client secret itself is never stored here — name the environment variable that holds it. After saving,
-          restart Eggy and run <code>/google login</code> in chat to authorize.
+          restart Eggy, then connect: with the Connect button for a Web client, or <code>/google login</code> in chat.
         </p>
         {result?.detail && <p className="mx-0.5 text-xs text-neutral-700">{result.detail}</p>}
         {error && (

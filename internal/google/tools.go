@@ -234,11 +234,12 @@ func (t calendarTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "google_calendar",
 		Effect:      effectFor("google_calendar"),
-		Description: "Read and change calendars. action=list reads every calendar the account can see over the next seven days by default, and each event names the calendar it came from; pass calendar_id to read one. action=calendars lists the available calendars and their ids; action=get reads one event by id; action=freebusy returns the busy blocks across every calendar in one call, which is the way to find a free slot. action=create needs summary, start and end; action=update changes an existing event in place and is always right for moving one, because delete-and-recreate discards every guest's reply; action=respond answers an invitation with yes, no or maybe; action=delete needs an event id. Every time must carry a timezone offset or Z — a bare datetime is read as UTC and lands hours away. Guests are emailed about events that have attendees; pass send_updates=none to change nothing but the owner's own calendar.",
+		Description: "Read and change calendars. action=list reads every calendar the account can see over the next seven days by default, and each event names the calendar it came from and its calendar_id; pass calendar_id to read one. To get, update, respond to or delete a listed event, pass the calendar_id it was listed with -- without it the call goes to the primary calendar and an event on any other calendar answers 404. action=calendars lists the available calendars and their ids; action=get reads one event by id; action=freebusy returns the busy blocks across every calendar in one call, which is the way to find a free slot. action=create needs summary, start and end; action=update changes an existing event in place and is always right for moving one, because delete-and-recreate discards every guest's reply; action=respond answers an invitation with yes, no or maybe; action=delete needs an event id. Times are in the event's own place, not the owner's: for an event somewhere else, pass time_zone as an IANA zone such as America/Denver and give start and end as local wall times there (2026-10-31T10:45) — the offset and daylight saving are worked out for you, and the event is shown in that zone. Without time_zone every time must carry an offset or Z. On update, time_zone alone moves the event into that zone without changing when it happens. Listed events report the time_zone they live in. Guests are emailed about events that have attendees; pass send_updates=none to change nothing but the owner's own calendar.",
 		Schema: json.RawMessage(`{"type":"object","properties":{
 "action":{"type":"string","enum":["list","calendars","get","freebusy","create","update","delete","respond"]},
 "calendar_id":{"type":"string"},"calendar_ids":{"type":"array","items":{"type":"string"},"description":"freebusy only; omit for every calendar"},
 "start":{"type":"string"},"end":{"type":"string"},
+"time_zone":{"type":"string","description":"IANA zone the event happens in, e.g. America/Denver; start and end may then be local wall times"},
 "summary":{"type":"string"},"location":{"type":"string"},"description":{"type":"string"},
 "attendees":{"type":"array","items":{"type":"string"},"description":"on update this replaces the whole guest list; omit it to leave the guests alone"},
 "event_id":{"type":"string"},"response":{"type":"string","enum":["yes","no","maybe"]},
@@ -254,6 +255,7 @@ func (t calendarTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 		CalendarIDs []string  `json:"calendar_ids"`
 		Start       string    `json:"start"`
 		End         string    `json:"end"`
+		TimeZone    string    `json:"time_zone"`
 		Summary     string    `json:"summary"`
 		Location    string    `json:"location"`
 		Description string    `json:"description"`
@@ -284,14 +286,14 @@ func (t calendarTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 	case "update":
 		return respond(t.workspace.CalendarUpdate(ctx, EventChange{
 			CalendarID: input.CalendarID, EventID: input.EventID, Summary: input.Summary,
-			Start: input.Start, End: input.End, Location: input.Location, Description: input.Description,
+			Start: input.Start, End: input.End, TimeZone: input.TimeZone, Location: input.Location, Description: input.Description,
 			Attendees: input.Attendees, SendUpdates: input.SendUpdates,
 		}))
 	case "respond":
 		return respond(t.workspace.CalendarRespond(ctx, input.CalendarID, input.EventID, input.Response))
 	case "create":
 		return respond(t.workspace.CalendarCreate(ctx, NewEvent{
-			CalendarID: input.CalendarID, Summary: input.Summary, Start: input.Start, End: input.End,
+			CalendarID: input.CalendarID, Summary: input.Summary, Start: input.Start, End: input.End, TimeZone: input.TimeZone,
 			Location: input.Location, Description: input.Description, Attendees: attendees,
 			SendUpdates: input.SendUpdates,
 		}))

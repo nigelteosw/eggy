@@ -20,11 +20,20 @@ type Calendar struct {
 }
 
 type Event struct {
-	ID          string   `json:"id"`
-	Calendar    string   `json:"calendar,omitempty"`
-	Summary     string   `json:"summary,omitempty"`
-	Start       string   `json:"start,omitempty"`
-	End         string   `json:"end,omitempty"`
+	ID       string `json:"id"`
+	Calendar string `json:"calendar,omitempty"`
+	// CalendarID is what get, update, respond and delete need to reach the
+	// event. The name above is for the owner; an event on a calendar shared
+	// with Eggy is not on Eggy's primary, so acting on it without the id
+	// answers 404.
+	CalendarID string `json:"calendar_id,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Start      string `json:"start,omitempty"`
+	End        string `json:"end,omitempty"`
+	// TimeZone is the IANA zone the event lives in, when it names one. It is
+	// what lets "10:45 Denver time" be said, rather than an offset the model
+	// has to turn back into a place.
+	TimeZone    string   `json:"time_zone,omitempty"`
 	Location    string   `json:"location,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Attendees   []string `json:"attendees,omitempty"`
@@ -39,10 +48,14 @@ type Event struct {
 // richer type because that is all the model can meaningfully supply, and
 // anything else would be invented.
 type NewEvent struct {
-	CalendarID  string
-	Summary     string
-	Start       string
-	End         string
+	CalendarID string
+	Summary    string
+	Start      string
+	End        string
+	// TimeZone is an IANA zone such as America/Denver. With it, Start and End
+	// may be local wall times and the zone database supplies the offset; the
+	// zone is also sent, so the event lives there.
+	TimeZone    string
 	Location    string
 	Description string
 	Attendees   []string
@@ -163,26 +176,23 @@ func (w *Workspace) eventsIn(ctx context.Context, calendarID, label, from, to st
 		// single-calendar read is not padded with a field saying what the
 		// caller already asked for.
 		event.Calendar = label
+		if label != "" {
+			event.CalendarID = calendarID
+		}
 		events = append(events, event)
 	}
 	return events, nil
 }
 
 type calendarEvent struct {
-	ID          string `json:"id"`
-	Summary     string `json:"summary"`
-	Location    string `json:"location"`
-	Description string `json:"description"`
-	HTMLLink    string `json:"htmlLink"`
-	Start       struct {
-		DateTime string `json:"dateTime"`
-		Date     string `json:"date"`
-	} `json:"start"`
-	End struct {
-		DateTime string `json:"dateTime"`
-		Date     string `json:"date"`
-	} `json:"end"`
-	Attendees []struct {
+	ID          string    `json:"id"`
+	Summary     string    `json:"summary"`
+	Location    string    `json:"location"`
+	Description string    `json:"description"`
+	HTMLLink    string    `json:"htmlLink"`
+	Start       eventTime `json:"start"`
+	End         eventTime `json:"end"`
+	Attendees   []struct {
 		Email          string `json:"email"`
 		Self           bool   `json:"self"`
 		Optional       bool   `json:"optional"`
@@ -190,11 +200,19 @@ type calendarEvent struct {
 	} `json:"attendees"`
 }
 
+// eventTime is one end of an event as Google reports it: a dateTime for a
+// timed event, a date for an all-day one, and the zone it lives in.
+type eventTime struct {
+	DateTime string `json:"dateTime"`
+	Date     string `json:"date"`
+	TimeZone string `json:"timeZone"`
+}
+
 // event flattens Google's start/end union. An all-day event carries "date"
 // and no "dateTime", and reporting an empty start for those would make a whole
 // class of entries look broken.
 func (e calendarEvent) event() Event {
-	event := Event{ID: e.ID, Summary: e.Summary, Location: e.Location, Description: e.Description, Link: e.HTMLLink}
+	event := Event{ID: e.ID, Summary: e.Summary, Location: e.Location, Description: e.Description, Link: e.HTMLLink, TimeZone: e.Start.TimeZone}
 	event.Start, event.End = e.Start.DateTime, e.End.DateTime
 	if event.Start == "" {
 		event.Start = e.Start.Date
@@ -215,21 +233,21 @@ func (w *Workspace) CalendarCreate(ctx context.Context, event NewEvent) (Event, 
 	if strings.TrimSpace(event.Summary) == "" {
 		return Event{}, errors.New("a summary is required")
 	}
-	start, err := rfc3339(event.Start)
+	start, err := zonedTime(event.Start, event.TimeZone)
 	if err != nil {
 		return Event{}, err
 	}
-	end, err := rfc3339(event.End)
+	end, err := zonedTime(event.End, event.TimeZone)
 	if err != nil {
 		return Event{}, err
 	}
-	if start == "" || end == "" {
-		return Event{}, errors.New("both start and end are required, with a timezone offset or Z")
+	if start == nil || end == nil {
+		return Event{}, errors.New("both start and end are required, with a timezone offset, Z, or time_zone")
 	}
 	request := map[string]any{
 		"summary": event.Summary,
-		"start":   map[string]string{"dateTime": start},
-		"end":     map[string]string{"dateTime": end},
+		"start":   start,
+		"end":     end,
 	}
 	if event.Location != "" {
 		request["location"] = event.Location
@@ -293,6 +311,7 @@ type EventChange struct {
 	Summary     string
 	Start       string
 	End         string
+	TimeZone    string
 	Location    string
 	Description string
 	Attendees   *[]string
@@ -310,23 +329,42 @@ func (w *Workspace) CalendarUpdate(ctx context.Context, change EventChange) (Eve
 	if strings.TrimSpace(change.EventID) == "" {
 		return Event{}, errors.New("an event id is required")
 	}
-	start, err := rfc3339(change.Start)
+	start, err := zonedTime(change.Start, change.TimeZone)
 	if err != nil {
 		return Event{}, err
 	}
-	end, err := rfc3339(change.End)
+	end, err := zonedTime(change.End, change.TimeZone)
 	if err != nil {
 		return Event{}, err
+	}
+	// A zone with no times is "show this event in Denver": the instants stay
+	// and only the zone moves. Google needs both ends restated to change it,
+	// so the event as it is now supplies whichever was not given.
+	if change.TimeZone != "" && (start == nil || end == nil) {
+		existing, err := w.rawEvent(ctx, change.CalendarID, change.EventID)
+		if err != nil {
+			return Event{}, err
+		}
+		if start == nil {
+			if start, err = zonedTime(existing.Start.DateTime, change.TimeZone); err != nil {
+				return Event{}, err
+			}
+		}
+		if end == nil {
+			if end, err = zonedTime(existing.End.DateTime, change.TimeZone); err != nil {
+				return Event{}, err
+			}
+		}
 	}
 	request := map[string]any{}
 	if change.Summary != "" {
 		request["summary"] = change.Summary
 	}
-	if start != "" {
-		request["start"] = map[string]string{"dateTime": start}
+	if start != nil {
+		request["start"] = start
 	}
-	if end != "" {
-		request["end"] = map[string]string{"dateTime": end}
+	if end != nil {
+		request["end"] = end
 	}
 	if change.Location != "" {
 		request["location"] = change.Location
@@ -549,7 +587,41 @@ func rfc3339(value string) (string, error) {
 		return "", nil
 	}
 	if _, err := time.Parse(time.RFC3339, trimmed); err != nil {
-		return "", fmt.Errorf("%q needs a timezone offset or Z (RFC 3339), otherwise it is read as UTC and lands hours away", value)
+		return "", fmt.Errorf("%q needs a timezone offset or Z (RFC 3339), or a time_zone, otherwise it is read as UTC and lands hours away", value)
 	}
 	return trimmed, nil
+}
+
+// zonedTime is one end of an event as Google takes it. Without a zone it is
+// rfc3339's rule unchanged. With an IANA zone, a local wall time is resolved
+// in it -- the offset, daylight saving included, comes from the zone database
+// rather than the model's arithmetic -- and the zone is sent with it, so the
+// event lives in that place. A time that already carries an offset keeps its
+// instant. Nil means the caller gave no time.
+func zonedTime(value, zone string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(value)
+	zone = strings.TrimSpace(zone)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if zone == "" {
+		dateTime, err := rfc3339(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]string{"dateTime": dateTime}, nil
+	}
+	location, err := time.LoadLocation(zone)
+	if err != nil {
+		return nil, fmt.Errorf("time_zone %q is not an IANA zone such as America/Denver", zone)
+	}
+	if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return map[string]string{"dateTime": trimmed, "timeZone": zone}, nil
+	}
+	for _, layout := range []string{"2006-01-02T15:04:05", "2006-01-02T15:04"} {
+		if local, err := time.ParseInLocation(layout, trimmed, location); err == nil {
+			return map[string]string{"dateTime": local.Format(time.RFC3339), "timeZone": zone}, nil
+		}
+	}
+	return nil, fmt.Errorf("%q is not a date and time such as 2026-10-31T10:45", value)
 }

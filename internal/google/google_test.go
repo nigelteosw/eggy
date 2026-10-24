@@ -665,6 +665,12 @@ func TestCalendarListReadsEveryCalendar(t *testing.T) {
 	if events[0].Calendar != "Work" || events[1].Calendar != "Personal" {
 		t.Fatalf("events not labelled: %#v", events)
 	}
+	// The name is for the owner; the id is what get, update, respond and
+	// delete need. Without it the model falls back to primary, and an event
+	// on a calendar shared with Eggy answers 404 there.
+	if events[0].CalendarID != "work@example.com" || events[1].CalendarID != "primary@example.com" {
+		t.Fatalf("events carry no calendar id to act on: %#v", events)
+	}
 }
 
 // One calendar losing its grant -- a shared feed revoked, a subscription
@@ -713,5 +719,86 @@ func TestCalendarsListsIdsTheModelCanName(t *testing.T) {
 	}
 	if len(calendars) != 1 || calendars[0].ID != "primary@example.com" || !calendars[0].Primary {
 		t.Fatalf("calendars=%#v", calendars)
+	}
+}
+
+type capturedEventTime struct {
+	DateTime string `json:"dateTime"`
+	TimeZone string `json:"timeZone"`
+}
+
+type capturedEvent struct {
+	Start capturedEventTime `json:"start"`
+	End   capturedEventTime `json:"end"`
+}
+
+// TestCalendarResolvesWallTimeInTheEventsZone is timezone awareness: the
+// owner says "10:45 in Denver", and the offset -- which Denver changes on
+// 1 November -- is the zone database's job, not the model's arithmetic. The
+// zone is sent too, so the event lives in Denver rather than in whatever
+// zone the calendar happens to default to.
+func TestCalendarResolvesWallTimeInTheEventsZone(t *testing.T) {
+	var sent capturedEvent
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"id":"e1","start":{"dateTime":"2026-10-31T10:45:00+08:00"},"end":{"dateTime":"2026-10-31T12:30:00+08:00"}}`))
+			return
+		}
+		sent = capturedEvent{}
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_, _ = w.Write([]byte(`{"id":"e1"}`))
+	}))
+
+	event := NewEvent{Summary: "Wedding", Start: "2026-10-31T10:45", End: "2026-10-31T12:30:00", TimeZone: "America/Denver"}
+	if _, err := workspace.CalendarCreate(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if sent.Start.DateTime != "2026-10-31T10:45:00-06:00" || sent.Start.TimeZone != "America/Denver" {
+		t.Fatalf("start=%#v, want 10:45 MDT in America/Denver", sent.Start)
+	}
+	if sent.End.DateTime != "2026-10-31T12:30:00-06:00" || sent.End.TimeZone != "America/Denver" {
+		t.Fatalf("end=%#v", sent.End)
+	}
+
+	// A week later Denver is on MST. The same wall time is a different offset,
+	// which is exactly the arithmetic a model gets wrong.
+	event.Start, event.End = "2026-11-07T10:45", "2026-11-07T11:45"
+	if _, err := workspace.CalendarCreate(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if sent.Start.DateTime != "2026-11-07T10:45:00-07:00" {
+		t.Fatalf("start=%q, want MST after the change", sent.Start.DateTime)
+	}
+
+	// Moving an event into a zone without restating its times keeps the
+	// instant and changes only the zone it is shown in.
+	if _, err := workspace.CalendarUpdate(context.Background(), EventChange{EventID: "e1", TimeZone: "America/Denver"}); err != nil {
+		t.Fatal(err)
+	}
+	if sent.Start.DateTime != "2026-10-31T10:45:00+08:00" || sent.Start.TimeZone != "America/Denver" {
+		t.Fatalf("zone-only update sent start=%#v", sent.Start)
+	}
+
+	// Without a zone, a bare datetime is still refused rather than read as UTC.
+	if _, err := workspace.CalendarCreate(context.Background(), NewEvent{Summary: "x", Start: "2026-10-31T10:45", End: "2026-10-31T11:45"}); err == nil {
+		t.Fatal("a bare datetime with no time_zone was accepted")
+	}
+	if _, err := workspace.CalendarCreate(context.Background(), NewEvent{Summary: "x", Start: "2026-10-31T10:45", End: "2026-10-31T11:45", TimeZone: "Mars/Olympus"}); err == nil || !strings.Contains(err.Error(), "Mars/Olympus") {
+		t.Fatalf("error=%v, want an unknown zone named", err)
+	}
+}
+
+// A listed event says which zone it lives in, so the model can tell the owner
+// "10:45 Denver time" instead of only an offset it then has to interpret.
+func TestCalendarEventsReportTheirZone(t *testing.T) {
+	workspace := authorizedWorkspace(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[{"id":"e1","summary":"Wedding","start":{"dateTime":"2026-10-31T10:45:00-06:00","timeZone":"America/Denver"},"end":{"dateTime":"2026-10-31T12:30:00-06:00","timeZone":"America/Denver"}}]}`))
+	}))
+	events, err := workspace.CalendarList(context.Background(), "family@example.com", "", "", time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].TimeZone != "America/Denver" {
+		t.Fatalf("events=%#v", events)
 	}
 }

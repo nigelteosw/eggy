@@ -206,7 +206,7 @@ There are no per-product commands. The tools are on the registry from the next t
 
 ## Several calendars
 
-A read with no calendar named covers **every calendar the account can see**, not just the primary one, and each event carries the calendar it came from. Calendars hidden in the Google UI are skipped, and at most twelve are read in one answer.
+A read with no calendar named covers **every calendar the account can see**, not just the primary one, and each event carries the calendar it came from and that calendar's id. Changing, answering or deleting an event goes through that id; an event on a calendar shared with Eggy is not on Eggy's primary calendar, and a change aimed there answers 404. Calendars hidden in the Google UI are skipped, and at most twelve are read in one answer.
 
 That needs no extra scope — `auth/calendar` already permits it — but a calendar only appears if the account is subscribed to it in Google Calendar itself. A shared calendar someone sent a link to, and which was never added, is not visible to the API either.
 
@@ -214,17 +214,20 @@ If one calendar cannot be read, the rest of the answer still comes back rather t
 
 `/google logout` discards the grant.
 
-## Times must carry a zone
+## Times carry a zone
 
-Every time in `google_calendar` needs a UTC offset or `Z`:
+An event happens somewhere. Give `google_calendar` the place's IANA zone and its local wall time, and Eggy works out the offset — daylight saving included — and tells Google the event lives in that zone:
 
 ```
-2026-08-01T10:00:00-07:00      ✅
-2026-08-01T10:00:00Z           ✅
-2026-08-01T10:00:00            ❌ refused
+start: 2026-10-31T10:45   time_zone: America/Denver   ✅ 10:45 MDT (-06:00)
+start: 2026-11-07T10:45   time_zone: America/Denver   ✅ 10:45 MST (-07:00)
+start: 2026-08-01T10:00:00-07:00                      ✅ an explicit offset
+start: 2026-08-01T10:00:00                            ❌ refused: no zone at all
 ```
 
-A bare datetime is ambiguous and Google resolves it as UTC, which silently moves an event by hours. Eggy refuses it before anything is created. Relative phrasing in chat resolves against `agent.timezone`, so check that setting is right before letting Eggy create events.
+A bare datetime with no `time_zone` is ambiguous and Google resolves it as UTC, which silently moves an event by hours, so Eggy refuses it before anything is created. On an update, `time_zone` alone moves an event into that zone without changing when it happens. Listed events report the zone they live in.
+
+Relative phrasing in chat ("tomorrow at 3") resolves against `agent.timezone`, so check that setting is right before letting Eggy create events.
 
 ## Guests are notified
 

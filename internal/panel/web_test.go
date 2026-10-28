@@ -926,15 +926,16 @@ func TestModeProbeCarriesTheConfiguredTheme(t *testing.T) {
 
 // A config it cannot read must not fail the probe: the mode is the
 // load-bearing half, and blanking the panel over a cosmetic preference would
-// hide the one screen that could fix it.
-func TestModeProbeFallsBackToDarkWhenConfigIsUnreadable(t *testing.T) {
+// hide the one screen that could fix it. The fallback is the default, which
+// follows the device.
+func TestModeProbeFallsBackToSystemWhenConfigIsUnreadable(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	handler := NewWebHandler(filepath.Join(t.TempDir(), "absent.yaml"), testWebConfig(t, now))
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/mode", nil))
 
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"dark"`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"system"`) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
@@ -1012,6 +1013,19 @@ func TestWebRawConfigRequiresASession(t *testing.T) {
 		handler.ServeHTTP(response, request)
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("%s status=%d", request.Method, response.Code)
+		}
+	}
+}
+
+func TestEveryViewPathServesTheApplicationShell(t *testing.T) {
+	// Each address the rail can route to must load the shell on a direct visit
+	// or reload; the SPA's own routing takes it from there.
+	handler := NewWebHandler("", WebUIConfig{})
+	for _, path := range []string{"/", "/scheduled", "/customize", "/traces", "/settings", "/auth/link"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "<title>Eggy</title>") {
+			t.Fatalf("GET %s status=%d did not serve the application shell", path, response.Code)
 		}
 	}
 }

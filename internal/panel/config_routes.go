@@ -75,7 +75,7 @@ func configuredTheme(configPath string) func() string {
 	return func() string {
 		cfg, err := config.LoadDocument(configPath)
 		if err != nil {
-			return config.ThemeDark
+			return config.ThemeSystem
 		}
 		return cfg.Appearance.ResolvedTheme()
 	}

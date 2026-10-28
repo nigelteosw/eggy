@@ -215,6 +215,25 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 	}
 }
 
+// newThreadStopHandler stops the running turn of one thread. The stop runs
+// under the same account and destination the send used, because the turn
+// registry keys a turn by exactly those two; a thread the owner does not own
+// is a 404 before the registry is consulted.
+func newThreadStopHandler(stop func(context.Context) bool, threads ThreadDirectory) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, _, ok := requireExistingThread(w, r, threads)
+		if !ok {
+			return
+		}
+		ctx := destination.With(r.Context(), destination.Destination{Kind: destination.Web, ThreadID: id})
+		title := "Nothing is running in this chat."
+		if stop != nil && stop(ctx) {
+			title = "Stopping."
+		}
+		writeWebResult(w, webResult{State: webSuccess, Title: title})
+	}
+}
+
 func newThreadSendHandler(enqueue func(context.Context, events.Event) error, threads ThreadDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, _, ok := requireExistingThread(w, r, threads)

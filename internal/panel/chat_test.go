@@ -260,6 +260,41 @@ func TestThreadHistoryReturns404ForAnUnknownThread(t *testing.T) {
 	}
 }
 
+func TestThreadStopStopsOnlyThatThreadsTurn(t *testing.T) {
+	memory := newTestMemoryStore(t)
+	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var calls []context.Context
+	stop := func(ctx context.Context) bool {
+		calls = append(calls, ctx)
+		return true
+	}
+	handler := newThreadStopHandler(stop, memory)
+
+	request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/stop", nil), "id", "thread-1")
+	response := httptest.NewRecorder()
+	handler(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Stopping.") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(calls) != 1 {
+		t.Fatalf("stop calls=%d", len(calls))
+	}
+	if got := destination.FromContext(calls[0]).ThreadID; got != "thread-1" {
+		t.Fatalf("stop scoped to thread %q", got)
+	}
+	if _, err := ports.PrincipalFromContext(calls[0]); err != nil {
+		t.Fatalf("stop carried no principal: %v", err)
+	}
+
+	missing := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/missing/stop", nil), "id", "missing")
+	handler(httptest.NewRecorder(), missing)
+	if len(calls) != 1 {
+		t.Fatal("a stop for an unknown thread reached the turn runner")
+	}
+}
+
 func TestThreadSendEnqueuesAMessageEventScopedToTheThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
 	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {

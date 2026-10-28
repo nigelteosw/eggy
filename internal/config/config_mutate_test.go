@@ -703,7 +703,7 @@ func TestSetAppearanceRoundTripsATheme(t *testing.T) {
 
 // An absent section is the common case -- every config written before this
 // field existed has one -- and it must resolve to charcoal rather than to "".
-func TestAppearanceDefaultsToDark(t *testing.T) {
+func TestAppearanceDefaultsToMatchingTheSystem(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
 		t.Fatal(err)
@@ -712,8 +712,8 @@ func TestAppearanceDefaultsToDark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := loaded.Appearance.ResolvedTheme(); got != ThemeDark {
-		t.Fatalf("theme=%q, want %q", got, ThemeDark)
+	if got := loaded.Appearance.ResolvedTheme(); got != ThemeSystem {
+		t.Fatalf("theme=%q, want %q", got, ThemeSystem)
 	}
 }
 
@@ -980,5 +980,27 @@ func TestGoogleClientTypeIsValidated(t *testing.T) {
 	err = SetGoogle(path, GoogleInput{Enabled: true, ClientID: "x.apps.googleusercontent.com", ClientType: "web", Products: []string{"gmail"}})
 	if err == nil || !strings.Contains(err.Error(), "https") {
 		t.Fatalf("error=%v, want a web client on plain http refused", err)
+	}
+}
+
+// System is a stored choice like the other two, so the owner can ask for it
+// back after choosing dark or light.
+func TestSetAppearanceRoundTripsSystem(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppearance(path, ThemeDark); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAppearance(path, ThemeSystem); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := LoadConfig(path, mapEnv(testSecrets()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Appearance.ResolvedTheme(); got != ThemeSystem {
+		t.Fatalf("theme=%q, want %q", got, ThemeSystem)
 	}
 }

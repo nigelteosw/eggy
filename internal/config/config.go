@@ -111,11 +111,13 @@ type ApprovalsConfig struct {
 	Mode string `yaml:"mode,omitempty"`
 }
 
-// Theme names. Dark is the default: Eggy's web panel is charcoal unless the
-// owner says otherwise, so an absent appearance section needs no migration.
+// Theme names. System is the default: the panel follows the device's light or
+// dark setting, so an absent appearance section needs no migration. Dark and
+// light are the owner's explicit choice.
 const (
-	ThemeDark  = "dark"
-	ThemeLight = "light"
+	ThemeSystem = "system"
+	ThemeDark   = "dark"
+	ThemeLight  = "light"
 )
 
 // AppearanceConfig is the owner's web panel preference. It lives in YAML
@@ -131,12 +133,14 @@ type AppearanceConfig struct {
 }
 
 // ResolvedTheme is Theme with the default applied, so callers never have to
-// distinguish "unset" from "dark".
+// distinguish "unset" from "system".
 func (a AppearanceConfig) ResolvedTheme() string {
-	if a.Theme == ThemeLight {
-		return ThemeLight
+	switch a.Theme {
+	case ThemeLight, ThemeDark:
+		return a.Theme
+	default:
+		return ThemeSystem
 	}
-	return ThemeDark
 }
 
 // HeartbeatConfig is the periodic check-in the owner is not present for. An

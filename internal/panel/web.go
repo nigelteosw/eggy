@@ -64,8 +64,11 @@ type WebUIConfig struct {
 	PublicBaseURL string
 	ChatHub       ChatStream
 	Enqueue       func(context.Context, events.Event) error
-	Memory        HistoryReader
-	Threads       ThreadDirectory
+	// Stop cancels the running turn of the account's conversation in the
+	// destination on the context. Nil means no turn runner, so nothing runs.
+	Stop    func(context.Context) bool
+	Memory  HistoryReader
+	Threads ThreadDirectory
 	// MCP is the running MCP manager, or nil when no server is configured.
 	// The web panel edits MCP config through internal/config like every other
 	// section; this is only the part config cannot do -- starting an OAuth
@@ -238,7 +241,7 @@ func writeMode(mode string, theme func() string, login string) http.HandlerFunc 
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		name := config.ThemeDark
+		name := config.ThemeSystem
 		if theme != nil {
 			name = theme()
 		}
@@ -373,6 +376,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("GET /api/chat/threads/{id}/history", guard(newThreadHistoryHandler(webConfig.Threads, webConfig.Memory)))
 	mux.Handle("GET /api/chat/threads/{id}/stream", guard(newThreadStreamHandler(webConfig.ChatHub, webConfig.Threads, sessionRevalidator(webConfig, now))))
 	mux.Handle("POST /api/chat/threads/{id}/send", guard(newThreadSendHandler(webConfig.Enqueue, webConfig.Threads)))
+	mux.Handle("POST /api/chat/threads/{id}/stop", guard(newThreadStopHandler(webConfig.Stop, webConfig.Threads)))
 	mux.Handle("GET /api/tools", guard(newToolListHandler(webConfig.Tools)))
 	mux.Handle("GET /api/approvals", guard(newApprovalListHandler(webConfig.Approvals, now)))
 	mux.Handle("GET /api/approvals/mode", guard(newApprovalModeHandler(webConfig.ApprovalMode, false)))
@@ -439,7 +443,7 @@ func webUIHandler() http.Handler {
 
 func isApplicationRoute(path string) bool {
 	switch path {
-	case "/settings", "/settings/", "/traces", "/traces/", "/finance", "/finance/", "/extensions", "/extensions/", "/auth/link":
+	case "/settings", "/settings/", "/traces", "/traces/", "/scheduled", "/scheduled/", "/customize", "/customize/", "/finance", "/finance/", "/extensions", "/extensions/", "/auth/link":
 		return true
 	default:
 		return false

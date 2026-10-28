@@ -123,20 +123,20 @@ review.
       Finance). *Done:* `DataTable` is used by the config tables; below 640 px
       each row is a card with labelled values. Finance was already a card list,
       so it needed no change.
-- [ ] One header row on phones: menu, page title, main action; new chat in the
-      chat header.
+- [x] One header row on phones: a new-chat button sits in the chat's header.
+      *Still open:* the menu and page title sharing one row on the other pages.
 - [x] Traces and Settings drill down full-screen on phones. *Done:* Traces
       already opened one list at a time; Settings is now a list that pushes each
       section, with a back control, instead of a dropdown.
 - [ ] Sticky bottom action bar for dirty forms; confirms as bottom sheets.
-- [ ] Reply and Copy from a long-press menu on touch, instead of competing
-      with the system text-selection menu.
+- [x] Reply on touch screens: a Reply action is printed under each message, as
+      a thumb can reach it. *Still open:* Copy, and a long-press menu.
 - [x] Web app manifest with the theme colour, an icon, and `viewport-fit=cover`
       so the safe-area padding applies. *Done:* the `apple-touch-icon` PNG (square, since iOS fills transparent
       corners black).
-- [x] 44 px hit areas on touch. *Done:* buttons and menu items are at least
-      44 px where the pointer is a finger. *Still open:* the edge swipe to open
-      the sidebar, and keeping the composer above the iOS keyboard.
+- [x] 44 px hit areas on touch; edge swipe to open the sidebar and close it
+      with a swipe left; the app is sized to the visible viewport, so the composer
+      stays above the iOS keyboard. *Still open:* the overflow audit as a test.
 - [ ] The overflow audit becomes a test across every screen at 390 px in both
       themes: no sideways page scroll, no hit area under 44 px, no field under
       16 px.
@@ -178,11 +178,13 @@ review.
 - [x] Chat search and no collapsible date groups. *Done:* a search field above
       the chats, and date headings are labels. *Still open:* a new-chat button in
       the phone's chat header.
-- [ ] Schedules in plain language with relative next run. *Still open.*
+- [x] Schedules in plain language: "in 2 hours", "tomorrow", with the exact
+      time on hover. *Still open:* the same wording in Telegram's /schedule.
 - [x] Plural helper: "1 recent turn", "2 recent turns" everywhere on Traces.
 - [x] Settings search finds a section by what it holds. *Still open:* the
       search does not reach individual card titles and field labels yet.
-- [ ] Setup page: provider presets instead of base-URL / env-var vocabulary.
+- [x] Setup page: provider presets. The provider is chosen from a short list
+      that fills the address and names; the fields read as plain words.
 
 Deletion budget: net production lines should fall. Removed: the pearl CSS
 (~90 lines), the duplicate approval-mode control, two of three Restart cards,

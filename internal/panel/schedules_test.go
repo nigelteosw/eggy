@@ -68,6 +68,11 @@ func TestWebSchedulesListReadsAsATimeline(t *testing.T) {
 	if decoded.TableRows[0][1] != "exact reminder" {
 		t.Fatalf("kind=%q", decoded.TableRows[0][1])
 	}
+	// The exact time rides in its own column, so the page can say "in 2 hours"
+	// and still show the moment on hover, without parsing the readable text.
+	if len(decoded.TableRows[0]) != 6 || decoded.TableRows[0][5] != "2026-08-02T18:00:00Z" {
+		t.Fatalf("next run instant=%#v, want RFC 3339 in column 5", decoded.TableRows[0])
+	}
 	if decoded.TableRows[1][3] != "0 9 * * *" {
 		t.Fatalf("expression=%q", decoded.TableRows[1][3])
 	}

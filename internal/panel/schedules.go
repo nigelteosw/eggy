@@ -52,6 +52,7 @@ func newScheduleListHandler(schedules ScheduleDirectory) http.HandlerFunc {
 			}
 			rows = append(rows, []string{
 				schedule.ID, kind, schedule.Instruction, schedule.Expression, formatScheduleTime(schedule.NextRun),
+				schedule.NextRun.UTC().Format(time.RFC3339),
 			})
 		}
 		writeWebResult(w, webResult{State: webSuccess, TableHeaders: headers, TableRows: rows})

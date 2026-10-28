@@ -3,6 +3,7 @@ import { SessionExpiredError, getSoul, saveSoul } from "../lib/api";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { PRIMARY_BUTTON } from "../components/ui/form";
+import { SaveBar } from "../components/ui/save-bar";
 import { errorMessage } from "../lib/utils";
 
 // SOUL.md, Eggy's identity, as a setting rather than a file on a volume. It
@@ -15,10 +16,17 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // The text last read from or written to the server, so the bar knows whether
+  // there is anything to save.
+  const [savedSoul, setSavedSoul] = useState("");
 
   useEffect(() => {
     getSoul()
-      .then((result) => setSoul(result.fields?.find((field) => field.label === "soul")?.value ?? ""))
+      .then((result) => {
+        const loaded = result.fields?.find((field) => field.label === "soul")?.value ?? "";
+        setSoul(loaded);
+        setSavedSoul(loaded);
+      })
       .catch((err) => {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();
@@ -36,8 +44,13 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
     try {
       const result = await saveSoul(content);
       if (content.trim() === "") {
+        // A reset shows the built-in soul the server now serves, not what was typed.
         const reloaded = await getSoul();
-        setSoul(reloaded.fields?.find((field) => field.label === "soul")?.value ?? "");
+        const builtIn = reloaded.fields?.find((field) => field.label === "soul")?.value ?? "";
+        setSoul(builtIn);
+        setSavedSoul(builtIn);
+      } else {
+        setSavedSoul(content);
       }
       setStatus(result.detail ?? "Saved. The next message uses it — no restart needed.");
     } catch (err) {
@@ -90,6 +103,7 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
           Reset to built-in soul
         </button>
       </div>
+      <SaveBar dirty={!loading && soul !== savedSoul} saving={saving} label="Save soul" onSave={() => save(soul)} />
       {status && (
         <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
           {status}

@@ -4,6 +4,7 @@ import { Input } from "../components/ui/input";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { FIELD_COMPACT, PRIMARY_BUTTON } from "../components/ui/form";
+import { SaveBar } from "../components/ui/save-bar";
 import { SummaryRows } from "../components/ui/summary-rows";
 
 export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => void }) {
@@ -13,11 +14,17 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
   const [activeStart, setActiveStart] = useState("");
   const [activeEnd, setActiveEnd] = useState("");
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  async function submit() {
     await save({ interval: tickInterval, instruction, active_start: activeStart, active_end: activeEnd });
     setInstruction("");
   }
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    await submit();
+  }
+
+  const dirty = tickInterval !== "" || instruction !== "" || activeStart !== "" || activeEnd !== "";
 
   const headers = result?.table_headers ?? [];
   const row = result?.table_rows?.[0];
@@ -76,6 +83,7 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
             </button>
           </div>
         </form>
+        <SaveBar dirty={dirty} saving={saving} label="Save check-ins" onSave={submit} />
       </details>
 
       {result?.detail && <p className="mt-2 text-xs text-neutral-700">{result.detail}</p>}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useConfirm } from "../components/ui/confirm";
-import { Thread, deleteThread, listApprovals, listThreads, renameThread, type Account } from "../lib/api";
+import { Thread, deleteThread, listApprovals, listThreads, renameThread, type Account, type Theme } from "../lib/api";
 import { AccountMenu } from "../app/AccountMenu";
 import { ClockIcon, HomeIcon, PanelIcon, PlugIcon, PlusIcon, SearchIcon, SlidersIcon } from "../components/ui/icons";
 import { runningExtensions } from "../extensions";
@@ -174,6 +174,8 @@ export function ThreadSidebar({
   onOpenSettings,
   account,
   onLogout,
+  theme,
+  onThemeChange,
 }: {
   activeThreadId: string | null;
   onSelect: (threadId: string) => void;
@@ -198,6 +200,10 @@ export function ThreadSidebar({
   onOpenSettings: () => void;
   account?: Account;
   onLogout: () => void;
+  // The account's palette and how to change it from the menu. Optional, so a
+  // caller that has no palette to show still gets the menu.
+  theme?: Theme;
+  onThemeChange?: (theme: Theme) => void;
 }) {
   const [confirm, confirmDialog] = useConfirm();
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -609,7 +615,7 @@ export function ThreadSidebar({
       </div>
 
       <div className="shrink-0 border-t border-border px-2 py-2">
-        <AccountMenu account={account} onNavigate={onNavigate} onOpenSettings={onOpenSettings} onLogout={onLogout} />
+        <AccountMenu account={account} onNavigate={onNavigate} onOpenSettings={onOpenSettings} onLogout={onLogout} theme={theme} onThemeChange={onThemeChange} />
       </div>
 
       <button

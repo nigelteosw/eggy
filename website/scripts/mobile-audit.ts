@@ -4,6 +4,9 @@
 // It needs a running panel (bun run dev, or a built binary) and Chrome, so it
 // is a script rather than part of bun test.
 //
+// With EGGY_AUDIT_USER and EGGY_AUDIT_PASSWORD set it signs in first, so the
+// pages behind the session are measured too.
+//
 //   bun run audit:mobile [url] [width]
 
 const url = process.argv[2] ?? "http://localhost:5173/";
@@ -33,25 +36,21 @@ if (targets.length === 0) {
 
 const ws = new WebSocket(targets[0].webSocketDebuggerUrl);
 let nextId = 0;
-const pending = new Map<number, (value: { result?: { value?: string; data?: string } }) => void>();
+const pending = new Map<number, (message: unknown) => void>();
 ws.onmessage = (event) => {
   const message = JSON.parse(String(event.data));
   pending.get(message.id)?.(message);
 };
 await new Promise((resolve) => (ws.onopen = resolve));
 const send = (method: string, params: Record<string, unknown> = {}) =>
-  new Promise<{ result?: { value?: string; data?: string } }>((resolve) => {
+  new Promise<unknown>((resolve) => {
     const id = ++nextId;
     pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params }));
   });
 
-await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 2, mobile: true });
-await send("Page.navigate", { url });
-await Bun.sleep(4000);
-
 // The page measures itself: wide elements, small hit areas and small fields.
-const measure = `(() => {
+const MEASURE = `(() => {
   const viewport = document.documentElement.clientWidth;
   const rect = (el) => el.getBoundingClientRect();
   const label = (el) => el.tagName.toLowerCase() + (el.getAttribute('aria-label') ? '[' + el.getAttribute('aria-label') + ']' : '') + (el.textContent ? ' "' + el.textContent.trim().slice(0, 40) + '"' : '');
@@ -67,14 +66,57 @@ const measure = `(() => {
   return JSON.stringify({ sideways, problems: [...(sideways ? ['page scrolls sideways: ' + document.documentElement.scrollWidth + 'px wide'] : []), ...wide, ...small, ...fields] });
 })()`;
 
-const result = await send("Runtime.evaluate", { expression: measure, returnByValue: true });
+await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 2, mobile: true });
+// A phone's pointer is a finger, so the touch-only rules (the 44 px hit areas
+// in index.css) apply to what this measures.
+await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+
+const origin = url.replace(/\/$/, "");
+// Each page the phone reaches from the rail, plus the settings popup.
+const pages = ["/", "/scheduled", "/customize", "/traces", "/settings"];
+
+async function evaluate(expression: string): Promise<unknown> {
+  return send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+}
+
+const user = process.env.EGGY_AUDIT_USER;
+const password = process.env.EGGY_AUDIT_PASSWORD;
+if (user && password) {
+  await send("Page.navigate", { url: origin + "/" });
+  await Bun.sleep(3000);
+  const fill = `(async () => {
+    const set = (el, value) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const username = document.querySelector('#username');
+    if (!username) return 'no sign-in form';
+    set(username, ${JSON.stringify(user)});
+    set(document.querySelector('#password'), ${JSON.stringify(password)});
+    document.querySelector('button[type=submit]').click();
+    return 'submitted';
+  })()`;
+  await evaluate(fill);
+  await Bun.sleep(4000);
+}
+
+const problems: string[] = [];
+for (const page of pages) {
+  await send("Page.navigate", { url: origin + page });
+  await Bun.sleep(2500);
+  const result = (await evaluate(MEASURE)) as { result?: { result?: { value?: string } } };
+  // The reply nests the evaluated value one level down: message.result.result.value.
+  const measured = result.result?.result?.value;
+  const found: string[] = JSON.parse(measured ?? '{"problems":["the page could not be measured"]}').problems;
+  for (const problem of found) problems.push(page + ": " + problem);
+}
 ws.close();
 chrome.kill();
 
-const { problems } = JSON.parse(result.result?.value ?? '{"problems":["the page could not be measured"]}') as { problems: string[] };
 if (problems.length > 0) {
-  console.error(`${problems.length} phone problem(s) at ${width}px on ${url}:`);
-  for (const problem of problems.slice(0, 60)) console.error(`  ${problem}`);
+  console.error(`${problems.length} phone problem(s) at ${width}px on ${origin}:`);
+  for (const problem of problems.slice(0, 80)) console.error(`  ${problem}`);
   process.exit(1);
 }
-console.log(`No phone problems at ${width}px on ${url}`);
+console.log(`No phone problems at ${width}px on ${origin} across ${pages.length} pages`);

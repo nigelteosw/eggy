@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/page-header";
 import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 import { McpCard } from "./McpCard";
@@ -40,7 +41,7 @@ function routeUrl(route: Route): string {
   return `${window.location.pathname}?${params}`;
 }
 
-export function CustomizePage({ onSessionExpired, features }: { onSessionExpired: () => void; features: string[] }) {
+export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { onSessionExpired: () => void; features: string[]; onOpenSidebar?: () => void }) {
   const [route, setRoute] = useState<Route>(readRoute);
   const [query, setQuery] = useState("");
 
@@ -81,10 +82,7 @@ export function CustomizePage({ onSessionExpired, features }: { onSessionExpired
           />
         ) : (
           <>
-            <header className="flex flex-col gap-1.5 pb-1">
-              <h1 className="text-xl font-semibold tracking-tight">Customize</h1>
-              <p className="max-w-2xl text-sm leading-6 text-neutral-700">Skills and connectors shared by everyone on this Eggy.</p>
-            </header>
+            <PageHeader title="Customize" onOpenSidebar={onOpenSidebar} description="Skills and connectors shared by everyone on this Eggy." className="pb-1" />
 
             <div className="flex flex-wrap items-center gap-3">
               <div role="tablist" aria-label="Customize" className="flex gap-1 rounded-xl bg-neutral-100 p-1">
@@ -98,7 +96,7 @@ export function CustomizePage({ onSessionExpired, features }: { onSessionExpired
                     aria-controls="customize-panel"
                     onClick={() => go({ tab: item.id, skill: null }, false)}
                     className={cn(
-                      "min-h-9 rounded-lg px-3.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      "min-h-11 rounded-lg px-3.5 text-sm transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       route.tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                     )}
                   >
@@ -117,10 +115,10 @@ export function CustomizePage({ onSessionExpired, features }: { onSessionExpired
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search skills"
                       aria-label="Search skills"
-                      className="h-9 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
+                      className="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 sm:h-9 sm:text-sm"
                     />
                   </label>
-                  <button type="button" onClick={() => go({ tab: "skills", skill: "new" })} className={cn("shrink-0", PRIMARY_BUTTON)}>
+                  <button type="button" onClick={() => go({ tab: "skills", skill: "new" })} className={cn(PRIMARY_BUTTON, "min-h-11 shrink-0 sm:min-h-10")}>
                     + Add skill
                   </button>
                 </div>

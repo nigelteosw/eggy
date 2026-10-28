@@ -47,7 +47,7 @@ func (s *CommandService) heartbeatCommand(ctx context.Context, args []string) (s
 		if on {
 			return s.heartbeatOnMessage() + "\n\nTurn it off with /heartbeat off.", true, nil
 		}
-		return "Heartbeat is off: Eggy does not message you unprompted.\n\nTurn it on with /heartbeat on.", true, nil
+		return "Check-ins are off, so I won't message you unprompted.\n\nTurn them on with /heartbeat on.", true, nil
 	}
 	var on bool
 	switch strings.ToLower(args[0]) {
@@ -61,7 +61,7 @@ func (s *CommandService) heartbeatCommand(ctx context.Context, args []string) (s
 		return "", true, err
 	}
 	if !on {
-		return "Heartbeat off. Eggy will not message you unprompted.", true, nil
+		return "Check-ins off. I won't message you unprompted.", true, nil
 	}
 	return s.heartbeatOnMessage(), true, nil
 }

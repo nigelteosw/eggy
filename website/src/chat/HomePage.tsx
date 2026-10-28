@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/ui/page-header";
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getAgent, getWatchList, listSchedules, listThreads, type AgentSelection } from "../lib/api";
 import { ApprovalsCard } from "../settings/ApprovalsCard";
@@ -29,7 +30,9 @@ export function HomePage({
   onNavigate,
   onOpenSettings,
   onNewChat,
+  onOpenSidebar,
 }: {
+  onOpenSidebar?: () => void;
   onSessionExpired: () => void;
   onNavigate: (view: "scheduled" | "chat") => void;
   onOpenSettings: () => void;
@@ -74,10 +77,7 @@ export function HomePage({
   return (
     <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
       <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
-        <header className="flex flex-col gap-1.5">
-          <h1 className="text-xl font-semibold tracking-tight">Home</h1>
-          <p className="text-sm leading-6 text-neutral-700">{status}</p>
-        </header>
+        <PageHeader title="Home" onOpenSidebar={onOpenSidebar} description={status} />
 
         {error && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
 

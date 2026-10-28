@@ -274,7 +274,6 @@ export function App() {
   const activeExtensionDef = runningExtensions(features ?? []).find((extension) => extension.id === activeExtension);
   // A chat with a thread or draft open draws its own header, which carries the
   // menu control on a phone; every other view gets the top bar instead.
-  const chatHeaderVisible = !activeExtensionDef && view === "chat" && (activeThreadId !== null || draftChatOpen);
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visibleH ? { height: visibleH } : undefined}>
@@ -320,6 +319,8 @@ export function App() {
           onOpenSettings={openSettings}
           account={account}
           onLogout={signOut}
+          theme={theme}
+          onThemeChange={setTheme}
         />
       </div>
 
@@ -343,7 +344,9 @@ export function App() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {restartPending && <RestartBar onSessionExpired={onSessionExpired} />}
-        {!sidebarOpen && !chatHeaderVisible && (
+        {/* Only an extension gets the top bar: its panel draws no heading of its
+            own. Every other page puts the menu button in its heading. */}
+        {!sidebarOpen && activeExtensionDef && (
           <div className="flex h-14 shrink-0 items-center px-2 md:hidden">
             <button
               type="button"
@@ -366,6 +369,7 @@ export function App() {
         ) : view === "home" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <HomePage
+              onOpenSidebar={() => setSidebarOpen(true)}
               onSessionExpired={onSessionExpired}
               onNavigate={(next) => goTo(next)}
               onOpenSettings={openSettings}
@@ -406,15 +410,15 @@ export function App() {
           )
         ) : view === "scheduled" ? (
           <div className="min-h-0 min-w-0 flex-1">
-            <SchedulesPage onSessionExpired={onSessionExpired} />
+            <SchedulesPage onSessionExpired={onSessionExpired} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
         ) : view === "customize" ? (
           <div className="min-h-0 min-w-0 flex-1">
-            <CustomizePage onSessionExpired={onSessionExpired} features={features ?? []} />
+            <CustomizePage onSessionExpired={onSessionExpired} features={features ?? []} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
         ) : view === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">
-            <TracesPage onSessionExpired={onSessionExpired} />
+            <TracesPage onSessionExpired={onSessionExpired} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
         ) : null}
         </div>

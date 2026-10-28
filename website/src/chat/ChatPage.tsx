@@ -36,6 +36,8 @@ function splitQuote(text: string): { quote: string | null; body: string } {
   return match ? { quote: match[2], body: match[3] } : { quote: null, body: text };
 }
 type PendingApproval = { id: string; summary: string; details?: string };
+// How long a finger rests on a message before its actions open.
+const LONG_PRESS_MS = 500;
 // Where the floating Reply button sits, relative to the scrolling transcript.
 type SelectionAnchor = { text: string; ownMessage: boolean; top: number; left: number };
 
@@ -132,20 +134,59 @@ function ReplyButton({ onReply }: { onReply: () => void }) {
   );
 }
 
+// copyText puts a message on the clipboard. It reports whether that worked: a
+// refused clipboard (an insecure page, a locked-down browser) leaves the text on
+// screen to select by hand.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// MessageSheet is a long press's menu: the message's actions, at the thumb.
+function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCopy: () => void; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/25" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label="Message actions"
+        onClick={(event) => event.stopPropagation()}
+        className="flex w-full flex-col gap-1 rounded-t-3xl bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lift"
+      >
+        <button type="button" onClick={onReply} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-sm font-medium transition-colors hover:bg-neutral-100">
+          <ReplyIcon className="h-4 w-4" />
+          Reply
+        </button>
+        <button type="button" onClick={onCopy} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-sm font-medium transition-colors hover:bg-neutral-100">
+          Copy
+        </button>
+        <button type="button" onClick={onClose} className="min-h-12 rounded-2xl px-4 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // MessageActions is what a finger can reach under a message: quote it, or copy
 // it. Copy confirms in place for a moment, because a toast would sit over the
 // composer the thumb is about to use.
 function MessageActions({ text, onReply }: { text: string; onReply: () => void }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard refused (an insecure page or a locked-down browser): the
-      // text is still on screen to select by hand.
-    }
+    if (!(await copyText(text))) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   }
   return (
     <div className="flex items-center gap-1">
@@ -195,7 +236,7 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
 // is in it shows the same line over "Thought for Ns" and the steps.
 function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds: number | null; live: boolean }) {
   const [open, setOpen] = useState(!live);
-  const summary = steps[steps.length - 1] ?? (live ? "Eggy is typing" : "Thought");
+  const summary = steps[steps.length - 1] ?? (live ? "I'm typing" : "Thought");
   return (
     <div className="text-sm">
       <button
@@ -427,6 +468,23 @@ export function ChatPage({
   const atBottomRef = useRef(true);
   const [selection, clearSelection] = useSelectionAnchor(transcriptRef);
   const [quote, setQuote] = useState<Quote | null>(null);
+  // The message a long press opened, on a touch screen: its actions in a sheet.
+  const [pressedMessage, setPressedMessage] = useState<string | null>(null);
+  const pressTimer = useRef<number | null>(null);
+  function startMessagePress(event: React.PointerEvent<HTMLDivElement>) {
+    const item = (event.target as Element).closest<HTMLElement>("[data-message-id]");
+    cancelMessagePress();
+    if (!item) return;
+    const id = item.dataset.messageId ?? null;
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      setPressedMessage(id);
+    }, LONG_PRESS_MS);
+  }
+  function cancelMessagePress() {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  }
   const threadRef = useRef<string | null>(threadId);
   const previousThreadId = useRef<string | null>(threadId);
   const messages = [...history, ...pending];
@@ -624,6 +682,8 @@ export function ChatPage({
     }
   }
 
+  const pressed = messages.find((message) => message.id === pressedMessage) ?? null;
+  const pressedBody = pressed ? (pressed.role === "user" ? splitQuote(pressed.text).body : pressed.text) : "";
   return (
     <div className="app-canvas flex h-full flex-col">
       {/* No rule or fill: the header sits on the page, and only the title shows a
@@ -654,8 +714,31 @@ export function ChatPage({
         )}
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col">
-      <div ref={transcriptRef} onScroll={onTranscriptScroll} className="scrollbar-slim relative min-h-0 flex-1 overflow-y-auto">
-        {selection && (
+      <div
+        ref={transcriptRef}
+        onScroll={onTranscriptScroll}
+        onPointerDown={touch ? startMessagePress : undefined}
+        onPointerUp={cancelMessagePress}
+        onPointerMove={cancelMessagePress}
+        onPointerCancel={cancelMessagePress}
+        onPointerLeave={cancelMessagePress}
+        onContextMenu={touch ? (event) => event.preventDefault() : undefined}
+        className="scrollbar-slim relative min-h-0 flex-1 overflow-y-auto"
+      >
+        {pressed && (
+          <MessageSheet
+            onReply={() => {
+              setQuote(replyQuote(pressedBody, pressed.role === "assistant"));
+              setPressedMessage(null);
+            }}
+            onCopy={async () => {
+              await copyText(pressedBody);
+              setPressedMessage(null);
+            }}
+            onClose={() => setPressedMessage(null)}
+          />
+        )}
+        {selection && !touch && (
           <button
             type="button"
             // mousedown would collapse the selection before click fires.
@@ -689,7 +772,7 @@ export function ChatPage({
             if (isUser) {
               const { quote: quoted, body } = splitQuote(message.text);
               return (
-                <div key={message.id} data-role="user" className="flex animate-fade-in-up justify-end">
+                <div key={message.id} data-message-id={message.id} data-role="user" className="flex animate-fade-in-up justify-end">
                   <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-sm text-foreground sm:max-w-[72%] sm:px-5">
                     {quoted !== null && (
                       <div className="mb-2.5 flex items-start rounded-xl bg-black/5 px-3 py-2">
@@ -712,7 +795,7 @@ export function ChatPage({
             }
             const activity = activityByIndex[index];
             return (
-              <div key={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
+              <div key={message.id} data-message-id={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
                 {touch && <MessageActions text={message.text} onReply={() => setQuote(replyQuote(message.text, true))} />}

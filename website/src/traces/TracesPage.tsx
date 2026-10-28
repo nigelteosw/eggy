@@ -11,6 +11,7 @@ import {
   type TraceSummary,
 } from "../lib/api";
 import { Button } from "../components/ui/button";
+import { PageHeader } from "../components/ui/page-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { ChevronLeftIcon, ChevronDownIcon } from "../components/ui/icons";
 import { errorMessage } from "../lib/utils";
@@ -724,7 +725,7 @@ export function TraceBrowser({
   );
 }
 
-export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function TracesPage({ onSessionExpired, onOpenSidebar }: { onSessionExpired: () => void; onOpenSidebar?: () => void }) {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
   const [titles, setTitles] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -780,15 +781,17 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
-        <div className="flex items-baseline gap-2.5">
-          <h1 className="text-lg font-semibold tracking-tight">Traces</h1>
-          <span className="text-xs tabular-nums text-neutral-700">{count(traces.length, "recent turn", "recent turns")}</span>
-        </div>
-        <Button variant="ghost" onClick={reload} disabled={loading} className="rounded-xl hover:bg-neutral-200">
-          {loading ? "Loading…" : "Refresh"}
-        </Button>
-      </header>
+      <PageHeader
+        title="Traces"
+        onOpenSidebar={onOpenSidebar}
+        className="shrink-0 px-5 py-4 sm:px-6"
+        description={<span className="text-xs tabular-nums">{count(traces.length, "recent turn", "recent turns")}</span>}
+        action={
+          <Button variant="ghost" onClick={reload} disabled={loading} className="shrink-0 rounded-xl hover:bg-neutral-200">
+            {loading ? "Loading…" : "Refresh"}
+          </Button>
+        }
+      />
       {error && (
         <ErrorBanner className="mx-5 mb-5 p-4 leading-relaxed">
           {error}

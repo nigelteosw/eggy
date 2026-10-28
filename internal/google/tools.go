@@ -131,6 +131,15 @@ type reclassifiedTool struct {
 
 func (t reclassifiedTool) Definition() ports.ToolDefinition { return t.definition }
 
+// DescribeCall passes the sentence through the reclassification, which only
+// changes what the gate does, never what the call does.
+func (t reclassifiedTool) DescribeCall(arguments json.RawMessage) string {
+	if describer, ok := t.Tool.(ports.CallDescriber); ok {
+		return describer.DescribeCall(arguments)
+	}
+	return ""
+}
+
 // respond shapes both outcomes of one product call for the model, and takes
 // them positionally so a case can forward a call directly:
 // respond(w.GmailLabels(ctx)). Every tool returns JSON because a model reading

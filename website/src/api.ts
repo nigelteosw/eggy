@@ -38,7 +38,7 @@ export type Account = { id: string; username: string; name?: string };
 // features names the optional capabilities this process was started with
 // ("finance"), so a tab is drawn only for one that exists. It is always a
 // list, so callers can ask includes() without a null check.
-export type Session = { account?: Account; csrf?: string; features?: string[] };
+export type Session = { account?: Account; csrf?: string; features?: string[]; restartPending?: boolean };
 
 let session: Session | null = null;
 
@@ -86,8 +86,8 @@ export async function request<T = CommandResult>(path: string, init?: RequestIni
 }
 
 export function checkSession(): Promise<Session> {
-  return request<Session & CommandResult>("/api/session").then((result) => {
-    session = { account: result.account, csrf: result.csrf, features: result.features ?? [] };
+  return request<Session & CommandResult & { restart_pending?: boolean }>("/api/session").then((result) => {
+    session = { account: result.account, csrf: result.csrf, features: result.features ?? [], restartPending: result.restart_pending === true };
     return session;
   });
 }
@@ -465,7 +465,7 @@ export type ChatEvent = {
   kind: "message" | "typing" | "progress" | "edit" | "approval";
   id?: string;
   text?: string;
-  approval?: { id: string; summary: string };
+  approval?: { id: string; summary: string; details?: string };
 };
 
 export type Thread = { id: string; title: string; updatedAt: string };
@@ -522,6 +522,8 @@ export type AgentSelection = {
   show_thinking?: boolean;
   heartbeat?: boolean;
   approval_mode?: string;
+  // What each mode does, in the words the chat reply uses, keyed by mode name.
+  approval_summaries?: Record<string, string>;
 };
 
 export function getAgent(): Promise<AgentSelection> {

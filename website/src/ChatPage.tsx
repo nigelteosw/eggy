@@ -33,7 +33,7 @@ function splitQuote(text: string): { quote: string | null; body: string } {
   const match = REPLY_PREFIX.exec(text);
   return match ? { quote: match[2], body: match[3] } : { quote: null, body: text };
 }
-type PendingApproval = { id: string; summary: string };
+type PendingApproval = { id: string; summary: string; details?: string };
 // Where the floating Reply button sits, relative to the scrolling transcript.
 type SelectionAnchor = { text: string; ownMessage: boolean; top: number; left: number };
 
@@ -277,6 +277,48 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// The approval card: the sentence the owner is deciding on, the arguments
+// behind it one tap away for anyone who wants to check, and the two answers.
+// Details stay closed by default so the decision reads as one plain sentence.
+export function ApprovalCard({ approval, onDecide }: { approval: PendingApproval; onDecide: (approved: boolean) => void }) {
+  const [showDetails, setShowDetails] = useState(false);
+  return (
+    <div className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-2xl bg-eg-ask p-[18px] text-sm text-eg-ask-ink">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+        <LockIcon className="h-3.5 w-3.5" />
+        Needs your approval
+      </div>
+      <p className="mb-3 leading-relaxed">{approval.summary}</p>
+      {approval.details && (
+        <div className="mb-3.5">
+          <button
+            type="button"
+            aria-expanded={showDetails}
+            onClick={() => setShowDetails((open) => !open)}
+            className="flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
+          >
+            {showDetails ? "Hide details" : "Show details"}
+            <ChevronDownIcon className={cn("h-3.5 w-3.5 transition-transform", showDetails && "rotate-180")} />
+          </button>
+          {showDetails && (
+            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-background/70 p-3 font-mono text-xs leading-relaxed text-foreground">
+              {approval.details}
+            </pre>
+          )}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Button type="button" size="sm" className="rounded-xl" onClick={() => onDecide(true)}>
+          Approve
+        </Button>
+        <Button type="button" size="sm" className="rounded-xl bg-neutral-100 text-foreground hover:bg-neutral-200" onClick={() => onDecide(false)}>
+          Decline
+        </Button>
+      </div>
     </div>
   );
 }
@@ -611,34 +653,7 @@ export function ChatPage({
           })}
           {typing && <ActivityDisclosure steps={liveSteps} seconds={null} live />}
           {approvals.map((approval) => (
-            <div
-              key={approval.id}
-              className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-2xl bg-eg-ask p-[18px] text-sm text-eg-ask-ink"
-            >
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
-                <LockIcon className="h-3.5 w-3.5" />
-                Needs your approval
-              </div>
-              <p className="mb-3.5 leading-relaxed">{approval.summary}</p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="rounded-xl"
-                  onClick={() => handleApproval(approval.id, true)}
-                >
-                  Approve
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="rounded-xl bg-neutral-100 text-foreground hover:bg-neutral-200"
-                  onClick={() => handleApproval(approval.id, false)}
-                >
-                  Decline
-                </Button>
-              </div>
-            </div>
+            <ApprovalCard key={approval.id} approval={approval} onDecide={(approved) => handleApproval(approval.id, approved)} />
           ))}
           {decisions.map((decision) => (
             <p key={decision.id} className="flex items-center gap-2 text-xs text-muted-foreground">

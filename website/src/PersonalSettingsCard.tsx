@@ -149,7 +149,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
                 />
                 <span>
                   <span className="font-medium">{mode.label}</span>
-                  <span className="block text-xs text-neutral-700">{mode.hint}</span>
+                  <span className="block text-xs text-neutral-700">{selection.approval_summaries?.[mode.value] ?? mode.hint}</span>
                 </span>
               </label>
             ))}

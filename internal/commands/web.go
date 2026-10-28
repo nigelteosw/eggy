@@ -35,7 +35,7 @@ func webLoginSender(ctx context.Context) (string, bool) {
 // maps to; from anywhere else it is the bare address and the login form.
 func (s *CommandService) webCommand(ctx context.Context) (string, bool, error) {
 	if s.PublicBaseURL == "" {
-		return "The web panel address is unknown. Set `server.public_base_url` in config.yaml (or `EGGY_PUBLIC_BASE_URL`) and restart.", true, nil
+		return "I don't know this Eggy's web address yet, so I can't send a sign-in link. Whoever runs the deployment sets EGGY_PUBLIC_BASE_URL (or server.public_base_url), then restarts me.", true, nil
 	}
 	sender, verified := webLoginSender(ctx)
 	if !verified || s.WebLoginLink == nil {

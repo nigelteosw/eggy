@@ -21,4 +21,6 @@ test("index.html links the manifest and the icon it describes", () => {
   const html = readFileSync(join(root, "index.html"), "utf8");
   expect(html).toContain('href="/manifest.webmanifest"');
   expect(html).toContain('href="/egg.svg"');
+  expect(html).toContain('href="/apple-touch-icon.png"');
+  expect(existsSync(join(root, "public/apple-touch-icon.png"))).toBe(true);
 });

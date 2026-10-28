@@ -78,7 +78,7 @@ test("model removal calls the alias-specific authenticated route", async () => {
   expect(method).toBe("DELETE");
 });
 
-test("the Models section keeps its restart action nearby", () => {
+test("the Models section says a restart is needed, and the bar at the top applies it", () => {
   const html = renderToStaticMarkup(
     createElement(ConfigPage, {
       theme: "dark",
@@ -88,7 +88,9 @@ test("the Models section keeps its restart action nearby", () => {
     }),
   );
 
-  expect(html).toContain("Restart Eggy");
+  // One restart control for the whole panel: the bar. A card per section would
+  // ask the owner to find the restart in three places.
+  expect(html).not.toContain("Restart Eggy");
   expect(html).toContain("New model choices appear in chat after restart");
 });
 

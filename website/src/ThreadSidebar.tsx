@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useConfirm } from "./components/ui/confirm";
-import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
+import { Thread, deleteThread, listApprovals, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
 import { ChevronDownIcon, ClockIcon, HomeIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
 import { runningExtensions } from "./extensions";
@@ -114,17 +114,27 @@ export function groupThreads(threads: Thread[], now = new Date()): { label: Thre
 
 // One row in the rail's navigation block. The active row takes the same
 // raised surface as the active chat, so "where am I" reads the same everywhere.
+// approvalBadge is what the Home row shows for the approvals waiting on the
+// owner: nothing when none are, the count otherwise, and "99+" past that so the
+// pill keeps its shape.
+export function approvalBadge(waiting: number): string | null {
+  if (waiting <= 0) return null;
+  return waiting > 99 ? "99+" : String(waiting);
+}
+
 function NavRow({
   icon,
   label,
   active = false,
   disabled = false,
+  badge,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   active?: boolean;
   disabled?: boolean;
+  badge?: string | null;
   onClick: () => void;
 }) {
   return (
@@ -139,7 +149,12 @@ function NavRow({
       )}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
-      {label}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badge && (
+        <span aria-label={`${badge} waiting for you`} className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
+          {badge}
+        </span>
+      )}
     </button>
   );
 }
@@ -187,6 +202,14 @@ export function ThreadSidebar({
 }) {
   const [confirm, confirmDialog] = useConfirm();
   const [threads, setThreads] = useState<Thread[]>([]);
+  // The count of approvals waiting, read whenever the rail is shown or the view
+  // changes, so the Home badge is current without a timer.
+  const [waitingApprovals, setWaitingApprovals] = useState(0);
+  useEffect(() => {
+    listApprovals()
+      .then((result) => setWaitingApprovals((result.table_rows ?? []).filter((row) => row[3] !== "expired").length))
+      .catch(() => setWaitingApprovals(0));
+  }, [view, reloadKey]);
   // menuFor / renamingId are the row-level UI states: at most one row shows
   // its actions menu, and at most one row is an inline rename field.
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -390,7 +413,7 @@ export function ThreadSidebar({
       </div>
 
       <nav aria-label="Main navigation" className="flex flex-col gap-0.5 px-2 pb-2">
-        <NavRow icon={<HomeIcon />} label="Home" active={view === "home"} onClick={() => onNavigate("home")} />
+        <NavRow icon={<HomeIcon />} label="Home" active={view === "home"} badge={approvalBadge(waitingApprovals)} onClick={() => onNavigate("home")} />
         <NavRow
           icon={<PlusIcon className="h-4 w-4 text-accent-700" />}
           label="New chat"

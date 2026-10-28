@@ -135,7 +135,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
             <p className="text-xs text-neutral-700">Let Eggy check your watch list and message you on Telegram when something needs you. Off until you turn it on.</p>
           </div>
           <fieldset className="flex flex-col gap-2">
-            <legend className={FIELD_LABEL}>Approval mode</legend>
+            <legend className={FIELD_LABEL}>When Eggy asks</legend>
             {APPROVAL_MODES.map((mode) => (
               <label key={mode.value} className="flex cursor-pointer items-start gap-3 rounded-2xl bg-neutral-100 p-3.5 text-sm">
                 <input

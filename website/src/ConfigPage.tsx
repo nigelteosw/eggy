@@ -187,8 +187,7 @@ export function ConfigPage({
             <>
               <ProvidersCard onSessionExpired={onSessionExpired} />
               <ModelsCard onSessionExpired={onSessionExpired} />
-              <p className="text-sm text-muted-foreground">New model choices appear in chat after restart.</p>
-              <RestartCard onSessionExpired={onSessionExpired} />
+              <p className="text-sm text-muted-foreground">New model choices appear in chat after restart. The bar at the top of the panel restarts Eggy.</p>
             </>
           )}
           {active === "connections" && (
@@ -202,7 +201,6 @@ export function ConfigPage({
               <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
               <MarketplaceCard onSessionExpired={onSessionExpired} running={features.includes("marketplace")} />
               <AgentRunnerCard onSessionExpired={onSessionExpired} running={features.includes("agent_runner")} />
-              <RestartCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}

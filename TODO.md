@@ -96,7 +96,7 @@ each step stands alone.
 - [x] **Home** in the rail: what needs you, what Eggy is watching, what is
       coming up, and a first-run checklist that ticks itself off from real state
       and disappears when done. *Done:* the watch list is read-only with an Edit
-      link to settings, and the rail has no unread badge yet.
+      link to settings, and the Home row carries a badge for approvals waiting.
 - [ ] Every destination a page in the work area, Settings included; Log out
       only in the account menu.
 - [x] One **Check-ins** section: the watch list and the shared cadence now sit
@@ -104,8 +104,9 @@ each step stands alone.
       settings, and the cadence still has text fields rather than time pickers.
 - [x] One pending-restart bar fed by "config changed since boot". *Done:* the
       bar appears only when config.yaml differs from what started, and refreshes
-      when settings close. *Still open:* the three Restart cards and the "after
-      restart" captions remain, and `/status` does not report it yet.
+      when settings close. *Done too:* the Models and Capabilities restart cards are gone, and
+      `/status` reports the pending restart. *Still open:* Advanced keeps one
+      Restart card as a fallback, and the "after restart" captions remain.
 - [ ] Group integrations by job: Channels (Telegram, Discord), Connectors
       (Google, MCP), Skills, Extensions. Settings → Connections goes away.
 - [ ] Theme becomes a per-account preference under My settings.
@@ -127,8 +128,8 @@ review.
 - [ ] Reply and Copy from a long-press menu on touch, instead of competing
       with the system text-selection menu.
 - [x] Web app manifest with the theme colour, an icon, and `viewport-fit=cover`
-      so the safe-area padding applies. *Still open:* an `apple-touch-icon` PNG,
-      which iOS needs for the home-screen tile (it uses a screenshot without it).
+      so the safe-area padding applies. *Done:* the `apple-touch-icon` PNG (square, since iOS fills transparent
+      corners black).
 - [ ] 44 px hit areas on touch; edge swipe to open the sidebar; keep the
       composer above the iOS keyboard through `visualViewport`.
 - [ ] The overflow audit becomes a test across every screen at 390 px in both

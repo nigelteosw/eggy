@@ -50,20 +50,19 @@ each step stands alone.
       for MCP. *Done:* the optional `ports.CallDescriber` method; Google's six
       tools, schedules and the agent runner's cancel and answer implement it.
       Reads have no sentence and keep the argument card. *Still open:* the
-      outcome line (`Approved action completed: %v`), and a Details disclosure
-      that shows the arguments behind the sentence.
-- [ ] Approval card on web and Telegram: the sentence, a Details disclosure,
+      outcome line and Details are done (below); MCP tools still show their
+      arguments as the sentence.
+- [x] Approval card on web and Telegram: the sentence, a Details disclosure,
       **Approve / Decline** on both, and a one-line record in the transcript
-      after the decision. *Done without the sentence:* Decline on both surfaces,
-      and the web transcript records each decision. Still open: the sentence and
-      Details.
+      after the decision. *Done:* the sentence on both surfaces, Details on the
+      web (the arguments, collapsed by default), Decline everywhere, and the
+      outcome names what ran.
 - [x] One approval-mode control (it is in My settings *and* Pending approvals)
       and one shared description string for each mode, used by the panel and
       `/mode`. Take it out of the composer; show a warning pill only when the
-      mode is not *Before changes*. *Done:* the duplicate picker is gone from
-      Pending approvals and the composer shows a pill for non-default modes.
-      *Still open:* the Telegram `/mode` text is a separate string and needs to
-      be unified with the web wording.
+      mode is not *Before changes*. *Done:* one sentence per mode in `ports`,
+      read by Telegram's `/mode` and the web choice; the duplicate picker is
+      gone and the composer shows a pill for non-default modes.
 
 **3. Theme (M)**
 
@@ -94,17 +93,19 @@ each step stands alone.
 
 **4. Structure: Eggy's features where people look (M–L)**
 
-- [ ] **Home** as the landing view: waiting-on-you approvals, the watch list
-      (editable inline), the next schedules, the composer, and a first-run
-      checklist that ticks itself off from real state. Moves existing cards;
-      adds no mechanism.
+- [x] **Home** in the rail: what needs you, what Eggy is watching, what is
+      coming up, and a first-run checklist that ticks itself off from real state
+      and disappears when done. *Done:* the watch list is read-only with an Edit
+      link to settings, and the rail has no unread badge yet.
 - [ ] Every destination a page in the work area, Settings included; Log out
       only in the account menu.
-- [ ] One **Check-ins** section: personal toggle, watch list, shared cadence
-      with time pickers (today spread over four places).
-- [ ] One pending-restart bar fed by "config changed since boot", replacing the
-      three Restart cards and the scattered "after restart" captions; `/status`
-      reports the same.
+- [x] One **Check-ins** section: the watch list and the shared cadence now sit
+      together under Check-ins. *Still open:* the personal toggle is still on My
+      settings, and the cadence still has text fields rather than time pickers.
+- [x] One pending-restart bar fed by "config changed since boot". *Done:* the
+      bar appears only when config.yaml differs from what started, and refreshes
+      when settings close. *Still open:* the three Restart cards and the "after
+      restart" captions remain, and `/status` does not report it yet.
 - [ ] Group integrations by job: Channels (Telegram, Discord), Connectors
       (Google, MCP), Skills, Extensions. Settings → Connections goes away.
 - [ ] Theme becomes a per-account preference under My settings.
@@ -114,8 +115,10 @@ each step stands alone.
 Every screen is designed and checked at 390 px first; see *Mobile* in the
 review.
 
-- [ ] Data tables become stacked rows on phones (Providers, Models, People,
-      Finance).
+- [x] Data tables become stacked rows on phones (Providers, Models, People,
+      Finance). *Done:* `DataTable` is used by all of them; below 640 px each row
+      is a card with labelled values. Finance uses its own table and is not
+      converted yet.
 - [ ] One header row on phones: menu, page title, main action; new chat in the
       chat header.
 - [ ] Traces and Settings drill down full-screen on phones instead of stacking
@@ -123,8 +126,9 @@ review.
 - [ ] Sticky bottom action bar for dirty forms; confirms as bottom sheets.
 - [ ] Reply and Copy from a long-press menu on touch, instead of competing
       with the system text-selection menu.
-- [ ] Web app manifest and `apple-touch-icon` with both theme colours;
-      `viewport-fit=cover` so the safe-area padding actually applies.
+- [x] Web app manifest with the theme colour, an icon, and `viewport-fit=cover`
+      so the safe-area padding applies. *Still open:* an `apple-touch-icon` PNG,
+      which iOS needs for the home-screen tile (it uses a screenshot without it).
 - [ ] 44 px hit areas on touch; edge swipe to open the sidebar; keep the
       composer above the iOS keyboard through `visualViewport`.
 - [ ] The overflow audit becomes a test across every screen at 390 px in both

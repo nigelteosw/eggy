@@ -45,8 +45,18 @@ type AccountDirectory interface {
 // AccountRecord is one configured account, provider-neutral.
 type AccountRecord struct {
 	ID             string
+	Name           string
 	TelegramUserID int64
 	DiscordUserID  string
+}
+
+// accountDisplayName is what the panel calls a person: the name they were
+// given, or their ID when none was set.
+func accountDisplayName(account AccountRecord) string {
+	if account.Name != "" {
+		return account.Name
+	}
+	return account.ID
 }
 
 // csrfHeader carries the per-session CSRF token on every mutating request.
@@ -247,7 +257,8 @@ func handleAccountSession(features []string) http.HandlerFunc {
 			"title": "Session is valid.",
 			"account": map[string]any{
 				"id":       current.account.ID,
-				"username": current.account.ID,
+				"name":     accountDisplayName(current.account),
+				"username": accountDisplayName(current.account),
 			},
 			"csrf":     csrfToken(current.hash),
 			"features": features,

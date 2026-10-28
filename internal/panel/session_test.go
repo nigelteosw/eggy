@@ -142,6 +142,37 @@ func signIn(t *testing.T, handler http.Handler, database *sqlitestore.Store, acc
 	return cookie, body.CSRF
 }
 
+func TestSessionShowsTheAccountDisplayNameNotItsID(t *testing.T) {
+	// The ID is the immutable key everything is stored under, so it is often a
+	// Telegram number. The panel names the person with the display name when
+	// one is set, and with the ID only when it is not.
+	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	cfg, database, accounts := accountWebConfig(t, now)
+	handler := NewWebHandler("", cfg)
+	record := accounts.list["nigel"]
+	record.Name = "Nigel Teo"
+	accounts.list["nigel"] = record
+	cookie, _ := signIn(t, handler, database, "nigel", now)
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+	request.AddCookie(cookie)
+	handler.ServeHTTP(response, request)
+	var body struct {
+		Account struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Username string `json:"username"`
+		} `json:"account"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Account.Name != "Nigel Teo" || body.Account.Username != "Nigel Teo" || body.Account.ID != "nigel" {
+		t.Fatalf("account=%+v", body.Account)
+	}
+}
+
 func TestLegacyLinksAndCookiesAreNotSessions(t *testing.T) {
 	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
 	cfg, _, _ := accountWebConfig(t, now)

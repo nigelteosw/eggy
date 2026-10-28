@@ -87,7 +87,7 @@ func withMembership(configPath string, webConfig WebUIConfig, id string, fn func
 	}
 	return config.WithAccount(configPath, id, func(cfg config.Config, account config.AccountConfig) error {
 		return fn(membership{
-			account:           AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID},
+			account:           AccountRecord{ID: account.ID, Name: account.Name, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID},
 			passwordAccountID: cfg.PasswordAccountID(),
 			telegramEnabled:   cfg.TelegramEnabled(),
 		})

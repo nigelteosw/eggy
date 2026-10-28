@@ -29,7 +29,7 @@ func (d accountDirectory) current() (config.Config, bool) {
 }
 
 func accountRecord(account config.AccountConfig) panel.AccountRecord {
-	return panel.AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
+	return panel.AccountRecord{ID: account.ID, Name: account.Name, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}
 }
 
 func (d accountDirectory) Account(id string) (panel.AccountRecord, bool) {

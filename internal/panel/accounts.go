@@ -25,6 +25,7 @@ import (
 // here is a hash or a password.
 type accountView struct {
 	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
 	TelegramUserID   int64  `json:"telegram_user_id,omitempty"`
 	DiscordUserID    string `json:"discord_user_id,omitempty"`
 	PasswordState    string `json:"password_state"`
@@ -80,7 +81,7 @@ func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.
 			DiscordEnabled: cfg.DiscordEnabled(), DiscordLinking: webConfig.DiscordLinking && webConfig.IdentityLinks != nil,
 		}
 		for _, account := range cfg.Principals() {
-			row := accountView{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID, Self: account.ID == self, PasswordState: passwordStatePending}
+			row := accountView{ID: account.ID, Name: account.Name, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID, Self: account.ID == self, PasswordState: passwordStatePending}
 			live := false
 			if webConfig.Auth != nil {
 				record, err := webConfig.Auth.AccountAuth(r.Context(), account.ID)
@@ -116,6 +117,7 @@ func accountsGetRoute(configPath string, webConfig WebUIConfig, now func() time.
 
 type accountInput struct {
 	ID             string `json:"id"`
+	Name           string `json:"name"`
 	TelegramUserID int64  `json:"telegram_user_id"`
 	Password       string `json:"password,omitempty"`
 }
@@ -228,7 +230,7 @@ func accountEditRoute(configPath string) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if err := config.EditAccount(configPath, id, config.AccountInput{TelegramUserID: input.TelegramUserID}); err != nil {
+		if err := config.EditAccount(configPath, id, config.AccountInput{Name: input.Name, TelegramUserID: input.TelegramUserID}); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}

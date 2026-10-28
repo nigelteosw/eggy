@@ -260,7 +260,7 @@ func (d fileDirectory) Account(id string) (AccountRecord, bool) {
 		return AccountRecord{}, false
 	}
 	account, ok := cfg.Account(id)
-	return AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}, ok
+	return AccountRecord{ID: account.ID, Name: account.Name, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID}, ok
 }
 
 func (d fileDirectory) Accounts() []AccountRecord {
@@ -270,7 +270,7 @@ func (d fileDirectory) Accounts() []AccountRecord {
 	}
 	var records []AccountRecord
 	for _, account := range cfg.Principals() {
-		records = append(records, AccountRecord{ID: account.ID, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID})
+		records = append(records, AccountRecord{ID: account.ID, Name: account.Name, TelegramUserID: account.TelegramUserID, DiscordUserID: account.DiscordUserID})
 	}
 	return records
 }

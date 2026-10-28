@@ -28,6 +28,9 @@ import (
 // ownership of private records, not permission.
 type AccountConfig struct {
 	ID string `yaml:"id"`
+	// Name is what the panel calls the person. Optional: with none set the ID
+	// is shown. The ID stays the key everything is stored under.
+	Name string `yaml:"name,omitempty"`
 	// TelegramUserID is the numeric sender that maps onto this account. Zero
 	// means this person does not use Telegram. Never a username: those are
 	// reassignable.
@@ -261,6 +264,7 @@ func (c Config) validateAccounts() error {
 // password never passes through internal/config.
 type AccountInput struct {
 	ID             string
+	Name           string
 	TelegramUserID int64
 }
 
@@ -311,6 +315,7 @@ func EditAccount(path, id string, input AccountInput) error {
 		if index < 0 {
 			return fmt.Errorf("account %q is not configured", id)
 		}
+		cfg.Accounts[index].Name = strings.TrimSpace(input.Name)
 		cfg.Accounts[index].TelegramUserID = input.TelegramUserID
 		return nil
 	})

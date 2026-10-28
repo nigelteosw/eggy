@@ -293,11 +293,11 @@ func TestAccountMutations(t *testing.T) {
 	if cfg, _ := LoadDocument(path); len(cfg.Accounts) != 3 {
 		t.Fatalf("refused account was written: %#v", cfg.Accounts)
 	}
-	if err := EditAccount(path, "third", AccountInput{TelegramUserID: 0}); err != nil {
+	if err := EditAccount(path, "third", AccountInput{Name: "  Sam  ", TelegramUserID: 0}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ = LoadDocument(path)
-	if account, _ := cfg.Account("third"); account.TelegramUserID != 0 {
+	if account, _ := cfg.Account("third"); account.TelegramUserID != 0 || account.Name != "Sam" {
 		t.Fatalf("edited account = %#v", account)
 	}
 	if err := EditAccount(path, "missing", AccountInput{}); err == nil {

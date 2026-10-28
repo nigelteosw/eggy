@@ -20,7 +20,7 @@ type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
   const [mode, setMode] = useState<Mode>("normal");
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("system");
   const [loginKind, setLoginKind] = useState<Login>("password");
   const [account, setAccount] = useState<Account | undefined>(undefined);
   // What the server says is switched on. Null until the session answers, so the
@@ -125,7 +125,7 @@ export function App() {
       })
       .catch(() => {
         setMode("normal");
-        applyTheme("dark");
+        applyTheme("system");
         return true;
       })
       .then((needsSession) => {

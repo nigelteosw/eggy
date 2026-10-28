@@ -1,3 +1,5 @@
+import { THEME_CACHE_KEY, isTheme, resolveTheme, type Theme } from "./lib/theme";
+
 export type ResultField = { label: string; value: string };
 
 export type CommandResult = {
@@ -32,7 +34,7 @@ export class RequestError extends Error {
 // one module every request goes through, so the token rides along without
 // each caller remembering it -- and so a 401 or a logout can drop it in one
 // place before the next person signs in on the same tab.
-export type Account = { id: string; username: string };
+export type Account = { id: string; username: string; name?: string };
 // features names the optional capabilities this process was started with
 // ("finance"), so a tab is drawn only for one that exists. It is always a
 // list, so callers can ask includes() without a null check.
@@ -50,6 +52,20 @@ export function clearSession(): void {
 
 const CSRF_HEADER = "X-Eggy-CSRF";
 
+export // readBody parses an Eggy response. The server answers JSON, but the router
+// answers an unknown path with Go's plain "404 page not found", and a proxy can
+// answer with HTML. Those must reach the caller as a status with a readable
+// title, never as the parser's complaint about the text.
+async function readBody<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  try {
+    return (text ? JSON.parse(text) : {}) as T;
+  } catch {
+    const title = response.status === 404 ? "Not found" : "Request failed";
+    return { state: "error", title } as T;
+  }
+}
+
 export async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const csrf: Record<string, string> = session?.csrf && method !== "GET" && method !== "HEAD" ? { [CSRF_HEADER]: session.csrf } : {};
@@ -58,7 +74,7 @@ export async function request<T = CommandResult>(path: string, init?: RequestIni
     credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...csrf, ...(init?.headers ?? {}) },
   });
-  const body = (await response.json()) as T & Partial<CommandResult>;
+  const body = await readBody<T & Partial<CommandResult>>(response);
   if (response.status === 401) {
     clearSession();
     throw new SessionExpiredError(body.title ?? "Not authenticated");
@@ -80,7 +96,7 @@ export function checkSession(): Promise<Session> {
 // load -- and is serving only the repair surface. Asked before anything else,
 // because in safe mode every other route is absent or reporting the failure.
 export type Mode = "normal" | "safe" | "setup";
-export type Theme = "dark" | "light";
+export type { Theme } from "./lib/theme";
 // Login is whether a way in exists: the username/password form, or nothing
 // -- a safe mode that could not establish who anyone is.
 export type Login = "password" | "unavailable";
@@ -92,10 +108,11 @@ export type Login = "password" | "unavailable";
 // thing an unauthenticated visitor sees.
 export type Probe = { mode: Mode; theme: Theme; login: Login };
 
+
 export function getMode(): Promise<Probe> {
   return request<Probe>("/api/mode").then((result) => ({
     mode: result.mode ?? "normal",
-    theme: result.theme === "light" ? "light" : "dark",
+    theme: isTheme(result.theme) ? result.theme : "system",
     login: result.login === "unavailable" ? "unavailable" : "password",
   }));
 }
@@ -216,6 +233,7 @@ export function logout(): Promise<CommandResult> {
 export type PasswordState = "environment" | "set" | "pending";
 
 export type AccountRow = {
+  name?: string;
   id: string;
   telegram_user_id?: number;
   discord_user_id?: string;
@@ -240,7 +258,7 @@ export type AccountsView = {
   discord_linking_available: boolean;
 };
 
-export type AccountInput = { id: string; telegram_user_id: number };
+export type AccountInput = { id: string; name?: string; telegram_user_id: number };
 
 export function getAccounts(): Promise<AccountsView> {
   return request<AccountsView>("/api/config/accounts");
@@ -270,7 +288,7 @@ export async function addAccount(input: AccountInput & { password: string }): Pr
   return body;
 }
 
-export function editAccount(id: string, input: { telegram_user_id: number }): Promise<CommandResult> {
+export function editAccount(id: string, input: { name: string; telegram_user_id: number }): Promise<CommandResult> {
   return request(`/api/config/accounts/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
@@ -362,8 +380,30 @@ export function setTheme(theme: Theme): Promise<CommandResult> {
   return setConfig("appearance", { theme });
 }
 
+// The palette follows the stored theme, and "system" follows the device for as
+// long as the panel is open. The choice is also cached in this browser so the
+// next page load paints in the right palette before the app has loaded.
+let appliedTheme: Theme = "system";
+let systemWatch: MediaQueryList | null = null;
+
+function paint(theme: Theme): void {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle("dark", resolveTheme(theme, prefersDark) === "dark");
+}
+
 export function applyTheme(theme: Theme): void {
-  document.documentElement.classList.toggle("dark", theme === "dark");
+  appliedTheme = theme;
+  paint(theme);
+  try {
+    window.localStorage.setItem(THEME_CACHE_KEY, theme);
+  } catch {
+    // Private windows refuse storage. The page still follows the theme; it
+    // only loses the first-paint shortcut.
+  }
+  if (!systemWatch) {
+    systemWatch = window.matchMedia("(prefers-color-scheme: dark)");
+    systemWatch.addEventListener("change", () => paint(appliedTheme));
+  }
 }
 
 export function getConfig(section: ConfigSection): Promise<CommandResult> {
@@ -567,6 +607,10 @@ export type ChatQuote = { text: string; own_message: boolean };
 
 export function sendChatMessage(threadId: string, text: string, quote: ChatQuote | null = null): Promise<CommandResult> {
   return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text, quote }) });
+}
+
+export function stopChatTurn(threadId: string): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/stop`, { method: "POST", body: "{}" });
 }
 
 export function approveChatDecision(approvalId: string, approved: boolean): Promise<CommandResult> {

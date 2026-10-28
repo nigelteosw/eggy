@@ -6,8 +6,9 @@ import { SelectedCheckIcon } from "./components/ui/icons";
 import { ErrorBanner } from "./components/ui/error-banner";
 
 const OPTIONS: { value: Theme; label: string; description: string; swatch: string }[] = [
-  { value: "dark", label: "Charcoal", description: "Neutral dark. The default.", swatch: "bg-[hsl(0_0%_11%)]" },
-  { value: "light", label: "Paper", description: "Warm off-white.", swatch: "bg-[hsl(105_24%_98%)]" },
+  { value: "system", label: "Match device", description: "Light or dark, following this device. The default.", swatch: "bg-gradient-to-br from-[hsl(40_30%_96%)] to-[hsl(30_6%_8%)]" },
+  { value: "light", label: "Eggshell", description: "Warm paper, for daylight.", swatch: "bg-[hsl(40_30%_96%)]" },
+  { value: "dark", label: "Cast iron", description: "Warm charcoal, for evenings.", swatch: "bg-[hsl(30_6%_8%)]" },
 ];
 
 export function AppearanceCard({

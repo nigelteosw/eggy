@@ -8,7 +8,7 @@ export const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_
 // A labelled input in a compact grid, where the Input primitive's height and
 // ring are replaced wholesale rather than layered.
 export const FIELD_COMPACT =
-  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-base text-foreground sm:text-[13px] caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export const FIELD_LABEL = "text-[11.5px] font-normal text-neutral-700";
 

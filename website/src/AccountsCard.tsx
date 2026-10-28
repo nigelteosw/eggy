@@ -505,6 +505,7 @@ function AccountForm({
   saving: boolean;
 }) {
   const [id, setId] = useState(initial?.id ?? "");
+  const [name, setName] = useState(initial?.name ?? "");
   const [password, setPassword] = useState("");
   const [telegram, setTelegram] = useState(initial?.telegram_user_id ? String(initial.telegram_user_id) : "");
   return (
@@ -513,7 +514,7 @@ function AccountForm({
         event.preventDefault();
         const next = password;
         setPassword("");
-        onSubmit({ id, password: next, telegram_user_id: telegram.trim() === "" ? 0 : Number(telegram) });
+        onSubmit({ id, name: name.trim(), password: next, telegram_user_id: telegram.trim() === "" ? 0 : Number(telegram) });
       }}
       className="flex flex-col gap-3"
     >
@@ -523,6 +524,13 @@ function AccountForm({
             <Label htmlFor="account-id" className={FIELD_LABEL}>Username</Label>
             <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" autoCapitalize="none" required className={FIELD_COMPACT} />
             <p className="text-xs text-neutral-700">Immutable: it cannot be renamed later, and a removed username is never reissued.</p>
+          </div>
+        )}
+        {initial && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="account-name" className={FIELD_LABEL}>Name (optional)</Label>
+            <Input id="account-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={initial.id} maxLength={60} className={FIELD_COMPACT} />
+            <p className="text-xs text-neutral-700">How the panel names this person. Leave blank to show their username.</p>
           </div>
         )}
         {!initial && (
@@ -853,7 +861,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
                 saving={saving}
                 onCancel={() => setEditing(null)}
                 onSubmit={async (input) => {
-                  if (await run(() => editAccount(editing.id, { telegram_user_id: input.telegram_user_id }))) setEditing(null);
+                  if (await run(() => editAccount(editing.id, { name: input.name ?? "", telegram_user_id: input.telegram_user_id }))) setEditing(null);
                 }}
               />
             ) : (

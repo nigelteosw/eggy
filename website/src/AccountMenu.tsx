@@ -20,7 +20,7 @@ export function AccountMenu({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement | null>(null);
-  const name = account?.username ?? "Eggy";
+  const name = account?.name || account?.username || "Eggy";
 
   useEffect(() => {
     if (!open) return;

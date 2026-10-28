@@ -67,9 +67,9 @@ export default {
         "3xl": "calc(var(--radius) + 6px)",
       },
       boxShadow: {
-        subtle: "0 1px 2px 0 rgb(16 24 20 / 0.04), 0 1px 3px 0 rgb(16 24 20 / 0.06)",
-        card: "0 1px 2px 0 rgb(16 24 20 / 0.03), 0 4px 16px -4px rgb(16 24 20 / 0.08)",
-        lift: "0 2px 4px -1px rgb(16 24 20 / 0.06), 0 12px 32px -8px rgb(16 24 20 / 0.14)",
+        subtle: "0 1px 2px 0 rgb(43 38 32 / 0.04), 0 1px 3px 0 rgb(43 38 32 / 0.06)",
+        card: "0 1px 2px 0 rgb(43 38 32 / 0.03), 0 4px 16px -4px rgb(43 38 32 / 0.08)",
+        lift: "0 2px 4px -1px rgb(43 38 32 / 0.06), 0 12px 32px -8px rgb(43 38 32 / 0.14)",
       },
       keyframes: {
         "fade-in-up": {

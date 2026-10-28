@@ -2,8 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f9fbf8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Paints the last chosen palette before the app loads, so a dark-mode
+         owner never sees a light frame first. Its key and values match
+         src/lib/theme.ts; the app takes over as soon as the server answers. -->
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("eggy.theme");
+          var dark = stored === "dark" || ((stored === null || stored === "system") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (error) {
+          // Storage refused: the app paints from the server's answer instead.
+        }
+      })();
+    </script>
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F1E7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#161412" />
     <title>Eggy</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

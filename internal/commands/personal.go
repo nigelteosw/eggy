@@ -71,7 +71,7 @@ func (s *CommandService) heartbeatCommand(ctx context.Context, args []string) (s
 // deployment's.
 func (s *CommandService) heartbeatOnMessage() string {
 	if s.HeartbeatCadence == "" {
-		return "Heartbeat is on for you, but this deployment has no heartbeat interval set, so nothing runs until one is set in the web panel (Settings → Automation)."
+		return "Heartbeat is on for you, but this deployment has no heartbeat interval set, so nothing runs until one is set in the web panel (Settings → Advanced, Heartbeat)."
 	}
 	return "Heartbeat is on. Eggy checks your watch list " + s.HeartbeatCadence + " and messages you only when something needs you. Mention anything you're waiting on and it goes on the list."
 }

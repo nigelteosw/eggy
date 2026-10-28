@@ -69,6 +69,32 @@ func TestUnknownSlashCommandGetsHelpAndProseFallsThrough(t *testing.T) {
 	}
 }
 
+func TestMenuDoesNotRepeatWhatItsButtonsSay(t *testing.T) {
+	// The menu's buttons already name every control; a footer that lists the
+	// same commands again under the buttons is noise on a phone screen.
+	service := New(Options{})
+	output, _, err := service.Execute(context.Background(), "/menu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output, "Telegram provides buttons") {
+		t.Fatalf("menu repeats its controls: %q", output)
+	}
+}
+
+func TestStartGreetsTheOwnerInsteadOfCallingItUnknown(t *testing.T) {
+	// Telegram sends a bare /start the first time anyone opens the bot. It is
+	// the first thing a new owner sends, so it gets a welcome, not an error.
+	service := New(Options{})
+	output, handled, err := service.Execute(context.Background(), "/start")
+	if err != nil || !handled {
+		t.Fatalf("output=%q handled=%v err=%v", output, handled, err)
+	}
+	if strings.Contains(output, "Unknown command") || !strings.Contains(output, "/menu") || !strings.Contains(output, "/web") {
+		t.Fatalf("welcome=%q", output)
+	}
+}
+
 func TestStopAndModelDispatchDirectly(t *testing.T) {
 	turns := &fakeTurns{}
 	models := &fakeModels{selected: "fast"}

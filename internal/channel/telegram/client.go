@@ -97,7 +97,7 @@ func (c *Client) deliver(ctx context.Context, text string, extra map[string]any)
 func (c *Client) DeliverApproval(ctx context.Context, approval approvals.Approval) error {
 	markup := map[string]any{"inline_keyboard": [][]map[string]string{{
 		{"text": "Approve", "callback_data": "approval:" + approval.ID + ":approve"},
-		{"text": "Reject", "callback_data": "approval:" + approval.ID + ":reject"},
+		{"text": "Decline", "callback_data": "approval:" + approval.ID + ":reject"},
 	}}}
 	_, err := c.deliver(ctx, approval.Summary, map[string]any{"reply_markup": markup})
 	return err

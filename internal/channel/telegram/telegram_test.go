@@ -411,6 +411,11 @@ func TestClientSendsTextAndApprovalKeyboard(t *testing.T) {
 	if markup["inline_keyboard"] == nil {
 		t.Fatalf("missing keyboard: %#v", requests[1])
 	}
+	// The second button is named for what it does: the same word the web panel
+	// uses, so an owner who declines on one surface knows the other means it too.
+	if !strings.Contains(fmt.Sprint(markup["inline_keyboard"]), "Decline") || strings.Contains(fmt.Sprint(markup["inline_keyboard"]), "Reject") {
+		t.Fatalf("keyboard=%v", markup["inline_keyboard"])
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

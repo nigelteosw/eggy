@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import { useConfirm } from "./components/ui/confirm";
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
-import { ChevronDownIcon, ClockIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
+import { ChevronDownIcon, ClockIcon, HomeIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
 import { runningExtensions } from "./extensions";
 import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
@@ -390,6 +390,7 @@ export function ThreadSidebar({
       </div>
 
       <nav aria-label="Main navigation" className="flex flex-col gap-0.5 px-2 pb-2">
+        <NavRow icon={<HomeIcon />} label="Home" active={view === "home"} onClick={() => onNavigate("home")} />
         <NavRow
           icon={<PlusIcon className="h-4 w-4 text-accent-700" />}
           label="New chat"

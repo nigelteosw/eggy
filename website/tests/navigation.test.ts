@@ -50,7 +50,7 @@ test("settings navigation groups configuration by user intent", () => {
 
   expect(labels).toEqual([
     "Model &amp; approvals",
-    "Automation",
+    "Check-ins",
     "Pending approvals",
     "People",
     "Models",

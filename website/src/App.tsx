@@ -10,6 +10,8 @@ import { runningExtensions } from "./extensions";
 import { SchedulesPage } from "./SchedulesPage";
 import { CustomizePage } from "./CustomizePage";
 import { SetupPage } from "./SetupPage";
+import { HomePage } from "./HomePage";
+import { RestartBar } from "./RestartBar";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { MenuIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
@@ -26,6 +28,9 @@ export function App() {
   // What the server says is switched on. Null until the session answers, so the
   // rail does not offer Finance before the page knows it exists.
   const [features, setFeatures] = useState<string[] | null>(null);
+  // Whether config.yaml has changed since this process started. The panel
+  // shows one restart bar for it, refreshed each time settings close.
+  const [restartPending, setRestartPending] = useState(false);
   // A Telegram /web link lands on /auth/link#token=…: the token is taken
   // out of the address bar once, on the first render, and held in memory
   // until the person clicks Continue. A refresh afterwards finds no token
@@ -89,6 +94,11 @@ export function App() {
   function closeSettings() {
     if (isSettingsPath(window.location.pathname)) window.history.replaceState({}, "", pathForView(view));
     setSettingsOpen(false);
+    // Settings is where config changes are made, so closing it is when the
+    // restart bar should learn whether one is now waiting.
+    checkSession()
+      .then((session) => setRestartPending(session.restartPending === true))
+      .catch(() => {});
   }
 
   // Choosing a destination on a phone also dismisses the rail, which is an
@@ -134,6 +144,7 @@ export function App() {
           .then((session) => {
             setAccount(session.account);
             setFeatures(session.features ?? []);
+            setRestartPending(session.restartPending === true);
             setStatus("authenticated");
           })
           .catch(() => setStatus("unauthenticated"));
@@ -174,6 +185,7 @@ export function App() {
             .then((session) => {
               setAccount(session.account);
               setFeatures(session.features ?? []);
+            setRestartPending(session.restartPending === true);
               setStatus("authenticated");
             })
             .catch(() => setStatus("unauthenticated"));
@@ -201,6 +213,7 @@ export function App() {
             .then((session) => {
               setAccount(session.account);
               setFeatures(session.features ?? []);
+            setRestartPending(session.restartPending === true);
             })
             .catch(() => {});
           setStatus("authenticated");
@@ -288,6 +301,7 @@ export function App() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {restartPending && <RestartBar onSessionExpired={onSessionExpired} />}
         {!sidebarOpen && !chatHeaderVisible && (
           <div className="flex h-14 shrink-0 items-center px-2 md:hidden">
             <button
@@ -307,6 +321,19 @@ export function App() {
           // own heading and close control, so there is no shared top bar.
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <activeExtensionDef.Panel onSessionExpired={onSessionExpired} onClose={() => setActiveExtension(null)} />
+          </div>
+        ) : view === "home" ? (
+          <div className="min-h-0 min-w-0 flex-1">
+            <HomePage
+              onSessionExpired={onSessionExpired}
+              onNavigate={(next) => goTo(next)}
+              onOpenSettings={openSettings}
+              onNewChat={() => {
+                setActiveThreadId(null);
+                setDraftChatOpen(true);
+                goTo("chat");
+              }}
+            />
           </div>
         ) : view === "chat" ? (
           activeThreadId || draftChatOpen ? (

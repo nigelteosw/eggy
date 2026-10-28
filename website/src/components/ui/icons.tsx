@@ -67,6 +67,12 @@ export const HeartIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const HomeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 8.8 10 3.5l6.5 5.3V16a1 1 0 0 1-1 1h-3.6v-4.4H8.1V17H4.5a1 1 0 0 1-1-1V8.8Z" />
+  </Icon>
+);
+
 export const ClockIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="10" cy="10" r="7" />

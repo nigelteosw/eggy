@@ -60,7 +60,7 @@ export const GROUPS: { id: GroupId; heading: string; note: string }[] = [
 
 export const SECTIONS: Section[] = [
   { id: "personal", group: "personal", label: "Model & approvals", title: "My settings — applies to your Telegram and web sessions", description: "Your model, reasoning effort, thinking visibility and approval mode. Yours alone.", icon: <CpuIcon /> },
-  { id: "automation", group: "personal", label: "Automation", title: "My automation — applies to your Telegram and web sessions", description: "Your watch list. Schedules are on the Scheduled page.", icon: <ClockIcon /> },
+  { id: "automation", group: "personal", label: "Check-ins", title: "My check-ins — applies to your Telegram and web sessions", description: "Whether Eggy checks in on you, what it keeps an eye on, and how often. Schedules are on the Scheduled page.", icon: <ClockIcon /> },
   { id: "permissions", group: "personal", label: "Pending approvals", title: "My pending approvals", description: "Actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People — trusted users who can administer this deployment", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", icon: <UsersIcon /> },
   { id: "models", group: "shared", label: "Models", title: "Shared deployment — changes here affect everyone", description: "Providers, API keys, and the aliases that route to them, used by every person.", icon: <CpuIcon /> },
@@ -68,7 +68,7 @@ export const SECTIONS: Section[] = [
   { id: "capabilities", group: "shared", label: "Capabilities", title: "Shared deployment — capabilities", description: "What Eggy can use during anyone's turn.", icon: <WrenchIcon /> },
   { id: "soul", group: "shared", label: "Soul", title: "Shared deployment — Eggy's soul", description: "Who Eggy is and how it sounds, for everyone.", icon: <HeartIcon /> },
   { id: "appearance", group: "shared", label: "Appearance", title: "Shared deployment — appearance", description: "How the panel looks, for everyone.", icon: <PaletteIcon /> },
-  { id: "advanced", group: "shared", label: "Advanced", title: "Shared deployment — changes here affect everyone", description: "Heartbeat, tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
+  { id: "advanced", group: "shared", label: "Advanced", title: "Shared deployment — changes here affect everyone", description: "Tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
 ];
 
 export function ConfigPage({
@@ -209,6 +209,7 @@ export function ConfigPage({
           {active === "automation" && (
             <>
               <WatchCard onSessionExpired={onSessionExpired} />
+              <HeartbeatCard onSessionExpired={onSessionExpired} />
             </>
           )}
           {active === "permissions" && <ApprovalsCard onSessionExpired={onSessionExpired} />}
@@ -218,7 +219,6 @@ export function ConfigPage({
           )}
           {active === "advanced" && (
             <>
-              <HeartbeatCard onSessionExpired={onSessionExpired} />
               <TracingCard onSessionExpired={onSessionExpired} />
               <AdvancedCard onSessionExpired={onSessionExpired} />
               <RestartCard onSessionExpired={onSessionExpired} />

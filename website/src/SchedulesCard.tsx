@@ -6,11 +6,11 @@ import { ErrorBanner } from "./components/ui/error-banner";
 import { errorMessage } from "./lib/utils";
 
 // Column positions in the rows /api/schedules returns.
-const ID = 0;
+export const ID = 0;
 const KIND = 1;
-const INSTRUCTION = 2;
+export const INSTRUCTION = 2;
 const EXPRESSION = 3;
-const NEXT_RUN = 4;
+export const NEXT_RUN = 4;
 
 /**
  * Schedules are created by asking Eggy, not by filling in a form: "every

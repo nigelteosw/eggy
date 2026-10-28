@@ -66,10 +66,6 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
 
   return (
     <div className="flex flex-col gap-7">
-      <p className="text-xs leading-relaxed text-neutral-700">
-        Eggy asks before it acts on this list. How often it asks is set under My settings, Model &amp; approvals.
-      </p>
-
       <div>
         <CardHeader
           title="Waiting on you"

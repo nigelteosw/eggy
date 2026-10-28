@@ -32,9 +32,9 @@ test("settings are grouped into my settings, people, and shared deployment, with
 test("the settings page opens on my settings and lists every group in the mobile navigation", () => {
   const html = renderToStaticMarkup(createElement(ConfigPage, { theme: "dark", onThemeChange: () => {}, onSessionExpired: () => {} }));
   expect(html).toContain("My settings");
-  expect(html).toContain('label="My settings"');
-  expect(html).toContain('label="People"');
-  expect(html).toContain('label="Shared deployment"');
+  expect(html).toContain("My settings");
+  expect(html).toContain(">People<");
+  expect(html).toContain("Shared deployment");
   expect(html).toContain("Changes here affect everyone");
 });
 

@@ -44,9 +44,10 @@ test("settings navigation groups configuration by user intent", () => {
       onSessionExpired: () => {},
     }),
   );
-  // Scoped to the navigation select: settings cards have selects of their own.
-  const nav = html.match(/<select[^>]*aria-label="Mobile settings navigation"[^>]*>(.*?)<\/select>/)?.[1] ?? "";
-  const labels = [...nav.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
+  // Scoped to the phone's section list: the settings cards have controls of
+  // their own that must not be counted as navigation.
+  const nav = html.match(/<nav[^>]*aria-label="Mobile settings navigation"[^>]*>(.*?)<\/nav>/)?.[1] ?? "";
+  const labels = [...nav.matchAll(/<span class="min-w-0 flex-1">([^<]+)<\/span>/g)].map((match) => match[1]);
 
   expect(labels).toEqual([
     "Model &amp; approvals",
@@ -60,7 +61,7 @@ test("settings navigation groups configuration by user intent", () => {
     "Appearance",
     "Advanced",
   ]);
-  const groups = [...nav.matchAll(/<optgroup label="([^"]+)"/g)].map((match) => match[1]);
+  const groups = [...nav.matchAll(/<p[^>]*>(My settings|People|Shared deployment)<\/p>/g)].map((match) => match[1]);
   expect(groups).toEqual(["My settings", "People", "Shared deployment"]);
 });
 

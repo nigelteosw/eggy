@@ -77,13 +77,7 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
         ) : (
           <ul className="flex flex-col divide-y divide-neutral-200 overflow-hidden rounded-xl border border-neutral-200">
             {visible.map((row) => (
-              <li key={`${row[SOURCE]}:${row[NAME]}`} className="flex flex-col gap-1.5 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <code className="text-sm font-medium text-foreground">{row[NAME]}</code>
-                  <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700">{row[SOURCE]}</span>
-                </div>
-                <p className="text-[13px] leading-5 text-neutral-700">{row[DESCRIPTION]}</p>
-              </li>
+              <ToolRow key={`${row[SOURCE]}:${row[NAME]}`} name={row[NAME]} source={row[SOURCE]} description={row[DESCRIPTION]} />
             ))}
           </ul>
         )}
@@ -98,5 +92,42 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
         )}
       </div>
     </section>
+  );
+}
+
+// firstSentence is the one line the owner reads about a tool. Descriptions are
+// written for the model and often run several sentences, so the first is taken,
+// and cut if it is itself long.
+export function firstSentence(description: string): string {
+  const text = description.trim();
+  const end = text.search(/[.!?](\s|$)/);
+  const sentence = end === -1 ? text : text.slice(0, end + 1);
+  return sentence.length > 160 ? `${sentence.slice(0, 160).trimEnd()}…` : sentence;
+}
+
+// sourceLabel names where a tool comes from in words an owner uses. "kernel" is
+// the internal name for the tools built into Eggy.
+export function sourceLabel(source: string): string {
+  return source === "kernel" ? "built in" : source;
+}
+
+function ToolRow({ name, source, description }: { name: string; source: string; description: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex flex-col gap-1.5 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <code className="text-sm font-medium text-foreground">{name}</code>
+        <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700">{sourceLabel(source)}</span>
+      </div>
+      <p className="text-[13px] leading-5 text-neutral-700">{firstSentence(description)}</p>
+      {description.trim() !== firstSentence(description) && (
+        <div>
+          <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="text-xs font-medium text-neutral-700 underline-offset-2 hover:underline">
+            {open ? "Hide details" : "Details"}
+          </button>
+          {open && <p className="mt-1.5 text-xs leading-5 text-neutral-700">{description}</p>}
+        </div>
+      )}
+    </li>
   );
 }

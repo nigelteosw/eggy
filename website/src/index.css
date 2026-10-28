@@ -154,6 +154,17 @@
     accent-color: hsl(var(--primary));
   }
 
+  /* A finger needs about 44 px to hit a control reliably. Only touch-first
+     devices get this, so desktop density is unchanged. */
+  @media (pointer: coarse) {
+    button,
+    [role="menuitem"],
+    [role="radio"],
+    [role="tab"] {
+      min-height: 2.75rem;
+    }
+  }
+
   :where(button, a, summary):focus-visible {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 3px;

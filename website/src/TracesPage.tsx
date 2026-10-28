@@ -1,3 +1,4 @@
+import { count } from "./lib/plural";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getTrace,
@@ -140,7 +141,7 @@ function Prompt({ request }: { request: string }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium text-neutral-700">
-          Prompt · {prompt.messages?.length ?? 0} messages · {prompt.tool_names?.length ?? 0} tools offered
+          Prompt · {count(prompt.messages?.length ?? 0, "message")} · {count(prompt.tool_names?.length ?? 0, "tool")} offered
         </span>
         <button
           type="button"
@@ -157,7 +158,7 @@ function Prompt({ request }: { request: string }) {
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
               {Array.isArray(message.tool_calls) && message.tool_calls.length > 0 && (
-                <span className="font-normal normal-case">{message.tool_calls.length} tool call(s)</span>
+                <span className="font-normal normal-case">{count(message.tool_calls.length, "tool call")}</span>
               )}
             </div>
             <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
@@ -782,7 +783,7 @@ export function TracesPage({ onSessionExpired }: { onSessionExpired: () => void 
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-5 py-4 sm:px-6">
         <div className="flex items-baseline gap-2.5">
           <h1 className="text-lg font-semibold tracking-tight">Traces</h1>
-          <span className="text-xs tabular-nums text-neutral-700">{traces.length} recent turns</span>
+          <span className="text-xs tabular-nums text-neutral-700">{count(traces.length, "recent turn", "recent turns")}</span>
         </div>
         <Button variant="ghost" onClick={reload} disabled={loading} className="rounded-xl hover:bg-neutral-200">
           {loading ? "Loading…" : "Refresh"}

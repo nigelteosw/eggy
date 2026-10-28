@@ -23,6 +23,7 @@ import {
   ClockIcon,
   CpuIcon,
   FileCodeIcon,
+  ChevronDownIcon,
   CloseIcon,
   HeartIcon,
   PaletteIcon,
@@ -71,6 +72,15 @@ export const SECTIONS: Section[] = [
   { id: "advanced", group: "shared", label: "Advanced", title: "Shared deployment — changes here affect everyone", description: "Tracing, raw configuration, and restart controls.", icon: <FileCodeIcon /> },
 ];
 
+// sectionMatches finds a settings section by its name, its title, or what its
+// description says it holds, so searching for a channel or a setting finds the
+// place that changes it.
+export function sectionMatches(section: Section, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return true;
+  return [section.label, section.title, section.description].some((text) => text.toLowerCase().includes(needle));
+}
+
 export function ConfigPage({
   theme,
   onThemeChange,
@@ -91,29 +101,30 @@ export function ConfigPage({
   onClose?: () => void;
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
+  // On a phone, whether the page for the active section is pushed over the list.
+  const [opened, setOpened] = useState(initialSection !== "personal");
   const [query, setQuery] = useState("");
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
+      {/* Phones: the sections are a list, and opening one pushes its page with a
+          back control, as iOS Settings does. Wide screens keep the rail. */}
       <div className="sticky top-0 z-20 shrink-0 border-b border-neutral-200 bg-background md:hidden">
-        <div className="flex items-center gap-2 px-3 py-2">
-          <select
-            aria-label="Mobile settings navigation"
-            value={active}
-            onChange={(event) => setActive(event.target.value as SectionId)}
-            className="h-11 min-w-0 flex-1 rounded-xl border-0 bg-neutral-100 px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            {GROUPS.map((group) => (
-              <optgroup key={group.id} label={group.heading}>
-                {SECTIONS.filter((candidate) => candidate.group === group.id).map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+        <div className="flex h-14 items-center gap-2 px-3">
+          {opened ? (
+            <button
+              type="button"
+              onClick={() => setOpened(false)}
+              className="flex h-11 min-w-0 items-center gap-1 rounded-xl px-2 text-sm font-medium text-foreground transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <ChevronDownIcon className="h-4 w-4 rotate-90" />
+              Settings
+            </button>
+          ) : (
+            <span className="min-w-0 flex-1 px-2 text-base font-semibold">Settings</span>
+          )}
+          {opened && <span className="min-w-0 flex-1 truncate text-sm text-neutral-700">{section.label}</span>}
           {onClose && (
             <button
               type="button"
@@ -127,6 +138,32 @@ export function ConfigPage({
           )}
         </div>
       </div>
+      <nav aria-label="Mobile settings navigation" className={`scrollbar-slim min-h-0 flex-1 overflow-y-auto md:hidden ${opened ? "hidden" : ""}`}>
+        {GROUPS.map((group) => (
+          <section key={group.id} className="px-4 pb-4 pt-5">
+            <p className="px-1 pb-2 text-[13px] text-neutral-700" title={group.note}>
+              {group.heading}
+            </p>
+            <div className="flex flex-col overflow-hidden rounded-2xl bg-neutral-100">
+              {SECTIONS.filter((candidate) => candidate.group === group.id).map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  onClick={() => {
+                    setActive(candidate.id);
+                    setOpened(true);
+                  }}
+                  className="flex min-h-12 items-center gap-3 px-4 text-left text-base text-foreground shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none"
+                >
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center text-neutral-700 [&>svg]:h-5 [&>svg]:w-5">{candidate.icon}</span>
+                  <span className="min-w-0 flex-1">{candidate.label}</span>
+                  <ChevronDownIcon className="h-4 w-4 -rotate-90 text-neutral-500" />
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+      </nav>
 
       <div className="hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex">
         <div className="shrink-0 px-3 pb-2 pt-3">
@@ -145,7 +182,7 @@ export function ConfigPage({
         <div className="shrink-0 px-4 pb-1 pt-3 text-[13px] text-neutral-700">Settings</div>
         <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           {GROUPS.map((group) => {
-            const matches = SECTIONS.filter((candidate) => candidate.group === group.id && candidate.label.toLowerCase().includes(query.trim().toLowerCase()));
+            const matches = SECTIONS.filter((candidate) => candidate.group === group.id && sectionMatches(candidate, query));
             if (matches.length === 0) return null;
             return (
               <div key={group.id} className="mb-3">
@@ -170,13 +207,13 @@ export function ConfigPage({
               </div>
             );
           })}
-          {query.trim() !== "" && SECTIONS.every((candidate) => !candidate.label.toLowerCase().includes(query.trim().toLowerCase())) && (
+          {query.trim() !== "" && SECTIONS.every((candidate) => !sectionMatches(candidate, query)) && (
             <p className="px-3 py-2 text-sm text-neutral-700">No settings match “{query.trim()}”.</p>
           )}
         </div>
       </div>
 
-      <div className="app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))]">
+      <div className={`app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))] ${opened ? "" : "hidden"} md:block`}>
         <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 sm:pr-14 lg:max-w-[960px] lg:px-10 lg:pt-8">
           <header className="flex flex-col gap-1.5 pb-1">
             <h1 className="text-xl font-semibold tracking-tight">{section.title}</h1>

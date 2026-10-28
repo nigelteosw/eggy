@@ -237,8 +237,8 @@ test("Telegram linking uses authenticated deep links instead of numeric ID input
 
 test("settings navigation includes people", () => {
   const html = renderToStaticMarkup(createElement(ConfigPage, { theme: "dark", onThemeChange: () => {}, onSessionExpired: () => {} }));
-  const labels = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((match) => match[1]);
-  expect(labels).toContain("People");
+  const nav = html.match(/<nav[^>]*aria-label="Mobile settings navigation"[^>]*>([\s\S]*?)<\/nav>/)?.[1] ?? "";
+  expect(nav).toContain(">People<");
 });
 
 test("Discord linking is a single-use command sent to the bot, never an ID typed in", async () => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import { useConfirm } from "./components/ui/confirm";
 import { Thread, deleteThread, listApprovals, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
-import { ChevronDownIcon, ClockIcon, HomeIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
+import { ClockIcon, HomeIcon, PanelIcon, PlugIcon, PlusIcon, SearchIcon, SlidersIcon } from "./components/ui/icons";
 import { runningExtensions } from "./extensions";
 import { EggyBrand } from "./components/ui/brand";
 import { cn, errorMessage } from "./lib/utils";
@@ -47,25 +47,6 @@ function rememberSidebarWidth(width: number) {
 
 // Which date groups the owner has folded shut. It is a per-browser
 // convenience, so when storage is unavailable every group simply starts open.
-const collapsedGroupsKey = "eggy.chat.sidebar.collapsedGroups";
-
-function storedCollapsedGroups(): Set<string> {
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(collapsedGroupsKey) ?? "[]");
-    return new Set(Array.isArray(stored) ? stored.filter((label): label is string => typeof label === "string") : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function rememberCollapsedGroups(collapsed: Set<string>) {
-  try {
-    window.localStorage.setItem(collapsedGroupsKey, JSON.stringify([...collapsed]));
-  } catch {
-    // Folding still works for this visit when storage is unavailable.
-  }
-}
-
 export function initialThreadSelection(threads: Thread[], now = Date.now()): string | null {
   const recent = threads
     .filter((thread) => {
@@ -93,6 +74,14 @@ export type ThreadGroupLabel = (typeof THREAD_GROUPS)[number];
 // Chats are listed under the day they were last written in, newest first, so
 // the rail reads as a timeline rather than a bag of titles. Empty groups are
 // dropped rather than shown as headings with nothing under them.
+// filterThreads keeps the chats whose title contains the query, ignoring case.
+// An empty query keeps everything. An untitled chat has no title to match.
+export function filterThreads(threads: Thread[], query: string): Thread[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return threads;
+  return threads.filter((thread) => thread.title.toLowerCase().includes(needle));
+}
+
 export function groupThreads(threads: Thread[], now = new Date()): { label: ThreadGroupLabel; threads: Thread[] }[] {
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const buckets = new Map<ThreadGroupLabel, Thread[]>(THREAD_GROUPS.map((label) => [label, []]));
@@ -225,15 +214,7 @@ export function ThreadSidebar({
   const [extensionsOpen, setExtensionsOpen] = useState(false);
   const extensionsRoot = useRef<HTMLDivElement | null>(null);
   const extensions = runningExtensions(features);
-  const [collapsedGroups, setCollapsedGroups] = useState(storedCollapsedGroups);
-
-  function toggleGroup(label: string) {
-    const next = new Set(collapsedGroups);
-    if (next.has(label)) next.delete(label);
-    else next.add(label);
-    rememberCollapsedGroups(next);
-    setCollapsedGroups(next);
-  }
+  const [chatQuery, setChatQuery] = useState("");
 
   // The Extensions menu dismisses the way the edit-sidebar popover does: a press
   // anywhere outside it, or Escape, closes it.
@@ -318,7 +299,8 @@ export function ThreadSidebar({
   }, [renamingId]);
 
   const newChatAvailable = !draftOpen && canStartNewChat(threads, activeThreadId);
-  const groups = groupThreads(threads);
+  const matching = filterThreads(threads, chatQuery);
+  const groups = groupThreads(matching);
 
   function handleNew() {
     if (!newChatAvailable) return;
@@ -459,28 +441,28 @@ export function ThreadSidebar({
       )}
 
       <div className="scrollbar-slim flex-1 overflow-y-auto px-2 pb-3">
+        {threads.length > 0 && (
+          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-xl bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-within:ring-2 focus-within:ring-ring/40">
+            <SearchIcon className="h-3.5 w-3.5 shrink-0" />
+            <input
+              type="search"
+              value={chatQuery}
+              onChange={(event) => setChatQuery(event.target.value)}
+              placeholder="Search chats"
+              aria-label="Search chats"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
+            />
+          </label>
+        )}
         {threads.length === 0 ? (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
+        ) : matching.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats match “{chatQuery.trim()}”.</p>
         ) : (
           groups.map((group) => (
             <section key={group.label} aria-label={group.label} className="flex flex-col gap-0.5">
-              <h2 className="pb-2 pt-4">
-                <button
-                  type="button"
-                  aria-expanded={!collapsedGroups.has(group.label)}
-                  onClick={() => toggleGroup(group.label)}
-                  className="group flex w-full items-center gap-1 rounded-lg px-2.5 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-neutral-200/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                >
-                  {group.label}
-                  <ChevronDownIcon
-                    className={cn(
-                      "h-3.5 w-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
-                      collapsedGroups.has(group.label) && "-rotate-90",
-                    )}
-                  />
-                </button>
-              </h2>
-              {!collapsedGroups.has(group.label) && group.threads.map((thread) => {
+              <h2 className="px-2.5 pb-2 pt-4 text-xs font-medium text-muted-foreground">{group.label}</h2>
+              {group.threads.map((thread) => {
                 const active = view === "chat" && thread.id === activeThreadId;
                 if (thread.id === renamingId) {
                   return (

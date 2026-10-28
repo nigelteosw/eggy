@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useConfirm } from "../../components/ui/confirm";
 import {
   SessionExpiredError,
   createFinanceEntry,
@@ -384,6 +385,7 @@ export function FinanceReport({
 // to the view underneath. The page draws its own heading, the way Scheduled does.
 export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: () => void; onClose?: () => void }) {
   // An empty month asks the server for the owner's current one; after the
+  const [confirm, confirmDialog] = useConfirm();
   // first answer the switcher steps from the month it reports.
   const [month, setMonth] = useState("");
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
@@ -486,6 +488,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
 
   return (
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
+      {confirmDialog}
       <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-4 pb-11 pt-8 sm:px-7 sm:pt-10">
         <header className="flex flex-col gap-3 pb-1">
           <div className="flex items-center justify-between gap-3">
@@ -543,8 +546,8 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               onSave={async (id, patch) => {
                 if (await mutate(() => updateFinanceEntry(id, patch), "Could not save the entry")) setEditingId(null);
               }}
-              onDelete={(id) => {
-                if (!window.confirm("Delete this entry?")) return;
+              onDelete={async (id) => {
+                if (!(await confirm({ title: "Delete this entry?", confirmLabel: "Delete", destructive: true }))) return;
                 void mutate(() => deleteFinanceEntry(id), "Could not delete the entry");
               }}
             />

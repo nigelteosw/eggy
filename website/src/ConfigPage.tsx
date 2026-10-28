@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { logout, type Theme } from "./api";
+import type { Theme } from "./api";
 import { cn } from "./lib/utils";
 import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
@@ -23,7 +23,7 @@ import {
   ClockIcon,
   CpuIcon,
   FileCodeIcon,
-  LogoutIcon,
+  CloseIcon,
   HeartIcon,
   PaletteIcon,
   PlugIcon,
@@ -77,6 +77,7 @@ export function ConfigPage({
   onSessionExpired,
   features = [],
   initialSection = "personal",
+  onClose,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -85,20 +86,13 @@ export function ConfigPage({
   // card reads whether it is running, so it can say a restart is pending.
   features?: string[];
   initialSection?: SectionId;
+  // Passed by the settings popup. Its close control sits in the phone's top
+  // bar, where the sticky header would otherwise cover it.
+  onClose?: () => void;
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
   const [query, setQuery] = useState("");
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0];
-
-  async function handleLogout() {
-    try {
-      await logout();
-    } finally {
-      // A logout that failed still means the owner asked to leave, and the
-      // session check on the way back in is the authority either way.
-      onSessionExpired();
-    }
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col md:flex-row">
@@ -120,15 +114,17 @@ export function ConfigPage({
               </optgroup>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={handleLogout}
-            aria-label="Log out"
-            title="Log out"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <LogoutIcon />
-          </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close settings"
+              title="Close"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <CloseIcon />
+            </button>
+          )}
         </div>
       </div>
 
@@ -177,16 +173,6 @@ export function ConfigPage({
           {query.trim() !== "" && SECTIONS.every((candidate) => !candidate.label.toLowerCase().includes(query.trim().toLowerCase())) && (
             <p className="px-3 py-2 text-sm text-neutral-700">No settings match “{query.trim()}”.</p>
           )}
-        </div>
-        <div className="shrink-0 px-3 pb-4 pt-2 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex min-h-[42px] w-full items-center gap-2.5 rounded-lg px-3.5 text-left text-sm text-foreground hover:bg-background/60"
-          >
-            <LogoutIcon className="h-[17px] w-[17px] text-neutral-700" />
-            Log out
-          </button>
         </div>
       </div>
 

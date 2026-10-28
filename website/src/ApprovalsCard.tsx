@@ -3,13 +3,10 @@ import {
   CommandResult,
   SessionExpiredError,
   approveChatDecision,
-  getApprovalMode,
   listApprovals,
-  setApprovalMode,
 } from "./api";
 import { errorMessage } from "./lib/utils";
 import { CardHeader } from "./components/ui/card-header";
-import { SelectedCheckIcon } from "./components/ui/icons";
 import { ErrorBanner } from "./components/ui/error-banner";
 
 // Column positions in the rows /api/approvals returns.
@@ -18,18 +15,6 @@ const ACTION = 1;
 const SUMMARY = 2;
 const STATE = 3;
 const REQUESTED = 4;
-
-// The mode routes report the state in a field rather than only in prose, so
-// the picker reflects the server's answer instead of what the click assumed.
-function readApprovalMode(result: CommandResult): string {
-  return result.fields?.find((field) => field.label === "approval_mode")?.value ?? "";
-}
-
-const MODES = [
-  { value: "strict", label: "Strict — ask before every tool call", note: "Every tool call asks first, reading included." },
-  { value: "normal", label: "Normal — ask before anything that writes", note: "Reading runs freely; anything that writes asks first." },
-  { value: "auto", label: "Auto — never ask", note: "Nothing asks — tool calls that change things run unapproved." },
-];
 
 /**
  * Approvals were countable and not inspectable: status reports "1 approval
@@ -41,9 +26,6 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
   const [result, setResult] = useState<CommandResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
-  const [mode, setMode] = useState("");
-  const [modeMessage, setModeMessage] = useState<string | null>(null);
-  const [switching, setSwitching] = useState(false);
 
   const load = useCallback(() => {
     listApprovals()
@@ -55,42 +37,11 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         }
         setError(errorMessage(err, "Failed to load"));
       });
-    getApprovalMode()
-      .then((result) => {
-        setMode(readApprovalMode(result));
-        setModeMessage(result.title ?? null);
-      })
-      .catch((err) => {
-        if (err instanceof SessionExpiredError) {
-          onSessionExpired();
-        }
-        // A mode that cannot be read is left blank rather than defaulting to
-        // one. Showing "normal" would tell the owner writes are being reviewed
-        // when nothing here knows that.
-      });
   }, [onSessionExpired]);
 
   useEffect(() => {
     load();
   }, [load]);
-
-  async function chooseMode(next: string) {
-    setSwitching(true);
-    setError(null);
-    try {
-      const result = await setApprovalMode(next);
-      setMode(readApprovalMode(result));
-      setModeMessage(result.title ?? null);
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        onSessionExpired();
-        return;
-      }
-      setError(errorMessage(err, "Could not change the approval mode"));
-    } finally {
-      setSwitching(false);
-    }
-  }
 
   async function decide(row: string[], approved: boolean) {
     setDeciding(row[ID]);
@@ -115,41 +66,9 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
 
   return (
     <div className="flex flex-col gap-7">
-      <div>
-        <CardHeader
-          title="Approval mode"
-          className="mb-3"
-          description={
-            <>
-              The standing answer to "may I?". It applies to every surface at once — this panel, Telegram, and
-              unprompted turns.
-            </>
-          }
-        />
-        <div role="radiogroup" aria-label="Approval mode" className="flex flex-col">
-          {MODES.map((option) => {
-            const selected = mode === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                disabled={switching || mode === ""}
-                onClick={() => chooseMode(option.value)}
-                className="flex w-full items-center gap-3 px-1 py-3.5 text-left shadow-[inset_0_1px_0_hsl(var(--neutral-200))] disabled:pointer-events-none disabled:opacity-50"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{option.label}</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-neutral-700">{option.note}</span>
-                </span>
-                <SelectedCheckIcon selected={selected} />
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-2 px-1 text-xs text-neutral-700">{modeMessage ?? "Reading the current mode…"}</p>
-      </div>
+      <p className="text-xs leading-relaxed text-neutral-700">
+        Eggy asks before it acts on this list. How often it asks is set under My settings, Model &amp; approvals.
+      </p>
 
       <div>
         <CardHeader
@@ -200,7 +119,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                     onClick={() => decide(row, false)}
                     className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
                   >
-                    Reject
+                    Decline
                   </button>
                 </span>
               </div>

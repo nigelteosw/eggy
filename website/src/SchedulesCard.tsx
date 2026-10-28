@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "./components/ui/confirm";
 import { CommandResult, SessionExpiredError, cancelSchedule, listSchedules } from "./api";
 import { CardHeader } from "./components/ui/card-header";
 import { ErrorBanner } from "./components/ui/error-banner";
@@ -20,6 +21,7 @@ const NEXT_RUN = 4;
  */
 export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [result, setResult] = useState<CommandResult | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
@@ -40,7 +42,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
   }, [load]);
 
   async function handleCancel(row: string[]) {
-    if (!window.confirm(`Cancel this schedule?\n\n${row[INSTRUCTION]}`)) return;
+    if (!(await confirm({ title: "Cancel this schedule?", body: row[INSTRUCTION], confirmLabel: "Cancel schedule", destructive: true }))) return;
     setCancelling(row[ID]);
     setError(null);
     try {
@@ -61,6 +63,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
 
   return (
     <div className="mb-2">
+      {confirmDialog}
       <CardHeader
         title="Schedules"
         className="mb-3"

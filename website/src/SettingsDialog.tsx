@@ -45,7 +45,7 @@ export function SettingsDialog({
         onClick={(event) => event.stopPropagation()}
         className="relative flex h-dvh w-full max-w-[1000px] flex-col overflow-hidden bg-background sm:h-[min(88dvh,50rem)] sm:rounded-2xl sm:shadow-lift lg:max-w-[1200px] lg:h-[min(90dvh,60rem)] 2xl:max-w-[1400px] 2xl:h-[min(90dvh,68rem)]"
       >
-        <div className="absolute right-2 top-2 z-10">
+        <div className="absolute right-2 top-2 z-10 hidden sm:block">
           <button
             type="button"
             onClick={onClose}
@@ -58,6 +58,7 @@ export function SettingsDialog({
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
           <ConfigPage
+            onClose={onClose}
             theme={theme}
             onThemeChange={onThemeChange}
             onSessionExpired={onSessionExpired}

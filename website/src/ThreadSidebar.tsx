@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useConfirm } from "./components/ui/confirm";
 import { Thread, deleteThread, listThreads, renameThread, type Account } from "./api";
 import { AccountMenu } from "./AccountMenu";
 import { ChevronDownIcon, ClockIcon, PanelIcon, PlugIcon, PlusIcon, SlidersIcon } from "./components/ui/icons";
@@ -184,6 +185,7 @@ export function ThreadSidebar({
   account?: Account;
   onLogout: () => void;
 }) {
+  const [confirm, confirmDialog] = useConfirm();
   const [threads, setThreads] = useState<Thread[]>([]);
   // menuFor / renamingId are the row-level UI states: at most one row shows
   // its actions menu, and at most one row is an inline rename field.
@@ -334,7 +336,7 @@ export function ThreadSidebar({
     setMenuFor(null);
     setError(null);
     const name = thread.title || "this chat";
-    if (!window.confirm(`Delete ${name}? Its messages are deleted too, and this cannot be undone.`)) return;
+    if (!(await confirm({ title: `Delete ${name}?`, body: "Its messages are deleted too, and this cannot be undone.", confirmLabel: "Delete chat", destructive: true }))) return;
     try {
       await deleteThread(thread.id);
     } catch (err) {
@@ -368,6 +370,7 @@ export function ThreadSidebar({
       className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 md:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
+      {confirmDialog}
       {/* The header strip drags the window when Eggy runs in an app window with
           its title bar hidden, the way the sidebar's top edge does in Claude's
           desktop app. The collapse control opts out so it still takes clicks. */}
@@ -447,7 +450,7 @@ export function ThreadSidebar({
                   {group.label}
                   <ChevronDownIcon
                     className={cn(
-                      "h-3.5 w-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100",
+                      "h-3.5 w-3.5 shrink-0 opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
                       collapsedGroups.has(group.label) && "-rotate-90",
                     )}
                   />
@@ -498,7 +501,7 @@ export function ThreadSidebar({
                       }}
                       className={cn(
                         "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
-                        menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                        menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
                       )}
                     >
                       <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">

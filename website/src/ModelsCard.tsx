@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useConfirm } from "./components/ui/confirm";
 import { useConfigSection } from "./useConfigSection";
 import { CommandResult, SessionExpiredError, discoverModels, removeModelAlias } from "./api";
 import { cn, errorMessage } from "./lib/utils";
@@ -94,6 +95,7 @@ export function ModelRowActions({
 
 export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const { result, error, saving, save, load } = useConfigSection("models", onSessionExpired);
+  const [confirm, confirmDialog] = useConfirm();
   const [alias, setAlias] = useState("");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
@@ -246,7 +248,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
   }
 
   async function handleRemove(aliasToRemove: string) {
-    if (!window.confirm(`Remove ${aliasToRemove}? It remains available until Eggy restarts.`)) return;
+    if (!(await confirm({ title: `Remove ${aliasToRemove}?`, body: "It remains available until Eggy restarts.", confirmLabel: "Remove", destructive: true }))) return;
     setRemovingAlias(aliasToRemove);
     setActionError(null);
     try {
@@ -267,6 +269,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
 
   return (
     <section className="flex flex-col gap-3">
+      {confirmDialog}
       <CardHeader
         title="Models"
         description={

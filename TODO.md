@@ -45,9 +45,13 @@ each step stands alone.
 
 **2. Trust: say what is being approved (M)**
 
-- [ ] Each native tool supplies a human sentence for its call, declared in its
+- [x] Each native tool supplies a human sentence for its call, declared in its
       own file like `ToolEffect`; `approvalSummary` falls back to the JSON only
-      for MCP. The same for the outcome line (`Approved action completed: %v`).
+      for MCP. *Done:* the optional `ports.CallDescriber` method; Google's six
+      tools, schedules and the agent runner's cancel and answer implement it.
+      Reads have no sentence and keep the argument card. *Still open:* the
+      outcome line (`Approved action completed: %v`), and a Details disclosure
+      that shows the arguments behind the sentence.
 - [ ] Approval card on web and Telegram: the sentence, a Details disclosure,
       **Approve / Decline** on both, and a one-line record in the transcript
       after the decision. *Done without the sentence:* Decline on both surfaces,

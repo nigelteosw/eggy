@@ -125,16 +125,18 @@ review.
       so it needed no change.
 - [ ] One header row on phones: menu, page title, main action; new chat in the
       chat header.
-- [ ] Traces and Settings drill down full-screen on phones instead of stacking
-      panels or using a native `<select>`.
+- [x] Traces and Settings drill down full-screen on phones. *Done:* Traces
+      already opened one list at a time; Settings is now a list that pushes each
+      section, with a back control, instead of a dropdown.
 - [ ] Sticky bottom action bar for dirty forms; confirms as bottom sheets.
 - [ ] Reply and Copy from a long-press menu on touch, instead of competing
       with the system text-selection menu.
 - [x] Web app manifest with the theme colour, an icon, and `viewport-fit=cover`
       so the safe-area padding applies. *Done:* the `apple-touch-icon` PNG (square, since iOS fills transparent
       corners black).
-- [ ] 44 px hit areas on touch; edge swipe to open the sidebar; keep the
-      composer above the iOS keyboard through `visualViewport`.
+- [x] 44 px hit areas on touch. *Done:* buttons and menu items are at least
+      44 px where the pointer is a finger. *Still open:* the edge swipe to open
+      the sidebar, and keeping the composer above the iOS keyboard.
 - [ ] The overflow audit becomes a test across every screen at 390 px in both
       themes: no sideways page scroll, no hit area under 44 px, no field under
       16 px.
@@ -148,10 +150,11 @@ review.
 - [ ] Settings: short titles with one "Shared with everyone" label instead of
       the doubled headers *(My settings is done: the page and the card no longer
       repeat the same words; the shared sections still carry long titles)*; field labels in words with the YAML key as hint.
-- [ ] Tools card: one human line per tool, model-facing text behind an
-      expander; "kernel" reads "built in".
-- [ ] Progress in plain verbs instead of tool names; Telegram deletes the
-      progress message when the reply lands instead of leaving "Called x.".
+- [x] Tools card: one human line per tool, the rest behind Details; "kernel"
+      reads "built in". *Done.*
+- [x] Progress in plain verbs instead of tool names. *Done:* each tool has a
+      label in the owner's words, and an unknown tool reads "Using …". *Still
+      open:* Telegram deleting its progress message when the reply lands.
 
 **6. Telegram polish (S–M)**
 
@@ -166,15 +169,19 @@ review.
 - [x] Italics and quote blocks in `format.go`. *Done:* identifiers with
       underscores are left alone. *Still open:* expandable blockquotes for shown
       thinking.
-- [ ] `/web` without a public URL points to the panel, not `config.yaml`.
+- [x] `/web` without a public URL explains who sets it. *Done:* the panel
+      cannot set the public address, so the message names the environment
+      variable and the person who sets it.
 
 **7. Polish (S each)**
 
-- [ ] Chat search; drop collapsible date groups; new-chat button in the phone
-      chat header; copy and hover timestamp on replies; thinking folded into
-      the activity disclosure.
-- [ ] Schedules in plain language with relative next run; plural helper
-      ("1 recent turns"); settings search indexes card and field labels.
+- [x] Chat search and no collapsible date groups. *Done:* a search field above
+      the chats, and date headings are labels. *Still open:* a new-chat button in
+      the phone's chat header.
+- [ ] Schedules in plain language with relative next run. *Still open.*
+- [x] Plural helper: "1 recent turn", "2 recent turns" everywhere on Traces.
+- [x] Settings search finds a section by what it holds. *Still open:* the
+      search does not reach individual card titles and field labels yet.
 - [ ] Setup page: provider presets instead of base-URL / env-var vocabulary.
 
 Deletion budget: net production lines should fall. Removed: the pearl CSS

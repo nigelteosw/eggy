@@ -244,7 +244,7 @@ func (t scheduleTool) create(ctx context.Context, instruction, cron, at, kind st
 	return json.Marshal(struct {
 		ports.Schedule
 		Summary string `json:"summary"`
-	}{Schedule: schedule, Summary: scheduleSummary(schedule, t.location)})
+	}{Schedule: schedule, Summary: scheduleSummary(schedule, t.location, t.now())})
 }
 
 // scheduleSummary is the one line an owner should read about a schedule that
@@ -256,16 +256,45 @@ func (t scheduleTool) create(ctx context.Context, instruction, cron, at, kind st
 // The instruction is deliberately left out. It is the owner's own words, often
 // several paragraphs of them, and echoing it back is what made the old outcome
 // message unreadable.
-func scheduleSummary(schedule ports.Schedule, location *time.Location) string {
+func scheduleSummary(schedule ports.Schedule, location *time.Location, now time.Time) string {
 	what := "Agent run"
 	if schedule.Execution == ports.ScheduleExecutionMessage {
 		what = "Reminder"
 	}
-	when := schedule.NextRun.In(location).Format("Mon 2 Jan 2006, 3:04 PM MST")
+	// The readable time leads and the exact one follows in brackets, the same
+	// order the web panel uses, so a reply and the Scheduled page agree.
+	when := relativeWhen(schedule.NextRun, now) + " (" + schedule.NextRun.In(location).Format("Mon 2 Jan 2006, 3:04 PM MST") + ")"
 	if schedule.Kind == ports.ScheduleRecurring {
 		return fmt.Sprintf("%s recurring on `%s`, next %s. Cancel with id %s.", what, schedule.Expression, when, schedule.ID)
 	}
 	return fmt.Sprintf("%s set for %s. Cancel with id %s.", what, when, schedule.ID)
+}
+
+// relativeWhen says how far away a time is in the words the panel uses:
+// "in 2 hours", "tomorrow", "in 3 days". A time already passed reads "overdue".
+func relativeWhen(at, now time.Time) string {
+	d := at.Sub(now)
+	switch {
+	case d < 0:
+		return "overdue"
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return plural(int(d/time.Minute), "minute")
+	case d < 24*time.Hour:
+		return plural(int(d/time.Hour), "hour")
+	case int(d/(24*time.Hour)) == 1:
+		return "tomorrow"
+	default:
+		return fmt.Sprintf("in %d days", int(d/(24*time.Hour)))
+	}
+}
+
+func plural(n int, unit string) string {
+	if n == 1 {
+		return fmt.Sprintf("in 1 %s", unit)
+	}
+	return fmt.Sprintf("in %d %ss", n, unit)
 }
 
 // scheduleExecution maps the optional "kind" onto an execution: a plain

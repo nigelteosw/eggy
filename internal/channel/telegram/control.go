@@ -41,20 +41,27 @@ func NewControl(client *Client, service ControlService, now func() time.Time) *C
 }
 
 func (c *Control) Show(ctx context.Context, action, messageID string) error {
+	_, err := c.show(ctx, action, messageID)
+	return err
+}
+
+// show renders the menu for an action and returns its first line, the result a
+// setting tap reports, for the toast.
+func (c *Control) show(ctx context.Context, action, messageID string) (string, error) {
 	owner, err := selectionOwner(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	panel, err := c.service.Control(ctx, action)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if text := []rune(panel.Text); len(text) > 3000 {
 		panel.Text = string(text[:3000]) + "…\n\nMore details: /help or /web."
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return err
+		return "", err
 	}
 	id := hex.EncodeToString(raw[:])
 	rows := make([][]map[string]string, 0, len(panel.Options))
@@ -76,19 +83,19 @@ func (c *Control) Show(ctx context.Context, action, messageID string) error {
 		}
 	}
 	if len(c.pending) >= maxPendingSelections && !replaces {
-		return fmt.Errorf("too many open menus; try again later")
+		return "", fmt.Errorf("too many open menus; try again later")
 	}
 	if messageID != "" {
 		chatID, chatErr := c.client.chatID(ctx)
 		if chatErr != nil {
-			return chatErr
+			return "", chatErr
 		}
 		_, err = c.client.call(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": toTelegramHTML(panel.Text), "parse_mode": "HTML", "reply_markup": markup})
 	} else {
 		messageID, err = c.client.deliver(ctx, panel.Text, map[string]any{"reply_markup": markup})
 	}
 	if err != nil {
-		return err
+		return "", err
 	}
 	for key, p := range c.pending {
 		if p.owner == owner {
@@ -96,10 +103,19 @@ func (c *Control) Show(ctx context.Context, action, messageID string) error {
 		}
 	}
 	c.pending[id] = controlPending{owner: owner, messageID: messageID, expires: c.now().Add(defaultSelectionTTL), options: panel.Options}
-	return nil
+	return toastText(panel.Text), nil
 }
 
-func (c *Control) Callback(ctx context.Context, data, messageID string) error {
+// Callback runs the action a menu button names and answers the tap. The answer
+// is sent last, so its toast carries what the action did. A tap that finds no
+// menu or no action still gets an answer, so the button stops spinning.
+func (c *Control) Callback(ctx context.Context, data, messageID, callbackID string) (err error) {
+	notice := ""
+	defer func() {
+		if callbackID != "" {
+			_ = c.client.AnswerCallback(ctx, callbackID, notice)
+		}
+	}()
 	owner, err := selectionOwner(ctx)
 	if err != nil {
 		return err
@@ -125,11 +141,23 @@ func (c *Control) Callback(ctx context.Context, data, messageID string) error {
 	}
 	delete(c.pending, parts[1])
 	c.mu.Unlock()
-	err = c.Show(ctx, p.options[index].Action, messageID)
+	notice, err = c.show(ctx, p.options[index].Action, messageID)
 	if err != nil {
 		c.mu.Lock()
 		c.pending[parts[1]] = p
 		c.mu.Unlock()
 	}
 	return err
+}
+
+// toastText is the menu's first line as a Telegram toast reads it: plain, and
+// within the 200 characters Telegram allows.
+func toastText(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	line = strings.NewReplacer("**", "", "*", "", "`", "").Replace(line)
+	runes := []rune(line)
+	if len(runes) > 200 {
+		return string(runes[:199]) + "…"
+	}
+	return line
 }

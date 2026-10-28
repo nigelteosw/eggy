@@ -285,7 +285,7 @@ func TestClientAnswerCallbackCallsAnswerCallbackQuery(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
 	})}
 	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
-	if err := client.AnswerCallback(context.Background(), "cb-1"); err != nil {
+	if err := client.AnswerCallback(context.Background(), "cb-1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !called || request["callback_query_id"] != "cb-1" {

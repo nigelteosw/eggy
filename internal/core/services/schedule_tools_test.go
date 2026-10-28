@@ -289,3 +289,23 @@ func TestCreatedSchedulesReportThemselvesInOneReadableLine(t *testing.T) {
 		t.Fatalf("cancel summary=%q", created.Summary)
 	}
 }
+
+// The reply says how far away a schedule is in the panel's words, so Telegram
+// and the Scheduled page read the same way.
+func TestRelativeWhenUsesThePanelWording(t *testing.T) {
+	now := time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
+	cases := map[time.Duration]string{
+		-time.Minute:       "overdue",
+		30 * time.Second:   "now",
+		time.Minute:        "in 1 minute",
+		45 * time.Minute:   "in 45 minutes",
+		2 * time.Hour:      "in 2 hours",
+		30 * time.Hour:     "tomorrow",
+		3 * 24 * time.Hour: "in 3 days",
+	}
+	for offset, want := range cases {
+		if got := relativeWhen(now.Add(offset), now); got != want {
+			t.Errorf("relativeWhen(+%v) = %q, want %q", offset, got, want)
+		}
+	}
+}

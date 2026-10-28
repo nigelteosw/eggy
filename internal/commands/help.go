@@ -1,6 +1,9 @@
 package commands
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // One list supplies both the phone's autocomplete and the grouped overview.
 // Dispatch stays explicit in Execute.
@@ -28,9 +31,29 @@ const helpUsage = "Usage: /help [model|mcp|google|mode]"
 const modelUsage = "Usage:\n/model [alias|default]\n/model effort [value|default]\n/model thinking [on|off]\n/model settings effort|thinking [value]\n/model providers\n/model available <provider> [filter]\n" + modelAddUsage
 const modeUsage = "Usage: /mode [strict|normal|auto]"
 
+// CommandNames is every command Telegram accepts when typed, including /code
+// when the coding extension runs. The menu is a subset of it.
+func CommandNames(code bool) map[string]bool {
+	names := make(map[string]bool, len(telegramCommands)+1)
+	for _, command := range telegramCommands {
+		names[command.Name] = true
+	}
+	if code {
+		names["code"] = true
+	}
+	return names
+}
+
+// menuCommands are the everyday few the phone's / menu offers. The rest still
+// work when typed, and /help lists them.
+var menuCommands = []string{"menu", "stop", "clear", "web", "settings", "help"}
+
+// HelpText is the short overview. Shared administration is one line here,
+// because a person who is not running Eggy's configuration does not need it
+// listed beside their own commands.
 func HelpText() string {
 	var lines []string
-	for _, group := range []string{"Conversation", "Personal settings", "Shared administration"} {
+	for _, group := range []string{"Conversation", "Personal settings"} {
 		lines = append(lines, "**"+group+"**")
 		for _, command := range telegramCommands {
 			if command.Group == group {
@@ -39,6 +62,7 @@ func HelpText() string {
 		}
 		lines = append(lines, "")
 	}
+	lines = append(lines, "**Shared administration**", "/mcp, /google and /restart change things for everyone.", "")
 	return strings.Join(lines, "\n") + "Details: /help model, /help mcp, /help google, /help mode"
 }
 
@@ -77,10 +101,17 @@ func (s *CommandService) help(args []string) string {
 	return text
 }
 
-func TelegramAutocomplete() []struct{ Name, Description string } {
-	result := make([]struct{ Name, Description string }, 0, len(telegramCommands))
+// TelegramAutocomplete is the / menu: the everyday commands, and /code when the
+// coding extension is running.
+func TelegramAutocomplete(code bool) []struct{ Name, Description string } {
+	result := make([]struct{ Name, Description string }, 0, len(menuCommands)+1)
 	for _, command := range telegramCommands {
-		result = append(result, struct{ Name, Description string }{command.Name, command.Description})
+		if slices.Contains(menuCommands, command.Name) {
+			result = append(result, struct{ Name, Description string }{command.Name, command.Description})
+		}
+	}
+	if code {
+		result = append(result, struct{ Name, Description string }{"code", "Run a coding task on an allowed repository"})
 	}
 	return result
 }

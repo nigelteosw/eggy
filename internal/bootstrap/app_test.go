@@ -517,10 +517,11 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	if len(names) != 14 {
-		t.Fatalf("registered %d commands, want 14: %v", len(names), names)
+	// The menu is the everyday six; the rest are typed and listed in /help.
+	if len(names) != 6 {
+		t.Fatalf("registered %d commands, want 6: %v", len(names), names)
 	}
-	for _, want := range []string{"menu", "settings", "help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"} {
+	for _, want := range []string{"menu", "settings", "help", "stop", "clear", "web"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -601,7 +602,7 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range commands.TelegramAutocomplete() {
+	for _, command := range commands.TelegramAutocomplete(false) {
 		if command.Description == "" {
 			t.Fatalf("command %q has no description", command.Name)
 		}

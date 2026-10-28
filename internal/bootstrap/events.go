@@ -90,7 +90,7 @@ func (a *App) processEvent(ctx context.Context, event events.Event) error {
 			return err
 		}
 		ctx = commands.WithWebLoginSender(ctx, event.SenderID)
-		return a.telegramControls.Callback(destination.With(ctx, event.Destination), request.Data, request.MessageID)
+		return a.telegramControls.Callback(destination.With(ctx, event.Destination), request.Data, request.MessageID, request.CallbackID)
 	case events.TypeSchedule:
 		message, err := decodeMessage(event)
 		if err != nil {

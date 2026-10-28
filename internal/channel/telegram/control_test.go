@@ -46,7 +46,7 @@ func TestFailedReplacementKeepsVisibleMenuUsable(t *testing.T) {
 		t.Fatal("expected failed send")
 	}
 	fail = false
-	if err := control.Callback(ctx, original, "12"); err != nil {
+	if err := control.Callback(ctx, original, "12", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(menu.calls) != 3 {
@@ -83,28 +83,40 @@ func TestControlCallbacksAreOwnedBoundedAndConsumedAfterDispatch(t *testing.T) {
 	if len(data) > 64 || !strings.HasPrefix(data, "control:") {
 		t.Fatalf("callback=%q", data)
 	}
-	if err := control.Callback(bob, data, "12"); err != nil {
+	if err := control.Callback(bob, data, "12", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(menu.calls) != 1 {
 		t.Fatal("another account executed an action")
 	}
-	if err := control.Callback(alice, data, "13"); err != nil {
+	if err := control.Callback(alice, data, "13", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(menu.calls) != 1 {
 		t.Fatal("wrong message executed an action")
 	}
-	if err := control.Callback(alice, original, "12"); err != nil {
+	if err := control.Callback(alice, original, "12", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(menu.calls) != 2 || menu.calls[1] != "set:/model settings thinking on" {
 		t.Fatalf("calls=%v", menu.calls)
 	}
-	if err := control.Callback(alice, original, "12"); err != nil {
+	if err := control.Callback(alice, original, "12", ""); err != nil {
 		t.Fatal(err)
 	}
 	if len(menu.calls) != 2 {
 		t.Fatal("duplicate executed twice")
+	}
+}
+
+// The toast is the menu's result line in plain text, cut to what Telegram
+// allows, so a tap says what changed without the markdown around it.
+func TestToastTextIsTheFirstPlainLineWithinTheLimit(t *testing.T) {
+	if got := toastText("**Check-ins on.**\n\nThe rest of the menu"); got != "Check-ins on." {
+		t.Fatalf("toastText = %q", got)
+	}
+	long := strings.Repeat("x", 300)
+	if got := []rune(toastText(long)); len(got) != 200 {
+		t.Fatalf("toast length = %d, want 200", len(got))
 	}
 }

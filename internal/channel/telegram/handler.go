@@ -24,7 +24,7 @@ type PairingConsumer func(context.Context, string, int64) error
 // CallbackAcknowledger clears the loading spinner Telegram shows on a
 // tapped inline button. *Client implements it.
 type CallbackAcknowledger interface {
-	AnswerCallback(ctx context.Context, callbackQueryID string) error
+	AnswerCallback(ctx context.Context, callbackQueryID, text string) error
 }
 
 // FileDownloader fetches a Telegram photo or document as a content part.
@@ -224,10 +224,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if incoming.Callback != nil && h.acknowledger != nil {
+	if incoming.Callback != nil && h.acknowledger != nil && !strings.HasPrefix(incoming.Callback.Data, "control:") {
 		// Best-effort: a failed ack only leaves a spinner on the owner's
 		// button, and must not stop the decision itself from being handled.
-		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID)
+		// A menu tap is answered by its control, once the action has run, so
+		// the toast can say what changed.
+		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID, "")
 	}
 	verified := ports.WithPrincipal(r.Context(), ports.Principal{AccountID: accountID})
 	verified = destination.With(verified, destination.Destination{Kind: destination.Telegram})
@@ -299,7 +301,7 @@ func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events
 	}
 	if incoming.Callback != nil {
 		if strings.HasPrefix(incoming.Callback.Data, "control:") {
-			payload, _ := json.Marshal(events.ControlRequest{Data: incoming.Callback.Data, MessageID: strconv.FormatInt(incoming.Callback.Message.MessageID, 10)})
+			payload, _ := json.Marshal(events.ControlRequest{Data: incoming.Callback.Data, MessageID: strconv.FormatInt(incoming.Callback.Message.MessageID, 10), CallbackID: incoming.Callback.ID})
 			base.Type, base.Payload = events.TypeControl, payload
 			base.SenderID = strconv.FormatInt(incoming.Callback.From.ID, 10)
 			return base, nil

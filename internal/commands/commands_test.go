@@ -46,15 +46,21 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
 func TestTelegramCommandsAreAdvertised(t *testing.T) {
-	got := TelegramAutocomplete()
-	if len(got) != 14 {
+	// The menu offers the everyday few. Administration and personal settings
+	// still work when typed, and /help lists them.
+	got := TelegramAutocomplete(false)
+	want := []string{"menu", "settings", "help", "stop", "clear", "web"}
+	if len(got) != len(want) {
 		t.Fatalf("commands=%v", got)
 	}
-	want := []string{"menu", "settings", "help", "status", "stop", "clear", "soul", "model", "mcp", "web", "google", "mode", "heartbeat", "restart"}
 	for index := range want {
 		if got[index].Name != want[index] {
 			t.Fatalf("commands=%v", got)
 		}
+	}
+	// /code joins the menu only while the coding extension runs.
+	if running := TelegramAutocomplete(true); running[len(running)-1].Name != "code" {
+		t.Fatalf("code missing from the menu while running: %v", running)
 	}
 }
 

@@ -34,9 +34,10 @@ func TestEveryAdvertisedCommandIsDocumented(t *testing.T) {
 		documented[match[1]] = true
 	}
 	advertised := map[string]bool{}
-	for _, command := range TelegramAutocomplete() {
+	for _, command := range TelegramAutocomplete(true) {
 		advertised[command.Name] = true
 	}
+	accepted := CommandNames(true)
 
 	for name := range advertised {
 		if !documented[name] {
@@ -44,10 +45,11 @@ func TestEveryAdvertisedCommandIsDocumented(t *testing.T) {
 		}
 	}
 	// The other direction matters as much: a command removed from the code
-	// leaves a documented instruction that now answers "Unknown command."
+	// leaves a documented instruction that now answers "Unknown command." The
+	// menu is a subset of what is accepted, so a typed command counts here.
 	for name := range documented {
-		if !advertised[name] {
-			t.Errorf("%s documents /%s, which is not in the advertised command surface", telegramDoc, name)
+		if !accepted[name] {
+			t.Errorf("%s documents /%s, which is not an accepted command", telegramDoc, name)
 		}
 	}
 }
@@ -58,7 +60,7 @@ func TestEveryAdvertisedCommandIsDocumented(t *testing.T) {
 // to the unknown-command reply.
 func TestEveryAdvertisedCommandDispatches(t *testing.T) {
 	service := New(Options{})
-	for _, command := range TelegramAutocomplete() {
+	for _, command := range TelegramAutocomplete(false) {
 		output, handled, err := service.Execute(t.Context(), "/"+command.Name)
 		if err != nil {
 			t.Errorf("/%s: %v", command.Name, err)

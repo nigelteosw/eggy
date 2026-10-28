@@ -31,6 +31,8 @@ const (
 type ControlRequest struct {
 	Data      string `json:"data"`
 	MessageID string `json:"message_id"`
+	// CallbackID is the Telegram tap to answer once the action has run.
+	CallbackID string `json:"callback_id,omitempty"`
 }
 
 type Event struct {

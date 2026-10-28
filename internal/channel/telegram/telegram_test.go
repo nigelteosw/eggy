@@ -209,7 +209,7 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 
 type recordingAcknowledger struct{ acked []string }
 
-func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryID string) error {
+func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryID, _ string) error {
 	a.acked = append(a.acked, callbackQueryID)
 	return nil
 }

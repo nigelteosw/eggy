@@ -127,11 +127,11 @@ func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink 
 // registerCommands publishes the slash-command suggestions Telegram shows in
 // its composer. A failure is logged, not fatal: refusing to boot over a
 // cosmetic API call would turn a Telegram outage into an Eggy outage.
-func (w telegramWiring) registerCommands(ctx context.Context, logger *slog.Logger) {
+func (w telegramWiring) registerCommands(ctx context.Context, logger *slog.Logger, codeRunning bool) {
 	if w.client == nil {
 		return
 	}
-	autocomplete := commands.TelegramAutocomplete()
+	autocomplete := commands.TelegramAutocomplete(codeRunning)
 	suggestions := make([]telegram.BotCommand, 0, len(autocomplete))
 	for _, command := range autocomplete {
 		suggestions = append(suggestions, telegram.BotCommand{Name: command.Name, Description: command.Description})

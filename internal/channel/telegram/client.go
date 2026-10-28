@@ -156,10 +156,15 @@ func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 }
 
 // AnswerCallback acknowledges a button tap so Telegram stops showing the
-// user a spinner. It is not part of ports.Channel: it belongs to receiving
-// an update, and WebhookHandler calls it as the update arrives.
-func (c *Client) AnswerCallback(ctx context.Context, callbackQueryID string) error {
-	_, err := c.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackQueryID})
+// user a spinner. A non-empty text shows as a toast over the chat, which is
+// how a setting tap says what it changed. It is not part of ports.Channel: it
+// belongs to receiving an update.
+func (c *Client) AnswerCallback(ctx context.Context, callbackQueryID, text string) error {
+	body := map[string]any{"callback_query_id": callbackQueryID}
+	if text != "" {
+		body["text"] = text
+	}
+	_, err := c.call(ctx, "answerCallbackQuery", body)
 	return err
 }
 

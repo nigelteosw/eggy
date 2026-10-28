@@ -575,7 +575,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		GoogleCallback: googleAdministration.callbackRoute(),
 		Web:            webHandler,
 	})
-	telegramSurface.registerCommands(context.Background(), app.logger)
+	telegramSurface.registerCommands(context.Background(), app.logger, app.agentRunner != nil)
 	keepMCP = true
 	keepDatabase = true
 	return app, nil

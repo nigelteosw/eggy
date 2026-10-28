@@ -83,6 +83,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/mcp [subcommand]` | List, configure, and authorize MCP servers |
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
+| `/code` | Run a coding task on an allowed repository; listed in the menu only while the coding extension runs |
 | `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
 | `/heartbeat [on\|off]` | Show or switch your own check-ins; off until you turn it on |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |

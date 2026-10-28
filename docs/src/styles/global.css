@@ -11,27 +11,27 @@
 
 @layer base {
   :root {
-    --page: #161412;
-    --surface: #1E1B18;
-    --surface-muted: #292521;
-    --ink: #F0EADF;
-    --body-ink: #D8D0C2;
-    --muted: #A59C8E;
-    --faint: #8A8072;
-    --line: #38322B;
-    --line-strong: #4A4238;
+    --page: #151515;
+    --surface: #1E1E1E;
+    --surface-muted: #282828;
+    --ink: #EDEDED;
+    --body-ink: #D6D6D6;
+    --muted: #A3A3A3;
+    --faint: #8A8A8A;
+    --line: #363636;
+    --line-strong: #4A4A4A;
     --brand-yellow: #F2B630;
     --accent: #F6C95A;
     --accent-strong: #F6C95A;
     --accent-soft: rgba(242, 182, 48, 0.10);
-    --code: #120F0D;
-    --code-ink: #F0EADF;
-    --inline-code-ink: #F0EADF;
-    --header-bg: rgba(22, 20, 18, 0.94);
+    --code: #101010;
+    --code-ink: #EDEDED;
+    --inline-code-ink: #EDEDED;
+    --header-bg: rgba(21, 21, 21, 0.94);
     --control-bg: rgba(255, 255, 255, 0.04);
     --button-ink: #1A1714;
-    --callout-bg: #2A2110;
-    --callout-border: #7A5C1C;
+    --callout-bg: #2F2B12;
+    --callout-border: #7A6418;
     --callout-ink: #F8D98A;
     --focus: rgba(242, 182, 48, 0.5);
     --header-height: 64px;

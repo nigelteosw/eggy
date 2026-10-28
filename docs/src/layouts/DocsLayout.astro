@@ -25,8 +25,11 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
   <head>
     <script is:inline>
       try {
+        // A choice the reader made wins; otherwise the page follows the device.
         const stored = localStorage.getItem("eggy-docs-theme");
-        document.documentElement.dataset.theme = stored === "light" ? "light" : "dark";
+        const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const theme = stored === "light" || stored === "dark" ? stored : prefersDark ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
       } catch {
         document.documentElement.dataset.theme = "dark";
       }
@@ -34,7 +37,8 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#0d0f0e" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F1E7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#151515" />
     <link rel="canonical" href={canonical} />
     <link rel="icon" href={`${import.meta.env.BASE_URL}favicon.svg`} type="image/svg+xml" />
     <title>{pageTitle}</title>

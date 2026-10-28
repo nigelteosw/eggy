@@ -22,7 +22,7 @@ function applyTheme(theme: "dark" | "light") {
     "aria-label",
     theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
   );
-  if (themeMeta) themeMeta.content = theme === "dark" ? "#0d0f0e" : "#f7f5ef";
+  if (themeMeta) themeMeta.content = theme === "dark" ? "#151515" : "#F6F1E7";
 }
 
 applyTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");

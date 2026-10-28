@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap");
 @layer reset, base, shell, article, components, responsive;
 
 @layer reset {
@@ -10,33 +11,33 @@
 
 @layer base {
   :root {
-    --page: #0d0f0e;
-    --surface: #121513;
-    --surface-muted: #191d1a;
-    --ink: #eff1ee;
-    --body-ink: #c7cbc6;
-    --muted: #999e99;
-    --faint: #737873;
-    --line: #272b28;
-    --line-strong: #3b413c;
-    --brand-yellow: #dba400;
-    --accent: #b9f7a8;
-    --accent-strong: #b9f7a8;
-    --accent-soft: rgba(185, 247, 168, 0.08);
-    --code: #090b0a;
-    --code-ink: #e8ece7;
-    --inline-code-ink: #d8ded7;
-    --header-bg: rgba(13, 15, 14, 0.94);
-    --control-bg: rgba(255, 255, 255, 0.035);
-    --button-ink: #0d0f0e;
-    --callout-bg: #141b15;
-    --callout-border: #425743;
-    --callout-ink: #c9d9c8;
-    --focus: rgba(185, 247, 168, 0.48);
+    --page: #161412;
+    --surface: #1E1B18;
+    --surface-muted: #292521;
+    --ink: #F0EADF;
+    --body-ink: #D8D0C2;
+    --muted: #A59C8E;
+    --faint: #8A8072;
+    --line: #38322B;
+    --line-strong: #4A4238;
+    --brand-yellow: #F2B630;
+    --accent: #F6C95A;
+    --accent-strong: #F6C95A;
+    --accent-soft: rgba(242, 182, 48, 0.10);
+    --code: #120F0D;
+    --code-ink: #F0EADF;
+    --inline-code-ink: #F0EADF;
+    --header-bg: rgba(22, 20, 18, 0.94);
+    --control-bg: rgba(255, 255, 255, 0.04);
+    --button-ink: #1A1714;
+    --callout-bg: #2A2110;
+    --callout-border: #7A5C1C;
+    --callout-ink: #F8D98A;
+    --focus: rgba(242, 182, 48, 0.5);
     --header-height: 64px;
     --sidebar-width: 240px;
     --outline-width: 240px;
-    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: Geist, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: var(--ink);
     background: var(--page);
     color-scheme: dark;
@@ -44,28 +45,28 @@
   }
 
   :root[data-theme="light"] {
-    --page: #f7f5ef;
-    --surface: #fffefa;
-    --surface-muted: #f0eee7;
-    --ink: #24231f;
-    --body-ink: #34332e;
-    --muted: #6f6c63;
-    --faint: #8a877e;
-    --line: #dedbd1;
-    --line-strong: #c9c5ba;
-    --accent: #267346;
-    --accent-strong: #1f653d;
-    --accent-soft: rgba(38, 115, 70, 0.08);
-    --code: #1e211f;
-    --code-ink: #f5f4ed;
-    --inline-code-ink: #4d473a;
-    --header-bg: rgba(247, 245, 239, 0.94);
-    --control-bg: rgba(255, 254, 250, 0.72);
-    --button-ink: #fff;
-    --callout-bg: #eef7ef;
-    --callout-border: #a7c9aa;
-    --callout-ink: #36533a;
-    --focus: rgba(38, 115, 70, 0.4);
+    --page: #F6F1E7;
+    --surface: #FFFCF6;
+    --surface-muted: #ECE5D7;
+    --ink: #2B2620;
+    --body-ink: #3A342B;
+    --muted: #6B6255;
+    --faint: #7A7065;
+    --line: #E0D7C6;
+    --line-strong: #C9BEA8;
+    --accent: #8A5A00;
+    --accent-strong: #6B4500;
+    --accent-soft: rgba(227, 162, 26, 0.12);
+    --code: #2B2620;
+    --code-ink: #FBF7EE;
+    --inline-code-ink: #4A4339;
+    --header-bg: rgba(246, 241, 231, 0.94);
+    --control-bg: rgba(255, 252, 246, 0.72);
+    --button-ink: #FFFCF6;
+    --callout-bg: #FBEBC4;
+    --callout-border: #E3A21A;
+    --callout-ink: #5C3D00;
+    --focus: rgba(227, 162, 26, 0.5);
     color-scheme: light;
   }
 

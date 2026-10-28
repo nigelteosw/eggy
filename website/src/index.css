@@ -71,44 +71,44 @@
   /* Cast iron: warm charcoal, not black. Raised surfaces are lighter than the
      page and carry a border rather than a shadow, which does not show on dark. */
   .dark {
-    --background: 30 10% 8%;
-    --foreground: 39 36% 91%;
+    --background: 0 0% 8%;
+    --foreground: 0 0% 93%;
 
-    --card: 30 11% 11%;
-    --card-foreground: 39 36% 91%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 93%;
 
     --primary: 41 88% 57%;
-    --primary-foreground: 30 13% 9%;
+    --primary-foreground: 0 0% 9%;
 
-    --secondary: 30 11% 15%;
-    --secondary-foreground: 39 36% 91%;
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 93%;
 
-    --muted: 30 11% 15%;
-    --muted-foreground: 37 11% 60%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 64%;
 
-    --accent: 30 11% 15%;
-    --accent-foreground: 39 36% 91%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 93%;
 
     --destructive: 11 67% 63%;
-    --destructive-foreground: 30 13% 9%;
+    --destructive-foreground: 0 0% 9%;
 
-    --border: 32 13% 19%;
-    --input: 33 14% 25%;
-    --ring: 39 36% 91%;
+    --border: 0 0% 21%;
+    --input: 0 0% 29%;
+    --ring: 0 0% 93%;
 
     --radius: 0.625rem;
 
-    --surface: 30 11% 11%;
+    --surface: 0 0% 12%;
 
-    --neutral-100: 30 11% 11%;
-    --neutral-200: 30 11% 15%;
-    --neutral-300: 32 13% 19%;
-    --neutral-400: 33 14% 25%;
-    --neutral-500: 35 11% 38%;
-    --neutral-600: 35 10% 49%;
-    --neutral-700: 37 11% 60%;
-    --neutral-800: 37 19% 77%;
-    --neutral-900: 39 36% 91%;
+    --neutral-100: 0 0% 12%;
+    --neutral-200: 0 0% 16%;
+    --neutral-300: 0 0% 21%;
+    --neutral-400: 0 0% 29%;
+    --neutral-500: 0 0% 42%;
+    --neutral-600: 0 0% 54%;
+    --neutral-700: 0 0% 64%;
+    --neutral-800: 0 0% 81%;
+    --neutral-900: 0 0% 93%;
 
     --accent-100: 39 45% 11%;
     --accent-200: 42 53% 15%;
@@ -126,7 +126,7 @@
     --eg-red: 11 67% 63%;
     --eg-red-tint: 14 35% 17%;
     --eg-red-ink: 12 78% 75%;
-    --eg-ask: 42 53% 15%;
+    --eg-ask: 52 45% 13%;
     --eg-ask-ink: 43 90% 66%;
     color-scheme: dark;
   }

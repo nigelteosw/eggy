@@ -88,7 +88,8 @@ each step stands alone.
 - [x] `contrast.test.ts` checks every token pair in both modes; a test bans raw
       colour literals in `src/`; screenshot checks run in both modes.
 - [ ] Retheme the docs site with the same tokens and drop the mint accent, with
-      the same Light / Dark / Match system switch (stored locally).
+      the same Light / Dark / Match system switch (stored locally). *Done:* the
+      Eggshell and Cast iron tokens and Geist. *Still open:* the switch.
 - [x] Single-card sign-in page with true copy (not "on your own machine").
 
 **4. Structure: Eggy's features where people look (M–L)**
@@ -117,9 +118,9 @@ Every screen is designed and checked at 390 px first; see *Mobile* in the
 review.
 
 - [x] Data tables become stacked rows on phones (Providers, Models, People,
-      Finance). *Done:* `DataTable` is used by all of them; below 640 px each row
-      is a card with labelled values. Finance uses its own table and is not
-      converted yet.
+      Finance). *Done:* `DataTable` is used by the config tables; below 640 px
+      each row is a card with labelled values. Finance was already a card list,
+      so it needed no change.
 - [ ] One header row on phones: menu, page title, main action; new chat in the
       chat header.
 - [ ] Traces and Settings drill down full-screen on phones instead of stacking
@@ -143,7 +144,8 @@ review.
 - [ ] Eggy speaks in first person in chat and Telegram; panel labels in second.
       Delete "Eggy can make mistakes."
 - [ ] Settings: short titles with one "Shared with everyone" label instead of
-      the doubled headers; field labels in words with the YAML key as hint.
+      the doubled headers *(My settings is done: the page and the card no longer
+      repeat the same words; the shared sections still carry long titles)*; field labels in words with the YAML key as hint.
 - [ ] Tools card: one human line per tool, model-facing text behind an
       expander; "kernel" reads "built in".
 - [ ] Progress in plain verbs instead of tool names; Telegram deletes the

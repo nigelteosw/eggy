@@ -119,6 +119,14 @@ func (r *routedChannel) EditText(ctx context.Context, messageID, text string) er
 	return channelutil.EditText(ctx, channel, messageID, text)
 }
 
+func (r *routedChannel) DeleteMessage(ctx context.Context, messageID string) error {
+	channel, err := r.route(ctx)
+	if err != nil {
+		return err
+	}
+	return channelutil.DeleteText(ctx, channel, messageID)
+}
+
 func (r *routedChannel) ShowProgress(ctx context.Context, text string) error {
 	channel, err := r.route(ctx)
 	if err != nil {

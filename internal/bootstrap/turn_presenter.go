@@ -60,6 +60,12 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 		if messageID == "" {
 			return
 		}
+		// A progress line that can be removed is removed: the reply is the answer,
+		// and the steps are not worth keeping in the chat. A channel that cannot
+		// delete it keeps the one-line summary.
+		if err := channelutil.DeleteText(ctx, p.channel, messageID); err == nil {
+			return
+		}
 		render(progressDone(calls))
 	}
 	return onToolCall, finish

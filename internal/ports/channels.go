@@ -38,6 +38,13 @@ type TrackableChannel interface {
 	EditText(ctx context.Context, messageID, text string) error
 }
 
+// DeletableChannel is the optional capability to remove a message that was
+// delivered. A surface that can do so lets a finished progress line vanish when
+// its reply arrives, instead of lingering as a record of what happened.
+type DeletableChannel interface {
+	DeleteMessage(ctx context.Context, messageID string) error
+}
+
 // TypingChannel is a Channel that can show the user that a turn is in
 // progress. The indicator is advisory: a surface without one is still a
 // perfectly good Channel.

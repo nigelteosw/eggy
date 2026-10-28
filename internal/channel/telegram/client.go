@@ -121,6 +121,18 @@ func (c *Client) DeliverSelection(ctx context.Context, prompt, selectionID strin
 	return err
 }
 
+// DeleteMessage removes a message from the owner's chat. Telegram refuses a
+// message that is too old or already gone; the caller treats that as a failed
+// delete and leaves the message in place.
+func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.call(ctx, "deleteMessage", map[string]any{"chat_id": chatID, "message_id": messageID})
+	return err
+}
+
 func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 	chatID, err := c.chatID(ctx)
 	if err != nil {

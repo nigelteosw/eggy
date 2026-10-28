@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -377,5 +378,28 @@ func TestClientTransportErrorDoesNotCarryTheToken(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret-token") {
 		t.Fatalf("error leaks the bot token: %v", err)
+	}
+}
+
+// Telegram's deleteMessage names the chat and the message, and nothing else;
+// a finished progress line is removed by ID.
+func TestClientDeleteMessageNamesTheChatAndTheMessage(t *testing.T) {
+	var request map[string]any
+	var method string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		method = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &request)
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
+	})}
+	client := NewClient("https://api.telegram.test", "token", FixedChat("99"), httpClient)
+	if err := client.DeleteMessage(context.Background(), "555"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(method, "deleteMessage") {
+		t.Fatalf("method=%s", method)
+	}
+	if fmt.Sprint(request["chat_id"]) != "99" || fmt.Sprint(request["message_id"]) != "555" {
+		t.Fatalf("request=%#v", request)
 	}
 }

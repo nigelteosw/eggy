@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { GoogleCard } from "../src/GoogleCard";
-import { HeartbeatCard } from "../src/HeartbeatCard";
-import { McpCard } from "../src/McpCard";
-import { ModelsCard } from "../src/ModelsCard";
-import { ProvidersCard } from "../src/ProvidersCard";
-import { TracingCard } from "../src/TracingCard";
-import { AdvancedCard } from "../src/AdvancedCard";
+import { GoogleCard } from "../src/customize/GoogleCard";
+import { HeartbeatCard } from "../src/settings/HeartbeatCard";
+import { McpCard } from "../src/customize/McpCard";
+import { ModelsCard } from "../src/settings/ModelsCard";
+import { ProvidersCard } from "../src/settings/ProvidersCard";
+import { TracingCard } from "../src/settings/TracingCard";
+import { AdvancedCard } from "../src/settings/AdvancedCard";
 
 function render(Card: ComponentType<{ onSessionExpired: () => void }>) {
   return renderToStaticMarkup(createElement(Card, { onSessionExpired: () => {} }));

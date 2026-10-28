@@ -5,7 +5,7 @@ import {
   SIDEBAR_MIN_WIDTH,
   clampSidebarWidth,
   sidebarWidthForKey,
-} from "../src/ThreadSidebar";
+} from "../src/chat/ThreadSidebar";
 
 test("sidebar width stays within its usable desktop range", () => {
   expect(clampSidebarWidth(180)).toBe(240);

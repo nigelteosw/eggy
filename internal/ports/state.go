@@ -72,6 +72,11 @@ type AgentRuntimeState struct {
 	// should have asked for, and the deployment's heartbeat section only
 	// sets the cadence for those who do.
 	Heartbeat bool `json:"heartbeat,omitempty"`
+	// Theme is this account's own panel palette: "light", "dark" or "system".
+	// Empty means the account has not chosen, and the panel follows the
+	// deployment's appearance default. It is per person, so one account's
+	// choice never changes another's screen.
+	Theme string `json:"theme,omitempty"`
 }
 
 type StateStore interface {

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SetupPage } from "../src/SetupPage";
-import { consumeSetupFragment } from "../src/api";
+import { SetupPage } from "../src/auth/SetupPage";
+import { consumeSetupFragment } from "../src/lib/api";
 
 test("consumes the fragment before exchanging the setup credential", async () => {
   const events: string[] = [];

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { firstSentence, sourceLabel } from "../src/ToolsCard";
+import { firstSentence, sourceLabel } from "../src/settings/ToolsCard";
 
 // A tool's description is written for the model, so it runs long. The owner
 // reads the first sentence; the rest is one tap away.

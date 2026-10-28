@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { approvalPayload, initialApprovals } from "../src/McpEnableDialog";
+import { approvalPayload, initialApprovals } from "../src/customize/McpEnableDialog";
 
 const tools = [
   { name: "read", description: "Reads" },

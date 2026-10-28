@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { FinanceSummary } from "../../../src/api";
+import type { FinanceSummary } from "../../../src/lib/api";
 import { FinanceReport } from "../../../src/extensions/finance/FinancePage";
 import { FinanceToolbar } from "../../../src/extensions/finance/FinanceToolbar";
 import { DEFAULT_VIEW } from "../../../src/extensions/finance/finance-list";

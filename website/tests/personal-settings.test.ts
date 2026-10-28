@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { clearSession, getSoul, saveSoul, setAgentHeartbeat, setAgentThinking } from "../src/api";
-import { PersonalSettingsCard } from "../src/PersonalSettingsCard";
-import { ConfigPage, GROUPS, SECTIONS } from "../src/ConfigPage";
+import { clearSession, getSoul, saveSoul, setAgentHeartbeat, setAgentThinking } from "../src/lib/api";
+import { PersonalSettingsCard } from "../src/settings/PersonalSettingsCard";
+import { ConfigPage, GROUPS, SCOPE_LABEL, SECTIONS } from "../src/settings/ConfigPage";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -22,11 +22,12 @@ test("settings are grouped into my settings, people, and shared deployment, with
   expect(shared).toContain("models");
   expect(shared).toContain("connections");
   expect(shared).toContain("advanced");
-  // Shared controls are labelled as such where they are rendered.
+  // Shared controls are labelled as shared once, beside a short title.
   for (const section of SECTIONS.filter((section) => section.group === "shared")) {
-    expect(section.title).toContain("Shared deployment");
+    expect(SCOPE_LABEL[section.group]).toBe("Shared with everyone");
+    expect(section.title).not.toContain("—");
   }
-  expect(SECTIONS.find((section) => section.id === "accounts")!.title).toContain("People — trusted users who can administer this deployment");
+  expect(SECTIONS.find((section) => section.id === "accounts")!.title).toBe("People");
 });
 
 test("the settings page opens on my settings and lists every group in the mobile navigation", () => {
@@ -35,7 +36,7 @@ test("the settings page opens on my settings and lists every group in the mobile
   expect(html).toContain("My settings");
   expect(html).toContain(">People<");
   expect(html).toContain("Shared deployment");
-  expect(html).toContain("Changes here affect everyone");
+  expect(html).toContain("Only you");
 });
 
 test("the personal settings card explains its scope and offers the four personal controls", async () => {

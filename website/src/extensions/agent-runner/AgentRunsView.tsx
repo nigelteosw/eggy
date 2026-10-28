@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { AgentRun, AgentRunStep } from "../../api";
+import type { AgentRun, AgentRunStep } from "../../lib/api";
 import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import {

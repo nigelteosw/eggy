@@ -125,6 +125,23 @@ func (r *AgentRuntime) SetShowThinking(ctx context.Context, show bool) error {
 	return r.update(ctx, func(state *ports.State) { state.Agent.HideThinking = !show })
 }
 
+// Theme reports the acting account's own panel palette, or "" when it has not
+// chosen one and follows the deployment default.
+func (r *AgentRuntime) Theme(ctx context.Context) (string, error) {
+	state, err := r.store.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	return state.Agent.Theme, nil
+}
+
+// SetTheme stores the acting account's panel palette. The panel validates the
+// name before it gets here; an empty value clears the choice so the account
+// follows the deployment default again.
+func (r *AgentRuntime) SetTheme(ctx context.Context, theme string) error {
+	return r.update(ctx, func(state *ports.State) { state.Agent.Theme = theme })
+}
+
 // Heartbeat reports whether the acting account has switched its periodic
 // check-ins on. Off by default.
 func (r *AgentRuntime) Heartbeat(ctx context.Context) (bool, error) {

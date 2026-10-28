@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { clearSession, getMode, login, redeemWebLoginLink, setAccountPassword, revokeAccountSessions, addAccount, PendingAccountError } from "../src/api";
-import { LoginPage } from "../src/LoginPage";
-import { SetupPage } from "../src/SetupPage";
+import { clearSession, getMode, login, redeemWebLoginLink, setAccountPassword, revokeAccountSessions, addAccount, PendingAccountError } from "../src/lib/api";
+import { LoginPage } from "../src/auth/LoginPage";
+import { SetupPage } from "../src/auth/SetupPage";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

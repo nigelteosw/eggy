@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { activeCurrency, categoryHex, forCurrency, money, movement, monthShort, percentOf, signedAmount, isCashIn } from "../../../src/extensions/finance/finance";
-import type { FinanceSummary } from "../../../src/api";
+import type { FinanceSummary } from "../../../src/lib/api";
 
 test("money reads with its currency, and a negative sign goes before the code", () => {
   expect(money("SGD", "654.80")).toBe("SGD 654.80");

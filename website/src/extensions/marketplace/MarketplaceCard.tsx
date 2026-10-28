@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useConfigSection } from "../../useConfigSection";
+import { useConfigSection } from "../../settings/useConfigSection";
 import { CardHeader } from "../../components/ui/card-header";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { PRIMARY_BUTTON } from "../../components/ui/form";

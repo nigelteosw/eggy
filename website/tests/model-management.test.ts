@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { removeModelAlias } from "../src/api";
-import { ConfigPage } from "../src/ConfigPage";
-import { ModelRowActions, catalogEffortsFor, modelDraftForRow, openRouterProvidersOf, routingFromCell } from "../src/ModelsCard";
+import { removeModelAlias } from "../src/lib/api";
+import { ConfigPage } from "../src/settings/ConfigPage";
+import { ModelRowActions, catalogEffortsFor, modelDraftForRow, openRouterProvidersOf, routingFromCell } from "../src/settings/ModelsCard";
 import { DataTable } from "../src/components/ui/data-table";
 
 const realFetch = globalThis.fetch;

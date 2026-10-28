@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ApprovalCard } from "../src/ChatPage";
+import { ApprovalCard } from "../src/chat/ChatPage";
 
 test("the card leads with the sentence, and the arguments stay behind Show details", () => {
   const html = renderToStaticMarkup(

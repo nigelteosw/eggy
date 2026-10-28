@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RequestError } from "../src/api";
+import { RequestError } from "../src/lib/api";
 import {
   approvalFor,
   canInstall,

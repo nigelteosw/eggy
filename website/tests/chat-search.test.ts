@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { filterThreads } from "../src/ThreadSidebar";
-import type { Thread } from "../src/api";
+import { filterThreads } from "../src/chat/ThreadSidebar";
+import type { Thread } from "../src/lib/api";
 
 const threads: Thread[] = [
   { id: "1", title: "Deploy the daemon", updatedAt: "2026-10-28T10:00:00Z" },

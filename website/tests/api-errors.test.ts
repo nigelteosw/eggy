@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { RequestError, getAgentPAT } from "../src/api";
+import { RequestError, getAgentPAT } from "../src/lib/api";
 
 const realFetch = globalThis.fetch;
 

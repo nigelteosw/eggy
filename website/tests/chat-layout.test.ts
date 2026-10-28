@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChatPage } from "../src/ChatPage";
-import { Composer } from "../src/Composer";
+import { ChatPage } from "../src/chat/ChatPage";
+import { Composer } from "../src/chat/Composer";
 
 test("an empty conversation uses one direct title and instruction", () => {
   const html = renderToStaticMarkup(

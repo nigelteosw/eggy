@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { initialThreadSelection } from "../src/ThreadSidebar";
-import type { Thread } from "../src/api";
+import { initialThreadSelection } from "../src/chat/ThreadSidebar";
+import type { Thread } from "../src/lib/api";
 
 const now = Date.parse("2026-09-05T12:00:00Z");
 

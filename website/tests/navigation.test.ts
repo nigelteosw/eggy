@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AccountMenu } from "../src/AccountMenu";
-import { ConfigPage } from "../src/ConfigPage";
+import { AccountMenu } from "../src/app/AccountMenu";
+import { ConfigPage } from "../src/settings/ConfigPage";
 import { runningExtensions } from "../src/extensions";
-import { ThreadSidebar, groupThreads } from "../src/ThreadSidebar";
-import type { Thread } from "../src/api";
-import { isSettingsPath, pathForView, viewForPath, type View } from "../src/routing";
+import { ThreadSidebar, groupThreads } from "../src/chat/ThreadSidebar";
+import type { Thread } from "../src/lib/api";
+import { isSettingsPath, pathForView, viewForPath, type View } from "../src/app/routing";
 
 test("maps each destination to its browser path", () => {
   expect(pathForView("chat")).toBe("/");
@@ -58,7 +58,6 @@ test("settings navigation groups configuration by user intent", () => {
     "Connections",
     "Capabilities",
     "Soul",
-    "Appearance",
     "Advanced",
   ]);
   const groups = [...nav.matchAll(/<p[^>]*>(My settings|People|Shared deployment)<\/p>/g)].map((match) => match[1]);

@@ -18,7 +18,7 @@ import {
   type AgentRun,
   type AgentRunStep,
   type AgentStatus,
-} from "../../api";
+} from "../../lib/api";
 import { CardHeader } from "../../components/ui/card-header";
 import { CloseIcon } from "../../components/ui/icons";
 import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";

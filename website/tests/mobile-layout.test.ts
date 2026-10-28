@@ -1,14 +1,14 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChatPage } from "../src/ChatPage";
-import { ConfigPage } from "../src/ConfigPage";
-import { TraceBrowser, Waterfall } from "../src/TracesPage";
+import { ChatPage } from "../src/chat/ChatPage";
+import { ConfigPage } from "../src/settings/ConfigPage";
+import { TraceBrowser, Waterfall } from "../src/traces/TracesPage";
 import { Button } from "../src/components/ui/button";
 import { Input } from "../src/components/ui/input";
 import { Select } from "../src/components/ui/select";
 import { Switch } from "../src/components/ui/switch";
-import type { TraceSpan, TraceSummary } from "../src/api";
+import type { TraceSpan, TraceSummary } from "../src/lib/api";
 
 const trace: TraceSummary = {
   id: "trace-1",

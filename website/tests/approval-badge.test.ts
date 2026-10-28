@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { approvalBadge } from "../src/ThreadSidebar";
+import { approvalBadge } from "../src/chat/ThreadSidebar";
 
 // The badge is the one yolk mark in the rail: it tells the owner something is
 // waiting without opening Home, and it goes away when nothing is.

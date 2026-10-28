@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { createElement, act } from "react";
 import { createRoot } from "react-dom/client";
-import { ChatPage } from "../src/ChatPage";
+import { ChatPage } from "../src/chat/ChatPage";
 
 test("reply waits for a settled selection and stays hidden throughout dragging", async () => {
   const window = new Window();

@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AddRepositoryForm, AgentRunStartForm, AgentRunnerPage } from "../../../src/extensions/agent-runner/AgentRunnerPage";
 import { AgentRunnerSettingsView } from "../../../src/extensions/agent-runner/AgentRunnerCard";
-import { GitHubTokenView } from "../../../src/GitHubTokenField";
+import { GitHubTokenView } from "../../../src/settings/GitHubTokenField";
 import { runningExtensions } from "../../../src/extensions";
 import { AGENT_START_COPY } from "../../../src/extensions/agent-runner/agent-runner";
 

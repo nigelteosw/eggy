@@ -13,7 +13,7 @@ import {
   type FinanceInput,
   type FinancePatch,
   type FinanceSummary,
-} from "../../api";
+} from "../../lib/api";
 import { CardHeader } from "../../components/ui/card-header";
 import { ErrorBanner } from "../../components/ui/error-banner";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";

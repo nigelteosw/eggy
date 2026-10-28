@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { runHeadline, runTone, stageLabel } from "../../../src/extensions/agent-runner/agent-runner";
-import type { AgentRun } from "../../../src/api";
+import type { AgentRun } from "../../../src/lib/api";
 
 const base: AgentRun = { id: "r1", repository: "eggy", state: "running", draft: false, created_at: "2026-10-13T12:59:40Z" };
 

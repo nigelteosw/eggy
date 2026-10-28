@@ -1,4 +1,4 @@
-import type { Quote } from "../Composer";
+import type { Quote } from "../chat/Composer";
 
 const MAX_QUOTE = 600;
 

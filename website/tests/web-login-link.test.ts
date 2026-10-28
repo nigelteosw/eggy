@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { WebLoginLinkPage, takeWebLoginToken } from "../src/WebLoginLinkPage";
+import { WebLoginLinkPage, takeWebLoginToken } from "../src/auth/WebLoginLinkPage";
 
 test("takes token out of browser history", () => {
   const urls: unknown[] = [];

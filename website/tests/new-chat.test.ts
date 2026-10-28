@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { canStartNewChat } from "../src/ThreadSidebar";
-import { ChatPage } from "../src/ChatPage";
-import type { Thread } from "../src/api";
+import { canStartNewChat } from "../src/chat/ThreadSidebar";
+import { ChatPage } from "../src/chat/ChatPage";
+import type { Thread } from "../src/lib/api";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 

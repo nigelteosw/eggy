@@ -1,4 +1,4 @@
-import { RequestError, SessionExpiredError, request } from "../../api";
+import { RequestError, SessionExpiredError, request } from "../../lib/api";
 import { errorMessage } from "../../lib/utils";
 
 // Types for the marketplace routes. They mirror the panel's JSON, not the Go

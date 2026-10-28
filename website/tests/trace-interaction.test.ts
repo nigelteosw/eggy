@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { TraceBrowser } from "../src/TracesPage";
-import type { TraceDetail, TraceSummary } from "../src/api";
+import { TraceBrowser } from "../src/traces/TracesPage";
+import type { TraceDetail, TraceSummary } from "../src/lib/api";
 
 const dom = new Window({ url: "http://localhost" });
 const previous = { window: globalThis.window, document: globalThis.document, fetch: globalThis.fetch };

@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { HomePage, watchLines } from "../src/HomePage";
-import { RestartBar } from "../src/RestartBar";
-import { pathForView, viewForPath } from "../src/routing";
+import { HomePage, watchLines } from "../src/chat/HomePage";
+import { RestartBar } from "../src/app/RestartBar";
+import { pathForView, viewForPath } from "../src/app/routing";
 
 test("home is a destination with its own address", () => {
   expect(pathForView("home")).toBe("/home");

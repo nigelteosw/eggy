@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { timelineTicks, TraceBrowser, Waterfall } from "../src/TracesPage";
-import type { TraceSpan, TraceSummary } from "../src/api";
+import { timelineTicks, TraceBrowser, Waterfall } from "../src/traces/TracesPage";
+import type { TraceSpan, TraceSummary } from "../src/lib/api";
 
 test("timeline omits a tick that would collide with the duration label", () => {
   expect(timelineTicks(15_200)).toEqual([5_000, 10_000]);

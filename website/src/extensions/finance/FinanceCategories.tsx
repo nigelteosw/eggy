@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { FinanceCategory } from "../../api";
+import type { FinanceCategory } from "../../lib/api";
 import { FIELD_COMPACT, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import { categoryHex, entriesWord } from "./finance";

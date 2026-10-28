@@ -7,7 +7,8 @@
     "dev": "vite",
     "test": "bun test",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "audit:mobile": "bun scripts/mobile-audit.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.3",

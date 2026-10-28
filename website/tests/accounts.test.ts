@@ -20,13 +20,13 @@ import {
   getDiscord,
   setDiscord,
   clearDiscordToken,
-} from "../src/api";
-import { LoginPage } from "../src/LoginPage";
-import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordForm, RevokeConfirm, TelegramLinkControl, inviteText } from "../src/AccountsCard";
-import { DiscordCard, describeDiscord } from "../src/DiscordCard";
-import { GoogleIdentity } from "../src/GoogleCard";
-import { ConfigPage } from "../src/ConfigPage";
-import { AccountMenu } from "../src/AccountMenu";
+} from "../src/lib/api";
+import { LoginPage } from "../src/auth/LoginPage";
+import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordForm, RevokeConfirm, TelegramLinkControl, inviteText } from "../src/settings/AccountsCard";
+import { DiscordCard, describeDiscord } from "../src/settings/DiscordCard";
+import { GoogleIdentity } from "../src/customize/GoogleCard";
+import { ConfigPage } from "../src/settings/ConfigPage";
+import { AccountMenu } from "../src/app/AccountMenu";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

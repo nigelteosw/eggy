@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentRun } from "../../../src/api";
+import type { AgentRun } from "../../../src/lib/api";
 import { briefTitle, filterRuns, formatDuration, formatTokens, publishProgress, timeAgo, waitingRuns } from "../../../src/extensions/agent-runner/agent-runner";
 
 const run = (id: string, state: string): AgentRun => ({

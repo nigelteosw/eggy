@@ -18,6 +18,7 @@ import (
 // exercise the routes: aliases are fixed at construction, and an effort that
 // the selected model does not support is not reported.
 type fakeAgentSwitch struct {
+	theme        string
 	aliases      []string
 	efforts      map[string][]string
 	model        string
@@ -30,6 +31,13 @@ func (f *fakeAgentSwitch) Heartbeat(context.Context) (bool, error) { return f.he
 
 func (f *fakeAgentSwitch) SetHeartbeat(_ context.Context, on bool) error {
 	f.heartbeat = on
+	return nil
+}
+
+func (f *fakeAgentSwitch) Theme(context.Context) (string, error) { return f.theme, nil }
+
+func (f *fakeAgentSwitch) SetTheme(_ context.Context, theme string) error {
+	f.theme = theme
 	return nil
 }
 
@@ -231,6 +239,24 @@ type scopedAgentSwitch struct {
 	models    map[string]string
 	thinking  map[string]bool
 	heartbeat map[string]bool
+	theme     map[string]string
+}
+
+func (s *scopedAgentSwitch) Theme(ctx context.Context) (string, error) {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.theme[p.AccountID], nil
+}
+
+func (s *scopedAgentSwitch) SetTheme(ctx context.Context, theme string) error {
+	p, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	s.theme[p.AccountID] = theme
+	return nil
 }
 
 func (s *scopedAgentSwitch) Heartbeat(ctx context.Context) (bool, error) {
@@ -292,7 +318,7 @@ func (s *scopedAgentSwitch) SetShowThinking(ctx context.Context, show bool) erro
 func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
 	now := time.Now().UTC()
 	cfg, db, _ := accountWebConfig(t, now)
-	agent := &scopedAgentSwitch{models: map[string]string{}, thinking: map[string]bool{}, heartbeat: map[string]bool{}}
+	agent := &scopedAgentSwitch{models: map[string]string{}, thinking: map[string]bool{}, heartbeat: map[string]bool{}, theme: map[string]string{}}
 	cfg.Agent = agent
 	handler := NewWebHandler("", cfg)
 	nigel, nigelCSRF := signIn(t, handler, db, "nigel", now)
@@ -329,5 +355,34 @@ func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
 	response = authenticatedJSON(handler, partner, partnerCSRF, http.MethodGet, "/api/agent", "")
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model":"shared-default"`) || !strings.Contains(response.Body.String(), `"show_thinking":true`) {
 		t.Fatalf("partner's view=%s", response.Body.String())
+	}
+}
+
+// The panel stores the account's own palette and refuses a name the stylesheet
+// does not define, so a bad value never reaches the account's state.
+func TestAgentThemeStoresTheAccountsChoiceAndRefusesUnknownNames(t *testing.T) {
+	agent := &fakeAgentSwitch{aliases: []string{"deepseek-pro"}, model: "deepseek-pro"}
+	handler := newAgentThemeHandler(agent, nil)
+
+	ok := httptest.NewRequest(http.MethodPost, "/api/agent/theme", strings.NewReader(`{"theme":"dark"}`))
+	ok.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handler(res, ok)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", res.Code, res.Body.String())
+	}
+	if agent.theme != "dark" {
+		t.Fatalf("stored theme = %q, want dark", agent.theme)
+	}
+
+	bad := httptest.NewRequest(http.MethodPost, "/api/agent/theme", strings.NewReader(`{"theme":"pearl"}`))
+	bad.Header.Set("Content-Type", "application/json")
+	res = httptest.NewRecorder()
+	handler(res, bad)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", res.Code)
+	}
+	if agent.theme != "dark" {
+		t.Fatalf("a refused name changed the stored theme to %q", agent.theme)
 	}
 }

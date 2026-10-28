@@ -66,7 +66,7 @@ each step stands alone.
 
 **3. Theme (M)**
 
-- [x] Replace the tokens in `website/src/index.css` with the Eggshell / Cast iron
+- [x] Replace the tokens in `website/src/app/index.css` with the Eggshell / Cast iron
       table from the review; delete the blue ramp, `pearl-*` and `login-pearl-bg`,
       the green-tinted shadows and `theme-color`.
 - [ ] Geist everywhere and one serif for voice moments only; five text-size
@@ -253,7 +253,7 @@ skill replaces, and the sources lock. What remains is below.
 ## P0 — Customize: skills, connectors, plugins in one panel view (M–L)
 
 Not started; scoped in conversation 2026-10-12. A fourth `View` in
-`website/src/routing.ts` (`customize`, `/customize`) with a rail entry under
+`website/src/app/routing.ts` (`customize`, `/customize`) with a rail entry under
 Scheduled, and a `CustomizePage` with `Skills | Connectors | Plugins` tabs,
 search, sort and an Add menu. Yours only: no Discover tab and no fetch-from-URL
 install from Discover, which is the marketplace in

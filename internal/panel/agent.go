@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"net/http"
 	"strings"
@@ -23,6 +24,8 @@ type AgentSwitch interface {
 	SetShowThinking(ctx context.Context, show bool) error
 	Heartbeat(ctx context.Context) (bool, error)
 	SetHeartbeat(ctx context.Context, on bool) error
+	Theme(ctx context.Context) (string, error)
+	SetTheme(ctx context.Context, theme string) error
 }
 
 // agentSelection is what the composer renders: every alias it may offer, the
@@ -38,6 +41,8 @@ type agentSelection struct {
 	ShowThinking bool     `json:"show_thinking"`
 	Heartbeat    bool     `json:"heartbeat"`
 	Approval     string   `json:"approval_mode,omitempty"`
+	// Theme is the account's own palette, or "" to follow the deployment default.
+	Theme string `json:"theme"`
 	// ApprovalSummaries says what each mode does, from the same source as
 	// Telegram's /mode reply, so the web choice and the chat reply agree.
 	ApprovalSummaries map[string]string `json:"approval_summaries,omitempty"`
@@ -145,6 +150,35 @@ func newAgentHeartbeatHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.H
 	}
 }
 
+// newAgentThemeHandler stores the calling account's panel palette. The name is
+// checked here, against the same three the deployment default accepts, so a
+// stored value is always one the stylesheet defines.
+func newAgentThemeHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		var input struct {
+			Theme string `json:"theme"`
+		}
+		if err := decodeAuthBody(r, &input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		theme := strings.TrimSpace(input.Theme)
+		if theme != "" && theme != config.ThemeSystem && theme != config.ThemeLight && theme != config.ThemeDark {
+			writeWebError(w, http.StatusBadRequest, "theme must be system, light or dark")
+			return
+		}
+		if err := agent.SetTheme(r.Context(), theme); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
 // respondAgentSelection answers every route here with the whole selection, so
 // the composer re-renders from the runtime rather than from what it assumed a
 // write did. It is one shape for all three because the composer replaces its
@@ -194,7 +228,11 @@ func readAgentSelection(ctx context.Context, agent AgentSwitch) (agentSelection,
 	if err != nil {
 		return agentSelection{}, err
 	}
-	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show, Heartbeat: heartbeat}, nil
+	theme, err := agent.Theme(ctx)
+	if err != nil {
+		return agentSelection{}, err
+	}
+	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show, Heartbeat: heartbeat, Theme: theme}, nil
 }
 
 func writeJSON(w http.ResponseWriter, body any) {

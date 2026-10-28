@@ -1,5 +1,5 @@
 import { CardHeader } from "../../components/ui/card-header";
-import type { FinanceFlow, FinanceSpending, FinanceTrendPoint, FinanceDay } from "../../api";
+import type { FinanceFlow, FinanceSpending, FinanceTrendPoint, FinanceDay } from "../../lib/api";
 import { CategoryDot } from "./FinanceCategories";
 import { categoryHex, daysOfRange, dayLabel, entriesWord, money, monthShort, movement, percentOf, type Movement } from "./finance";
 import { cn } from "../../lib/utils";

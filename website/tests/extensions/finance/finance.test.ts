@@ -12,7 +12,7 @@ import {
   updateFinanceEntry,
   type FinanceEntry,
   type FinanceSummary,
-} from "../../../src/api";
+} from "../../../src/lib/api";
 import { CategoriesPanel } from "../../../src/extensions/finance/FinanceCategories";
 import { AddEntryForm, FinanceReport } from "../../../src/extensions/finance/FinancePage";
 import { FinanceSettingsView } from "../../../src/extensions/finance/FinanceCard";

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { conversationLabel, groupTracesByConversation, TraceBrowser } from "../src/TracesPage";
-import type { TraceSummary } from "../src/api";
+import { conversationLabel, groupTracesByConversation, TraceBrowser } from "../src/traces/TracesPage";
+import type { TraceSummary } from "../src/lib/api";
 
 function trace(id: string, conversation: string, startedAt: string, extra: Partial<TraceSummary> = {}): TraceSummary {
   return {

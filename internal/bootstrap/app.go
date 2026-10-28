@@ -464,18 +464,19 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// serves or about which providers opted in.
 	discovery := newModelDiscovery(config, catalog.providers)
 	app.commands = commands.New(commands.Options{
-		Code:         codeRunnerFor(app.agentRunner),
-		ConfigPath:   options.ConfigPath,
-		MCP:          mcpAdministration.commandsView(),
-		Google:       googleAdministration.commandsView(),
-		Turns:        activeTurns,
-		Store:        stateStore,
-		Approvals:    app.approvals,
-		Conversation: conversation,
-		Restarter:    app,
-		Getenv:       options.Getenv,
-		AgentRuntime: agentRuntime,
-		Soul:         contextStore,
+		Code:           codeRunnerFor(app.agentRunner),
+		ConfigPath:     options.ConfigPath,
+		MCP:            mcpAdministration.commandsView(),
+		Google:         googleAdministration.commandsView(),
+		Turns:          activeTurns,
+		Store:          stateStore,
+		Approvals:      app.approvals,
+		Conversation:   conversation,
+		Restarter:      app,
+		RestartPending: func() bool { return configDigest(options.ConfigPath) != startedFrom },
+		Getenv:         options.Getenv,
+		AgentRuntime:   agentRuntime,
+		Soul:           contextStore,
 		// The same cadence the prompt's heartbeat line describes, so /heartbeat
 		// and the agent cannot disagree about when check-ins run.
 		HeartbeatCadence: heartbeatCadence(config),

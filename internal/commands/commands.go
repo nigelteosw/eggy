@@ -68,10 +68,13 @@ type Options struct {
 	Conversation ConversationResetter
 	// Code is the agent runner for /code. Nil means the extension is off, and
 	// /code says so rather than failing.
-	Code         CodeRunner
-	Turns        TurnStopper
-	Restarter    Restarter
-	AgentRuntime AgentSettings
+	Code      CodeRunner
+	Turns     TurnStopper
+	Restarter Restarter
+	// RestartPending reports whether config.yaml differs from what this process
+	// loaded. Nil means the process cannot tell, so /status says nothing about it.
+	RestartPending func() bool
+	AgentRuntime   AgentSettings
 	// Soul reads SOUL.md for /soul.
 	Soul SoulReader
 	// HeartbeatCadence describes when beats run, such as "every 3h", or is
@@ -237,6 +240,9 @@ func (s *CommandService) status(ctx context.Context) (string, bool, error) {
 		waiting = append(waiting, fmt.Sprintf("- %s (`%s`, requested %s)", summary, approval.ID, approval.CreatedAt.Format("2 Jan 15:04")))
 	}
 	report := fmt.Sprintf("**Eggy status**\n\n**Active model:** %s\n**Pending approvals:** %d", model, pending)
+	if s.RestartPending != nil && s.RestartPending() {
+		report += "\n**Waiting for a restart:** a config change is not live yet. `/restart` applies it."
+	}
 	if len(waiting) > 0 {
 		report += "\n" + strings.Join(waiting, "\n")
 	}

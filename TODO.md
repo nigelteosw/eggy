@@ -8,6 +8,166 @@ Checked against the checkout on 2026-09-24, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
+## UI/UX overhaul — the Eggshell theme and one product (L)
+
+Review and reasoning: `docs/superpowers/specs/2026-10-28-ui-ux-review.md`
+(2026-10-28). One warm palette taken from the logo (eggshell, ink, one yolk
+accent), one vocabulary across web and Telegram, and Eggy's own features
+(watching, check-ins, approvals) brought out of Settings. Land in this order;
+each step stands alone.
+
+**1. Bugs a person hits on day one (S each)**
+
+- [x] `/scheduled` and `/customize` serve a raw Go 404 on reload; the SPA path
+      list in `internal/panel/web.go:442` is stale (`/finance`, `/extensions`).
+- [x] Bare `/start` in Telegram answers "Unknown command". Reply with a
+      first-person welcome and the `/menu` buttons.
+- [x] The env-bound account displays its Telegram ID ("42") as its name.
+      *Done:* an optional `name` on the account, set from the People card's
+      Edit form. A blank name still shows the ID until someone sets one.
+- [x] The web attach button accepts files it then refuses to send. Wire it to
+      the media path Telegram already uses, or remove it. *Done:* removed for
+      now; the upload control returns when the web channel takes attachments.
+- [x] No Stop on the web while a turn runs; the send button should become Stop.
+- [x] `/heartbeat on` points to "Settings → Automation" for the interval; it is
+      in Advanced.
+- [x] Raw error text reaches the screen (a JSON parse error under My settings
+      with fake adapters); errors say what failed, raw text behind Details.
+
+- [x] Phone: Settings has no close button and Log out sits where close should
+      be (the dialog's close is under `ConfigPage`'s sticky mobile bar).
+- [x] Phone: fields under 16 px make iOS zoom on focus (composer 15 px, settings
+      13–14 px).
+- [x] Phone: Return always sends, so the composer can't take a new line on a
+      touch keyboard.
+- [x] Phone: hover-only controls (chat row "…", group chevrons) are unreachable
+      on touch.
+
+**2. Trust: say what is being approved (M)**
+
+- [ ] Each native tool supplies a human sentence for its call, declared in its
+      own file like `ToolEffect`; `approvalSummary` falls back to the JSON only
+      for MCP. The same for the outcome line (`Approved action completed: %v`).
+- [ ] Approval card on web and Telegram: the sentence, a Details disclosure,
+      **Approve / Decline** on both, and a one-line record in the transcript
+      after the decision. *Done without the sentence:* Decline on both surfaces,
+      and the web transcript records each decision. Still open: the sentence and
+      Details.
+- [x] One approval-mode control (it is in My settings *and* Pending approvals)
+      and one shared description string for each mode, used by the panel and
+      `/mode`. Take it out of the composer; show a warning pill only when the
+      mode is not *Before changes*. *Done:* the duplicate picker is gone from
+      Pending approvals and the composer shows a pill for non-default modes.
+      *Still open:* the Telegram `/mode` text is a separate string and needs to
+      be unified with the web wording.
+
+**3. Theme (M)**
+
+- [x] Replace the tokens in `website/src/index.css` with the Eggshell / Cast iron
+      table from the review; delete the blue ramp, `pearl-*` and `login-pearl-bg`,
+      the green-tinted shadows and `theme-color`.
+- [ ] Geist everywhere and one serif for voice moments only; five text-size
+      tokens, deleting the 15 arbitrary `text-[…px]` values; three radii.
+- [ ] Merge the two red families and the raw `amber/emerald/red-950` literals
+      into `--tomato`, `--chive`, `--yolk-soft`.
+- [x] Replace the 5 `window.confirm` calls with one small confirm dialog (undo
+      for chat delete). *Done:* one `useConfirm` dialog, a bottom sheet on a phone.
+      Undo for chat delete is still open.
+- [x] Light (Eggshell) and dark (Cast iron) as equal modes, plus Match system
+      as the default (today `dark` is hard-coded). Per-account, set from a
+      three-way switch in the account menu and in My settings.
+- [x] No theme flash: cache the mode in `localStorage` and apply it from an
+      inline script in `index.html` before first paint; per-mode
+      `theme-color` metas; `color-scheme: light dark`.
+- [x] Dark-specific rules from the review: lighter raised surfaces with a
+      border instead of a shadow, brighter yolk with dark text on it, no pure
+      black or white, re-picked status tints.
+- [x] `contrast.test.ts` checks every token pair in both modes; a test bans raw
+      colour literals in `src/`; screenshot checks run in both modes.
+- [ ] Retheme the docs site with the same tokens and drop the mint accent, with
+      the same Light / Dark / Match system switch (stored locally).
+- [x] Single-card sign-in page with true copy (not "on your own machine").
+
+**4. Structure: Eggy's features where people look (M–L)**
+
+- [ ] **Home** as the landing view: waiting-on-you approvals, the watch list
+      (editable inline), the next schedules, the composer, and a first-run
+      checklist that ticks itself off from real state. Moves existing cards;
+      adds no mechanism.
+- [ ] Every destination a page in the work area, Settings included; Log out
+      only in the account menu.
+- [ ] One **Check-ins** section: personal toggle, watch list, shared cadence
+      with time pickers (today spread over four places).
+- [ ] One pending-restart bar fed by "config changed since boot", replacing the
+      three Restart cards and the scattered "after restart" captions; `/status`
+      reports the same.
+- [ ] Group integrations by job: Channels (Telegram, Discord), Connectors
+      (Google, MCP), Skills, Extensions. Settings → Connections goes away.
+- [ ] Theme becomes a per-account preference under My settings.
+
+**4b. Phone as a primary layout (M)**
+
+Every screen is designed and checked at 390 px first; see *Mobile* in the
+review.
+
+- [ ] Data tables become stacked rows on phones (Providers, Models, People,
+      Finance).
+- [ ] One header row on phones: menu, page title, main action; new chat in the
+      chat header.
+- [ ] Traces and Settings drill down full-screen on phones instead of stacking
+      panels or using a native `<select>`.
+- [ ] Sticky bottom action bar for dirty forms; confirms as bottom sheets.
+- [ ] Reply and Copy from a long-press menu on touch, instead of competing
+      with the system text-selection menu.
+- [ ] Web app manifest and `apple-touch-icon` with both theme colours;
+      `viewport-fit=cover` so the safe-area padding actually applies.
+- [ ] 44 px hit areas on touch; edge swipe to open the sidebar; keep the
+      composer above the iOS keyboard through `visualViewport`.
+- [ ] The overflow audit becomes a test across every screen at 390 px in both
+      themes: no sideways page scroll, no hit area under 44 px, no field under
+      16 px.
+
+**5. Words (S–M)**
+
+- [ ] Apply the vocabulary table in the review: *When Eggy asks*, *Check-ins*,
+      *Approve / Decline*, Channels vs Connectors, Extensions vs Plugins.
+- [ ] Eggy speaks in first person in chat and Telegram; panel labels in second.
+      Delete "Eggy can make mistakes."
+- [ ] Settings: short titles with one "Shared with everyone" label instead of
+      the doubled headers; field labels in words with the YAML key as hint.
+- [ ] Tools card: one human line per tool, model-facing text behind an
+      expander; "kernel" reads "built in".
+- [ ] Progress in plain verbs instead of tool names; Telegram deletes the
+      progress message when the reply lands instead of leaving "Called x.".
+
+**6. Telegram polish (S–M)**
+
+- [ ] Advertise the everyday commands only (`menu stop clear web settings help`,
+      `code` when running); add `/code` to `telegramCommands`.
+- [ ] One grammar for model effort and thinking (`/model effort` vs
+      `/model settings effort`); `/help` a short list, syntax under topics.
+- [ ] Settings buttons toast through `answerCallbackQuery` and edit in place;
+      drop the "Use /model, /mode…" footer.
+- [ ] Italics, blockquotes, and expandable-blockquote thinking in `format.go`.
+- [ ] `/web` without a public URL points to the panel, not `config.yaml`.
+
+**7. Polish (S each)**
+
+- [ ] Chat search; drop collapsible date groups; new-chat button in the phone
+      chat header; copy and hover timestamp on replies; thinking folded into
+      the activity disclosure.
+- [ ] Schedules in plain language with relative next run; plural helper
+      ("1 recent turns"); settings search indexes card and field labels.
+- [ ] Setup page: provider presets instead of base-URL / env-var vocabulary.
+
+Deletion budget: net production lines should fall. Removed: the pearl CSS
+(~90 lines), the duplicate approval-mode control, two of three Restart cards,
+two of three Log out buttons, the settings modal frame, 15 arbitrary type
+sizes and ~19 status-colour classes. Added: Home (composition of existing
+cards), a confirm dialog, the restart-pending flag, per-tool call sentences.
+No new config keys except per-account theme (moved, not added); no new
+tables, tools or background loops.
+
 ## P0 — Agent Runner extension: Eggy codes on allowed repositories (L)
 
 Spec: `docs/superpowers/specs/2026-10-11-agent-runner-design.md` (approved

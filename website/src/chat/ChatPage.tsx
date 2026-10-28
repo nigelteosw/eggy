@@ -132,6 +132,36 @@ function ReplyButton({ onReply }: { onReply: () => void }) {
   );
 }
 
+// MessageActions is what a finger can reach under a message: quote it, or copy
+// it. Copy confirms in place for a moment, because a toast would sit over the
+// composer the thumb is about to use.
+function MessageActions({ text, onReply }: { text: string; onReply: () => void }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard refused (an insecure page or a locked-down browser): the
+      // text is still on screen to select by hand.
+    }
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <ReplyButton onReply={onReply} />
+      <button
+        type="button"
+        onClick={copy}
+        aria-live="polite"
+        className="flex min-h-11 w-fit items-center rounded-lg px-2 text-xs font-medium text-neutral-700 transition-colors hover:text-foreground"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
   return (
     <div
@@ -669,7 +699,7 @@ export function ChatPage({
                     )}
                     <MessageBody text={body} isUserBubble />
                   </div>
-                  {touch && <ReplyButton onReply={() => setQuote(replyQuote(body, false))} />}
+                  {touch && <MessageActions text={body} onReply={() => setQuote(replyQuote(body, false))} />}
                 </div>
               );
             }
@@ -685,7 +715,7 @@ export function ChatPage({
               <div key={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
-                {touch && <ReplyButton onReply={() => setQuote(replyQuote(message.text, true))} />}
+                {touch && <MessageActions text={message.text} onReply={() => setQuote(replyQuote(message.text, true))} />}
               </div>
             );
           })}

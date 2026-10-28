@@ -28,3 +28,22 @@ func TestStatusSaysWhenAChangeIsWaitingForARestart(t *testing.T) {
 		t.Fatalf("status reports a restart nothing is waiting for: %q", output)
 	}
 }
+
+// A tap on a settings button redraws the menu in place. Its result is one line
+// above the menu, not the whole reply pasted over it, so the message does not
+// grow with each tap.
+func TestControlTapReportsOneLineAboveTheMenu(t *testing.T) {
+	models := &fakeModels{selected: "fast"}
+	service := New(Options{AgentRuntime: models, DefaultModel: "fast", ModelAliases: []string{"fast", "smart"}})
+	panel, err := service.Control(context.Background(), "set:/heartbeat on")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, rest, _ := strings.Cut(panel.Text, "\n")
+	if !strings.HasPrefix(first, "✓ ") || strings.Count(panel.Text, "**My settings**") != 1 {
+		t.Fatalf("tap result is not one line above a single menu: %q", panel.Text)
+	}
+	if strings.Count(rest, "\n") > 40 {
+		t.Fatalf("the menu grew: %d lines", strings.Count(rest, "\n"))
+	}
+}

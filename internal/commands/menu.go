@@ -156,7 +156,9 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 		if err != nil {
 			return panel, err
 		}
-		panel.Text = text + "\n\n" + panel.Text
+		// The tap's result is one line above the menu. Pasting the whole reply
+		// above it grew the message with every tap.
+		panel.Text = "✓ " + firstLine(text) + "\n\n" + panel.Text
 	}
 	return panel, nil
 }
@@ -189,4 +191,10 @@ func (s *CommandService) personalControlCommand(ctx context.Context, command str
 		}
 	}
 	return false
+}
+
+// firstLine is the first line of a reply, trimmed, for a one-line confirmation.
+func firstLine(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(line)
 }

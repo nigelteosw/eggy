@@ -13,6 +13,10 @@ var (
 	markdownHeading = regexp.MustCompile(`(?m)^#{1,6}[ \t]+(.+)$`)
 	boldText        = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	markdownLink    = regexp.MustCompile(`\[([^\]]+)\]\(([^)\s]+)\)`)
+	// An italic run is underscores around words, with no word character on the
+	// outside of either underscore. Go's regexp has no lookbehind, so the
+	// boundary characters are matched and written back.
+	italicText = regexp.MustCompile(`(^|[^\w])_([^_\n]+)_([^\w]|$)`)
 )
 
 // FormatHTML converts Markdown-flavoured text into Telegram's HTML
@@ -58,9 +62,9 @@ func toTelegramHTML(text string) string {
 	withoutRules := horizontalRule.ReplaceAllString(withoutInlineCode, "")
 	withoutHeadings := markdownHeading.ReplaceAllString(withoutRules, "**$1**")
 
-	escaped := escapeHTML(withoutHeadings)
+	escaped := quoteLinesAsBlocks(escapeHTML(withoutHeadings))
 	withLinks := markdownLink.ReplaceAllString(escaped, `<a href="$2">$1</a>`)
-	withBold := boldText.ReplaceAllString(withLinks, "<b>$1</b>")
+	withBold := italicText.ReplaceAllString(boldText.ReplaceAllString(withLinks, "<b>$1</b>"), "$1<i>$2</i>$3")
 
 	result := withBold
 	for i, html := range placeholders {
@@ -113,4 +117,28 @@ func splitTableRow(row string) []string {
 func escapeHTML(text string) string {
 	replacer := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 	return replacer.Replace(text)
+}
+
+// quoteLinesAsBlocks folds each run of ">" lines into one Telegram quote block.
+// It runs on escaped text, so the marker is "&gt;".
+func quoteLinesAsBlocks(text string) string {
+	lines := strings.Split(text, "\n")
+	var out []string
+	var quote []string
+	flush := func() {
+		if len(quote) > 0 {
+			out = append(out, "<blockquote>"+strings.Join(quote, "\n")+"</blockquote>")
+			quote = nil
+		}
+	}
+	for _, line := range lines {
+		if body, ok := strings.CutPrefix(line, "&gt; "); ok {
+			quote = append(quote, body)
+			continue
+		}
+		flush()
+		out = append(out, line)
+	}
+	flush()
+	return strings.Join(out, "\n")
 }

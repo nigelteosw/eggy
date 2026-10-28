@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { SessionExpiredError, getAgent, getWatchList, listSchedules, listThreads, type AgentSelection } from "./api";
 import { ApprovalsCard } from "./ApprovalsCard";
-import { INSTRUCTION, NEXT_RUN } from "./SchedulesCard";
+import { INSTRUCTION, NEXT_RUN, NEXT_RUN_AT } from "./SchedulesCard";
+import { relativeTime } from "./lib/time";
 import { errorMessage } from "./lib/utils";
 
 // The home page answers the three things a person wants when they open Eggy:
@@ -136,7 +137,9 @@ export function HomePage({
               {upcoming.map((row, index) => (
                 <li key={index} className="flex items-baseline justify-between gap-4 py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
                   <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
-                  <span className="shrink-0 text-xs tabular-nums text-neutral-700">{row[NEXT_RUN]}</span>
+                  <span title={row[NEXT_RUN]} className="shrink-0 text-xs tabular-nums text-neutral-700">
+                    {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
+                  </span>
                 </li>
               ))}
             </ul>

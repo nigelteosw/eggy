@@ -84,7 +84,7 @@ func (c *Channel) ShowProgress(ctx context.Context, text string) error {
 
 func (c *Channel) DeliverApproval(ctx context.Context, approval approvals.Approval) error {
 	if accountID, threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(accountID, threadID, Event{Kind: EventApproval, Approval: &ApprovalPayload{ID: approval.ID, Summary: approval.Summary}})
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventApproval, Approval: &ApprovalPayload{ID: approval.ID, Summary: approval.Summary, Details: approvalDetails(approval.Payload)}})
 	}
 	return nil
 }

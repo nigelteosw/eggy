@@ -42,14 +42,11 @@ func (s *CommandService) modeCommand(ctx context.Context, argument string) (stri
 // ModeMessage is the one wording for a mode's meaning, so Telegram and the web
 // panel cannot describe the same setting two different ways.
 func ModeMessage(mode ports.ApprovalMode) string {
-	switch mode {
-	case ports.ModeStrict:
-		return "Strict mode. Every tool call asks first, reading included."
-	case ports.ModeAuto:
-		return "Auto mode. Nothing asks — tool calls that change things now run unapproved."
-	default:
-		return "Normal mode. Native writes ask first, except your private memory. Reads run freely; MCP follows each server’s approval policy."
+	label := map[ports.ApprovalMode]string{ports.ModeStrict: "Strict", ports.ModeAuto: "Auto"}[mode]
+	if label == "" {
+		label = "Normal"
 	}
+	return label + " mode. " + mode.Describe()
 }
 
 // ModeReport is what a bare /mode says: the mode and the way out of it.

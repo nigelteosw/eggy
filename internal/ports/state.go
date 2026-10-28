@@ -78,3 +78,17 @@ type StateStore interface {
 	Load(context.Context) (State, error)
 	Update(context.Context, uint64, func(*State) error) (State, error)
 }
+
+// Describe says, in the owner's terms, what a mode does. Telegram's /mode reply
+// and the web panel's choice both read it, so the two surfaces give the same
+// answer to "what happens if I pick this".
+func (m ApprovalMode) Describe() string {
+	switch m {
+	case ModeStrict:
+		return "I ask before every tool I use, including looking things up."
+	case ModeAuto:
+		return "I don't ask. I change and send things for you right away."
+	default:
+		return "I ask before I change or send anything. Looking things up doesn't need asking."
+	}
+}

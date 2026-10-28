@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"github.com/nigelteosw/eggy/internal/ports"
 	"net/http"
 	"strings"
 )
@@ -37,6 +38,9 @@ type agentSelection struct {
 	ShowThinking bool     `json:"show_thinking"`
 	Heartbeat    bool     `json:"heartbeat"`
 	Approval     string   `json:"approval_mode,omitempty"`
+	// ApprovalSummaries says what each mode does, from the same source as
+	// Telegram's /mode reply, so the web choice and the chat reply agree.
+	ApprovalSummaries map[string]string `json:"approval_summaries,omitempty"`
 }
 
 // newAgentHandler answers the composer's one read. It folds in the approval
@@ -160,6 +164,7 @@ func respondAgentSelection(w http.ResponseWriter, r *http.Request, agent AgentSw
 			return
 		}
 		selection.Approval = string(mode)
+		selection.ApprovalSummaries = approvalSummaries()
 	}
 	writeJSON(w, selection)
 }
@@ -195,4 +200,15 @@ func readAgentSelection(ctx context.Context, agent AgentSwitch) (agentSelection,
 func writeJSON(w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// approvalSummaries is every mode's sentence, keyed by the mode's name, so the
+// panel can show the choice in the owner's terms.
+func approvalSummaries() map[string]string {
+	modes := []ports.ApprovalMode{ports.ModeStrict, ports.ModeNormal, ports.ModeAuto}
+	summaries := make(map[string]string, len(modes))
+	for _, mode := range modes {
+		summaries[string(mode)] = mode.Describe()
+	}
+	return summaries
 }

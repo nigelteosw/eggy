@@ -39,7 +39,7 @@ func (s *Service) Approval(ctx context.Context, decision events.ApprovalDecision
 	if err != nil {
 		return s.deliverApprovalFailure(ctx, decision.MessageID, err)
 	}
-	return s.Presenter.DeliverOutcome(ctx, decision.MessageID, approvalOutcomeText(result))
+	return s.Presenter.DeliverOutcome(ctx, decision.MessageID, approvalOutcomeText(result, approval.Summary))
 }
 
 // approvalOutcomeText renders what the owner reads after an approve tap.
@@ -50,10 +50,14 @@ func (s *Service) Approval(ctx context.Context, decision events.ApprovalDecision
 // Anything else falls back to the record itself, which is right for an MCP tool
 // this repository cannot write a sentence for, and wrong enough for the tools
 // it can that they should carry a summary.
-func approvalOutcomeText(result any) string {
+//
+// Failing both, the owner reads the approval's own sentence in the past tense,
+// so the outcome names what ran instead of printing the raw result. The raw
+// form is kept only when there is no sentence to fall back on.
+func approvalOutcomeText(result any, sentence string) string {
 	text, isText := result.(string)
 	if !isText {
-		return fmt.Sprintf("Approved action completed: %v", result)
+		return fallbackOutcome(fmt.Sprintf("%v", result), sentence)
 	}
 	var payload struct {
 		Summary string `json:"summary"`
@@ -61,7 +65,14 @@ func approvalOutcomeText(result any) string {
 	if err := json.Unmarshal([]byte(text), &payload); err == nil && strings.TrimSpace(payload.Summary) != "" {
 		return "Done. " + payload.Summary
 	}
-	return "Approved action completed: " + text
+	return fallbackOutcome(text, sentence)
+}
+
+func fallbackOutcome(raw, sentence string) string {
+	if s := strings.TrimSpace(sentence); s != "" {
+		return "Done. " + s
+	}
+	return "Approved action completed: " + raw
 }
 
 // deliverApprovalFailure tells the owner an approve/reject tap didn't go

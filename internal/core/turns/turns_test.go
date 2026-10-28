@@ -511,7 +511,7 @@ func TestTruncateThreadTitleBoundsLongFirstMessages(t *testing.T) {
 // nobody can read is better than no message at all.
 func TestApprovedOutcomeReadsAsASentenceWhenTheToolWroteOne(t *testing.T) {
 	created := `{"id":"180f11b61b3d","instruction":"a long instruction the owner already wrote","summary":"Reminder set for Wed 5 Aug 2026, 8:00 PM +08. Cancel with id 180f11b61b3d."}`
-	outcome := approvalOutcomeText(created)
+	outcome := approvalOutcomeText(created, "")
 	if !strings.HasPrefix(outcome, "Done. Reminder set for Wed 5 Aug 2026") {
 		t.Fatalf("outcome=%q", outcome)
 	}
@@ -525,9 +525,18 @@ func TestApprovedOutcomeReadsAsASentenceWhenTheToolWroteOne(t *testing.T) {
 		"not json at all":  "plain text",
 		"not a string":     42,
 	} {
-		if outcome := approvalOutcomeText(result); !strings.HasPrefix(outcome, "Approved action completed:") {
+		if outcome := approvalOutcomeText(result, ""); !strings.HasPrefix(outcome, "Approved action completed:") {
 			t.Fatalf("%s: outcome=%q", name, outcome)
 		}
+	}
+}
+
+// When the tool wrote no summary of its own, the owner still reads what ran:
+// the sentence they approved, in the past tense, rather than the raw result.
+func TestApprovedOutcomeFallsBackToTheApprovedSentence(t *testing.T) {
+	outcome := approvalOutcomeText(`{"id":"m-1"}`, "Send an email to \"sam@example.com\", subject \"Friday\".")
+	if outcome != "Done. Send an email to \"sam@example.com\", subject \"Friday\"." {
+		t.Fatalf("outcome=%q", outcome)
 	}
 }
 

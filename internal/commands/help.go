@@ -70,7 +70,7 @@ func (s *CommandService) help(args []string) string {
 			text += "\nRuntime status/login/logout are unavailable until Google is configured and running."
 		}
 	case "mode":
-		text = modeUsage + "\n\nThis is personal; other accounts keep their own mode.\n" + ModeMessage("strict") + "\n" + ModeMessage("normal") + "\n" + ModeMessage("auto") + "\nExample: /mode normal\nNext: /mode to check your setting; /web to review pending approvals."
+		text = modeUsage + "\n\nThis is personal; other accounts keep their own mode.\n" + ModeMessage("strict") + "\n" + ModeMessage("normal") + "\n" + ModeMessage("auto") + "\nYour private memory never asks, and an MCP server follows its own approval policy.\nExample: /mode normal\nNext: /mode to check your setting; /web to review pending approvals."
 	default:
 		return helpUsage
 	}

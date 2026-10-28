@@ -26,6 +26,9 @@ const (
 type ApprovalPayload struct {
 	ID      string `json:"id"`
 	Summary string `json:"summary"`
+	// Details is the tool and its arguments, for an owner who wants to check
+	// the sentence before deciding. Empty when the payload has none to show.
+	Details string `json:"details,omitempty"`
 }
 
 type Event struct {

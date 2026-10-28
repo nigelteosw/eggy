@@ -89,7 +89,9 @@ each step stands alone.
       colour literals in `src/`; screenshot checks run in both modes.
 - [ ] Retheme the docs site with the same tokens and drop the mint accent, with
       the same Light / Dark / Match system switch (stored locally). *Done:* the
-      Eggshell and Cast iron tokens and Geist. *Still open:* the switch.
+      Eggshell and Cast iron tokens and Geist, and a reader with no choice
+      stored follows the device. *Still open:* the toggle still flips between
+      two themes rather than offering Match system explicitly.
 - [x] Single-card sign-in page with true copy (not "on your own machine").
 
 **4. Structure: Eggy's features where people look (M–L)**
@@ -157,9 +159,13 @@ review.
       `code` when running); add `/code` to `telegramCommands`.
 - [ ] One grammar for model effort and thinking (`/model effort` vs
       `/model settings effort`); `/help` a short list, syntax under topics.
-- [ ] Settings buttons toast through `answerCallbackQuery` and edit in place;
-      drop the "Use /model, /mode…" footer.
-- [ ] Italics, blockquotes, and expandable-blockquote thinking in `format.go`.
+- [ ] Settings buttons toast through `answerCallbackQuery` and edit in place.
+      *Done:* the footer is gone, and a tap's result is one line above the menu.
+      *Still open:* the toast itself, which needs the callback ID to reach the
+      control handler.
+- [x] Italics and quote blocks in `format.go`. *Done:* identifiers with
+      underscores are left alone. *Still open:* expandable blockquotes for shown
+      thinking.
 - [ ] `/web` without a public URL points to the panel, not `config.yaml`.
 
 **7. Polish (S each)**

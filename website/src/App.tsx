@@ -16,6 +16,7 @@ import { ThreadSidebar } from "./ThreadSidebar";
 import { MenuIcon, PanelIcon } from "./components/ui/icons";
 import { useStoredFlag } from "./components/ui/sidebar";
 import { isSettingsPath, pathForView, viewForPath, type View } from "./routing";
+import { isEdgeSwipe, useVisibleHeight } from "./lib/viewport";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
@@ -67,6 +68,31 @@ export function App() {
     "eggy.chat.sidebar",
     typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches,
   );
+
+  // The phone's gestures for the rail: a swipe from the left edge opens it, and
+  // a swipe left closes it. Only a touch starts either, so a mouse is unaffected.
+  const visibleH = useVisibleHeight();
+  useEffect(() => {
+    let start: { x: number; y: number } | null = null;
+    const down = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      start = touch ? { x: touch.clientX, y: touch.clientY } : null;
+    };
+    const up = (event: TouchEvent) => {
+      const touch = event.changedTouches[0];
+      if (!start || !touch || window.matchMedia("(min-width: 768px)").matches) return;
+      const end = { x: touch.clientX, y: touch.clientY };
+      if (!sidebarOpen && isEdgeSwipe(start, end)) setSidebarOpen(true);
+      else if (sidebarOpen && start.x - end.x >= 60 && Math.abs(end.y - start.y) <= (start.x - end.x) / 2) setSidebarOpen(false);
+      start = null;
+    };
+    window.addEventListener("touchstart", down, { passive: true });
+    window.addEventListener("touchend", up, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", down);
+      window.removeEventListener("touchend", up);
+    };
+  }, [sidebarOpen, setSidebarOpen]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -236,7 +262,7 @@ export function App() {
   const chatHeaderVisible = !activeExtensionDef && view === "chat" && (activeThreadId !== null || draftChatOpen);
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row">
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visibleH ? { height: visibleH } : undefined}>
       {sidebarOpen && (
         <div
           className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
@@ -352,6 +378,10 @@ export function App() {
                   setDraftChatOpen(false);
                 }}
                 onOpenSidebar={sidebarOpen ? undefined : () => setSidebarOpen(true)}
+                onNewChat={() => {
+                  setActiveThreadId(null);
+                  setDraftChatOpen(true);
+                }}
               />
             </div>
           ) : (

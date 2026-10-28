@@ -4,7 +4,9 @@ import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage, stopChatTurn } from "./api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
-import { ArrowDownIcon, ChevronDownIcon, LockIcon, MenuIcon, ReplyIcon } from "./components/ui/icons";
+import { ArrowDownIcon, ChevronDownIcon, LockIcon, MenuIcon, PlusIcon, ReplyIcon } from "./components/ui/icons";
+import { usesTouchKeyboard } from "./lib/composer";
+import { replyQuote } from "./lib/reply";
 import { cn, errorMessage } from "./lib/utils";
 
 // The status steps a turn went through, and how long it ran, kept on the reply
@@ -113,6 +115,21 @@ function useSelectionAnchor(container: React.RefObject<HTMLElement | null>) {
   }, [container]);
 
   return [anchor, () => setAnchor(null)] as const;
+}
+
+// ReplyButton is the touch form of quoting a message: a plain text action under
+// the message, sized for a thumb.
+function ReplyButton({ onReply }: { onReply: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onReply}
+      className="flex min-h-11 w-fit items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-neutral-700 transition-colors hover:text-foreground"
+    >
+      <ReplyIcon className="h-3.5 w-3.5" />
+      Reply
+    </button>
+  );
 }
 
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
@@ -331,6 +348,7 @@ export function ChatPage({
   onThreadCreated,
   onRenamed,
   onOpenSidebar,
+  onNewChat,
 }: {
   threadId: string | null;
   title: string;
@@ -341,8 +359,13 @@ export function ChatPage({
   // Passed only while the rail is closed. On a phone the header carries the
   // menu control, so the chat does not leave an empty gutter for it.
   onOpenSidebar?: () => void;
+  // Shown on a phone beside the title, so starting over takes one tap.
+  onNewChat?: () => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
+  // Whether the primary pointer is a finger, which decides whether the Reply
+  // action is printed under each message.
+  const touch = usesTouchKeyboard();
   // pending holds our own just-sent messages that loadHistory hasn't
   // corroborated yet. The backend only durably records a turn once the
   // whole model turn finishes (see ConversationService.Record), so a
@@ -588,6 +611,17 @@ export function ChatPage({
           </button>
         )}
         <ThreadTitle title={title} renamable={threadId !== null} onRename={rename} />
+        {onNewChat && (
+          <button
+            type="button"
+            onClick={onNewChat}
+            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            aria-label="New chat"
+            title="New chat"
+          >
+            <PlusIcon />
+          </button>
+        )}
       </header>
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={transcriptRef} onScroll={onTranscriptScroll} className="scrollbar-slim relative min-h-0 flex-1 overflow-y-auto">
@@ -620,6 +654,8 @@ export function ChatPage({
           )}
           {messages.map((message, index) => {
             const isUser = message.role === "user";
+            // On a touch screen there is no hover or long-press that reads as
+            // "reply", so the action is printed under the message.
             if (isUser) {
               const { quote: quoted, body } = splitQuote(message.text);
               return (
@@ -633,6 +669,7 @@ export function ChatPage({
                     )}
                     <MessageBody text={body} isUserBubble />
                   </div>
+                  {touch && <ReplyButton onReply={() => setQuote(replyQuote(body, false))} />}
                 </div>
               );
             }
@@ -648,6 +685,7 @@ export function ChatPage({
               <div key={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
+                {touch && <ReplyButton onReply={() => setQuote(replyQuote(message.text, true))} />}
               </div>
             );
           })}

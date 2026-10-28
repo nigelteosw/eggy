@@ -48,7 +48,7 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 	}
 	onToolCall = func(name string) {
 		calls = append(calls, name)
-		text := "Calling " + strings.Join(calls, ", ") + "..."
+		text := progressLine(calls)
 		if err := channelutil.ShowProgress(ctx, p.channel, text); !errors.Is(err, channelutil.ErrProgressUnsupported) {
 			return
 		}
@@ -60,7 +60,7 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 		if messageID == "" {
 			return
 		}
-		render("Called " + strings.Join(calls, ", ") + ".")
+		render(progressDone(calls))
 	}
 	return onToolCall, finish
 }
@@ -69,4 +69,63 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 // message when the surface supports it.
 func (p turnPresenter) DeliverOutcome(ctx context.Context, messageID, text string) error {
 	return channelutil.DeliverOutcome(ctx, p.channel, messageID, text)
+}
+
+// toolProgressLabels says, in the owner's words, what each tool is doing. A tool
+// with no entry reads as "Using" plus its name spaced out, never as a bare
+// identifier.
+var toolProgressLabels = map[string]string{
+	"web_search":          "Searching the web",
+	"web_extract":         "Reading a web page",
+	"current_time":        "Checking the time",
+	"memory":              "Updating what I remember",
+	"recall_conversation": "Looking back at earlier conversations",
+	"read_file":           "Reading a file",
+	"schedule":            "Looking at your schedules",
+	"skill_read":          "Reading a skill",
+	"finance":             "Checking your finances",
+	"agent_runner":        "Checking on a coding run",
+	"google_gmail":        "Checking email",
+	"google_calendar":     "Checking your calendar",
+	"google_drive":        "Looking in Drive",
+	"google_docs":         "Reading a document",
+	"google_sheets":       "Reading a spreadsheet",
+	"google_contacts":     "Looking up a contact",
+	"repository_github":   "Checking GitHub",
+	"repository_list":     "Looking at repositories",
+	"workspace_open":      "Opening a workspace",
+	"workspace_close":     "Closing a workspace",
+	"status":              "Checking Eggy's status",
+}
+
+func toolProgressLabel(name string) string {
+	if label, ok := toolProgressLabels[name]; ok {
+		return label
+	}
+	return "Using " + strings.ReplaceAll(name, "_", " ")
+}
+
+// progressLine is the status while a turn works: each distinct action once, in
+// the order it started.
+func progressLine(calls []string) string {
+	return progressLabels(calls) + "…"
+}
+
+// progressDone is what remains once the turn has finished with its tools.
+func progressDone(calls []string) string {
+	return progressLabels(calls) + "."
+}
+
+func progressLabels(calls []string) string {
+	seen := map[string]bool{}
+	var labels []string
+	for _, name := range calls {
+		label := toolProgressLabel(name)
+		if seen[label] {
+			continue
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	return strings.Join(labels, ", ")
 }

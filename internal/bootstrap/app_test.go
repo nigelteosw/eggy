@@ -701,7 +701,7 @@ func TestToolCallSurfacesALiveIndicatorBeforeTheFinalReply(t *testing.T) {
 	if len(calls) < 2 {
 		t.Fatalf("calls=%#v, want at least an indicator and a final reply", calls)
 	}
-	if !strings.Contains(calls[0], "Calling status") {
+	if !strings.Contains(calls[0], "Checking Eggy's status") {
 		t.Fatalf("calls[0]=%q, want the live indicator sent first", calls[0])
 	}
 	last := calls[len(calls)-1]
@@ -754,7 +754,7 @@ func TestToolCallIndicatorRoutesToTheWebThreadThatTriggeredIt(t *testing.T) {
 	for !sawIndicator {
 		select {
 		case event := <-threadEvents:
-			if strings.Contains(event.Text, "Calling status") {
+			if strings.Contains(event.Text, "Checking Eggy's status") {
 				sawIndicator = true
 			}
 		case <-deadline:

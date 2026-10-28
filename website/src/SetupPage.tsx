@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { PROVIDER_PRESETS, presetById } from "./lib/providers";
 import {
   completeSetup,
   consumeSetupFragment,
@@ -30,7 +31,9 @@ const defaults: SetupInput = {
 
 type Field = { name: keyof SetupInput; label: string; hint?: string; type?: string };
 
-const sections: { title: string; description: string; fields: Field[] }[] = [
+type Section = { title: string; description: string; fields: Field[]; presets?: boolean };
+
+const sections: Section[] = [
   {
     title: "Account",
     description: "Create the first person allowed to sign in. The account ID is their immutable username; it cannot be renamed or reissued.",
@@ -47,13 +50,14 @@ const sections: { title: string; description: string; fields: Field[] }[] = [
   },
   {
     title: "Model",
-    description: "Configure the first OpenAI-compatible model connection.",
+    description: "Choose the provider you use. Its address and the names below are filled in for you; you can change any of them.",
+    presets: true,
     fields: [
-      { name: "provider_name", label: "Provider name" },
-      { name: "provider_base_url", label: "Provider base URL", type: "url" },
-      { name: "provider_api_key_env", label: "API key variable" },
-      { name: "model_alias", label: "Model alias" },
-      { name: "model_id", label: "Provider model ID" },
+      { name: "provider_name", label: "Provider" },
+      { name: "provider_base_url", label: "Provider address", type: "url" },
+      { name: "provider_api_key_env", label: "Environment variable holding the key", hint: "Set this in your deployment's environment. The key is never typed here." },
+      { name: "model_alias", label: "Short name for the model" },
+      { name: "model_id", label: "Model name at the provider" },
     ],
   },
 ];
@@ -149,6 +153,46 @@ export function SetupPage() {
               description={section.description}
             />
             <div className="grid gap-3 rounded-2xl bg-neutral-100 p-4 sm:grid-cols-2">
+              {section.presets && (
+                <div className="sm:col-span-2">
+                  <Label htmlFor="provider-preset">Provider</Label>
+                  <select
+                    id="provider-preset"
+                    className={`mt-2 h-11 w-full rounded-xl bg-background px-3 text-base ${FIELD}`}
+                    defaultValue=""
+                    disabled={completed}
+                    onChange={(event) => {
+                      // "Another provider" clears the fields for the person to fill in.
+                      const preset = presetById(event.target.value);
+                      if (!preset) {
+                        if (event.target.value === "other") {
+                          update("provider_name", "");
+                          update("provider_base_url", "");
+                          update("provider_api_key_env", "");
+                          update("model_alias", "");
+                          update("model_id", "");
+                        }
+                        return;
+                      }
+                      update("provider_name", preset.providerName);
+                      update("provider_base_url", preset.baseUrl);
+                      update("provider_api_key_env", preset.apiKeyEnv);
+                      update("model_alias", preset.modelAlias);
+                      update("model_id", preset.modelId);
+                    }}
+                  >
+                    <option value="" disabled>
+                      Choose a provider…
+                    </option>
+                    {PROVIDER_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                    <option value="other">Another provider</option>
+                  </select>
+                </div>
+              )}
               {section.fields.map((field) => (
                 <div className={field.name.endsWith("url") ? "sm:col-span-2" : ""} key={field.name}>
                   <Label htmlFor={field.name}>{field.label}</Label>

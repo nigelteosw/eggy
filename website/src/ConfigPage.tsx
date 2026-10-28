@@ -59,7 +59,7 @@ export const GROUPS: { id: GroupId; heading: string; note: string }[] = [
 ];
 
 export const SECTIONS: Section[] = [
-  { id: "personal", group: "personal", label: "Model & approvals", title: "My settings — applies to your Telegram and web sessions", description: "Your model, reasoning effort, thinking visibility and approval mode. Yours alone.", icon: <CpuIcon /> },
+  { id: "personal", group: "personal", label: "Model & approvals", title: "My settings", description: "Applies to your Telegram and web sessions. Your model, reasoning effort, thinking visibility and approval mode are yours alone.", icon: <CpuIcon /> },
   { id: "automation", group: "personal", label: "Check-ins", title: "My check-ins — applies to your Telegram and web sessions", description: "Whether Eggy checks in on you, what it keeps an eye on, and how often. Schedules are on the Scheduled page.", icon: <ClockIcon /> },
   { id: "permissions", group: "personal", label: "Pending approvals", title: "My pending approvals", description: "Actions waiting on you.", icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People — trusted users who can administer this deployment", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", icon: <UsersIcon /> },

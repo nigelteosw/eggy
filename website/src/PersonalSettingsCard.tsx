@@ -75,7 +75,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
   return (
     <div className="flex flex-col gap-5">
       <CardHeader
-        title="My settings — applies to your Telegram and web sessions"
+        title="Model and approvals"
         description="These are yours alone. Nobody else's choices change them, and yours change nobody else's. The same settings answer /model and /mode in Telegram."
       />
       {error && <ErrorBanner>{error}</ErrorBanner>}

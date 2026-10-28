@@ -31,7 +31,7 @@ test("settings are grouped into my settings, people, and shared deployment, with
 
 test("the settings page opens on my settings and lists every group in the mobile navigation", () => {
   const html = renderToStaticMarkup(createElement(ConfigPage, { theme: "dark", onThemeChange: () => {}, onSessionExpired: () => {} }));
-  expect(html).toContain("My settings — applies to your Telegram and web sessions");
+  expect(html).toContain("My settings");
   expect(html).toContain('label="My settings"');
   expect(html).toContain('label="People"');
   expect(html).toContain('label="Shared deployment"');
@@ -42,7 +42,7 @@ test("the personal settings card explains its scope and offers the four personal
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ models: ["shared-default", "other"], model: "shared-default", efforts: ["low", "high"], effort: "high", show_thinking: true, approval_mode: "normal" }), { status: 200 })) as typeof fetch;
   const html = renderToStaticMarkup(createElement(PersonalSettingsCard, { onSessionExpired: () => {} }));
-  expect(html).toContain("My settings — applies to your Telegram and web sessions");
+  expect(html).toContain("Model and approvals");
   expect(html).toContain("yours alone");
   expect(html).not.toContain("api_key");
   expect(html).not.toContain("Provider");

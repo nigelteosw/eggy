@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,47 @@ func (t scheduleTool) Definition() ports.ToolDefinition {
 		// note to self.
 		Effect: ports.MutatingActions("create", "cancel"),
 	}
+}
+
+// DescribeCall says, for the approval card, what a create or cancel will do
+// and when. A schedule fires unattended, so the owner reads the instruction and
+// the time, not the arguments. A list has no sentence and never needs approval.
+func (t scheduleTool) DescribeCall(raw json.RawMessage) string {
+	var input struct {
+		Action      string `json:"action"`
+		Instruction string `json:"instruction"`
+		Cron        string `json:"cron"`
+		At          string `json:"at"`
+		Kind        string `json:"kind"`
+		ID          string `json:"id"`
+	}
+	if json.Unmarshal(raw, &input) != nil {
+		return ""
+	}
+	switch strings.TrimSpace(input.Action) {
+	case "create":
+		when := "at " + quoteForCard(input.At)
+		if strings.TrimSpace(input.Cron) != "" {
+			when = "on the cron schedule " + quoteForCard(input.Cron)
+		}
+		if strings.TrimSpace(input.Kind) == "reminder" {
+			return fmt.Sprintf("Schedule a reminder %s, delivered word for word, %s.", quoteForCard(input.Instruction), when)
+		}
+		return fmt.Sprintf("Schedule an agent task %s, %s.", quoteForCard(input.Instruction), when)
+	case "cancel":
+		return fmt.Sprintf("Cancel the schedule %s, so it never runs again.", quoteForCard(input.ID))
+	}
+	return ""
+}
+
+// quoteForCard quotes a model-written value for the approval card and bounds
+// its length, so the text reads as the value it is.
+func quoteForCard(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return `"(none)"`
+	}
+	return strconv.Quote(truncateResult(value, 200))
 }
 
 // DefinitionForActions describes only the actions a restricted turn was

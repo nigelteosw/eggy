@@ -88,6 +88,15 @@ type Tool interface {
 	Execute(context.Context, json.RawMessage) (json.RawMessage, error)
 }
 
+// CallDescriber is the optional half of a tool that can say, in its own words,
+// what one call would do. The approval gate shows that sentence to the owner
+// in place of the raw arguments. A tool that does not implement it, or returns
+// an empty sentence, keeps the arguments on the card. The sentence is shown
+// only as a description; the approved payload is still the call itself.
+type CallDescriber interface {
+	DescribeCall(arguments json.RawMessage) string
+}
+
 type ApprovalPolicy interface {
 	Authorize(context.Context, approvals.Action, any, string) error
 }

@@ -197,7 +197,7 @@ func (t *approvalGatedTool) Execute(ctx context.Context, raw json.RawMessage) (j
 		}
 	}
 	call := gatedCall{Tool: t.definition.Name, Arguments: normalizeArguments(raw)}
-	approval, err := t.requester.Request(ctx, ApprovalToolCall, call, approvalSummary(call))
+	approval, err := t.requester.Request(ctx, ApprovalToolCall, call, t.summary(call))
 	if err != nil {
 		return nil, err
 	}
@@ -291,9 +291,22 @@ func normalizeArguments(raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// approvalSummary is what the owner reads on the approve prompt. It names the
-// tool and shows the arguments, because approving "call a tool" without seeing
-// what it would do is not a decision.
+// summary is what the owner reads on the approve prompt. A tool that says what
+// its call does is believed on that: it names the effect in words, such as who
+// an email goes to. Otherwise the card names the tool and shows the arguments,
+// because approving "call a tool" without seeing what it would do is not a
+// decision.
+func (t *approvalGatedTool) summary(call gatedCall) string {
+	if describer, ok := t.inner.(ports.CallDescriber); ok {
+		if sentence := strings.TrimSpace(describer.DescribeCall(call.Arguments)); sentence != "" {
+			return truncateResult(sentence, 500)
+		}
+	}
+	return approvalSummary(call)
+}
+
+// approvalSummary is the argument-only card, for a tool with no sentence of its
+// own.
 func approvalSummary(call gatedCall) string {
 	arguments := string(call.Arguments)
 	if arguments == "{}" {

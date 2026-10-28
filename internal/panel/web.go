@@ -27,6 +27,10 @@ type MCPLoginStarter interface {
 
 type WebUIConfig struct {
 	Now func() time.Time
+	// RestartPending reports whether config.yaml has changed since this process
+	// loaded it, so the panel can offer one restart for everything waiting on
+	// it. Nil means the process cannot tell, and nothing is reported as pending.
+	RestartPending func() bool
 	// Auth, Sessions and Accounts are the login's three authorities: the
 	// credential and link records, the session rows, and the configured
 	// membership. All three are required for any way in to exist; with any
@@ -306,7 +310,7 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.Marketplace != nil {
 		features = append(features, "marketplace")
 	}
-	mux.Handle("GET /api/session", guard(handleAccountSession(features)))
+	mux.Handle("GET /api/session", guard(handleAccountSession(features, webConfig.RestartPending)))
 
 	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "marketplace", "agent_runner"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
@@ -443,7 +447,7 @@ func webUIHandler() http.Handler {
 
 func isApplicationRoute(path string) bool {
 	switch path {
-	case "/settings", "/settings/", "/traces", "/traces/", "/scheduled", "/scheduled/", "/customize", "/customize/", "/finance", "/finance/", "/extensions", "/extensions/", "/auth/link":
+	case "/home", "/home/", "/settings", "/settings/", "/traces", "/traces/", "/scheduled", "/scheduled/", "/customize", "/customize/", "/finance", "/finance/", "/extensions", "/extensions/", "/auth/link":
 		return true
 	default:
 		return false

@@ -242,7 +242,7 @@ func handleAccountLogout(webConfig WebUIConfig) http.HandlerFunc {
 // features names the optional capabilities this process was started with, so
 // the panel shows a tab only for one that exists. It is always a list, never
 // null: the page reads it with includes().
-func handleAccountSession(features []string) http.HandlerFunc {
+func handleAccountSession(features []string, restartPending func() bool) http.HandlerFunc {
 	if features == nil {
 		features = []string{}
 	}
@@ -260,8 +260,9 @@ func handleAccountSession(features []string) http.HandlerFunc {
 				"name":     accountDisplayName(current.account),
 				"username": accountDisplayName(current.account),
 			},
-			"csrf":     csrfToken(current.hash),
-			"features": features,
+			"csrf":            csrfToken(current.hash),
+			"features":        features,
+			"restart_pending": restartPending != nil && restartPending(),
 		})
 	}
 }

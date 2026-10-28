@@ -1021,7 +1021,7 @@ func TestEveryViewPathServesTheApplicationShell(t *testing.T) {
 	// Each address the rail can route to must load the shell on a direct visit
 	// or reload; the SPA's own routing takes it from there.
 	handler := NewWebHandler("", WebUIConfig{})
-	for _, path := range []string{"/", "/scheduled", "/customize", "/traces", "/settings", "/auth/link"} {
+	for _, path := range []string{"/", "/home", "/scheduled", "/customize", "/traces", "/settings", "/auth/link"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "<title>Eggy</title>") {

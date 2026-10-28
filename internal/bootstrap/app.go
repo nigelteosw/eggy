@@ -2,12 +2,15 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -154,6 +157,9 @@ func (a *App) Restart() {
 type ApprovalExecutor = turns.ApprovalExecutor
 
 func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*App, error) {
+	// What this process started from. A restart is pending once the file on
+	// disk stops matching it; the digest is taken before anything is built.
+	startedFrom := configDigest(options.ConfigPath)
 	options.applyDefaults()
 	timezone := config.Agent.Timezone
 	location, err := time.LoadLocation(timezone)
@@ -512,9 +518,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	webConfig := panel.WebUIConfig{
-		Now:     options.Now,
-		Skills:  skillsService,
-		ChatHub: app.chatHub, Enqueue: app.Enqueue, Stop: activeTurns.Stop, Memory: database, Threads: database,
+		Now:            options.Now,
+		RestartPending: func() bool { return configDigest(options.ConfigPath) != startedFrom },
+		Skills:         skillsService,
+		ChatHub:        app.chatHub, Enqueue: app.Enqueue, Stop: activeTurns.Stop, Memory: database, Threads: database,
 		Auth: database, Sessions: database, Accounts: app.accounts,
 		PasswordAccountID: passwordAccountID, EnvironmentAlias: environmentAlias, EnvironmentPasswordHash: environmentHash,
 		InitializeAccount:   func(id string) error { return initializeAccountState(stateStore, configuredRepositories, id) },
@@ -617,3 +624,14 @@ type noopChannel struct{}
 
 func (noopChannel) Deliver(context.Context, string) error                     { return nil }
 func (noopChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
+
+// configDigest fingerprints config.yaml as it is on disk. An unreadable file
+// digests to the empty string, so a file that later appears counts as a change.
+func configDigest(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}

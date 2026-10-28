@@ -142,6 +142,40 @@ func signIn(t *testing.T, handler http.Handler, database *sqlitestore.Store, acc
 	return cookie, body.CSRF
 }
 
+func TestSessionReportsWhenConfigChangedSinceStart(t *testing.T) {
+	// The panel offers a restart only when something is waiting for one, so the
+	// session says whether the file on disk differs from what this process loaded.
+	now := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	cfg, database, accounts := accountWebConfig(t, now)
+	pending := false
+	cfg.RestartPending = func() bool { return pending }
+	handler := NewWebHandler("", cfg)
+	record := accounts.list["nigel"]
+	accounts.list["nigel"] = record
+	cookie, _ := signIn(t, handler, database, "nigel", now)
+
+	read := func() bool {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+		request.AddCookie(cookie)
+		handler.ServeHTTP(response, request)
+		var body struct {
+			RestartPending bool `json:"restart_pending"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body.RestartPending
+	}
+	if read() {
+		t.Fatal("a freshly started process reports a restart pending")
+	}
+	pending = true
+	if !read() {
+		t.Fatal("a changed config does not report a restart pending")
+	}
+}
+
 func TestSessionShowsTheAccountDisplayNameNotItsID(t *testing.T) {
 	// The ID is the immutable key everything is stored under, so it is often a
 	// Telegram number. The panel names the person with the display name when

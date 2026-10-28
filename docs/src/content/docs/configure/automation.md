@@ -26,7 +26,7 @@ One `schedule` tool covers the whole subject:
 - **`action=cancel`** removes one by id so it never runs again.
 
 So a schedule created in conversation can be reviewed and taken back there too.
-The panel's **Settings → Automation** page lists the same schedules and cancels
+The panel's **Settings → Check-ins** page lists the same schedules and cancels
 them; creating one stays conversational, because an instruction is prose.
 
 ### Two kinds
@@ -92,7 +92,7 @@ once so the silence is distinguishable from a bug. An interval alone therefore
 does nothing until someone has switched their heartbeat on and something is on
 their list to watch.
 
-Three surfaces write the list: **Settings → Automation** has a watch-list editor,
+Three surfaces write the list: **Settings → Check-ins** has a watch-list editor,
 Eggy's own `memory` tool writes to it when you ask it to keep an eye on
 something — or, with your heartbeat on, when you mention something pending —
 and a beat annotates it. The panel seeds the editor on load and writes
@@ -145,7 +145,7 @@ should cost more than a tap on a phone, so it lives in `config.yaml` only.
 
 ### Editing from the panel
 
-**Settings → Automation** edits the rest of this section. A blank interval there
+**Settings → Check-ins** edits the rest of this section. A blank interval there
 means off, rather than leaving the previous interval in place; blank active hours
 likewise clear the window. The instruction is preserved either way, so turning
 the heartbeat back on does not mean retyping it. Like every other config section,

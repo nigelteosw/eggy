@@ -1,6 +1,7 @@
+import { enterSendsMessage, usesTouchKeyboard } from "./lib/composer";
 import { useEffect, useRef, useState } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "./api";
-import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon, PaperclipIcon, PlusIcon } from "./components/ui/icons";
+import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon } from "./components/ui/icons";
 import { cn, errorMessage } from "./lib/utils";
 
 function titleCase(value: string): string {
@@ -111,10 +112,11 @@ function ModelMenu({
 // chip, and the full sentence as its tooltip. The sentences are the ones
 // internal/commands.ModeMessage sends to Telegram, so the two surfaces do not
 // describe the same setting differently.
-const APPROVAL_LABELS: Record<string, string> = {
-  strict: "Ask always",
-  normal: "Ask to write",
-  auto: "Full access",
+// What a non-default mode means, in a few words, for the pill beside the send
+// button. The titles say the full thing on hover.
+const APPROVAL_WARNINGS: Record<string, string> = {
+  strict: "Asks before every tool",
+  auto: "Nothing asks",
 };
 
 const APPROVAL_TITLES: Record<string, string> = {
@@ -123,73 +125,23 @@ const APPROVAL_TITLES: Record<string, string> = {
   auto: "Auto mode. Nothing asks — tool calls that change things now run unapproved.",
 };
 
-const APPROVAL_MODES = ["strict", "normal", "auto"];
-
-function SettingSelect({
-  value,
-  options,
-  labelFor,
-  onChange,
-  title,
-  name,
-  placeholder,
-  busy,
-}: {
-  value: string;
-  options: string[];
-  labelFor?: (option: string) => string;
-  onChange: (next: string) => void;
-  title?: string;
-  name: string;
-  placeholder?: string;
-  busy?: boolean;
-}) {
-  const label = value ? (labelFor ? labelFor(value) : value) : (placeholder ?? "");
-  const pickable = options.length > 1 || (!value && options.length > 0);
-  return (
-    <div
-      title={title}
-      className={cn(
-        "relative flex h-9 min-w-0 items-center gap-1 rounded-xl px-2 text-xs text-foreground transition-colors",
-        pickable && "cursor-pointer hover:bg-neutral-200",
-        busy && "opacity-60",
-      )}
-    >
-      <span className={cn("max-w-[6rem] truncate font-medium sm:max-w-[9rem]", !value && "text-muted-foreground")}>{label}</span>
-      {pickable && <ChevronDownIcon className="h-3 w-3 shrink-0" />}
-      {pickable && (
-        <select
-          aria-label={name}
-          value={value}
-          disabled={busy}
-          onChange={(event) => onChange(event.target.value)}
-          className="absolute inset-0 cursor-pointer opacity-0"
-        >
-          {!value && (
-            <option value="" disabled>
-              {placeholder ?? ""}
-            </option>
-          )}
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {labelFor ? labelFor(option) : option}
-            </option>
-          ))}
-        </select>
-      )}
-    </div>
-  );
-}
 // A selection the user chose to reply to, and whose message it came from.
 export type Quote = { text: string; ownMessage: boolean };
 
 export function Composer({
   onSend,
+  onStop,
+  running = false,
   onSessionExpired,
   quote,
   onClearQuote,
 }: {
   onSend: (text: string, quote: Quote | null) => void;
+  // While a reply is being written the send control becomes Stop, as /stop
+  // does in Telegram. Typing a new message still sends it, and queues behind
+  // the running turn the way a message sent mid-turn already does.
+  onStop?: () => void;
+  running?: boolean;
   onSessionExpired: () => void;
   quote: Quote | null;
   onClearQuote: () => void;
@@ -198,12 +150,7 @@ export function Composer({
   const [agent, setAgent] = useState<AgentSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  // Files the owner picked with the + control. They show as chips above the
-  // field; the chat API does not take attachments yet, so sending is refused
-  // while any are attached rather than dropping them silently.
-  const [files, setFiles] = useState<File[]>([]);
   const field = useRef<HTMLTextAreaElement | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
 
   // A fresh quote means the user is mid-thought; bring them to the field.
   useEffect(() => {
@@ -255,10 +202,6 @@ export function Composer({
     event.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    if (files.length > 0) {
-      setNote("Eggy can't read attached files yet. Remove them to send.");
-      return;
-    }
     setDraft("");
     if (field.current) field.current.style.height = "auto";
     onSend(text, quote);
@@ -292,27 +235,6 @@ export function Composer({
               </div>
             </div>
           )}
-          {files.length > 0 && (
-            <ul className="flex flex-wrap gap-1.5 px-3 pt-3" aria-label="Attached files">
-              {files.map((file, index) => (
-                <li
-                  key={`${file.name}-${index}`}
-                  className="flex max-w-[14rem] items-center gap-1.5 rounded-xl bg-background py-1 pl-2.5 pr-1 text-xs shadow-sm"
-                >
-                  <PaperclipIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{file.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${file.name}`}
-                    onClick={() => setFiles((current) => current.filter((_, at) => at !== index))}
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
-                  >
-                    <CloseIcon className="h-3 w-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
           <div className="flex items-end gap-2 py-1.5 pl-[18px] pr-1.5">
             <textarea
               ref={field}
@@ -325,60 +247,43 @@ export function Composer({
                 box.style.height = `${Math.min(box.scrollHeight, 220)}px`;
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (enterSendsMessage(event.key, event.shiftKey, usesTouchKeyboard())) {
                   event.preventDefault();
                   submit(event);
                 }
               }}
               placeholder={quote ? "Reply to the quoted text..." : "Ask Eggy anything..."}
-              className="scrollbar-slim max-h-[220px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[0.9375rem] leading-relaxed outline-none placeholder:text-muted-foreground/70"
+              className="scrollbar-slim max-h-[220px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground/70"
             />
-            <button
-              type="submit"
-              disabled={!draft.trim()}
-              aria-label="Send message"
-              className={cn(
-                "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
-                "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-30",
-              )}
-            >
-              <ArrowUpIcon className="h-4 w-4" />
-            </button>
+            {running && onStop && !draft.trim() ? (
+              <button
+                type="button"
+                onClick={onStop}
+                aria-label="Stop"
+                title="Stop this reply"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-foreground transition-colors hover:bg-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <span aria-hidden="true" className="h-3.5 w-3.5 rounded-sm bg-foreground" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!draft.trim()}
+                aria-label="Send message"
+                className={cn(
+                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity",
+                  "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-30",
+                )}
+              >
+                <ArrowUpIcon className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
         {/* Everything else sits outside the box: upload on the left, the run
             settings on the right. The upload control names itself on hover. */}
         <div className="mt-2 flex min-w-0 items-center gap-1 px-1">
-          <div className="group relative">
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              aria-label="Add files or photos"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-neutral-700 transition-colors hover:bg-neutral-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            >
-              <PlusIcon className="h-5 w-5" />
-            </button>
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-full left-0 mb-2 hidden whitespace-nowrap rounded-xl bg-background px-3 py-2 text-xs text-foreground shadow-lift ring-1 ring-border group-hover:block"
-            >
-              Add files or photos
-            </span>
-          </div>
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            accept="image/*,application/pdf,text/*"
-            className="hidden"
-            onChange={(event) => {
-              const picked = Array.from(event.target.files ?? []);
-              if (picked.length > 0) setFiles((current) => [...current, ...picked]);
-              event.target.value = "";
-            }}
-          />
-          <span className="hidden flex-1 truncate text-center text-xs text-muted-foreground sm:block">Eggy can make mistakes.</span>
-          <span className="flex-1 sm:hidden" />
+          <span className="flex-1" />
           {agent && agent.models.length > 0 && (
             <ModelMenu
               agent={agent}
@@ -387,16 +292,20 @@ export function Composer({
               onEffort={(effort) => change(() => setAgentEffort(effort))}
             />
           )}
-          {agent?.approval_mode && (
-            <SettingSelect
-              name="Access"
-              value={agent.approval_mode}
-              options={APPROVAL_MODES}
-              labelFor={(mode) => APPROVAL_LABELS[mode] ?? mode}
-              busy={busy}
+          {agent?.approval_mode && agent.approval_mode !== "normal" && (
+            // Only a departure from the default is shown, and it names the
+            // departure, so a mode that lets things run unasked cannot sit
+            // unnoticed. One tap returns to the default.
+            <button
+              type="button"
+              onClick={() => changeApproval("normal")}
+              disabled={busy}
               title={APPROVAL_TITLES[agent.approval_mode]}
-              onChange={changeApproval}
-            />
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-eg-ask px-3 text-xs font-medium text-eg-ask-ink transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {APPROVAL_WARNINGS[agent.approval_mode] ?? agent.approval_mode}
+              <span className="font-normal underline underline-offset-2">Restore</span>
+            </button>
           )}
         </div>
       </div>

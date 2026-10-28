@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage } from "./api";
+import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage, stopChatTurn } from "./api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "./components/ui/button";
 import { ArrowDownIcon, ChevronDownIcon, LockIcon, MenuIcon, ReplyIcon } from "./components/ui/icons";
@@ -320,6 +320,9 @@ export function ChatPage({
   const [activityByIndex, setActivityByIndex] = useState<Record<number, Activity>>({});
   const historyCountRef = useRef(0);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  // Decided approvals, kept as a one-line record in the transcript so the
+  // owner can see what they allowed after the card is gone.
+  const [decisions, setDecisions] = useState<{ id: string; summary: string; approved: boolean }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
@@ -363,6 +366,7 @@ export function ChatPage({
     // a normal switch between existing chats should reset the pane.
     if (!createdFromDraft) setPending([]);
     setApprovals([]);
+    setDecisions([]);
     setTyping(false);
     liveRef.current = [];
     turnStartRef.current = null;
@@ -497,7 +501,22 @@ export function ChatPage({
     }
   }
 
+  async function handleStop() {
+    if (!threadId) return;
+    try {
+      await stopChatTurn(threadId);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        onSessionExpired();
+        return;
+      }
+      setError(errorMessage(err, "Could not stop the reply"));
+    }
+  }
+
   async function handleApproval(approvalId: string, approved: boolean) {
+    const decided = approvals.find((approval) => approval.id === approvalId);
+    if (decided) setDecisions((current) => [...current, { id: decided.id, summary: decided.summary, approved }]);
     setApprovals((current) => current.filter((approval) => approval.id !== approvalId));
     try {
       await approveChatDecision(approvalId, approved);
@@ -616,10 +635,18 @@ export function ChatPage({
                   className="rounded-xl bg-neutral-100 text-foreground hover:bg-neutral-200"
                   onClick={() => handleApproval(approval.id, false)}
                 >
-                  Not now
+                  Decline
                 </Button>
               </div>
             </div>
+          ))}
+          {decisions.map((decision) => (
+            <p key={decision.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {decision.approved ? "Approved" : "Declined"}
+              </span>
+              <span className="truncate">{decision.summary}</span>
+            </p>
           ))}
           {error && (
             <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
@@ -645,7 +672,14 @@ export function ChatPage({
         </button>
       )}
       </div>
-      <Composer onSend={handleSend} onSessionExpired={onSessionExpired} quote={quote} onClearQuote={() => setQuote(null)} />
+      <Composer
+        onSend={handleSend}
+        onStop={handleStop}
+        running={typing}
+        onSessionExpired={onSessionExpired}
+        quote={quote}
+        onClearQuote={() => setQuote(null)}
+      />
     </div>
   );
 }

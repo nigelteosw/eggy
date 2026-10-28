@@ -27,8 +27,10 @@ test("the composer puts file upload left, run settings right, and respects the p
     }),
   );
 
-  expect(html).toContain('aria-label="Add files or photos"');
-  expect(html).toContain("Eggy can make mistakes.");
+  // No upload control until the web channel can take attachments: a control
+  // that accepts a file and then refuses to send it is worse than none.
+  expect(html).not.toContain("Add files or photos");
+  expect(html).not.toContain("Eggy can make mistakes.");
   expect(html).not.toContain("Run settings");
   expect(html).toContain("safe-area-inset-bottom");
   expect(html).toContain('aria-label="Send message"');

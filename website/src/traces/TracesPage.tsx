@@ -36,11 +36,25 @@ function formatTime(iso: string): string {
   });
 }
 
+// Lists drop the seconds: they tell turns apart only when two land in the same
+// minute, and the inspector still prints them.
+function formatShortTime(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return at.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+// A model is recorded as "provider/model". The provider is the same on every
+// row of a turn, and it is what pushed the name past its column.
+function shortModel(name: string): string {
+  return name.split("/").pop() || name;
+}
+
 // Cost is shown only when a provider reported one: zero means unreported,
 // not free, so it must not read as "$0.00".
 function formatCost(cost: number | undefined): string {
   if (!cost) return "";
-  return ` · $${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`;
+  return `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}`;
 }
 
 function formatTokens(count: number): string {
@@ -306,15 +320,17 @@ function SpanRow({
       onClick={onSelect}
       aria-pressed={selected}
       aria-label={`Inspect step ${span.sequence}: ${span.name}`}
-      className={`trace-step ${selected ? "bg-accent-100" : "hover:bg-neutral-200/60"}`}
+      className={`trace-step ${selected ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
     >
       <span className="flex min-w-0 items-center gap-3">
-        <span className="w-5 shrink-0 text-xs tabular-nums text-neutral-700">{span.sequence}</span>
+        <span className="w-4 shrink-0 text-xs tabular-nums text-neutral-700">{span.sequence}</span>
         <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">{span.name}</span>
+        <span className="min-w-0" title={span.name}>
+          <span className="block truncate text-sm font-medium">
+            {span.kind === "model_call" ? shortModel(span.name) : span.name}
+          </span>
           <span className="block text-xs text-neutral-700">
-            {span.kind === "model_call" ? "Model generation" : "Tool call"}
+            {span.kind === "model_call" ? "Model" : "Tool"}
             {span.error ? " · Failed" : ""}
           </span>
         </span>
@@ -351,7 +367,7 @@ function StepInspector({ item }: { item: Placed }) {
           {formatTokens(span.prompt_tokens || 0)} prompt · {formatTokens(span.cached_prompt_tokens || 0)} cached ·{" "}
           {span.cache_write_tokens ? `${formatTokens(span.cache_write_tokens)} cache written · ` : ""}
           {formatTokens(span.completion_tokens || 0)} completion tokens
-          {formatCost(span.cost_usd)}
+          {span.cost_usd ? ` · ${formatCost(span.cost_usd)}` : ""}
         </p>
       )}
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
@@ -422,22 +438,52 @@ const WATERFALL_LEGEND = [
   { label: "Failed", dot: "bg-destructive" },
 ];
 
+// One strip of what the turn cost, read left to right: how long, how many
+// tokens (with the split beneath), and what ran it. Cost and effort appear only
+// when recorded.
+function TraceStats({ trace }: { trace: TraceSummary }) {
+  const stats: { label: string; value: string; detail?: string; title?: string }[] = [
+    { label: "Duration", value: formatDuration(trace.duration_ms) },
+    {
+      label: "Tokens",
+      value: formatTokens(trace.total_tokens),
+      detail: `${formatTokens(trace.prompt_tokens)} in · ${formatTokens(trace.completion_tokens)} out · ${formatTokens(trace.cached_prompt_tokens || 0)} cached`,
+    },
+    { label: "Model", value: trace.model ? shortModel(trace.model) : "Unknown", title: trace.model, detail: trace.effort ? `${trace.effort} effort` : undefined },
+  ];
+  if (trace.cost_usd) stats.push({ label: "Cost", value: formatCost(trace.cost_usd) });
+  return (
+    <dl className="trace-hairline-t flex flex-wrap gap-x-10 gap-y-4 pt-5">
+      {stats.map((stat) => (
+        <div key={stat.label} className="min-w-0">
+          <dt className="text-xs text-neutral-700">{stat.label}</dt>
+          <dd className="mt-1 break-words text-sm font-medium tabular-nums" title={stat.title}>
+            {stat.value}
+          </dd>
+          {stat.detail && <dd className="mt-0.5 text-xs tabular-nums text-neutral-700">{stat.detail}</dd>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   const { trace, spans } = detail;
   return (
-    <article className="min-w-0 space-y-7">
+    <article className="min-w-0 space-y-6">
       <header>
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-neutral-700">
+        <div className="mb-2.5 flex flex-wrap items-center gap-2.5 text-xs text-neutral-700">
           <SourceBadge trace={trace} />
           <span className="tabular-nums">{formatTime(trace.started_at)}</span>
+          <span aria-hidden="true">·</span>
           <TraceStatus trace={trace} />
         </div>
-        <h2 className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed">
+        <h2 className="whitespace-pre-wrap break-words text-lg font-semibold leading-snug">
           {trace.input || "Unprompted turn"}
         </h2>
         {trace.output && (
-          <details className="mt-3">
-            <summary className="cursor-pointer text-sm text-neutral-700">View reply</summary>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-sm text-neutral-700 hover:text-foreground">View reply</summary>
             <p className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{trace.output}</p>
           </details>
         )}
@@ -447,23 +493,11 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
           {trace.error}
         </ErrorBanner>
       )}
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 rounded-2xl bg-neutral-100 p-4 2xl:grid-cols-4">
-        {[
-          ["Duration", formatDuration(trace.duration_ms)],
-          ["Tokens", formatTokens(trace.total_tokens)],
-          ["Steps", trace.spans],
-          ["Model", trace.model || "Unknown"],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <dt className="text-xs text-neutral-700">{label}</dt>
-            <dd className="mt-1 break-words text-sm font-medium tabular-nums">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <TraceStats trace={trace} />
       <section aria-label="Execution timeline">
-        <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-          <h3 className="text-sm font-semibold">Execution timeline</h3>
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <h3 className="text-sm font-semibold">Timeline</h3>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
             {WATERFALL_LEGEND.map((entry) => (
               <span key={entry.label} className="flex items-center gap-1.5 text-xs text-neutral-700">
                 <span className={`h-2 w-2 rounded-full ${entry.dot}`} />
@@ -471,12 +505,6 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
               </span>
             ))}
           </div>
-          <span className="ml-auto text-xs tabular-nums text-neutral-700">
-            {formatTokens(trace.prompt_tokens)} prompt · {formatTokens(trace.completion_tokens)} completion ·{" "}
-            {formatTokens(trace.cached_prompt_tokens || 0)} cached tokens
-            {formatCost(trace.cost_usd)}
-            {trace.effort ? ` · ${trace.effort} effort` : ""}
-          </span>
         </div>
         <Waterfall key={trace.id} trace={trace} spans={spans} />
       </section>
@@ -640,31 +668,30 @@ export function TraceBrowser({
                 setGroupKey(item.key);
                 setTraceId(null);
               }}
-              className={`w-full rounded-xl px-3 py-3 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
+              className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
               <span className="block truncate text-sm font-medium">{conversationLabel(item, titles)}</span>
-              <span className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-700">
-                <span>
-                  {item.traces.length} {item.traces.length === 1 ? "turn" : "turns"}
+              <span className="mt-0.5 flex items-center gap-1.5 text-xs tabular-nums text-neutral-700">
+                <span className="truncate">
+                  {count(item.traces.length, "turn")} · {formatShortTime(item.lastAt)}
                 </span>
                 {item.errors > 0 && (
-                  <span className="flex items-center gap-1 text-eg-red-ink">
+                  <span className="ml-auto flex shrink-0 items-center gap-1 text-eg-red-ink" title={`${item.errors} failed`}>
                     <span className="h-1.5 w-1.5 rounded-full bg-eg-red" />
-                    {item.errors} failed
+                    {item.errors}
                   </span>
                 )}
               </span>
-              <span className="mt-1 block text-xs tabular-nums text-neutral-700">{formatTime(item.lastAt)}</span>
             </button>
           ))}
         </div>
       </aside>
       <section aria-label="Turns" className={`trace-turns ${selected ? "hidden lg:block" : ""}`}>
-        <div className="px-4 pb-3 pt-4">
+        <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
           <h2 className="truncate text-sm font-semibold">{group ? conversationLabel(group, titles) : "Turns"}</h2>
-          <p className="mt-1 text-xs text-neutral-700">Select a turn to inspect</p>
+          {group && <span className="shrink-0 text-xs tabular-nums text-neutral-700">{count(group.traces.length, "turn")}</span>}
         </div>
-        <div className="px-3 pb-4">
+        <div className="space-y-1">
           {group?.traces.map((trace) => (
             <button
               key={trace.id}
@@ -676,21 +703,19 @@ export function TraceBrowser({
                 setGroupKey(group.key);
                 setTraceId(trace.id);
               }}
-              className={`mb-1 w-full rounded-xl px-3.5 py-3 text-left transition-colors ${selected?.id === trace.id ? "bg-accent-100" : "hover:bg-neutral-200/50"}`}
+              className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${selected?.id === trace.id ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
-              <span className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs tabular-nums text-neutral-700">{formatTime(trace.started_at)}</span>
-                <TraceStatus trace={trace} />
-              </span>
-              <span className="line-clamp-2 break-words text-sm font-medium leading-6">
-                {trace.input || "Unprompted turn"}
-              </span>
-              <span className="mt-3 flex items-center gap-3 text-xs tabular-nums text-neutral-700">
-                <span>{formatDuration(trace.duration_ms)}</span>
-                <span>
-                  {trace.spans} {trace.spans === 1 ? "step" : "steps"}
+              <span className="line-clamp-2 break-words text-sm leading-5">{trace.input || "Unprompted turn"}</span>
+              <span className="mt-1 flex items-center gap-1.5 text-xs tabular-nums text-neutral-700">
+                <span className="truncate">
+                  {formatShortTime(trace.started_at)} · {formatDuration(trace.duration_ms)} · {count(trace.spans, "step")}
                 </span>
-                <span className="ml-auto">Inspect →</span>
+                {/* Completed is the usual outcome, so only the exceptions are named. */}
+                {(trace.error || !trace.complete) && (
+                  <span className="ml-auto shrink-0">
+                    <TraceStatus trace={trace} />
+                  </span>
+                )}
               </span>
             </button>
           ))}

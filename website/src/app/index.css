@@ -268,8 +268,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* The two lists sit on the page; only the inspector is a card, so the eye
+     lands on the one thing being read rather than on three equal boxes. */
   .trace-conversations {
-    @apply min-w-0 rounded-2xl bg-neutral-100 p-4;
+    @apply min-w-0 p-1;
   }
   .trace-conversation-list {
     @apply flex gap-2 overflow-x-auto pb-1;
@@ -278,13 +280,14 @@
     @apply w-48 shrink-0;
   }
   .trace-turns {
-    @apply min-w-0 rounded-2xl bg-neutral-100;
+    @apply min-w-0 p-1;
   }
   .trace-inspector {
     @apply min-w-0 rounded-2xl bg-card p-5 sm:p-7;
+    container-type: inline-size;
   }
   .trace-step {
-    @apply grid w-full items-center gap-x-3 gap-y-3 px-4 py-3 text-left;
+    @apply grid w-full items-center gap-x-3 gap-y-2 px-4 py-3 text-left;
     grid-template-columns: minmax(0, 1fr) 1rem;
     box-shadow: inset 0 1px 0 hsl(var(--neutral-200));
   }
@@ -303,11 +306,24 @@
     @apply font-medium;
   }
 
+  /* A step's name and its bar share a row once the inspector, not the window,
+     has room for both: the inspector's width depends on the lists beside it. */
+  @container (min-width: 36rem) {
+    .trace-step {
+      grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) 1rem;
+    }
+    .trace-step > :nth-child(2),
+    .trace-step > :nth-child(3) {
+      grid-column: auto;
+      grid-row: auto;
+    }
+  }
+
   @media (min-width: 1024px) {
     .trace-browser {
-      grid-template-columns: 13rem 18rem minmax(0, 1fr);
+      grid-template-columns: 13rem 17rem minmax(0, 1fr);
       overflow: hidden;
-      @apply gap-4 p-4;
+      @apply gap-3 p-4;
     }
     .trace-conversations,
     .trace-turns,
@@ -323,15 +339,7 @@
   }
   @media (min-width: 1440px) {
     .trace-browser {
-      grid-template-columns: 15rem 20rem minmax(0, 1fr);
-    }
-    .trace-step {
-      grid-template-columns: minmax(0, 12rem) minmax(0, 1fr) 1rem;
-    }
-    .trace-step > :nth-child(2),
-    .trace-step > :nth-child(3) {
-      grid-column: auto;
-      grid-row: auto;
+      grid-template-columns: 15rem 19rem minmax(0, 1fr);
     }
   }
 }

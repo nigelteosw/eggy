@@ -4,16 +4,19 @@ import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage, stopChatTurn } from "../lib/api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "../components/ui/button";
-import { ArrowDownIcon, ChevronDownIcon, LockIcon, MenuIcon, PlusIcon, ReplyIcon } from "../components/ui/icons";
+import { ArrowDownIcon, CheckIcon, ChevronDownIcon, CopyIcon, LockIcon, MenuIcon, PlusIcon, ReplyIcon, RetryIcon } from "../components/ui/icons";
 import { usesTouchKeyboard } from "../lib/composer";
 import { replyQuote } from "../lib/reply";
+import { timeAgo } from "../lib/time";
 import { cn, errorMessage } from "../lib/utils";
 
 // The status steps a turn went through, and how long it ran, kept on the reply
 // the turn produced. Live steps are not persisted, so a reloaded chat shows
 // only the reply and any reasoning the backend stored as its own message.
 type Activity = { steps: string[]; seconds: number | null };
-type ChatMessage = { id: string; role: "user" | "assistant"; text: string };
+// at is when the message was written, as an ISO time. A reply that has not come
+// back from history yet has none, so its footer shows no time.
+type ChatMessage = { id: string; role: "user" | "assistant"; text: string; at?: string };
 
 // The backend delivers a model's reasoning as its own assistant message with
 // this prefix when the owner has thinking shown (see turns.run). The web view
@@ -31,9 +34,9 @@ function withQuote(quote: Quote | null, text: string): string {
   return `[Replying to${quote.ownMessage ? " your previous message" : ""}: "${quote.text}"]\n\n${text}`;
 }
 
-function splitQuote(text: string): { quote: string | null; body: string } {
+function splitQuote(text: string): { quote: string | null; ownMessage: boolean; body: string } {
   const match = REPLY_PREFIX.exec(text);
-  return match ? { quote: match[2], body: match[3] } : { quote: null, body: text };
+  return match ? { quote: match[2], ownMessage: match[1] !== undefined, body: match[3] } : { quote: null, ownMessage: false, body: text };
 }
 type PendingApproval = { id: string; summary: string; details?: string };
 // How long a finger rests on a message before its actions open.
@@ -119,21 +122,6 @@ function useSelectionAnchor(container: React.RefObject<HTMLElement | null>) {
   return [anchor, () => setAnchor(null)] as const;
 }
 
-// ReplyButton is the touch form of quoting a message: a plain text action under
-// the message, sized for a thumb.
-function ReplyButton({ onReply }: { onReply: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onReply}
-      className="flex min-h-11 w-fit items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-neutral-700 transition-colors hover:text-foreground"
-    >
-      <ReplyIcon className="h-3.5 w-3.5" />
-      Reply
-    </button>
-  );
-}
-
 // copyText puts a message on the clipboard. It reports whether that worked: a
 // refused clipboard (an insecure page, a locked-down browser) leaves the text on
 // screen to select by hand.
@@ -178,28 +166,68 @@ function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCop
   );
 }
 
-// MessageActions is what a finger can reach under a message: quote it, or copy
-// it. Copy confirms in place for a moment, because a toast would sit over the
-// composer the thumb is about to use.
-function MessageActions({ text, onReply }: { text: string; onReply: () => void }) {
+// MessageFooter is the row under a message: copy it, retry the turn behind it,
+// and when it was written. Desktop shows it on hover, except that the latest
+// reply keeps it; a finger has no hover, so a touch screen always shows it.
+// Copy swaps its icon for a check for a moment, because a toast would sit over
+// the composer the thumb is about to use.
+function MessageFooter({
+  text,
+  at,
+  touch,
+  alwaysVisible,
+  onRetry,
+}: {
+  text: string;
+  at?: string;
+  touch: boolean;
+  alwaysVisible: boolean;
+  onRetry?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     if (!(await copyText(text))) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
+  const action = cn(
+    "flex items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground",
+    touch ? "h-11 w-11" : "h-7 w-7",
+  );
   return (
-    <div className="flex items-center gap-1">
-      <ReplyButton onReply={onReply} />
-      <button
-        type="button"
-        onClick={copy}
-        aria-live="polite"
-        className="flex min-h-11 w-fit items-center rounded-lg px-2 text-xs font-medium text-neutral-700 transition-colors hover:text-foreground"
-      >
-        {copied ? "Copied" : "Copy"}
+    <div
+      className={cn(
+        "flex items-center gap-1 transition-opacity",
+        !alwaysVisible && "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+      )}
+    >
+      <button type="button" onClick={copy} aria-label={copied ? "Copied" : "Copy message"} title="Copy" className={action}>
+        {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
       </button>
+      {onRetry && (
+        <button type="button" onClick={onRetry} aria-label="Retry" title="Retry" className={action}>
+          <RetryIcon className="h-4 w-4" />
+        </button>
+      )}
+      {at && <MessageTime at={at} />}
     </div>
+  );
+}
+
+// MessageTime shows how long ago a message was written. Its exact time is on
+// hover for a mouse, and on a tap for a finger.
+function MessageTime({ at }: { at: string }) {
+  const [exact, setExact] = useState(false);
+  const full = new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return (
+    <button
+      type="button"
+      title={full}
+      onClick={() => setExact((current) => !current)}
+      className="flex min-h-7 items-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <time dateTime={at}>{exact ? full : timeAgo(at, Date.now())}</time>
+    </button>
   );
 }
 
@@ -231,12 +259,14 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   );
 }
 
-// A turn's working-out, drawn as one line that opens onto its steps. While the
-// turn runs the line shows the newest step with the typing dots; once the reply
-// is in it shows the same line over "Thought for Ns" and the steps.
+// A turn's working-out, drawn as one line that opens onto its steps. Each step is
+// a tool the turn called. While the turn runs the line names the newest step
+// with the typing dots; once the reply is in it reads as a count and the time.
 function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds: number | null; live: boolean }) {
   const [open, setOpen] = useState(!live);
-  const summary = steps[steps.length - 1] ?? (live ? "I'm typing" : "Thought");
+  const summary = live
+    ? (steps[steps.length - 1] ?? "I'm typing")
+    : `Used ${steps.length} ${steps.length === 1 ? "tool" : "tools"}${seconds !== null ? ` · ${seconds}s` : ""}`;
   return (
     <div className="text-sm">
       <button
@@ -255,17 +285,22 @@ function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds
         <span className="truncate">{summary}</span>
         <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
-      {open && (
-        <div className="mt-2 rounded-2xl border border-border px-4 py-3.5 text-[0.8125rem] text-muted-foreground">
-          {seconds !== null && !live && <p className="mb-2 text-xs text-muted-foreground/80">Thought for {seconds}s</p>}
-          <ul className="space-y-2">
-            {steps.map((step, index) => (
-              <li key={`${index}-${step}`} className="leading-5">
+      {open && steps.length > 0 && (
+        <ul className="mt-2 space-y-2 border-l border-border pl-4 text-[0.8125rem] text-muted-foreground">
+          {steps.map((step, index) => {
+            const running = live && index === steps.length - 1;
+            return (
+              <li key={`${index}-${step}`} className="flex items-center gap-2 leading-5">
+                {running ? (
+                  <span className="h-1.5 w-1.5 shrink-0 animate-blink rounded-full bg-accent-500" aria-hidden="true" />
+                ) : (
+                  <CheckIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                )}
                 {step}
               </li>
-            ))}
-          </ul>
-        </div>
+            );
+          })}
+        </ul>
       )}
     </div>
   );
@@ -434,8 +469,8 @@ export function ChatPage({
   onNewChat?: () => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>([]);
-  // Whether the primary pointer is a finger, which decides whether the Reply
-  // action is printed under each message.
+  // Whether the primary pointer is a finger, which decides whether a message's
+  // footer is always shown (a finger has no hover to reveal it).
   const touch = usesTouchKeyboard();
   // pending holds our own just-sent messages that loadHistory hasn't
   // corroborated yet. The backend only durably records a turn once the
@@ -488,6 +523,12 @@ export function ChatPage({
   const threadRef = useRef<string | null>(threadId);
   const previousThreadId = useRef<string | null>(threadId);
   const messages = [...history, ...pending];
+  const lastAssistantIndex = messages.map((message) => message.role).lastIndexOf("assistant");
+  // previousUserIndex is the owner message a reply answers, or -1 if there is none.
+  function previousUserIndex(index: number): number {
+    for (let i = index - 1; i >= 0; i--) if (messages[i].role === "user") return i;
+    return -1;
+  }
 
   function loadHistory(targetThreadId = threadId) {
     if (!targetThreadId) return;
@@ -498,6 +539,7 @@ export function ChatPage({
           id: `history-${index}`,
           role: row[0] === "user" ? ("user" as const) : ("assistant" as const),
           text: row[1] ?? "",
+          at: row[2] || undefined,
         }));
         setHistory(fetched);
         historyCountRef.current = fetched.length;
@@ -636,7 +678,7 @@ export function ChatPage({
     // Sending is the owner asking to see the reply, so it brings them to the end.
     atBottomRef.current = true;
     setAtBottom(true);
-    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: withQuote(quote, text) }]);
+    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: withQuote(quote, text), at: new Date().toISOString() }]);
     try {
       let target = threadRef.current;
       if (!target) {
@@ -652,6 +694,13 @@ export function ChatPage({
       }
       setError(errorMessage(err, "Failed to send"));
     }
+  }
+
+  // retry sends the owner's message behind a reply again, as a new turn. The
+  // earlier exchange stays in the transcript, so a retry never rewrites history.
+  function retry(userIndex: number) {
+    const { quote: quoted, ownMessage, body } = splitQuote(messages[userIndex].text);
+    handleSend(body, quoted === null ? null : { text: quoted, ownMessage });
   }
 
   async function handleStop() {
@@ -767,12 +816,10 @@ export function ChatPage({
           )}
           {messages.map((message, index) => {
             const isUser = message.role === "user";
-            // On a touch screen there is no hover or long-press that reads as
-            // "reply", so the action is printed under the message.
             if (isUser) {
               const { quote: quoted, body } = splitQuote(message.text);
               return (
-                <div key={message.id} data-message-id={message.id} data-role="user" className="flex animate-fade-in-up justify-end">
+                <div key={message.id} data-message-id={message.id} data-role="user" className="group flex animate-fade-in-up flex-col items-end gap-1">
                   <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-sm text-foreground sm:max-w-[72%] sm:px-5">
                     {quoted !== null && (
                       <div className="mb-2.5 flex items-start rounded-xl bg-black/5 px-3 py-2">
@@ -782,7 +829,7 @@ export function ChatPage({
                     )}
                     <MessageBody text={body} isUserBubble />
                   </div>
-                  {touch && <MessageActions text={body} onReply={() => setQuote(replyQuote(body, false))} />}
+                  <MessageFooter text={body} at={message.at} touch={touch} alwaysVisible={touch} />
                 </div>
               );
             }
@@ -794,11 +841,21 @@ export function ChatPage({
               );
             }
             const activity = activityByIndex[index];
+            const isLatest = index === lastAssistantIndex;
+            // Retry re-sends the owner message before this reply, and only on the
+            // latest reply once the turn has finished.
+            const retryFrom = isLatest && !typing ? previousUserIndex(index) : -1;
             return (
-              <div key={message.id} data-message-id={message.id} data-role="assistant" className="flex animate-fade-in-up flex-col gap-3 text-sm">
+              <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-sm">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
-                {touch && <MessageActions text={message.text} onReply={() => setQuote(replyQuote(message.text, true))} />}
+                <MessageFooter
+                  text={message.text}
+                  at={message.at}
+                  touch={touch}
+                  alwaysVisible={touch || isLatest}
+                  onRetry={retryFrom >= 0 ? () => retry(retryFrom) : undefined}
+                />
               </div>
             );
           })}

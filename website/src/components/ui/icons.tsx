@@ -198,6 +198,20 @@ export const ReplyIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const CopyIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="7" y="7" width="9.5" height="9.5" rx="2" />
+    <path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+  </Icon>
+);
+
+export const RetryIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15.5 10a5.5 5.5 0 1 1-1.6-3.9" />
+    <path d="M15.5 3.5v3h-3" />
+  </Icon>
+);
+
 export const SearchIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx="9" cy="9" r="5.5" />

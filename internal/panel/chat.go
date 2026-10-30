@@ -205,11 +205,11 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 		}
 		rows := make([][]string, 0, len(messages))
 		for _, message := range messages {
-			rows = append(rows, []string{string(message.Role), message.Content})
+			rows = append(rows, []string{string(message.Role), message.Content, message.CreatedAt.UTC().Format(time.RFC3339)})
 		}
 		writeWebResult(w, webResult{
 			State:        webSuccess,
-			TableHeaders: []string{"role", "content"},
+			TableHeaders: []string{"role", "content", "created_at"},
 			TableRows:    rows,
 		})
 	}

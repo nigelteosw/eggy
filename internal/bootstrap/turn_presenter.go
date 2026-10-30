@@ -48,11 +48,13 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(strin
 	}
 	onToolCall = func(name string) {
 		calls = append(calls, name)
-		text := progressLine(calls)
-		if err := channelutil.ShowProgress(ctx, p.channel, text); !errors.Is(err, channelutil.ErrProgressUnsupported) {
+		// A status channel gets this call alone, so the browser keeps each call
+		// as its own step. The cumulative line is only for a surface that can
+		// show nothing but one growing message.
+		if err := channelutil.ShowProgress(ctx, p.channel, toolProgressLabel(name)); !errors.Is(err, channelutil.ErrProgressUnsupported) {
 			return
 		}
-		render(text)
+		render(progressLine(calls))
 	}
 	finish = func() {
 		// Only the message form needs settling: a status line has nothing

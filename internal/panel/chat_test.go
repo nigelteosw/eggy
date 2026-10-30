@@ -245,6 +245,10 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 	if decoded.TableRows[1][0] != "assistant" || decoded.TableRows[1][1] != "hello!" {
 		t.Fatalf("rows=%#v", decoded.TableRows)
 	}
+	// The time a message was written is what the transcript shows under it.
+	if _, err := time.Parse(time.RFC3339, decoded.TableRows[0][2]); err != nil {
+		t.Fatalf("created_at=%q: %v", decoded.TableRows[0][2], err)
+	}
 }
 
 func TestThreadHistoryReturns404ForAnUnknownThread(t *testing.T) {

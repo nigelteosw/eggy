@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/auth/grants"
@@ -280,7 +281,23 @@ type modelDiscovery struct {
 	// names, so image support can be answered for the alias a turn resolved
 	// without the core ever seeing startup config.
 	aliases map[string]modelAliasTarget
+
+	// turnCatalogs caches each provider's listing for the turn path. Image
+	// output is asked on every owner turn, and OpenRouter's catalog is several
+	// hundred entries; the panel's browse control still lists live.
+	mu           sync.Mutex
+	turnCatalogs map[string]cachedCatalog
+	now          func() time.Time
 }
+
+type cachedCatalog struct {
+	models  []ports.CatalogModel
+	fetched time.Time
+}
+
+// turnCatalogTTL is how long a turn trusts a listing. A model's modalities
+// do not change between messages; a new model reaches turns within the hour.
+const turnCatalogTTL = time.Hour
 
 type modelAliasTarget struct {
 	provider, model string
@@ -293,8 +310,10 @@ type modelAliasTarget struct {
 
 func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *modelDiscovery {
 	discovery := &modelDiscovery{
-		providers: map[string]ports.ModelCatalog{},
-		aliases:   make(map[string]modelAliasTarget, len(cfg.ModelAliases)),
+		providers:    map[string]ports.ModelCatalog{},
+		aliases:      make(map[string]modelAliasTarget, len(cfg.ModelAliases)),
+		turnCatalogs: map[string]cachedCatalog{},
+		now:          time.Now,
 	}
 	for name, provider := range cfg.Providers {
 		if !provider.DiscoversModels() {
@@ -321,21 +340,61 @@ func newModelDiscovery(cfg config.Config, adapters map[string]ports.Model) *mode
 // carries no architecture block. A caller sends the part on unknown rather
 // than reading silence as a refusal.
 func (d *modelDiscovery) SupportsPart(ctx context.Context, alias string, kind ports.Modality) (supported, known bool) {
+	model, ok := d.aliasModel(ctx, alias)
+	if !ok {
+		return false, false
+	}
+	return model.Accepts(kind)
+}
+
+// ImageOutput returns what the model behind alias produces when that includes
+// an image, as the provider listed it, and nil otherwise. The list is passed
+// on whole because an image-only model refuses a request that also asks for
+// text.
+func (d *modelDiscovery) ImageOutput(ctx context.Context, alias string) []ports.Modality {
+	model, ok := d.aliasModel(ctx, alias)
+	if !ok || !model.Produces(ports.ModalityImage) {
+		return nil
+	}
+	return model.OutputModalities
+}
+
+// aliasModel is the catalog entry for the model an alias names, from a
+// provider that reports modalities.
+func (d *modelDiscovery) aliasModel(ctx context.Context, alias string) (ports.CatalogModel, bool) {
 	target, ok := d.aliases[alias]
 	if !ok || !target.reportsModalities {
-		return false, false
+		return ports.CatalogModel{}, false
 	}
-	models, err := d.DiscoverModels(ctx, target.provider)
+	models, err := d.turnCatalog(ctx, target.provider)
 	if err != nil {
-		return false, false
+		return ports.CatalogModel{}, false
 	}
 	for _, model := range models {
-		if model.ID != target.model {
-			continue
+		if model.ID == target.model {
+			return model, true
 		}
-		return model.Accepts(kind)
 	}
-	return false, false
+	return ports.CatalogModel{}, false
+}
+
+// turnCatalog is DiscoverModels behind the turn path's cache. A failed listing
+// is not cached, so the next turn tries again.
+func (d *modelDiscovery) turnCatalog(ctx context.Context, provider string) ([]ports.CatalogModel, error) {
+	d.mu.Lock()
+	cached, ok := d.turnCatalogs[provider]
+	d.mu.Unlock()
+	if ok && d.now().Sub(cached.fetched) < turnCatalogTTL {
+		return cached.models, nil
+	}
+	models, err := d.DiscoverModels(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	d.mu.Lock()
+	d.turnCatalogs[provider] = cachedCatalog{models: models, fetched: d.now()}
+	d.mu.Unlock()
+	return models, nil
 }
 
 func (d *modelDiscovery) DiscoverableProviders() []string {

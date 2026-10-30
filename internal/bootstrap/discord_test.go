@@ -47,7 +47,10 @@ func (f *fakeDiscord) SendMessage(_ context.Context, channelID, content string) 
 	return "m1", nil
 }
 func (f *fakeDiscord) EditMessage(context.Context, string, string, string) error { return nil }
-func (f *fakeDiscord) Typing(context.Context, string) error                      { return nil }
+func (f *fakeDiscord) SendFile(context.Context, string, string, string, []byte) error {
+	return nil
+}
+func (f *fakeDiscord) Typing(context.Context, string) error { return nil }
 func (f *fakeDiscord) DMChannel(_ context.Context, channelID string) (discord.DMInfo, error) {
 	info, ok := f.channels[channelID]
 	if !ok {

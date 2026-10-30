@@ -119,3 +119,56 @@ func TestModelDiscoveryAnswersImageSupportForAnAlias(t *testing.T) {
 		t.Fatal("a model with no architecture must leave file support unknown")
 	}
 }
+
+type countingCatalog struct {
+	staticModel
+	models []ports.CatalogModel
+	calls  *int
+}
+
+func (c countingCatalog) ListModels(context.Context) ([]ports.CatalogModel, error) {
+	*c.calls++
+	return c.models, nil
+}
+
+// A turn asks for an image only from a model OpenRouter lists as drawing, and
+// asks with that model's own output list. The catalog is read once and then
+// reused: asking on every turn would download several hundred entries per
+// message.
+func TestModelDiscoveryAnswersImageOutputFromACachedCatalog(t *testing.T) {
+	cfg := config.Config{
+		Providers: map[string]config.ProviderConfig{
+			"openrouter": {Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1"},
+			"plain":      {Adapter: "openai_compatible", BaseURL: "https://api.example/v1"},
+		},
+		ModelAliases: map[string]config.ModelAliasConfig{
+			"painter": {Provider: "openrouter", Model: "vendor/painter"},
+			"drawer":  {Provider: "openrouter", Model: "vendor/image-only"},
+			"writer":  {Provider: "openrouter", Model: "vendor/writer"},
+			"proxied": {Provider: "plain", Model: "vendor/painter"},
+		},
+	}
+	calls := 0
+	catalog := countingCatalog{calls: &calls, models: []ports.CatalogModel{
+		{ID: "vendor/painter", OutputModalities: []ports.Modality{ports.ModalityImage, ports.ModalityText}},
+		{ID: "vendor/image-only", OutputModalities: []ports.Modality{ports.ModalityImage}},
+		{ID: "vendor/writer", OutputModalities: []ports.Modality{ports.ModalityText}},
+	}}
+	discovery := newModelDiscovery(cfg, map[string]ports.Model{"openrouter": catalog, "plain": catalog})
+	ctx := context.Background()
+
+	if got := discovery.ImageOutput(ctx, "painter"); len(got) != 2 || got[0] != ports.ModalityImage || got[1] != ports.ModalityText {
+		t.Fatalf("painter=%v", got)
+	}
+	if got := discovery.ImageOutput(ctx, "drawer"); len(got) != 1 || got[0] != ports.ModalityImage {
+		t.Fatalf("drawer=%v", got)
+	}
+	for _, alias := range []string{"writer", "proxied", "missing"} {
+		if got := discovery.ImageOutput(ctx, alias); got != nil {
+			t.Fatalf("%s=%v, want nil", alias, got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("catalog listed %d times, want once", calls)
+	}
+}

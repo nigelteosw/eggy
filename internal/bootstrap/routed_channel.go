@@ -26,13 +26,14 @@ import (
 // Telegram fallback: a reply sent to the wrong surface reaches the wrong
 // person.
 //
-// It implements the optional ports.TrackableChannel, ports.TypingChannel and
-// ports.ProgressChannel extensions unconditionally, because a Go type either has a method or it
+// It implements the optional ports.TrackableChannel, ports.TypingChannel,
+// ports.ProgressChannel and ports.ImageChannel extensions unconditionally, because a Go type either has a method or it
 // does not and the honest answer here ("trackable when this turn routes to
 // a trackable channel") is not expressible statically. The capability check
 // therefore moves inside each method, via the channelutil helpers, so a
 // turn routed at a channel lacking the affordance degrades exactly as a
-// direct caller on that channel would.
+// direct caller on that channel would. DeliverImage, which has no degraded
+// form a router could pick, answers ports.ErrImagesUnsupported instead.
 type routedChannel struct {
 	telegram ports.Channel
 	web      ports.Channel
@@ -133,6 +134,18 @@ func (r *routedChannel) ShowProgress(ctx context.Context, text string) error {
 		return err
 	}
 	return channelutil.ShowProgress(ctx, channel, text)
+}
+
+func (r *routedChannel) DeliverImage(ctx context.Context, id string, image ports.ContentPart) error {
+	channel, err := r.route(ctx)
+	if err != nil {
+		return err
+	}
+	images, ok := channel.(ports.ImageChannel)
+	if !ok {
+		return ports.ErrImagesUnsupported
+	}
+	return images.DeliverImage(ctx, id, image)
 }
 
 func (r *routedChannel) SendTyping(ctx context.Context) error {

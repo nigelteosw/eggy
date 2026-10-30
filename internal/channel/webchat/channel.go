@@ -14,6 +14,7 @@ var (
 	_ ports.TrackableChannel = (*Channel)(nil)
 	_ ports.TypingChannel    = (*Channel)(nil)
 	_ ports.ProgressChannel  = (*Channel)(nil)
+	_ ports.ImageChannel     = (*Channel)(nil)
 )
 
 // Channel implements ports.Channel over a Hub. It is a browser chat
@@ -49,6 +50,20 @@ func (c *Channel) Deliver(ctx context.Context, text string) error {
 		c.hub.Broadcast(accountID, threadID, Event{Kind: EventMessage, ID: c.hub.NextMessageID(), Text: text})
 	}
 	return nil
+}
+
+// imageNotKept explains an image the browser cannot draw: it shows images by
+// fetching them from the panel, and one made with tracing off was never stored.
+const imageNotKept = "I made an image, but it couldn't be kept because tracing is off, so it can't be shown here. Turn tracing on in Settings to keep images."
+
+// DeliverImage sends the image's stored reference, which the browser draws by
+// fetching it -- the same marker the conversation record holds, so a reload
+// shows exactly what arrived live. The bytes never travel over the stream.
+func (c *Channel) DeliverImage(ctx context.Context, id string, _ ports.ContentPart) error {
+	if id == "" {
+		return c.Deliver(ctx, imageNotKept)
+	}
+	return c.Deliver(ctx, ports.ImageMarker(id))
 }
 
 func (c *Channel) DeliverTrackable(ctx context.Context, text string) (string, error) {

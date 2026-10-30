@@ -361,3 +361,31 @@ func TestProcessEventRefusesAnInvalidDestinationBeforeStartingATurn(t *testing.T
 		t.Fatalf("telegram delivered=%v, want nothing", telegram.delivered)
 	}
 }
+
+type imageFakeChannel struct {
+	fakeChannel
+	images []string
+}
+
+func (f *imageFakeChannel) DeliverImage(_ context.Context, id string, _ ports.ContentPart) error {
+	f.images = append(f.images, id)
+	return nil
+}
+
+// An image goes to the surface the turn runs on. A surface that cannot show
+// one answers with the sentinel, so the turn can say so in words.
+func TestRoutedChannelRoutesImagesAndReportsATextOnlySurface(t *testing.T) {
+	web := &imageFakeChannel{}
+	telegram := &baseChannel{}
+	routed := newRoutedChannel(telegram, web, nil).(ports.ImageChannel)
+	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}
+
+	webCtx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "t"})
+	if err := routed.DeliverImage(webCtx, "img-1", image); err != nil || len(web.images) != 1 || web.images[0] != "img-1" {
+		t.Fatalf("err=%v images=%v", err, web.images)
+	}
+	telegramCtx := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
+	if err := routed.DeliverImage(telegramCtx, "img-1", image); !errors.Is(err, ports.ErrImagesUnsupported) {
+		t.Fatalf("err=%v, want ErrImagesUnsupported", err)
+	}
+}

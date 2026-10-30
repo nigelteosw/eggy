@@ -88,6 +88,8 @@ bound separately.
 - Messages from bots, webhooks, servers, threads, and group DMs are ignored
   outright, including yours.
 - Attachments are refused with a notice; send text.
+- An image the model [draws](/eggy/use/models/#generated-images) arrives as
+  an attachment in the same DM.
 
 ## Approvals
 

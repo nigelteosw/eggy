@@ -269,8 +269,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// means the read side and the write side cannot disagree about whether
 	// this deployment traces.
 	var traceReader panel.TraceDirectory
+	var imageReader panel.ImageReader
 	if tracer != nil {
-		traceReader = database
+		traceReader, imageReader = database, database
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
@@ -501,6 +502,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		// The one discovery built above also answers whether the active model
 		// can see images, so the panel and the turn path cannot disagree.
 		PartSupport: discovery.SupportsPart,
+		// And whether it draws. A drawn image is kept under the turn's trace,
+		// so the tracing retention setting decides how long it lasts.
+		ImageOutput: discovery.ImageOutput,
+		Images:      database,
 		Manifest:    manifest, Logger: app.logger, Now: app.now,
 		// The owner's timezone, not the scheduler's quiet-hours one: this is
 		// what renders the turn's trusted temporal context.
@@ -533,6 +538,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Schedules:           app.scheduler,
 		Documents:           contextStore,
 		Traces:              traceReader,
+		Images:              imageReader,
 		Approvals:           app.approvals,
 		ApprovalMode:        app.approvals,
 		Agent:               agentRuntime,

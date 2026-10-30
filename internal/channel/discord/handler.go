@@ -58,6 +58,8 @@ type DMInfo struct {
 // over DiscordGo; tests implement it in memory.
 type Transport interface {
 	SendMessage(ctx context.Context, channelID, content string) (messageID string, err error)
+	// SendFile posts one attachment, with no text and no mentions.
+	SendFile(ctx context.Context, channelID, name, mediaType string, data []byte) error
 	EditMessage(ctx context.Context, channelID, messageID, content string) error
 	Typing(ctx context.Context, channelID string) error
 	// DMChannel describes the channel. It is the one REST lookup intake

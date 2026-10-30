@@ -33,6 +33,8 @@ type fakeLoop struct {
 	// point at which a real tool could reach the turn's context.
 	onRun func(context.Context)
 	err   error
+	// images are what the model drew alongside reply.
+	images []ports.ContentPart
 }
 
 type blockingPreparationContext struct {
@@ -130,7 +132,7 @@ func (l *fakeLoop) Run(ctx context.Context, _, _ string, input ports.Message, hi
 	if l.onRun != nil {
 		l.onRun(ctx)
 	}
-	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply}}, l.err
+	return agent.RunResult{Message: ports.Message{Role: ports.RoleAssistant, Content: l.reply, Parts: l.images}}, l.err
 }
 
 func (l *fakeLoop) ToolNames(options agent.RunOptions) []string {

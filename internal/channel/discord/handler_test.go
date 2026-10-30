@@ -20,6 +20,7 @@ type fakeTransport struct {
 	sent     []string // channel:content
 	edits    []string
 	typing   []string
+	files    []string // channel:name:type:bytes
 	sendErr  error
 }
 
@@ -41,6 +42,12 @@ func (f *fakeTransport) SendMessage(_ context.Context, channelID, content string
 	}
 	f.sent = append(f.sent, channelID+":"+content)
 	return "m" + string(rune('0'+len(f.sent))), nil
+}
+func (f *fakeTransport) SendFile(_ context.Context, channelID, name, mediaType string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files = append(f.files, channelID+":"+name+":"+mediaType+":"+string(data))
+	return nil
 }
 func (f *fakeTransport) EditMessage(_ context.Context, channelID, messageID, content string) error {
 	f.mu.Lock()

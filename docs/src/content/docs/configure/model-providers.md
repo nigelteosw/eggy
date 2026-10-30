@@ -97,6 +97,10 @@ alone understands. Nothing here leaks into a request to any other provider.
   under *Advanced options* once the alias's provider is an OpenRouter one, and `/model add` takes them as `openrouter_order=a,b`,
   `openrouter_ignore=`, `openrouter_only=`, `openrouter_sort=`, and
   `openrouter_allow_fallbacks=false` after the positional words.
+- **Image output.** For a model the catalog lists as drawing, owner turns
+  ask for images with `modalities`, and the images that come back are shown
+  on the chat surface and kept with the turn's trace. See
+  [Generated images](/eggy/use/models/#generated-images).
 - **Cost and cache writes.** OpenRouter reports `cost` and
   `cache_write_tokens` on every response; both show on the turn's
   [trace](/eggy/use/traces/).

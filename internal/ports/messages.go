@@ -44,6 +44,13 @@ type ContentPart struct {
 	Filename string `json:"filename,omitempty"`
 }
 
+// ImageMarker is how a conversation record refers to an image the model drew
+// and the ImageStore kept. The record stays text -- bytes never enter it -- and
+// the web chat draws the marker as the image it names when it reads the
+// conversation back. It is plain enough for a later model call to read as
+// "an image was here".
+func ImageMarker(id string) string { return "[image:" + id + "]" }
+
 type Message struct {
 	Role       Role          `json:"role"`
 	Content    string        `json:"content,omitempty"`
@@ -64,4 +71,23 @@ type Message struct {
 	// from another origin is dropped, which is exactly what happened before
 	// the field existed.
 	ProviderReasoningOrigin string `json:"provider_reasoning_origin,omitempty"`
+}
+
+// UploadName is what a surface calls the part when it uploads it: the name a
+// document arrived with, or one made from an image's type. The surface reads
+// the format from the bytes; the name is what a person sees when they save it.
+func (p ContentPart) UploadName() string {
+	if p.Filename != "" {
+		return p.Filename
+	}
+	switch p.MediaType {
+	case "image/jpeg":
+		return "image.jpg"
+	case "image/webp":
+		return "image.webp"
+	case "image/gif":
+		return "image.gif"
+	default:
+		return "image.png"
+	}
 }

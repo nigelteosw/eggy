@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -95,6 +96,14 @@ func (c *Client) SendMessage(ctx context.Context, channelID, content string) (st
 		return "", err
 	}
 	return message.ID, nil
+}
+
+func (c *Client) SendFile(ctx context.Context, channelID, name, mediaType string, data []byte) error {
+	_, err := c.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Files:           []*discordgo.File{{Name: name, ContentType: mediaType, Reader: bytes.NewReader(data)}},
+		AllowedMentions: noMentions,
+	}, discordgo.WithContext(ctx))
+	return err
 }
 
 func (c *Client) EditMessage(ctx context.Context, channelID, messageID, content string) error {

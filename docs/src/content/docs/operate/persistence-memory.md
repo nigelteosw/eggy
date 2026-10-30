@@ -65,7 +65,7 @@ The model can call `recall_conversation` explicitly. Recall is bounded to ten re
 
 Within one turn, the live window is governed by a context budget rather than a step cap: work the loop itself produced can be folded into a checkpoint, while the instructions, durable context, the request, and any steering are preserved. See [Long turns, steering, and stopping](/eggy/use/long-turns/).
 
-Turn traces live in `eggy.db` too, bounded by `tracing.keep_turns` and `tracing.retention` — see [Reading traces](/eggy/use/traces/).
+Turn traces live in `eggy.db` too, bounded by `tracing.keep_turns` and `tracing.retention` — see [Reading traces](/eggy/use/traces/). Images a model [draws](/eggy/use/models/#generated-images) are stored with their turn's trace and pruned with it; the conversation keeps only a reference.
 
 ## Schedules and skills
 

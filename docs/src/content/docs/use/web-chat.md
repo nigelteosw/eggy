@@ -66,7 +66,9 @@ Conversation threads are owner-scoped. Successful direct turns are stored in
 `eggy.db`. A new thread is not created until its first message, so the **+**
 button cannot mint empty chats on top of an empty chat.
 
-Images are a Telegram-only input; the web composer is text.
+Images are a Telegram-only input; the web composer is text. Images the model
+[draws](/eggy/use/models/#generated-images) appear in the reply and stay
+there after a reload, for as long as the turn's trace is kept.
 
 ## Settings
 

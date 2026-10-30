@@ -76,6 +76,34 @@ On OpenRouter an alias can also pin which upstream vendors serve it; see
 Effort is chosen in the web panel and, like the model, is durable runtime state.
 The effort a turn ran on is recorded in its [trace](/eggy/use/traces/).
 
+## Generated images
+
+Pick an alias whose model can draw and ask for a picture. Eggy knows a model
+draws when OpenRouter's catalog lists `image` among its output modalities, and
+only then asks for image output, using the model's own list. A model that
+outputs only images is asked for images alone. No setting turns this on: it
+follows the alias you have selected.
+
+- **Only on turns you start.** Scheduled turns and check-ins never ask for an
+  image, because each picture is billed and nobody asked for it.
+- **Where it shows.** Telegram receives it as a photo and Discord as an
+  attachment in your DM. The web chat draws it in the reply and keeps it there
+  after a reload. Click it to open it full size.
+- **How long it is kept.** An image is stored in `eggy.db` with the
+  [trace](/eggy/use/traces/) of the turn that drew it, and is deleted when
+  that trace is pruned. **Settings → Tracing** (`tracing.keep_turns` and
+  `tracing.retention`) decides how long both last: by default the newest
+  500 turns, for at most seven days. Save an image you want to keep.
+- **With tracing off** an image is still sent to Telegram and Discord, but it
+  is not stored. The web chat cannot show it and says so.
+- **What is accepted.** PNG, JPEG, WebP, and GIF images up to 10 MB. A model
+  that answers with a link instead gets the link in its reply; Eggy never
+  fetches it.
+
+Only the reference to an image enters the conversation, never the image
+itself, so a later turn knows a picture was made but cannot see it. To edit
+one, save it and send it back as an attachment.
+
 ## Provider isolation
 
 Model request and response types stay inside the model adapter. The core

@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS trace_spans (
     duration_ns INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, sequence);
+CREATE TABLE IF NOT EXISTS trace_images (
+    id          TEXT    PRIMARY KEY,
+    trace_id    TEXT    NOT NULL,
+    media_type  TEXT    NOT NULL,
+    data        BLOB    NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trace_images_trace ON trace_images(trace_id);
 `
 
 // Store is a SQLite-backed durable message store.

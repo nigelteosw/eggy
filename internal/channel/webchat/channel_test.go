@@ -145,3 +145,27 @@ func TestChannelShowProgressBroadcastsAProgressEvent(t *testing.T) {
 		t.Fatalf("event=%#v", event)
 	}
 }
+
+// The browser draws an image from the panel by its stored id, the same marker
+// the conversation keeps, so the live reply and a reload show the same thing.
+// An image that was not kept cannot be fetched, and the thread says why.
+func TestChannelDeliverImageSendsTheStoredReference(t *testing.T) {
+	hub := NewHub()
+	channel := New(hub)
+	_, events, unregister := hub.Register("owner", "thread-1")
+	defer unregister()
+
+	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}
+	if err := channel.DeliverImage(webTurn("thread-1"), "img-1", image); err != nil {
+		t.Fatal(err)
+	}
+	if event := recv(t, events); event.Kind != EventMessage || event.Text != ports.ImageMarker("img-1") {
+		t.Fatalf("event=%#v", event)
+	}
+	if err := channel.DeliverImage(webTurn("thread-1"), "", image); err != nil {
+		t.Fatal(err)
+	}
+	if event := recv(t, events); event.Kind != EventMessage || event.Text != imageNotKept {
+		t.Fatalf("event=%#v", event)
+	}
+}

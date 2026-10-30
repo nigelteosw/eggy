@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -120,3 +121,22 @@ type TraceStore interface {
 	// optional housekeeping -- it is what makes recording them affordable.
 	PruneTraces(ctx context.Context, keep int, before time.Time) (removed int, err error)
 }
+
+// ImageStore keeps the images a model generated, each one belonging to the
+// trace of the turn that made it. It is a separate, narrow port because an
+// image is not a span -- it is the one trace record a person looks at outside
+// the trace -- but it shares the trace's lifetime: pruning a trace deletes its
+// images, so the tracing retention setting governs both.
+type ImageStore interface {
+	// SaveImage stores image under traceID and returns its identifier. A
+	// trace that is gone or belongs to another account stores nothing and
+	// returns ErrTraceNotFound.
+	SaveImage(ctx context.Context, traceID string, image ContentPart) (id string, err error)
+	// Image returns one of the acting account's images, found=false when it
+	// does not exist, has been pruned with its trace, or is someone else's.
+	Image(ctx context.Context, id string) (image ContentPart, found bool, err error)
+}
+
+// ErrTraceNotFound reports a write against a trace that no longer exists for
+// the acting account.
+var ErrTraceNotFound = errors.New("trace not found")

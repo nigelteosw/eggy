@@ -83,6 +83,11 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 			}
 		}
 	}
+	// Only a turn the owner is present for may draw: an image is billed apart
+	// from text, and a scheduled turn would be paying for one nobody asked for.
+	if s.ImageOutput != nil && policy.Kind == ports.TraceKindOwner {
+		options.OutputModalities = s.ImageOutput(ctx, alias)
+	}
 	effort, err := s.Runtime.ReasoningEffort(ctx)
 	if err != nil {
 		return err
@@ -188,6 +193,8 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	if usageErr != nil {
 		return usageErr
 	}
+	images := generatedImages(result.Message.Parts)
+	imageIDs := s.keepImages(ctx, trace.ID(), images)
 	if policy.RecordConversation {
 		conversationID := dest.ConversationID()
 		if !policy.InputAlreadyRecorded {
@@ -195,7 +202,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 				return err
 			}
 		}
-		if err := s.Conversation.Record(ctx, conversationID, result.Message, policy.Source); err != nil {
+		if err := s.Conversation.Record(ctx, conversationID, recordedReply(result.Message, imageIDs), policy.Source); err != nil {
 			return err
 		}
 		if dest.Kind == destination.Web && s.Threads != nil {
@@ -234,7 +241,95 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 			}
 		}
 	}
-	return s.Channel.Deliver(ctx, result.Message.Content)
+	// A reply that is only a picture has no text to send ahead of it, and an
+	// empty message would be a blank bubble on the web and an API error on
+	// Telegram.
+	if strings.TrimSpace(result.Message.Content) != "" || len(images) == 0 {
+		if err := s.Channel.Deliver(ctx, result.Message.Content); err != nil {
+			return err
+		}
+	}
+	return s.deliverImages(ctx, imageIDs, images)
+}
+
+// unkeptImage is what the conversation records for an image that was shown
+// but not stored, so a later read does not point at something that never was.
+const unkeptImage = "[image generated, not kept]"
+
+// generatedImages is the pictures in a model's reply.
+func generatedImages(parts []ports.ContentPart) []ports.ContentPart {
+	var images []ports.ContentPart
+	for _, part := range parts {
+		if part.Type == ports.ModalityImage {
+			images = append(images, part)
+		}
+	}
+	return images
+}
+
+// keepImages stores each image under the turn's trace and returns their
+// identifiers, "" for one that was not kept. Tracing off means no trace and
+// nothing kept; a failed save is logged and costs the image its later
+// reloads, not the turn its reply.
+func (s *Service) keepImages(ctx context.Context, traceID string, images []ports.ContentPart) []string {
+	ids := make([]string, len(images))
+	if s.Images == nil || traceID == "" {
+		return ids
+	}
+	for i, image := range images {
+		id, err := s.Images.SaveImage(ctx, traceID, image)
+		if err != nil {
+			s.Logger.Error("generated image not kept", "trace_id", traceID, "error", err)
+			continue
+		}
+		ids[i] = id
+	}
+	return ids
+}
+
+// recordedReply is the reply as the conversation keeps it: text, with each
+// image replaced by a reference to where it was kept.
+func recordedReply(reply ports.Message, imageIDs []string) ports.Message {
+	reply.Parts = nil
+	if len(imageIDs) == 0 {
+		return reply
+	}
+	references := make([]string, 0, len(imageIDs))
+	for _, id := range imageIDs {
+		if id == "" {
+			references = append(references, unkeptImage)
+		} else {
+			references = append(references, ports.ImageMarker(id))
+		}
+	}
+	reply.Content = strings.TrimSpace(strings.TrimSpace(reply.Content) + "\n\n" + strings.Join(references, "\n"))
+	return reply
+}
+
+// deliverImages shows each image on the surface the turn runs on. A surface
+// that cannot is told in words, once, rather than left with a reply that
+// silently lost its picture.
+func (s *Service) deliverImages(ctx context.Context, ids []string, images []ports.ContentPart) error {
+	if len(images) == 0 {
+		return nil
+	}
+	unsupported := func() error {
+		return s.Channel.Deliver(ctx, "I made an image, but this chat can't show images. Open the conversation in the web panel to see it.")
+	}
+	channel, ok := s.Channel.(ports.ImageChannel)
+	if !ok {
+		return unsupported()
+	}
+	for i, image := range images {
+		err := channel.DeliverImage(ctx, ids[i], image)
+		if errors.Is(err, ports.ErrImagesUnsupported) {
+			return unsupported()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // mergeSteered folds undrained steers into the single input a turn takes.

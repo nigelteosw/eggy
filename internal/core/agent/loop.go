@@ -63,6 +63,10 @@ type RunOptions struct {
 	// of starting a competing one. The loop never blocks on it -- a turn with
 	// nothing pending proceeds exactly as before.
 	PendingInput func() []ports.Message
+	// OutputModalities is what every model call of the turn may answer with
+	// besides text. The turn sets it for a model whose provider says it draws;
+	// the loop only passes it on.
+	OutputModalities []ports.Modality
 }
 
 type RunResult struct {
@@ -214,6 +218,7 @@ func (l *Loop) Run(ctx context.Context, alias, effort string, input ports.Messag
 		response, err := target.Model.Generate(ctx, ports.ModelRequest{
 			Model: target.ModelID, Messages: window.messages(), Tools: definitions,
 			ReasoningEffort: effort, ProviderRouting: target.ProviderRouting,
+			OutputModalities: options.OutputModalities,
 		})
 		if err != nil {
 			return result, err

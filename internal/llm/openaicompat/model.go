@@ -55,6 +55,10 @@ type requestBody struct {
 	Provider json.RawMessage `json:"provider,omitempty"`
 	// Plugins is OpenRouter's file-parser setting, sent only with a document.
 	Plugins json.RawMessage `json:"plugins,omitempty"`
+	// Modalities is OpenRouter's request for output beyond text. It is sent
+	// only for a model the catalog lists as drawing, and as that model's own
+	// list: an image-only model refuses "text".
+	Modalities []string `json:"modalities,omitempty"`
 }
 
 type reasoningOptions struct {
@@ -95,6 +99,10 @@ type providerResponseMessage struct {
 	// and some are encrypted, and the one thing OpenRouter asks is that they
 	// go back unmodified.
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
+	// Images is what an image model drew, each as a data URL or a link.
+	Images []struct {
+		ImageURL providerImageURL `json:"image_url"`
+	} `json:"images,omitempty"`
 }
 
 type providerContentPart struct {
@@ -218,6 +226,11 @@ func (m *Model) buildRequest(ctx context.Context, input ports.ModelRequest) (req
 		// No effort chosen means OpenRouter's own default for the model,
 		// which its catalog reports as default_effort. An owner who wants
 		// reasoning off picks "none" from the levels, where offered.
+		if slices.Contains(input.OutputModalities, ports.ModalityImage) {
+			for _, modality := range input.OutputModalities {
+				body.Modalities = append(body.Modalities, string(modality))
+			}
+		}
 	}
 	for _, message := range input.Messages {
 		translated, err := m.translateMessage(message)
@@ -247,7 +260,9 @@ func (m *Model) translateMessage(message ports.Message) (providerRequestMessage,
 	if m.openRouter && message.ProviderReasoningOrigin == openRouterOrigin {
 		translated.ReasoningDetails = message.ProviderReasoning
 	}
-	if len(message.Parts) > 0 {
+	// An assistant's parts are images it drew. Chat Completions has no image
+	// part for the assistant role, so those go back as the text alone.
+	if len(message.Parts) > 0 && message.Role != ports.RoleAssistant {
 		content := []providerContentPart{{Type: "text", Text: message.Content}}
 		for _, part := range message.Parts {
 			if strings.TrimSpace(part.MediaType) == "" {
@@ -316,6 +331,18 @@ func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 	if m.openRouter && len(providerResult.ReasoningDetails) > 0 && string(providerResult.ReasoningDetails) != "null" {
 		message.ProviderReasoning, message.ProviderReasoningOrigin = providerResult.ReasoningDetails, openRouterOrigin
 	}
+	for _, image := range providerResult.Images {
+		if part, ok := generatedImage(image.ImageURL.URL); ok {
+			message.Parts = append(message.Parts, part)
+			continue
+		}
+		// A link is never fetched: the address came from the model's
+		// response, and the server following it would be the server
+		// fetching whatever the response named. The owner gets the link.
+		if link := strings.TrimSpace(image.ImageURL.URL); strings.HasPrefix(link, "https://") {
+			message.Content = strings.TrimSpace(message.Content + "\n\n" + link)
+		}
+	}
 	for _, call := range providerResult.ToolCalls {
 		arguments := json.RawMessage(call.Function.Arguments)
 		if !json.Valid(arguments) {
@@ -336,6 +363,33 @@ func (m *Model) decodeResponse(body io.Reader) (ports.ModelResponse, error) {
 		ReasoningTokens:    result.Usage.CompletionTokenDetails.ReasoningTokens,
 		CostUSD:            result.Usage.Cost,
 	}}, nil
+}
+
+// generatedImageTypes are the formats an image model's output is kept in.
+// Anything else -- SVG above all, which is a document that can carry script --
+// is refused, because the panel serves stored images from its own origin.
+var generatedImageTypes = []string{"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+// maxGeneratedImageBytes bounds one decoded image. It matches the largest
+// photo Telegram accepts from a bot, which is where most of them go.
+const maxGeneratedImageBytes = 10 << 20
+
+// generatedImage decodes a base64 data URL into an image part, and reports
+// false for a link, an unsafe type, an oversized image or bad encoding.
+func generatedImage(dataURL string) (ports.ContentPart, bool) {
+	header, payload, found := strings.Cut(strings.TrimSpace(dataURL), ",")
+	mediaType, isBase64 := strings.CutSuffix(strings.TrimPrefix(header, "data:"), ";base64")
+	if !found || !strings.HasPrefix(header, "data:") || !isBase64 || !slices.Contains(generatedImageTypes, strings.ToLower(mediaType)) {
+		return ports.ContentPart{}, false
+	}
+	if base64.StdEncoding.DecodedLen(len(payload)) > maxGeneratedImageBytes {
+		return ports.ContentPart{}, false
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil || len(data) == 0 {
+		return ports.ContentPart{}, false
+	}
+	return ports.ContentPart{Type: ports.ModalityImage, MediaType: strings.ToLower(mediaType), Data: data}, true
 }
 
 func isOpenRouterURL(baseURL string) bool {
@@ -384,7 +438,8 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 			// means the provider said nothing about input, not that the model
 			// takes text only.
 			Architecture *struct {
-				InputModalities []string `json:"input_modalities"`
+				InputModalities  []string `json:"input_modalities"`
+				OutputModalities []string `json:"output_modalities"`
 			} `json:"architecture"`
 		} `json:"data"`
 	}
@@ -405,6 +460,9 @@ func (m *Model) ListModels(ctx context.Context) ([]ports.CatalogModel, error) {
 			model.InputModalities = make([]ports.Modality, 0, len(entry.Architecture.InputModalities))
 			for _, modality := range entry.Architecture.InputModalities {
 				model.InputModalities = append(model.InputModalities, ports.Modality(modality))
+			}
+			for _, modality := range entry.Architecture.OutputModalities {
+				model.OutputModalities = append(model.OutputModalities, ports.Modality(modality))
 			}
 		}
 		models = append(models, model)

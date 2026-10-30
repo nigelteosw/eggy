@@ -111,3 +111,19 @@ func TestSplitMessageBoundaries(t *testing.T) {
 		t.Fatalf("chunks=%d lens=%d,%d", len(chunks), len(chunks[0]), len(chunks[len(chunks)-1]))
 	}
 }
+
+// A drawn image is attached to a message in the owner's own DM, under the same
+// check every other delivery gets.
+func TestDeliverImageAttachesToTheOwnersOwnDM(t *testing.T) {
+	channel, transport := newTestChannel(t)
+	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/webp", Data: []byte("webp")}
+	if err := channel.DeliverImage(dmCtx("alice", "dm-a"), "img-1", image); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.files) != 1 || transport.files[0] != "dm-a:image.webp:image/webp:webp" {
+		t.Fatalf("files=%v", transport.files)
+	}
+	if err := channel.DeliverImage(dmCtx("alice", "dm-b"), "img-1", image); err == nil {
+		t.Fatal("an image into someone else's DM must be refused")
+	}
+}

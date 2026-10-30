@@ -123,6 +123,10 @@ type WebUIConfig struct {
 	// tracing is switched off, which leaves the routes unmounted and the
 	// panel's Traces view absent rather than empty.
 	Traces TraceDirectory
+	// Images serves what a model drew, which is kept under its turn's trace.
+	// Nil exactly when Traces is: with tracing off nothing is kept, and the
+	// route is absent.
+	Images ImageReader
 	// Finance is the expense tracker, shared with the model's finance tool, or
 	// nil when finance.enabled is off. Nil leaves its routes unmounted and
 	// keeps "finance" out of the session's feature list, so the panel draws no
@@ -409,6 +413,9 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.Traces != nil {
 		mux.Handle("GET /api/traces", guard(newTraceListHandler(webConfig.Traces)))
 		mux.Handle("GET /api/traces/{id}", guard(newTraceDetailHandler(webConfig.Traces)))
+	}
+	if webConfig.Images != nil {
+		mux.Handle("GET /api/images/{id}", guard(newImageHandler(webConfig.Images)))
 	}
 	mux.Handle("GET /api/schedules", guard(newScheduleListHandler(webConfig.Schedules)))
 	mux.Handle("DELETE /api/schedules/{id}", guard(newScheduleDeleteHandler(webConfig.Schedules)))

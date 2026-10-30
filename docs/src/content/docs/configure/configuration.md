@@ -95,6 +95,8 @@ tracing:
 
 Bodies are recorded in full, which is the point — a truncated prompt is exactly the part you wanted to read. The two ceilings are what make that affordable, and both are enforced: `keep_turns` bounds how many traces are retained regardless of age, `retention` drops older ones even when the count is under that cap, and pruning runs as each turn completes rather than on a background timer. `max_body_bytes` is a safety valve on one recorded prompt or tool output, not a budget: a truncated body says so in the record.
 
+The same two ceilings govern [images a model draws](/eggy/use/models/#generated-images). Each one is stored with its turn's trace and deleted when that trace is pruned. With tracing off, generated images are sent but not stored.
+
 A prompt is the most sensitive document Eggy holds — it carries SOUL.md, USER.md, MEMORY.md and your recent conversation — so traces are stored in the same SQLite database as your messages, served only behind the owner session, and passed through the same secret redaction that guards durable context before they are written. Nothing in the agent's own context ever reads a trace back, so a recorded prompt cannot feed itself into the next one.
 
 The settings panel has a **Tracing** page that edits this section as a form, including a **Restore defaults** button — a blank field there means "use the default", so restoring is the ordinary save with the fields emptied rather than a separate reset path. Like every other section, it writes `config.yaml` and applies on the next restart.

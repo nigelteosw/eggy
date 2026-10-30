@@ -15,6 +15,7 @@ import (
 var (
 	_ ports.TrackableChannel = (*Channel)(nil)
 	_ ports.TypingChannel    = (*Channel)(nil)
+	_ ports.ImageChannel     = (*Channel)(nil)
 )
 
 // maxMessageLength is Discord's content limit per message.
@@ -88,6 +89,16 @@ func (c *Channel) DeliverTrackable(ctx context.Context, text string) (string, er
 		messageID = id
 	}
 	return messageID, nil
+}
+
+// DeliverImage attaches a drawn image to a message in the owner's DM, behind
+// the same ownership check as text.
+func (c *Channel) DeliverImage(ctx context.Context, _ string, image ports.ContentPart) error {
+	channelID, err := c.channelID(ctx)
+	if err != nil {
+		return err
+	}
+	return c.transport.SendFile(ctx, channelID, image.UploadName(), image.MediaType, image.Data)
 }
 
 func (c *Channel) EditText(ctx context.Context, messageID, text string) error {

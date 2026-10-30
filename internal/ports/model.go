@@ -25,6 +25,11 @@ type ModelRequest struct {
 	// already in the provider's own wire shape. Only the adapter it was
 	// written for understands it; the core passes it through untouched.
 	ProviderRouting json.RawMessage `json:"provider_routing,omitempty"`
+	// OutputModalities is what the response may contain, when the model can
+	// produce more than text. Empty means text, and an adapter sends nothing:
+	// only a model that can draw is asked to, because the provider bills the
+	// request differently once an image is allowed.
+	OutputModalities []Modality `json:"output_modalities,omitempty"`
 }
 
 type ModelResponse struct {
@@ -102,6 +107,17 @@ type CatalogModel struct {
 	// difference between "this model is text-only" and "nobody said". Read it
 	// through Accepts rather than directly.
 	InputModalities []Modality `json:"input_modalities,omitempty"`
+	// OutputModalities is what the provider says the model produces, with the
+	// same nil-means-unsaid rule as InputModalities. An image model lists
+	// "image"; one that only draws lists nothing else.
+	OutputModalities []Modality `json:"output_modalities,omitempty"`
+}
+
+// Produces reports whether the model can output one modality. Unlike Accepts
+// there is no "unknown" to honour: a model is only asked for an image when its
+// provider has said it makes them.
+func (m CatalogModel) Produces(modality Modality) bool {
+	return slices.Contains(m.OutputModalities, modality)
 }
 
 // Accepts reports whether the model reads input of one modality, and whether

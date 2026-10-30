@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"errors"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 )
@@ -52,6 +53,20 @@ type TypingChannel interface {
 	Channel
 	SendTyping(ctx context.Context) error
 }
+
+// ImageChannel is a Channel that can show a picture the model made. id is the
+// stored image's identifier, empty when it was not kept, for a surface that
+// shows images by reference rather than by sending the bytes. A surface
+// without it is told in words that an image was made and cannot be shown.
+type ImageChannel interface {
+	Channel
+	DeliverImage(ctx context.Context, id string, image ContentPart) error
+}
+
+// ErrImagesUnsupported is DeliverImage's answer from a channel that can only
+// sometimes show images -- a router whose turn landed on a text-only surface.
+// The caller treats it exactly as a channel that is not an ImageChannel.
+var ErrImagesUnsupported = errors.New("this surface cannot show images")
 
 // ProgressChannel is a Channel that can show what a turn is doing right now
 // -- "Calling web_search..." -- without that status becoming a message in

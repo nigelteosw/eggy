@@ -214,6 +214,9 @@ sends the attachment and recognizes the provider's refusal.
 Image bytes are not retained in conversation history. To ask about the same
 image in a later turn, attach it again.
 
+A model that [draws](/eggy/use/models/#generated-images) replies with its
+picture as a photo, after any text it wrote.
+
 ## Webhook delivery
 
 Telegram posts to `server.telegram_webhook_path`, normally `/webhooks/telegram`. The adapter validates `TELEGRAM_WEBHOOK_SECRET` and queues accepted owner messages.

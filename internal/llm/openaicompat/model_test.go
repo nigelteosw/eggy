@@ -2,6 +2,7 @@ package openaicompat
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -573,5 +574,102 @@ func TestModelMarksAResponseCutAtTheOutputLimit(t *testing.T) {
 		if result.Truncated != tc.want {
 			t.Fatalf("finish_reason %q: Truncated = %v, want %v", tc.reason, result.Truncated, tc.want)
 		}
+	}
+}
+
+// A model that can draw is asked to only when the request says so, and only on
+// OpenRouter: the field is OpenRouter's, and a plain Chat Completions provider
+// would reject or misread it.
+func TestOpenRouterAsksForImageOutputOnlyWhenRequested(t *testing.T) {
+	for _, tc := range []struct {
+		name, baseURL string
+		modalities    []ports.Modality
+		want          string
+	}{
+		{"requested", "https://openrouter.ai/api/v1", []ports.Modality{ports.ModalityImage, ports.ModalityText}, `"modalities":["image","text"]`},
+		{"image only", "https://openrouter.ai/api/v1", []ports.Modality{ports.ModalityImage}, `"modalities":["image"]`},
+		{"not requested", "https://openrouter.ai/api/v1", nil, ""},
+		{"other provider", "https://api.example/v1", []ports.Modality{ports.ModalityImage, ports.ModalityText}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body []byte
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				body, _ = io.ReadAll(request.Body)
+				return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+			})}
+			if _, err := New(tc.baseURL, "key", client).Generate(context.Background(), ports.ModelRequest{Model: "google/gemini-image", OutputModalities: tc.modalities}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				if strings.Contains(string(body), `"modalities"`) {
+					t.Fatalf("body=%s, want no modalities", body)
+				}
+				return
+			}
+			if !strings.Contains(string(body), tc.want) {
+				t.Fatalf("body=%s, want %s", body, tc.want)
+			}
+		})
+	}
+}
+
+// Generated images arrive beside the text as data URLs. They become image
+// parts on the assistant message; anything that is not an inline image of a
+// type a browser can safely show is never fetched or trusted, and its link is
+// kept in the text instead so the owner can still see it.
+func TestOpenRouterReturnsGeneratedImagesAsParts(t *testing.T) {
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG fake"))
+	response := `{"choices":[{"message":{"role":"assistant","content":"Here it is.","images":[` +
+		`{"type":"image_url","image_url":{"url":"data:image/png;base64,` + png + `"}},` +
+		`{"type":"image_url","image_url":{"url":"https://cdn.example/cat.png"}},` +
+		`{"type":"image_url","image_url":{"url":"data:image/svg+xml;base64,PHN2Zz4="}}]}}]}`
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, response), nil
+	})}
+	result, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "google/gemini-image"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := result.Message.Parts
+	if len(parts) != 1 || parts[0].Type != ports.ModalityImage || parts[0].MediaType != "image/png" || string(parts[0].Data) != "\x89PNG fake" {
+		t.Fatalf("parts=%#v", parts)
+	}
+	if !strings.Contains(result.Message.Content, "Here it is.") || !strings.Contains(result.Message.Content, "https://cdn.example/cat.png") {
+		t.Fatalf("content=%q, want the text and the linked image", result.Message.Content)
+	}
+	if strings.Contains(result.Message.Content, "svg") {
+		t.Fatalf("content=%q, an unsafe inline image must be dropped", result.Message.Content)
+	}
+}
+
+// An assistant message carrying images never goes back on the wire with them:
+// Chat Completions has no image part for the assistant role.
+func TestAssistantImagesAreNotSentBack(t *testing.T) {
+	var body []byte
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ = io.ReadAll(request.Body)
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`), nil
+	})}
+	_, err := New("https://openrouter.ai/api/v1", "key", client).Generate(context.Background(), ports.ModelRequest{Model: "m", Messages: []ports.Message{
+		{Role: ports.RoleAssistant, Content: "drew it", Parts: []ports.ContentPart{{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "image_url") || !strings.Contains(string(body), `"content":"drew it"`) {
+		t.Fatalf("body=%s", body)
+	}
+}
+
+func TestListModelsParsesOutputModalities(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"data":[{"id":"vendor/painter","architecture":{"input_modalities":["text"],"output_modalities":["image","text"]}},{"id":"vendor/writer","architecture":{"input_modalities":["text"],"output_modalities":["text"]}}]}`), nil
+	})}
+	models, err := New("https://openrouter.ai/api/v1", "key", client).ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !models[0].Produces(ports.ModalityImage) || models[1].Produces(ports.ModalityImage) {
+		t.Fatalf("models=%#v", models)
 	}
 }

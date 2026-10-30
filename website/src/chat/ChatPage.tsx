@@ -9,6 +9,7 @@ import { usesTouchKeyboard } from "../lib/composer";
 import { replyQuote } from "../lib/reply";
 import { timeAgo } from "../lib/time";
 import { cn, errorMessage } from "../lib/utils";
+import { withImages } from "./images";
 
 // The status steps a turn went through, and how long it ran, kept on the reply
 // the turn produced. Live steps are not persisted, so a reloaded chat shows
@@ -251,9 +252,16 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
               {children}
             </a>
           ),
+          // A drawn image opens full size in its own tab; in the thread it is
+          // bounded so a tall one does not push the conversation away.
+          img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => (
+            <a href={src} target="_blank" rel="noreferrer noopener" className="not-prose block">
+              <img src={src} alt={alt ?? ""} loading="lazy" className="my-2 max-h-[28rem] max-w-full rounded-xl" />
+            </a>
+          ),
         }}
       >
-        {text}
+        {withImages(text)}
       </Markdown>
     </div>
   );

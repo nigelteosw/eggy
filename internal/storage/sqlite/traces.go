@@ -193,6 +193,12 @@ func (s *Store) PruneTraces(ctx context.Context, keep int, before time.Time) (in
 	`); err != nil {
 		return 0, err
 	}
+	// Images share their trace's lifetime the same way spans do.
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM trace_images WHERE trace_id NOT IN (SELECT id FROM traces)
+	`); err != nil {
+		return 0, err
+	}
 	return int(removed), s.tightenPrivateFiles()
 }
 

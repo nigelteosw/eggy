@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,7 @@ import (
 var (
 	_ ports.TrackableChannel = (*Client)(nil)
 	_ ports.TypingChannel    = (*Client)(nil)
+	_ ports.ImageChannel     = (*Client)(nil)
 )
 
 const maxMessageLength = 3500
@@ -249,11 +252,47 @@ func (c *Client) call(ctx context.Context, method string, payload any) (json.Raw
 	if err != nil {
 		return nil, err
 	}
+	return c.post(ctx, method, "application/json", body)
+}
+
+// DeliverImage sends a drawn image as a photo. The bytes are uploaded rather
+// than linked: Telegram fetching a URL would need the panel to be public, and
+// the image to outlive its trace. The stored id plays no part here.
+func (c *Client) DeliverImage(ctx context.Context, _ string, image ports.ContentPart) error {
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	if err := form.WriteField("chat_id", chatID); err != nil {
+		return err
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", `form-data; name="photo"; filename="`+image.UploadName()+`"`)
+	header.Set("Content-Type", image.MediaType)
+	file, err := form.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(image.Data); err != nil {
+		return err
+	}
+	if err := form.Close(); err != nil {
+		return err
+	}
+	_, err = c.post(ctx, "sendPhoto", form.FormDataContentType(), body.Bytes())
+	return err
+}
+
+// post sends one Bot API request and unwraps Telegram's {"ok", "result"}
+// envelope, for a JSON call and an upload alike.
+func (c *Client) post(ctx context.Context, method, contentType string, body []byte) (json.RawMessage, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/bot"+c.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", contentType)
 	response, err := c.http.Do(request)
 	if err != nil {
 		// The transport error names the request URL, and the bot token is

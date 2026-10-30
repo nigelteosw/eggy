@@ -121,4 +121,11 @@ type Options struct {
 	// Only a known "no" blocks one: an unknown model is sent the part rather
 	// than refused on a guess.
 	PartSupport func(ctx context.Context, alias string, kind ports.Modality) (supported, known bool)
+	// ImageOutput returns what the model behind an alias can answer with when
+	// that includes an image, and nil otherwise. Nil means no provider says
+	// any model draws, and no turn asks for an image.
+	ImageOutput func(ctx context.Context, alias string) []ports.Modality
+	// Images keeps what a model drew, under the turn's trace. Nil, or a turn
+	// with tracing off, still shows the image; it is just not kept.
+	Images ports.ImageStore
 }

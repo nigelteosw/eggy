@@ -403,3 +403,46 @@ func TestClientDeleteMessageNamesTheChatAndTheMessage(t *testing.T) {
 		t.Fatalf("request=%#v", request)
 	}
 }
+
+// A drawn image goes to Telegram as a photo upload, to the account's own chat,
+// with the bytes as a file part rather than a URL Telegram would have to fetch.
+func TestClientDeliverImageUploadsAPhoto(t *testing.T) {
+	var chatID, filename, contentType string
+	var uploaded []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottoken/sendPhoto" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		chatID = r.FormValue("chat_id")
+		file, header, err := r.FormFile("photo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		uploaded, _ = io.ReadAll(file)
+		filename, contentType = header.Filename, header.Header.Get("Content-Type")
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":7}}`)
+	}))
+	defer server.Close()
+
+	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/jpeg", Data: []byte("jpeg bytes")}
+	if err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DeliverImage(context.Background(), "img-1", image); err != nil {
+		t.Fatal(err)
+	}
+	if chatID != "42" || string(uploaded) != "jpeg bytes" || filename != "image.jpg" || contentType != "image/jpeg" {
+		t.Fatalf("chat=%q file=%q type=%q bytes=%q", chatID, filename, contentType, uploaded)
+	}
+}
+
+func TestClientDeliverImageReportsTelegramRefusalWithoutTheToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":false,"description":"Bad Request: PHOTO_INVALID_DIMENSIONS"}`)
+	}))
+	defer server.Close()
+	err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DeliverImage(context.Background(), "", ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")})
+	if err == nil || !strings.Contains(err.Error(), "PHOTO_INVALID_DIMENSIONS") || strings.Contains(err.Error(), "token") {
+		t.Fatalf("err=%v", err)
+	}
+}

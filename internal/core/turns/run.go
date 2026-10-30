@@ -150,8 +150,9 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	}()
 	turnContext = services.WithSelectedModel(turnContext, alias)
 	// What generate_image draws lands here rather than in the calling model's
-	// reply, and joins the reply's own pictures below.
-	turnContext, drawn := services.WithGeneratedImages(turnContext)
+	// reply, and joins the reply's own pictures below. The owner's photos go
+	// with it, so the image model can edit what it was shown.
+	turnContext, drawn := services.WithGeneratedImages(turnContext, input.Parts)
 	options.PendingInput = func() []ports.Message { return s.Registry.Pending(ownerContext) }
 	stopTyping := func() {}
 	if s.Presenter != nil {

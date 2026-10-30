@@ -41,7 +41,7 @@ func NewGenerateImageTool(target ImageTarget) ports.Tool {
 func (t generateImageTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
 		Name:        "generate_image",
-		Description: "Draw a picture with the owner's image model. Call it whenever the owner asks for an image, photo, drawing or artwork, rather than offering a prompt for them to use elsewhere. The picture is attached to your reply automatically; do not describe it as a link.",
+		Description: "Draw a picture with the owner's image model. Call it whenever the owner asks for an image, photo, drawing or artwork, rather than offering a prompt for them to use elsewhere. Photos the owner attached to this message are handed to the image model with the prompt, so to edit one, say what to change and what to keep rather than describing the whole scene. The picture is attached to your reply automatically; do not describe it as a link.",
 		Schema:      generateImageSchema,
 		// It changes nothing in Eggy or anywhere else: the provider is asked
 		// for a picture the way a turn asks it for text. Unprompted turns
@@ -71,7 +71,7 @@ func (t generateImageTool) Execute(ctx context.Context, raw json.RawMessage) (js
 	}
 	response, err := t.target.Model.Generate(ctx, ports.ModelRequest{
 		Model:            t.target.ModelID,
-		Messages:         []ports.Message{{Role: ports.RoleUser, Content: prompt}},
+		Messages:         []ports.Message{{Role: ports.RoleUser, Content: prompt, Parts: collector.Attached()}},
 		ProviderRouting:  t.target.ProviderRouting,
 		OutputModalities: output,
 	})
@@ -98,10 +98,13 @@ func (t generateImageTool) Execute(ctx context.Context, raw json.RawMessage) (js
 }
 
 // GeneratedImages gathers what generate_image drew during one turn, so the
-// turn can deliver and keep the pictures with its reply.
+// turn can deliver and keep the pictures with its reply. It also holds the
+// photos the owner attached to the turn: without them an edit is a fresh
+// drawing from a description of a photo the image model never saw.
 type GeneratedImages struct {
-	mu     sync.Mutex
-	images []ports.ContentPart
+	mu       sync.Mutex
+	images   []ports.ContentPart
+	attached []ports.ContentPart
 }
 
 func (g *GeneratedImages) add(part ports.ContentPart) {
@@ -119,9 +122,20 @@ func (g *GeneratedImages) Images() []ports.ContentPart {
 
 type generatedImagesKey struct{}
 
-// WithGeneratedImages opens a turn's image collection.
-func WithGeneratedImages(ctx context.Context) (context.Context, *GeneratedImages) {
+// Attached returns the photos the owner sent with the turn.
+func (g *GeneratedImages) Attached() []ports.ContentPart {
+	return append([]ports.ContentPart(nil), g.attached...)
+}
+
+// WithGeneratedImages opens a turn's image collection, given the parts the
+// owner attached; only the images among them reach the image model.
+func WithGeneratedImages(ctx context.Context, attached []ports.ContentPart) (context.Context, *GeneratedImages) {
 	collector := &GeneratedImages{}
+	for _, part := range attached {
+		if part.Type == ports.ModalityImage {
+			collector.attached = append(collector.attached, part)
+		}
+	}
 	return context.WithValue(ctx, generatedImagesKey{}, collector), collector
 }
 

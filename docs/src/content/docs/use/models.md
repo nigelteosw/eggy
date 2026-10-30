@@ -99,6 +99,10 @@ Eggy knows a model draws when OpenRouter's catalog lists `image` among its
 output modalities, and only then asks for image output, using the model's own
 list. A model that outputs only images is asked for images alone.
 
+- **Editing a photo.** Send the photo with what to change ("make the cat
+  chonkier"). The photos attached to that message go to the image model with
+  the prompt, so it edits your picture rather than drawing a new one. A picture
+  from an earlier message is not sent; attach it again to edit it.
 - **Only on turns you start.** Scheduled turns and check-ins never ask for an
   image, because each picture is billed and nobody asked for it.
 - **Where it shows.** Telegram receives it as a photo and Discord as an

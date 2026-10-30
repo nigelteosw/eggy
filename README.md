@@ -161,7 +161,7 @@ There is no `extensions/` directory; the name is reserved for owner-addable feat
 Eggy requires Go 1.26 and Bun for the embedded web asset build.
 
 ```sh
-make fmt vet test race build
+make fmt vet race build
 ```
 
 Run locally:

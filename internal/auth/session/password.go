@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"testing"
 	"unicode/utf8"
 )
 
@@ -21,11 +22,9 @@ import (
 // its own work factor, so a tampered or malformed encoding can neither make
 // verification cheap nor make it unbounded.
 const (
-	passwordVersion    = "eggy-pbkdf2-sha256-v1"
-	passwordIterations = 600000
-	passwordIterField  = "600000"
-	passwordSaltBytes  = 16
-	passwordKeyBytes   = 32
+	passwordVersion   = "eggy-pbkdf2-sha256-v1"
+	passwordSaltBytes = 16
+	passwordKeyBytes  = 32
 
 	// MinPasswordBytes is the floor for passwords people choose. Environment
 	// passwords configured by the operator are exempt (see
@@ -34,6 +33,20 @@ const (
 	// MaxPasswordBytes bounds every password Eggy accepts on any path.
 	MaxPasswordBytes = 256
 )
+
+// The work factor is fixed per binary. A `go test` binary uses a token one:
+// at 600000, one derivation costs over a second under -race, and the panel
+// and bootstrap suites hash on nearly every test. testing.Testing is false in
+// every binary go build produces, so production cannot reach the token value,
+// and an encoding made by a test is refused by production's field check.
+var passwordIterations, passwordIterField = passwordWorkFactor()
+
+func passwordWorkFactor() (int, string) {
+	if testing.Testing() {
+		return 2048, "2048"
+	}
+	return 600000, "600000"
+}
 
 var (
 	passwordEncoding = base64.RawStdEncoding.Strict()

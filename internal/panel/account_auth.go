@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/auth/session"
@@ -233,11 +234,11 @@ func resolveUsername(webConfig WebUIConfig, username string) (string, bool) {
 	return account.ID, true
 }
 
-// dummyPasswordHash is one valid encoding made at handler construction, so
-// a login for a username that does not exist costs the same verification a
-// wrong password does. Made once: hashing per request would be the cost
-// without the point.
-func dummyPasswordHash() string {
+// dummyPasswordHash is one valid encoding, so a login for a username that
+// does not exist costs the same verification a wrong password does. Made once
+// per process: hashing per request, or per handler on every restart, would be
+// the cost without the point.
+var dummyPasswordHash = sync.OnceValue(func() string {
 	encoded, err := session.HashPassword("eggy-dummy-verification-password")
 	if err != nil {
 		// rand.Read failing is the only way here; verification against an
@@ -246,7 +247,7 @@ func dummyPasswordHash() string {
 		return ""
 	}
 	return encoded
-}
+})
 
 // accountAuthPresent is the session guard's second check: the account's
 // credential row must exist and not be retired. It is what stops an ID

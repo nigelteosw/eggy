@@ -528,6 +528,6 @@ through existing tools and `/web`; add chat commands only for a concrete
 repeated workflow.
 
 For behavior changes, run the focused regression first, then
-`make fmt vet test race build`. Run `make smoke` when Docker is available;
+`make fmt vet race build`. Run `make smoke` when Docker is available;
 otherwise report the environment blocker. A roadmap-only review does not
 establish a passing runtime or production baseline.

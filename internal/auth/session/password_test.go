@@ -83,7 +83,7 @@ func TestVerifyPasswordRejectsMalformedEncodings(t *testing.T) {
 		"wrong algorithm":      join("eggy-scrypt-v1", parts[1], parts[2], parts[3]),
 		"wrong version":        join("eggy-pbkdf2-sha256-v2", parts[1], parts[2], parts[3]),
 		"low iterations":       join(parts[0], "1000", parts[2], parts[3]),
-		"padded iterations":    join(parts[0], "0600000", parts[2], parts[3]),
+		"padded iterations":    join(parts[0], "0"+parts[1], parts[2], parts[3]),
 		"malformed salt":       join(parts[0], parts[1], "not*base64", parts[3]),
 		"malformed key":        join(parts[0], parts[1], parts[2], "not*base64"),
 		"short salt":           join(parts[0], parts[1], "AAAA", parts[3]),

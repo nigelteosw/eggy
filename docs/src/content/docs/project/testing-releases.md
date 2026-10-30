@@ -4,20 +4,20 @@ description: Run Eggy's required checks, understand CI coverage, and distinguish
 eyebrow: Project
 ---
 
-Run the focused package test while developing, then execute the complete repository gate.
+Run the focused package test while developing (`go test ./internal/<pkg>/...`), then execute the complete repository gate once before committing.
 
 ## Required verification
 
 ```sh
-make fmt vet test race build
+make fmt vet race build
 ```
 
-This formats Go packages, vets and tests the repository, runs the race detector, builds the embedded web application, and compiles `eggyd`.
+This formats Go packages, vets the repository, runs every test under the race detector, builds the embedded web application, and compiles `eggyd`.
 
 If the default Go cache is unwritable in your environment:
 
 ```sh
-GOCACHE=/tmp/eggy-go-cache make vet test race build
+GOCACHE=/tmp/eggy-go-cache make vet race build
 ```
 
 ## Docker smoke

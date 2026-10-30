@@ -344,6 +344,39 @@
   }
 }
 
+/* The frame a drawn image lands in while the model is still drawing: a dot
+   field that breathes, faded at the edges, under a slow diagonal sheen. */
+.image-placeholder {
+  color: hsl(var(--neutral-500));
+}
+.image-placeholder-dots {
+  background-image: radial-gradient(currentColor 1px, transparent 1.5px);
+  background-size: 11px 11px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 15%, transparent 72%);
+  mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 15%, transparent 72%);
+  animation: image-placeholder-breathe 2.4s ease-in-out infinite;
+}
+.image-placeholder-sheen {
+  background: linear-gradient(115deg, transparent 30%, hsl(var(--foreground) / 0.06) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: image-placeholder-sheen 2.8s linear infinite;
+}
+@keyframes image-placeholder-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+@keyframes image-placeholder-sheen {
+  from { background-position: 150% 0; }
+  to { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .image-placeholder-dots,
+  .image-placeholder-sheen {
+    animation: none;
+  }
+}
+
 @layer utilities {
   /* Thin, self-effacing scrollbars -- the platform default bars are
      visually louder than anything else in the chat column. */

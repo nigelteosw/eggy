@@ -83,3 +83,32 @@ func TestSaveImageRefusesAMissingTrace(t *testing.T) {
 		t.Fatalf("err=%v, want ErrTraceNotFound", err)
 	}
 }
+
+// The traces view shows what a turn drew, so a trace's detail names its
+// images in the order they were made -- and only the acting account's trace
+// is read at all.
+func TestTraceDetailNamesItsImages(t *testing.T) {
+	t.Parallel()
+
+	store := openTraceStore(t)
+	startImageTrace(t, store, "owner", "trace-1", time.Now().UTC())
+	startImageTrace(t, store, "owner", "trace-2", time.Now().UTC())
+	first, err := store.SaveImage(as("owner"), "trace-1", drawn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.SaveImage(as("owner"), "trace-1", drawn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveImage(as("owner"), "trace-2", drawn); err != nil {
+		t.Fatal(err)
+	}
+	trace, _, found, err := store.Trace(as("owner"), "trace-1")
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if len(trace.Images) != 2 || trace.Images[0] != first || trace.Images[1] != second {
+		t.Fatalf("images = %v, want [%s %s]", trace.Images, first, second)
+	}
+}

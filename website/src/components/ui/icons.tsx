@@ -265,3 +265,32 @@ export const SelectedCheckIcon = ({ selected }: { selected: boolean }) => (
     <path d="M4.5 10.5 8 14l7.5-8" />
   </svg>
 );
+
+export const ChevronRightIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M7.5 4.5 13 10l-5.5 5.5" />
+  </Icon>
+);
+
+// Saving an image: a tray with an arrow coming down into it.
+export const DownloadIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 3.5v9M6 8.75 10 12.5l4-3.75" />
+    <path d="M3.5 13.5v1.5A1.5 1.5 0 0 0 5 16.5h10a1.5 1.5 0 0 0 1.5-1.5v-1.5" />
+  </Icon>
+);
+
+// The device share sheet: the arrow leaving a box, as phones draw it.
+export const ShareIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 12V3.5M6.75 6.5 10 3.25l3.25 3.25" />
+    <path d="M7 9H5.5A1.5 1.5 0 0 0 4 10.5v5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 14.5 9H13" />
+  </Icon>
+);
+
+// Opening an image full screen.
+export const ExpandIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3.5h4.5V8M8 16.5H3.5V12M16.5 3.5 11.5 8.5M3.5 16.5l5-5" />
+  </Icon>
+);

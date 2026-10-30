@@ -65,3 +65,24 @@ func (s *Store) Image(ctx context.Context, id string) (ports.ContentPart, bool, 
 	}
 	return image, true, nil
 }
+
+// traceImageIDs names a trace's images, oldest first. The caller has already
+// established the trace is the acting account's.
+func (s *Store) traceImageIDs(ctx context.Context, traceID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id FROM trace_images WHERE trace_id = ? ORDER BY created_at, rowid
+	`, traceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

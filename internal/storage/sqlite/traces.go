@@ -159,6 +159,9 @@ func (s *Store) Trace(ctx context.Context, id string) (ports.Trace, []ports.Trac
 	if err := rows.Err(); err != nil {
 		return ports.Trace{}, nil, false, err
 	}
+	if trace.Images, err = s.traceImageIDs(ctx, id); err != nil {
+		return ports.Trace{}, nil, false, err
+	}
 	return trace, spans, true, nil
 }
 

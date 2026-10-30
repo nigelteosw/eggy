@@ -9,7 +9,9 @@ import { usesTouchKeyboard } from "../lib/composer";
 import { replyQuote } from "../lib/reply";
 import { timeAgo } from "../lib/time";
 import { cn, errorMessage } from "../lib/utils";
-import { withImages } from "./images";
+import { imageIdsIn, isDrawing, withImages } from "./images";
+import { imageURL } from "../lib/images";
+import { ImagePlaceholder, ImageThumb, ImageViewer } from "../components/ui/image-viewer";
 
 // The status steps a turn went through, and how long it ran, kept on the reply
 // the turn produced. Live steps are not persisted, so a reloaded chat shows
@@ -233,6 +235,10 @@ function MessageTime({ at }: { at: string }) {
 }
 
 function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boolean }) {
+  // The reply's images, so the viewer can step through all of them from
+  // whichever one was opened.
+  const images = imageIdsIn(text);
+  const [viewing, setViewing] = useState<number | null>(null);
   return (
     <div
       className={cn(
@@ -252,17 +258,18 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
               {children}
             </a>
           ),
-          // A drawn image opens full size in its own tab; in the thread it is
-          // bounded so a tall one does not push the conversation away.
-          img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => (
-            <a href={src} target="_blank" rel="noreferrer noopener" className="not-prose block">
-              <img src={src} alt={alt ?? ""} loading="lazy" className="my-2 max-h-[28rem] max-w-full rounded-xl" />
-            </a>
-          ),
+          // A drawn image opens in the viewer over the chat, never in a tab of
+          // its own. Only the panel's own image route is drawn this way.
+          img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => {
+            const at = images.findIndex((id) => src === imageURL(id));
+            if (at < 0) return <img src={src} alt={alt ?? ""} loading="lazy" className="my-2 max-h-[28rem] max-w-full rounded-xl" />;
+            return <ImageThumb id={images[at]} onOpen={() => setViewing(at)} />;
+          },
         }}
       >
         {withImages(text)}
       </Markdown>
+      {viewing !== null && <ImageViewer ids={images} index={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -868,6 +875,7 @@ export function ChatPage({
             );
           })}
           {typing && <ActivityDisclosure steps={liveSteps} seconds={null} live />}
+          {typing && isDrawing(liveSteps) && <ImagePlaceholder />}
           {approvals.map((approval) => (
             <ApprovalCard key={approval.id} approval={approval} onDecide={(approved) => handleApproval(approval.id, approved)} />
           ))}

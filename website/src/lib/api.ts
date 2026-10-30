@@ -675,7 +675,8 @@ export type TraceSpan = {
   cost_usd?: number;
 };
 
-export type TraceDetail = { trace: TraceSummary; spans: TraceSpan[] };
+// images are the ids of what the turn drew, served at /api/images/{id}.
+export type TraceDetail = { trace: TraceSummary; spans: TraceSpan[]; images?: string[] };
 
 // Tracing switched off leaves the routes unmounted, so the list 404s with the
 // mux's own plain-text body rather than with a JSON result. That is a

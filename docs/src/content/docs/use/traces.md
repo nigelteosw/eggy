@@ -73,8 +73,9 @@ surface rather than a second memory.
 
 A trace also owns the images its turn
 [drew](/eggy/use/models/#generated-images). The web chat shows them from
-there, and pruning the trace deletes them. The trace itself records that an
-image was made, not its bytes.
+there, a trace's detail lists them under **Images** in the same full-screen
+viewer, and pruning the trace deletes them. The spans record that an image
+was made, not its bytes.
 
 Switching tracing off removes the whole capability — no recorder, no stored rows,
 and this view is absent rather than empty.

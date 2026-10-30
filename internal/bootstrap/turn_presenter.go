@@ -104,6 +104,8 @@ var toolProgressLabels = map[string]string{
 	"workspace_open":      "Opening a workspace",
 	"workspace_close":     "Closing a workspace",
 	"status":              "Checking Eggy's status",
+	// The web chat draws its image placeholder on this exact label.
+	"generate_image": "Drawing an image",
 }
 
 func toolProgressLabel(name string) string {

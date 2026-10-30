@@ -81,6 +81,8 @@ type traceSpanJSON struct {
 type traceDetailJSON struct {
 	Trace traceSummaryJSON `json:"trace"`
 	Spans []traceSpanJSON  `json:"spans"`
+	// Images are ids for /api/images/{id}, the route the chat draws from.
+	Images []string `json:"images,omitempty"`
 }
 
 func newTraceListHandler(traces TraceDirectory) http.HandlerFunc {
@@ -138,7 +140,7 @@ func newTraceDetailHandler(traces TraceDirectory) http.HandlerFunc {
 				CostUSD:          span.Usage.CostUSD,
 			})
 		}
-		writeTraceJSON(w, traceDetailJSON{Trace: traceSummary(trace), Spans: rendered})
+		writeTraceJSON(w, traceDetailJSON{Trace: traceSummary(trace), Spans: rendered, Images: trace.Images})
 	}
 }
 

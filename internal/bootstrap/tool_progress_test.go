@@ -14,6 +14,9 @@ func TestProgressSaysWhatAToolIsDoing(t *testing.T) {
 		"google_gmail":    "Checking email",
 		"google_calendar": "Checking your calendar",
 		"schedule":        "Looking at your schedules",
+		// The web chat matches this label to draw its image placeholder
+		// (website/src/chat/images.ts), so changing it changes both.
+		"generate_image": "Drawing an image",
 	}
 	for tool, want := range cases {
 		if got := toolProgressLabel(tool); got != want {

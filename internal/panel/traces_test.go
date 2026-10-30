@@ -103,7 +103,7 @@ func TestTraceDetailReturnsSpansInOrder(t *testing.T) {
 	t.Parallel()
 
 	directory := &fakeTraceDirectory{
-		traces: []ports.Trace{{ID: "trace-1", Kind: ports.TraceKindOwner, StartedAt: time.Unix(1700000000, 0).UTC()}},
+		traces: []ports.Trace{{ID: "trace-1", Kind: ports.TraceKindOwner, StartedAt: time.Unix(1700000000, 0).UTC(), Images: []string{"0a1b", "2c3d"}}},
 		spans: []ports.TraceSpan{
 			{Sequence: 1, Kind: ports.TraceSpanModelCall, Name: "gpt", Request: `{"messages":[]}`, Response: `{"message":{}}`, Duration: 900 * time.Millisecond, Usage: ports.ModelUsage{TotalTokens: 50, CachedPromptTokens: 40}},
 			{Sequence: 2, Kind: ports.TraceSpanToolCall, Name: "status", CallID: "call-1", Request: `{}`, Response: `{"ok":true}`},
@@ -123,6 +123,11 @@ func TestTraceDetailReturnsSpansInOrder(t *testing.T) {
 	}
 	if body.Spans[1].CallID != "call-1" || body.Spans[1].Request != `{}` {
 		t.Fatalf("tool span = %+v", body.Spans[1])
+	}
+	// The turn's drawn images are named so the panel can show them beside
+	// the spans that made them.
+	if len(body.Images) != 2 || body.Images[0] != "0a1b" || body.Images[1] != "2c3d" {
+		t.Fatalf("images = %v", body.Images)
 	}
 }
 

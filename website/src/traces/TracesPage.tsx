@@ -14,6 +14,7 @@ import { Button } from "../components/ui/button";
 import { PageHeader } from "../components/ui/page-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { ChevronLeftIcon, ChevronDownIcon } from "../components/ui/icons";
+import { ImageThumb, ImageViewer } from "../components/ui/image-viewer";
 import { errorMessage } from "../lib/utils";
 
 // Browse conversations, inspect one turn, then select a step without moving the timeline.
@@ -494,6 +495,7 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
         </ErrorBanner>
       )}
       <TraceStats trace={trace} />
+      {detail.images && detail.images.length > 0 && <TraceImages key={trace.id} ids={detail.images} />}
       <section aria-label="Execution timeline">
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
           <h3 className="text-sm font-semibold">Timeline</h3>
@@ -509,6 +511,23 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
         <Waterfall key={trace.id} trace={trace} spans={spans} />
       </section>
     </article>
+  );
+}
+
+// What the turn drew, kept with its trace and pruned with it. They open in
+// the same viewer the chat uses.
+function TraceImages({ ids }: { ids: string[] }) {
+  const [viewing, setViewing] = useState<number | null>(null);
+  return (
+    <section aria-label="Images">
+      <h3 className="mb-3 text-sm font-semibold">Images</h3>
+      <div className="flex flex-wrap gap-3">
+        {ids.map((id, at) => (
+          <ImageThumb key={id} id={id} onOpen={() => setViewing(at)} className="my-0 [&_img]:max-h-48" />
+        ))}
+      </div>
+      {viewing !== null && <ImageViewer ids={ids} index={viewing} onClose={() => setViewing(null)} />}
+    </section>
   );
 }
 

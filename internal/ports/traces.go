@@ -97,6 +97,10 @@ type Trace struct {
 	// one the process died in the middle of. A trace that never completed is
 	// evidence, not corruption, so it is kept and shown as such.
 	Complete bool
+	// Images names the pictures the turn drew, in the order it drew them.
+	// Only Trace fills it: the list does not show them, and an ImageStore
+	// read is how a viewer gets the bytes.
+	Images []string
 }
 
 // TraceStore persists turn traces. It is written by the recorder on the turn

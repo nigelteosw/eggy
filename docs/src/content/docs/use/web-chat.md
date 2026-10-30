@@ -68,7 +68,11 @@ button cannot mint empty chats on top of an empty chat.
 
 Images are a Telegram-only input; the web composer is text. Images the model
 [draws](/eggy/use/models/#generated-images) appear in the reply and stay
-there after a reload, for as long as the turn's trace is kept.
+there after a reload, for as long as the turn's trace is kept. While one is
+being drawn the reply shows an empty frame where it will land. Clicking an
+image opens it full screen over the chat, with **Save**, **Copy** where the
+browser allows it, and **Share** on a phone, whose share sheet is where *Save
+to Photos* lives; the arrow keys step between a reply's images.
 
 ## Settings
 

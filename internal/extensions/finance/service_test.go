@@ -94,11 +94,17 @@ func (f *fakeStore) ListFinanceEntries(ctx context.Context, filter ports.Finance
 		if (filter.From != "" && e.OccurredOn < filter.From) || (filter.To != "" && e.OccurredOn > filter.To) || (filter.Category != "" && e.Category != filter.Category) || (filter.Kind != "" && e.Kind != filter.Kind) {
 			continue
 		}
+		if q := strings.ToLower(filter.Query); q != "" && !strings.Contains(strings.ToLower(e.Merchant+" "+e.Category+" "+e.Note), q) {
+			continue
+		}
 		out = append(out, e)
 	}
 	total := len(out)
-	if filter.Limit > 0 && len(out) > filter.Limit {
-		out = out[:filter.Limit]
+	if filter.Limit > 0 {
+		out = out[min(filter.Offset, len(out)):]
+		if len(out) > filter.Limit {
+			out = out[:filter.Limit]
+		}
 	}
 	return out, total, nil
 }

@@ -225,8 +225,8 @@ func (s *Store) ListFinanceEntries(ctx context.Context, filter ports.FinanceFilt
 	}
 	query := `SELECT ` + financeColumns + ` FROM finance_entries WHERE ` + where + ` ORDER BY ` + financeOrder(filter.Sort, filter.Order)
 	if filter.Limit > 0 {
-		query += ` LIMIT ?`
-		args = append(args, filter.Limit)
+		query += ` LIMIT ? OFFSET ?`
+		args = append(args, filter.Limit, max(filter.Offset, 0))
 	}
 	entries := make([]ports.FinanceEntry, 0)
 	err = scanRows(ctx, s.db, query, func(scan func(...any) error) error {

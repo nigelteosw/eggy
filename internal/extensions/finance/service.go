@@ -324,6 +324,9 @@ func (s *Service) List(ctx context.Context, filter ports.FinanceFilter) ([]ports
 	if filter.Limit <= 0 || filter.Limit > maxList {
 		filter.Limit = maxList
 	}
+	if filter.Offset < 0 {
+		return nil, 0, invalid("offset must not be negative")
+	}
 	return s.store.ListFinanceEntries(ctx, filter)
 }
 

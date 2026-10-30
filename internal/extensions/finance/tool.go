@@ -16,6 +16,10 @@ import (
 // year of entries in one tool result would crowd out the turn.
 const listLimit = 50
 
+// batchLimit is how many entries one log, update or delete call may carry: a
+// month of receipts in one call, not a year of statements.
+const batchLimit = 50
+
 type tool struct {
 	svc        *Service
 	definition ports.ToolDefinition
@@ -36,11 +40,11 @@ func NewTool(svc *Service) ports.Tool {
 	return tool{svc: svc, definition: ports.ToolDefinition{
 		Name: "finance",
 		Description: "Track the owner's money. " +
-			"log: record one entry (amount and category; kind is expense, income, invest or divest, default expense; currency defaults to " + svc.DefaultCurrency() + ", date to today). " +
-			"update/delete: change or remove an entry by id. " +
-			"list/summary: entries or totals for from..to (default this month). " +
-			"Log a receipt's total, not each line, unless asked; set source=photo when reading an image; ask if the total, currency or date is unclear. " +
-			"Always tell the owner what you logged, with its id, so a correction is an update. " +
+			"log: amount and category; kind expense (default), income, invest or divest; currency defaults to " + svc.DefaultCurrency() + ", date to today. " +
+			"update/delete: by id. Several at once: entries (log; update with id) or ids (delete), one call. " +
+			"list/summary: from..to, default this month; list also takes query and offset. " +
+			"Log a receipt's total unless asked; source=photo for an image; ask if total, currency or date is unclear. " +
+			"Tell the owner what you logged, with ids. " +
 			"Categories: food, groceries, transport, shopping, bills, entertainment, health, travel, other.",
 		Schema: json.RawMessage(`{"type":"object","properties":{` +
 			`"action":{"type":"string","enum":["log","update","delete","list","summary"]},` +
@@ -54,7 +58,14 @@ func NewTool(svc *Service) ports.Tool {
 			`"note":{"type":"string"},` +
 			`"source":{"type":"string","enum":["chat","photo"]},` +
 			`"from":{"type":"string","description":"YYYY-MM-DD"},` +
-			`"to":{"type":"string","description":"YYYY-MM-DD"}},` +
+			`"to":{"type":"string","description":"YYYY-MM-DD"},` +
+			`"query":{"type":"string"},` +
+			`"offset":{"type":"integer","minimum":0},` +
+			// Items take the top-level entry fields, which the description
+			// says; repeating their schema here would double what every call
+			// pays, and strict decoding still refuses any other key.
+			`"entries":{"type":"array","maxItems":` + fmt.Sprint(batchLimit) + `,"items":{"type":"object","description":"id, amount, kind, currency, date, category, merchant, note, source"}},` +
+			`"ids":{"type":"array","maxItems":` + fmt.Sprint(batchLimit) + `,"items":{"type":"string"}}},` +
 			`"required":["action"],"additionalProperties":false}`),
 		Effect: ports.InternalTool(),
 	}}
@@ -74,18 +85,14 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 	// from "leave it alone" (absent). Strict decoding refuses any other key,
 	// which is what keeps an account from being named in an argument.
 	var in struct {
-		Action   string  `json:"action"`
-		ID       string  `json:"id"`
-		Amount   *string `json:"amount"`
-		Kind     *string `json:"kind"`
-		Currency *string `json:"currency"`
-		Date     *string `json:"date"`
-		Category *string `json:"category"`
-		Merchant *string `json:"merchant"`
-		Note     *string `json:"note"`
-		Source   *string `json:"source"`
-		From     string  `json:"from"`
-		To       string  `json:"to"`
+		Action string `json:"action"`
+		entryArgs
+		From    string      `json:"from"`
+		To      string      `json:"to"`
+		Query   string      `json:"query"`
+		Offset  int         `json:"offset"`
+		Entries []entryArgs `json:"entries"`
+		IDs     []string    `json:"ids"`
 	}
 	if err := services.DecodeToolInput(raw, &in); err != nil {
 		return nil, err
@@ -96,13 +103,21 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 	)
 	switch in.Action {
 	case "log":
-		text, err = t.log(ctx, in.Amount, in.Kind, in.Currency, in.Date, in.Category, in.Merchant, in.Note, in.Source)
+		text, err = t.batch(in.entryArgs, in.Entries, func(e entryArgs) (string, error) { return t.log(ctx, e) })
 	case "update":
-		text, err = t.update(ctx, in.ID, ports.FinancePatch{Amount: in.Amount, Kind: in.Kind, Currency: in.Currency, Date: in.Date, Category: in.Category, Merchant: in.Merchant, Note: in.Note})
+		text, err = t.batch(in.entryArgs, in.Entries, func(e entryArgs) (string, error) { return t.update(ctx, e.ID, e.patch()) })
 	case "delete":
-		text, err = t.delete(ctx, in.ID)
+		ids := in.IDs
+		if in.ID != "" {
+			ids = append([]string{in.ID}, ids...)
+		}
+		entries := make([]entryArgs, len(ids))
+		for i, id := range ids {
+			entries[i].ID = id
+		}
+		text, err = t.batch(entryArgs{}, entries, func(e entryArgs) (string, error) { return t.delete(ctx, e.ID) })
 	case "list":
-		text, err = t.list(ctx, in.From, in.To, str(in.Kind), str(in.Category))
+		text, err = t.list(ctx, in.From, in.To, str(in.Kind), str(in.Category), in.Query, in.Offset)
 	case "summary":
 		text, err = t.summary(ctx, in.From, in.To)
 	default:
@@ -114,16 +129,67 @@ func (t tool) Execute(ctx context.Context, raw json.RawMessage) (json.RawMessage
 	return json.Marshal(text)
 }
 
-func (t tool) log(ctx context.Context, amount, kind, currency, date, category, merchant, note, source *string) (string, error) {
+// entryArgs is one entry as a call states it, either at the top level or as
+// an item of entries. Text fields are pointers so an update can tell "clear
+// the note" ("") from "leave it alone" (absent).
+type entryArgs struct {
+	ID       string  `json:"id"`
+	Amount   *string `json:"amount"`
+	Kind     *string `json:"kind"`
+	Currency *string `json:"currency"`
+	Date     *string `json:"date"`
+	Category *string `json:"category"`
+	Merchant *string `json:"merchant"`
+	Note     *string `json:"note"`
+	Source   *string `json:"source"`
+}
+
+func (e entryArgs) patch() ports.FinancePatch {
+	return ports.FinancePatch{Amount: e.Amount, Kind: e.Kind, Currency: e.Currency, Date: e.Date, Category: e.Category, Merchant: e.Merchant, Note: e.Note}
+}
+
+func (e entryArgs) empty() bool { return e == entryArgs{} }
+
+// batch runs one write per entry: the top-level fields when the call carries
+// no entries, each item otherwise. Every entry is attempted and reported, so a
+// bad line in a receipt costs that line, not the ones logged before it; the
+// call fails only when nothing succeeded.
+func (t tool) batch(single entryArgs, entries []entryArgs, write func(entryArgs) (string, error)) (string, error) {
+	if len(entries) == 0 {
+		return write(single)
+	}
+	if !single.empty() {
+		return "", fmt.Errorf("%w: pass either entries or one entry's fields, not both", ports.ErrFinanceInvalid)
+	}
+	if len(entries) > batchLimit {
+		return "", fmt.Errorf("%w: at most %d entries per call", ports.ErrFinanceInvalid, batchLimit)
+	}
+	lines := make([]string, 0, len(entries))
+	failed := 0
+	for i, entry := range entries {
+		line, err := write(entry)
+		if err != nil {
+			failed++
+			line = fmt.Sprintf("Failed item %d: %v", i+1, err)
+		}
+		lines = append(lines, line)
+	}
+	if failed == len(entries) {
+		return "", errors.New(strings.Join(lines, "\n"))
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func (t tool) log(ctx context.Context, in entryArgs) (string, error) {
 	// The schema offers chat and photo only. A model must not be able to claim
 	// an entry came from the panel, so the service's third source is refused
 	// here rather than trusted.
-	if s := strings.ToLower(strings.TrimSpace(str(source))); s == "panel" {
+	if s := strings.ToLower(strings.TrimSpace(str(in.Source))); s == "panel" {
 		return "", fmt.Errorf("%w: source must be chat or photo", ports.ErrFinanceInvalid)
 	}
 	entry, err := t.svc.Log(ctx, ports.FinanceInput{
-		Amount: str(amount), Kind: str(kind), Currency: str(currency), Date: str(date), Category: str(category),
-		Merchant: str(merchant), Note: str(note), Source: str(source),
+		Amount: str(in.Amount), Kind: str(in.Kind), Currency: str(in.Currency), Date: str(in.Date), Category: str(in.Category),
+		Merchant: str(in.Merchant), Note: str(in.Note), Source: str(in.Source),
 	})
 	if err != nil {
 		return "", err
@@ -153,26 +219,33 @@ func (t tool) delete(ctx context.Context, id string) (string, error) {
 	return "Deleted: " + t.line(entry), nil
 }
 
-func (t tool) list(ctx context.Context, from, to, kind, category string) (string, error) {
+func (t tool) list(ctx context.Context, from, to, kind, category, query string, offset int) (string, error) {
 	from, to, err := t.svc.Range(from, to)
 	if err != nil {
 		return "", err
 	}
-	entries, total, err := t.svc.List(ctx, ports.FinanceFilter{From: from, To: to, Kind: kind, Category: category, Limit: listLimit})
+	entries, total, err := t.svc.List(ctx, ports.FinanceFilter{From: from, To: to, Kind: kind, Category: category, Query: query, Limit: listLimit, Offset: offset})
 	if err != nil {
 		return "", err
 	}
 	label := rangeLabel(from, to)
 	if len(entries) == 0 {
+		if offset > 0 && total > 0 {
+			return fmt.Sprintf("No entries past offset %d; there are %d %s.", offset, total, label), nil
+		}
 		return "No entries " + label + ".", nil
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%d %s %s, newest first:", total, plural(total, "entry", "entries"), label)
+	fmt.Fprintf(&out, "%d %s %s, newest first", total, plural(total, "entry", "entries"), label)
+	if offset > 0 {
+		fmt.Fprintf(&out, ", from #%d", offset+1)
+	}
+	out.WriteString(":")
 	for _, entry := range entries {
 		out.WriteString("\n" + t.line(entry))
 	}
-	if total > len(entries) {
-		fmt.Fprintf(&out, "\n(%d more not shown; narrow from/to or category)", total-len(entries))
+	if rest := total - offset - len(entries); rest > 0 {
+		fmt.Fprintf(&out, "\n(%d more; pass offset=%d for the next page)", rest, offset+len(entries))
 	}
 	return out.String(), nil
 }

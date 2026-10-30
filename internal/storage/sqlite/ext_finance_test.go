@@ -264,3 +264,21 @@ func ids(entries []ports.FinanceEntry) []string {
 	}
 	return out
 }
+
+// Pages follow the listing's order, and the total still counts every match.
+func TestListOffsetPagesInOrder(t *testing.T) {
+	db := newTestStore(t, 0)
+	ctx := as("a")
+	for day := 1; day <= 5; day++ {
+		if err := db.CreateFinanceEntry(ctx, financeEntry("e"+strconv.Itoa(day), "2026-10-0"+strconv.Itoa(day), "SGD", "food", int64(day))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, total, err := db.ListFinanceEntries(ctx, ports.FinanceFilter{Sort: ports.FinanceSortDate, Order: "desc", Limit: 2, Offset: 2})
+	if err != nil || total != 5 || len(page) != 2 || page[0].ID != "e3" || page[1].ID != "e2" {
+		t.Fatalf("page=%v total=%d err=%v", page, total, err)
+	}
+	if last, _, _ := db.ListFinanceEntries(ctx, ports.FinanceFilter{Sort: ports.FinanceSortDate, Order: "desc", Limit: 2, Offset: 4}); len(last) != 1 || last[0].ID != "e1" {
+		t.Fatalf("last page=%v", last)
+	}
+}

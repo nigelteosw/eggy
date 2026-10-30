@@ -315,3 +315,55 @@ func TestNormalModeRunsEveryActionWithoutAskingAndStrictAsks(t *testing.T) {
 		}
 	}
 }
+
+// A receipt run or a statement is one call, not one per line. Every item is
+// attempted, so a bad one costs itself and is named, not the ones around it.
+func TestLogUpdateAndDeleteTakeManyEntriesInOneCall(t *testing.T) {
+	tool, svc := newTool(t)
+	out, err := run(t, tool, `{"action":"log","entries":[{"amount":"4.20","category":"food"},{"amount":"nope","category":"food"},{"amount":"30","category":"transport","merchant":"Grab"}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out, "Logged: ") != 2 || !strings.Contains(out, "Failed item 2") {
+		t.Fatalf("out=%s", out)
+	}
+	entries, _, _ := svc.List(asAccount("a"), ports.FinanceFilter{})
+	if len(entries) != 2 {
+		t.Fatalf("entries=%d", len(entries))
+	}
+	updates := fmt.Sprintf(`{"action":"update","entries":[{"id":%q,"category":"groceries"},{"id":%q,"note":"airport"}]}`, entries[0].ID, entries[1].ID)
+	if out, err := run(t, tool, updates); err != nil || strings.Count(out, "Updated: ") != 2 {
+		t.Fatalf("out=%s err=%v", out, err)
+	}
+	if out, err := run(t, tool, fmt.Sprintf(`{"action":"delete","ids":[%q,%q]}`, entries[0].ID, entries[1].ID)); err != nil || strings.Count(out, "Deleted: ") != 2 {
+		t.Fatalf("out=%s err=%v", out, err)
+	}
+	if _, err := run(t, tool, `{"action":"log","amount":"1","category":"food","entries":[{"amount":"2","category":"food"}]}`); err == nil {
+		t.Fatal("both single fields and entries accepted")
+	}
+	if _, err := run(t, tool, `{"action":"log","entries":[{"amount":"1","category":"food","colour":"red"}]}`); err == nil {
+		t.Fatal("an unknown item field was accepted")
+	}
+}
+
+// Past the first page, offset reaches the rest, and query narrows by text.
+func TestListPagesWithOffsetAndSearches(t *testing.T) {
+	tool, _ := newTool(t)
+	for i := range 55 {
+		if _, err := run(t, tool, fmt.Sprintf(`{"action":"log","amount":"%d","category":"food","merchant":"Shop %d"}`, i+1, i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, _ := run(t, tool, `{"action":"list"}`)
+	if !strings.Contains(first, "pass offset=50") {
+		t.Fatalf("first page=%s", first)
+	}
+	rest, _ := run(t, tool, `{"action":"list","offset":50}`)
+	if strings.Count(rest, "\n") != 5 || strings.Contains(rest, "offset=") {
+		t.Fatalf("second page=%s", rest)
+	}
+	found, _ := run(t, tool, `{"action":"list","query":"shop 54"}`)
+	if !strings.Contains(found, "1 entry") {
+		t.Fatalf("search=%s", found)
+	}
+}

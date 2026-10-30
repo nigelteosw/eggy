@@ -60,7 +60,8 @@ const (
 )
 
 // FinanceFilter bounds and orders a listing. From and To are inclusive
-// YYYY-MM-DD dates and either may be empty; Limit zero means no limit.
+// YYYY-MM-DD dates and either may be empty; Limit zero means no limit, and
+// Offset applies only with a limit.
 //
 // Query is a case-insensitive text match against merchant, category and note.
 // Sort is one of the FinanceSort keys and Order is "asc" or "desc"; the
@@ -75,6 +76,9 @@ type FinanceFilter struct {
 	Sort     string
 	Order    string
 	Limit    int
+	// Offset skips that many matching entries before Limit applies, for
+	// paging through a long month. It counts in the filter's own order.
+	Offset int
 }
 
 // FinanceCategoryTotal, FinanceDayTotal and FinanceMonthTotal are sums the

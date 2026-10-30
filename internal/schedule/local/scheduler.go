@@ -119,15 +119,17 @@ func (s *Scheduler) Due(ctx context.Context, now time.Time) ([]ports.Schedule, e
 
 var errNotDue = errors.New("schedule is no longer due")
 
+// Complete records a run. A recurring job advances to its next run; a one-time
+// job is finished and deleted, because a disabled record left behind reads as
+// "overdue" on every list until someone removes it by hand.
 func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, completedAt time.Time) error {
-	return s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
+	finished := false
+	err := s.store.Update(ctx, id, func(schedule *ports.Schedule) error {
 		if !schedule.PendingRun.Equal(scheduledFor) {
 			return errors.New("schedule completion does not match pending run")
 		}
 		schedule.LastRun, schedule.PendingRun = scheduledFor, time.Time{}
 		switch schedule.Kind {
-		case ports.ScheduleExact:
-			schedule.Enabled = false
 		case ports.ScheduleRecurring:
 			cron, err := ParseCron(schedule.Expression)
 			if err != nil {
@@ -139,10 +141,29 @@ func (s *Scheduler) Complete(ctx context.Context, id string, scheduledFor, compl
 			}
 			schedule.NextRun = next
 		default:
-			schedule.Enabled = false
+			// Disabled first, so a failed delete below still never runs it twice.
+			schedule.Enabled, finished = false, true
 		}
 		return nil
 	})
+	if err != nil || !finished {
+		return err
+	}
+	return s.removeFinished(ctx, id)
+}
+
+// finishedOnce reports a one-time job that has already run, which an earlier
+// build disabled rather than deleted. A job disabled before it ever ran has no
+// LastRun and is kept: Disable promises its owner the record.
+func finishedOnce(schedule ports.Schedule) bool {
+	return schedule.Kind != ports.ScheduleRecurring && !schedule.Enabled && !schedule.LastRun.IsZero()
+}
+
+func (s *Scheduler) removeFinished(ctx context.Context, id string) error {
+	if err := s.store.Delete(ctx, id); err != nil && !errors.Is(err, ports.ErrScheduleNotFound) {
+		return err
+	}
+	return nil
 }
 
 // Disable switches a job off and releases any claim on it, for a job whose
@@ -166,13 +187,20 @@ func (s *Scheduler) Fail(ctx context.Context, id string, scheduledFor time.Time)
 }
 
 // Recover clears pending runs left behind by a process that died mid-run, so
-// those schedules become due again instead of stalling forever.
+// those schedules become due again instead of stalling forever, and deletes
+// one-time jobs that already ran but were kept by an earlier build.
 func (s *Scheduler) Recover(ctx context.Context) error {
 	schedules, err := s.store.ListAll(ctx)
 	if err != nil {
 		return err
 	}
 	for _, schedule := range schedules {
+		if finishedOnce(schedule) {
+			if err := s.removeFinished(asOwner(ctx, schedule), schedule.ID); err != nil {
+				return err
+			}
+			continue
+		}
 		if schedule.PendingRun.IsZero() {
 			continue
 		}

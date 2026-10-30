@@ -236,6 +236,12 @@ export const ArrowsUpDownIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const TrashIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3.5 5.5h13M8 5.5V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M5 5.5l.8 10.1a1.5 1.5 0 0 0 1.5 1.4h5.4a1.5 1.5 0 0 0 1.5-1.4L15 5.5M8.5 9v4.5M11.5 9v4.5" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="m5 5 10 10M15 5 5 15" />

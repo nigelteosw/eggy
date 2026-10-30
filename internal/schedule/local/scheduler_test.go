@@ -73,8 +73,10 @@ func TestSchedulerDeliversExactOnceAndAdvancesRecurring(t *testing.T) {
 	if err := scheduler.Complete(as("owner"), "cron", now, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if once := mustGet(t, store, "once"); once.Enabled {
-		t.Fatalf("completed exact schedule stayed enabled: %#v", once)
+	// A one-time schedule that has run is finished, not paused: left in the
+	// store it read as "overdue" on every list until someone deleted it.
+	if remaining, _ := store.List(as("owner")); len(remaining) != 1 || remaining[0].ID != "cron" {
+		t.Fatalf("completed exact schedule was kept: %#v", remaining)
 	}
 	if recurring := mustGet(t, store, "cron"); !recurring.NextRun.Equal(time.Date(2026, 7, 19, 10, 5, 0, 0, time.UTC)) {
 		t.Fatalf("recurring next=%v", recurring.NextRun)
@@ -119,6 +121,37 @@ func TestSchedulerRecoveryRetriesUnfinishedDispatch(t *testing.T) {
 	due, _ = scheduler.Due(as("owner"), now.Add(2*time.Minute))
 	if len(due) != 1 {
 		t.Fatalf("failed work was not retried: %#v", due)
+	}
+}
+
+// TestSchedulerRecoveryDeletesFinishedOneTimeSchedules clears the one-time
+// schedules an earlier build disabled after they ran instead of deleting them,
+// and leaves alone a job switched off before it ever ran and a recurring one.
+func TestSchedulerRecoveryDeletesFinishedOneTimeSchedules(t *testing.T) {
+	now := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
+	store := newCronStore(t)
+	for _, schedule := range []ports.Schedule{
+		{ID: "ran", Kind: ports.ScheduleExact, Instruction: "text aunt", NextRun: now, LastRun: now},
+		{ID: "never-ran", Kind: ports.ScheduleExact, Instruction: "undeliverable", NextRun: now},
+		{ID: "recurring", Kind: ports.ScheduleRecurring, Instruction: "status", Expression: "*/5 * * * *", NextRun: now, LastRun: now},
+	} {
+		if err := store.Create(as("owner"), schedule); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := New(store, time.UTC).Recover(as("owner")); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := store.List(as("owner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(remaining))
+	for _, schedule := range remaining {
+		ids = append(ids, schedule.ID)
+	}
+	if len(ids) != 2 || ids[0] == "ran" || ids[1] == "ran" {
+		t.Fatalf("remaining=%v", ids)
 	}
 }
 

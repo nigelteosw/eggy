@@ -1,10 +1,24 @@
 import { PageHeader } from "../components/ui/page-header";
-import { useEffect, useState } from "react";
-import { SessionExpiredError, getAgent, getWatchList, listSchedules, listThreads, type AgentSelection } from "../lib/api";
+import { useCallback, useEffect, useState } from "react";
+import {
+  SessionExpiredError,
+  cancelSchedule,
+  getAgent,
+  getWatchList,
+  listSchedules,
+  listThreads,
+  saveWatchList,
+  type AgentSelection,
+  type CommandResult,
+} from "../lib/api";
 import { ApprovalsCard } from "../settings/ApprovalsCard";
-import { INSTRUCTION, NEXT_RUN, NEXT_RUN_AT } from "../schedules/SchedulesCard";
+import { ID, INSTRUCTION, NEXT_RUN, NEXT_RUN_AT } from "../schedules/SchedulesCard";
 import { relativeTime } from "../lib/time";
 import { errorMessage } from "../lib/utils";
+import { useConfirm } from "../components/ui/confirm";
+import { TrashIcon } from "../components/ui/icons";
+import { FIELD_COMPACT } from "../components/ui/form";
+import { rewriteWatch, watchItems, type WatchItem } from "./watch-edit";
 
 // The home page answers the three things a person wants when they open Eggy:
 // what needs them, what Eggy is keeping an eye on, and what is coming up. Each
@@ -16,14 +30,11 @@ import { errorMessage } from "../lib/utils";
 
 type Checklist = { chatted: boolean; watching: boolean; checkins: boolean };
 
-// watchLines counts the items on the watch list. Blank lines and headings are
-// structure, not items, so they are not counted.
-export function watchLines(text: string): string[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "" && !line.startsWith("#"));
-}
+const watchText = (result: CommandResult) => result.fields?.find((field) => field.label === "watch")?.value ?? "";
+
+const HEADER_BUTTON = "text-xs font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
+const TRASH_BUTTON =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-700 transition-colors hover:bg-eg-red-tint hover:text-eg-red-ink disabled:pointer-events-none disabled:opacity-50";
 
 export function HomePage({
   onSessionExpired,
@@ -38,24 +49,90 @@ export function HomePage({
   onOpenSettings: () => void;
   onNewChat: () => void;
 }) {
-  const [watch, setWatch] = useState<string[] | null>(null);
+  // The watch list is kept as the document it is, so an edit made here can be
+  // written back without disturbing the lines Home does not show.
+  const [watchDoc, setWatchDoc] = useState<string | null>(null);
+  const [watchDraft, setWatchDraft] = useState<WatchItem[] | null>(null);
+  const [savingWatch, setSavingWatch] = useState(false);
   const [schedules, setSchedules] = useState<string[][] | null>(null);
+  const [editingSchedules, setEditingSchedules] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const [threadCount, setThreadCount] = useState<number | null>(null);
   const [agent, setAgent] = useState<AgentSelection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+
+  const fail = useCallback(
+    (fallback: string) => (err: unknown) => {
+      if (err instanceof SessionExpiredError) onSessionExpired();
+      else setError(errorMessage(err, fallback));
+    },
+    [onSessionExpired],
+  );
+  const loadSchedules = useCallback(
+    () => listSchedules().then((result) => setSchedules(result.table_rows ?? [])).catch(fail("Some of Home could not load")),
+    [fail],
+  );
 
   useEffect(() => {
-    const fail = (err: unknown) => {
-      if (err instanceof SessionExpiredError) onSessionExpired();
-      else setError(errorMessage(err, "Some of Home could not load"));
-    };
-    listThreads().then((threads) => setThreadCount(threads.length)).catch(fail);
-    getWatchList()
-      .then((result) => setWatch(watchLines(result.fields?.find((field) => field.label === "watch")?.value ?? "")))
-      .catch(fail);
-    listSchedules().then((result) => setSchedules(result.table_rows ?? [])).catch(fail);
-    getAgent().then(setAgent).catch(fail);
-  }, [onSessionExpired]);
+    const failed = fail("Some of Home could not load");
+    listThreads().then((threads) => setThreadCount(threads.length)).catch(failed);
+    getWatchList().then((result) => setWatchDoc(watchText(result))).catch(failed);
+    loadSchedules();
+    getAgent().then(setAgent).catch(failed);
+  }, [fail, loadSchedules]);
+
+  const watch = watchDoc === null ? null : watchItems(watchDoc);
+
+  function editWatch(withNewItem: boolean) {
+    setError(null);
+    const items = watch ?? [];
+    setWatchDraft(withNewItem || items.length === 0 ? [...items, { line: null, text: "" }] : items);
+  }
+
+  function changeWatchItem(index: number, text: string) {
+    setWatchDraft((draft) => draft?.map((item, at) => (at === index ? { ...item, text } : item)) ?? null);
+  }
+
+  // Saving rewrites the document it was edited from. Eggy writes to the same
+  // file between turns, so the save first checks nothing changed underneath it
+  // rather than overwriting a check-in's notes with a stale copy.
+  async function saveWatch() {
+    if (watchDraft === null || watchDoc === null) return;
+    setSavingWatch(true);
+    setError(null);
+    try {
+      const current = watchText(await getWatchList());
+      if (current !== watchDoc) {
+        setWatchDoc(current);
+        setWatchDraft(null);
+        setError("Eggy updated the watch list while you were editing. It has been reloaded; make your change again.");
+        return;
+      }
+      const next = rewriteWatch(watchDoc, watchDraft);
+      await saveWatchList(next);
+      setWatchDoc(next);
+      setWatchDraft(null);
+    } catch (err) {
+      fail("Could not save the watch list")(err);
+    } finally {
+      setSavingWatch(false);
+    }
+  }
+
+  async function removeSchedule(row: string[]) {
+    if (!(await confirm({ title: "Cancel this schedule?", body: row[INSTRUCTION], confirmLabel: "Cancel schedule", destructive: true }))) return;
+    setCancelling(row[ID]);
+    setError(null);
+    try {
+      await cancelSchedule(row[ID]);
+      await loadSchedules();
+    } catch (err) {
+      fail("Could not cancel schedule")(err);
+    } finally {
+      setCancelling(null);
+    }
+  }
 
   const checklist: Checklist = {
     chatted: (threadCount ?? 0) > 0,
@@ -86,7 +163,7 @@ export function HomePage({
             <h2 className="text-sm font-semibold">Getting started</h2>
             <ul className="flex flex-col gap-1">
               <ChecklistRow done={checklist.chatted} label="Ask Eggy something" action="Start a chat" onAction={onNewChat} />
-              <ChecklistRow done={checklist.watching} label="Add something to keep an eye on" action="Open settings" onAction={onOpenSettings} />
+              <ChecklistRow done={checklist.watching} label="Add something to keep an eye on" action="Add one" onAction={() => editWatch(true)} />
               <ChecklistRow done={checklist.checkins} label="Turn on check-ins, so Eggy can tell you when something needs you" action="Open settings" onAction={onOpenSettings} />
             </ul>
           </section>
@@ -99,11 +176,64 @@ export function HomePage({
         <section aria-labelledby="home-watching" className="flex flex-col gap-3">
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="home-watching" className="text-sm font-semibold">Watching</h2>
-            <button type="button" onClick={onOpenSettings} className="text-xs font-medium text-neutral-700 underline-offset-2 hover:underline">
-              Edit
-            </button>
+            {watchDraft === null ? (
+              <button type="button" onClick={() => editWatch(false)} disabled={watch === null} className={HEADER_BUTTON}>
+                Edit
+              </button>
+            ) : (
+              <span className="flex items-baseline gap-4">
+                <button type="button" onClick={() => setWatchDraft(null)} disabled={savingWatch} className={HEADER_BUTTON}>
+                  Cancel
+                </button>
+                <button type="button" onClick={saveWatch} disabled={savingWatch} className={`${HEADER_BUTTON} text-foreground`}>
+                  {savingWatch ? "Saving…" : "Save"}
+                </button>
+              </span>
+            )}
           </div>
-          {watch === null ? (
+          {watchDraft !== null ? (
+            // Editing shows every item, not the first five: an item past the
+            // fold is as likely to be the one that is done.
+            <ul className="flex flex-col">
+              {watchDraft.map((item, index) => (
+                <li key={item.line ?? `new-${index}`} className="flex items-center gap-2 py-1.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                  <input
+                    aria-label={`Watch item ${index + 1}`}
+                    value={item.text}
+                    autoFocus={item.line === null && index === watchDraft.length - 1}
+                    placeholder="Something for Eggy to keep an eye on"
+                    onChange={(event) => changeWatchItem(index, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void saveWatch();
+                      if (event.key === "Escape") setWatchDraft(null);
+                    }}
+                    disabled={savingWatch}
+                    className={FIELD_COMPACT}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Delete this item"
+                    title="Delete"
+                    disabled={savingWatch}
+                    onClick={() => setWatchDraft((draft) => draft?.filter((_, at) => at !== index) ?? null)}
+                    className={TRASH_BUTTON}
+                  >
+                    <TrashIcon />
+                  </button>
+                </li>
+              ))}
+              <li className="pt-2">
+                <button
+                  type="button"
+                  disabled={savingWatch}
+                  onClick={() => setWatchDraft((draft) => [...(draft ?? []), { line: null, text: "" }])}
+                  className={HEADER_BUTTON}
+                >
+                  Add an item
+                </button>
+              </li>
+            </ul>
+          ) : watch === null ? (
             <p className="text-sm text-neutral-700">Loading…</p>
           ) : watch.length === 0 ? (
             <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-sm text-neutral-700">
@@ -111,9 +241,9 @@ export function HomePage({
             </p>
           ) : (
             <ul className="flex flex-col">
-              {watch.slice(0, 5).map((line, index) => (
-                <li key={index} className="py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
-                  {line.replace(/^[-*]\s*/, "")}
+              {watch.slice(0, 5).map((item) => (
+                <li key={item.line} className="py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                  {item.text}
                 </li>
               ))}
               {watch.length > 5 && <li className="pt-2.5 text-xs text-neutral-700">and {watch.length - 5} more</li>}
@@ -122,11 +252,19 @@ export function HomePage({
         </section>
 
         <section aria-labelledby="home-coming-up" className="flex flex-col gap-3">
+          {confirmDialog}
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="home-coming-up" className="text-sm font-semibold">Coming up</h2>
-            <button type="button" onClick={() => onNavigate("scheduled")} className="text-xs font-medium text-neutral-700 underline-offset-2 hover:underline">
-              All scheduled
-            </button>
+            <span className="flex items-baseline gap-4">
+              {upcoming.length > 0 && (
+                <button type="button" onClick={() => setEditingSchedules((editing) => !editing)} className={HEADER_BUTTON}>
+                  {editingSchedules ? "Done" : "Edit"}
+                </button>
+              )}
+              <button type="button" onClick={() => onNavigate("scheduled")} className={HEADER_BUTTON}>
+                All scheduled
+              </button>
+            </span>
           </div>
           {schedules === null ? (
             <p className="text-sm text-neutral-700">Loading…</p>
@@ -134,11 +272,25 @@ export function HomePage({
             <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-sm text-neutral-700">Nothing is scheduled.</p>
           ) : (
             <ul className="flex flex-col">
-              {upcoming.map((row, index) => (
-                <li key={index} className="flex items-baseline justify-between gap-4 py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+              {upcoming.map((row) => (
+                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
                   <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
-                  <span title={row[NEXT_RUN]} className="shrink-0 text-xs tabular-nums text-neutral-700">
-                    {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span title={row[NEXT_RUN]} className="text-xs tabular-nums text-neutral-700">
+                      {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
+                    </span>
+                    {editingSchedules && (
+                      <button
+                        type="button"
+                        aria-label="Cancel this schedule"
+                        title="Cancel schedule"
+                        disabled={cancelling === row[ID]}
+                        onClick={() => removeSchedule(row)}
+                        className={TRASH_BUTTON}
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
                   </span>
                 </li>
               ))}

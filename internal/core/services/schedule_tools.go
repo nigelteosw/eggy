@@ -73,8 +73,10 @@ const scheduleSchema = `{"type":"object","properties":{` +
 
 func (t scheduleTool) Definition() ports.ToolDefinition {
 	return ports.ToolDefinition{
-		Name:        ScheduleToolName,
-		Description: "Review, create, or cancel schedules. action=list reports every schedule with its cron expression, next run, and kind; action=create takes an instruction plus either cron (recurring) or at (one-time RFC3339); action=cancel removes one by id so it never runs again",
+		Name: ScheduleToolName,
+		// The last sentence is there because "I've already done this" was once
+		// answered with "no reminder needed" while the reminder stayed scheduled.
+		Description: "Review, create, or cancel schedules. action=list reports every schedule with its cron expression, next run, and kind; action=create takes an instruction plus either cron (recurring) or at (one-time RFC3339); action=cancel removes one by id so it never runs again. When the owner says something a schedule is for is already done or no longer needed, list and cancel the matching schedule rather than only acknowledging it",
 		Schema:      json.RawMessage(scheduleSchema),
 		// A schedule outlives the turn that made it and fires unattended,
 		// which is the whole reason creating one is a decision rather than a

@@ -221,11 +221,11 @@ func TestListPassesTheFilterAndFormatsAmounts(t *testing.T) {
 		{ID: "e2", OccurredOn: "2026-10-01", AmountMinor: 1200, Currency: "JPY", Category: "travel", Source: "chat"},
 	}}
 	handler, cookie := financeHandler(t, fake)
-	response := call(t, handler, cookie, http.MethodGet, "/api/finance/entries?from=2026-10-01&to=2026-10-31&category=food&limit=25", "")
+	response := call(t, handler, cookie, http.MethodGet, "/api/finance/entries?from=2026-10-01&to=2026-10-31&category=food&limit=25&offset=50", "")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if fake.filter != (ports.FinanceFilter{From: "2026-10-01", To: "2026-10-31", Category: "food", Limit: 25}) {
+	if fake.filter != (ports.FinanceFilter{From: "2026-10-01", To: "2026-10-31", Category: "food", Limit: 25, Offset: 50}) {
 		t.Fatalf("filter = %+v", fake.filter)
 	}
 	if fake.account != "42" {
@@ -256,6 +256,9 @@ func TestListRefusesAnUnreadableLimit(t *testing.T) {
 	for _, limit := range []string{"abc", "-1", "1.5"} {
 		if response := call(t, handler, cookie, http.MethodGet, "/api/finance/entries?limit="+limit, ""); response.Code != http.StatusBadRequest {
 			t.Errorf("limit=%s status = %d, want 400", limit, response.Code)
+		}
+		if response := call(t, handler, cookie, http.MethodGet, "/api/finance/entries?offset="+limit, ""); response.Code != http.StatusBadRequest {
+			t.Errorf("offset=%s status = %d, want 400", limit, response.Code)
 		}
 	}
 }

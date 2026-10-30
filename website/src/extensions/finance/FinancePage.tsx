@@ -36,7 +36,17 @@ import {
   signedAmount,
   type Kind,
 } from "./finance";
-import { DEFAULT_VIEW, isFiltered, listRequest, type EntryView } from "./finance-list";
+import {
+  DEFAULT_VIEW,
+  PAGE_SIZES,
+  changeView,
+  isFiltered,
+  isPageSize,
+  listRequest,
+  pageCount,
+  shownRange,
+  type EntryView,
+} from "./finance-list";
 import { cn, errorMessage } from "../../lib/utils";
 
 // Money is text all the way down: the server formats every amount and sizes
@@ -277,25 +287,26 @@ export function FinanceReport({
   currency,
   onCurrency,
   entries,
-  total,
   editingId,
   busy,
   onEdit,
   onSave,
   onDelete,
   listControls,
+  pager,
   filtered = false,
 }: {
   summary: FinanceSummary;
   currency: string;
   onCurrency: (code: string) => void;
   entries: FinanceEntry[];
-  total: number;
   editingId: string | null;
   busy: boolean;
   onEdit: (id: string | null) => void;
   onSave: (id: string, patch: FinancePatch) => Promise<void>;
   onDelete: (id: string) => void;
+  // The page controls, drawn below the entries.
+  pager?: ReactNode;
   // The search, filter and sort controls, drawn above the entries. A search can match
   // nothing, so the section stays while filtered even with no rows to show.
   listControls?: ReactNode;
@@ -374,11 +385,64 @@ export function FinanceReport({
               </li>
             ))}
           </ul>
-          {total > entries.length && <p className="text-xs text-neutral-700">{`${total - entries.length} more not shown`}</p>}
+          {pager}
         </section>
       )}
     </>
   );
+}
+
+// Pager steps through a month's entries a page at a time and picks how many a
+// page shows. The count and the steps stay on one line from a phone up.
+export function Pager({ view, total, shown, onChange }: { view: EntryView; total: number; shown: number; onChange: (change: Partial<EntryView>) => void }) {
+  const pages = pageCount(total, view.pageSize);
+  const { first, last } = shownRange(view, shown);
+  if (total === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+      <label className="flex items-center gap-2 text-xs text-neutral-700">
+        Show
+        <Select
+          aria-label="Entries per page"
+          value={String(view.pageSize)}
+          onChange={(event) => {
+            const size = Number(event.target.value);
+            if (isPageSize(size)) onChange({ pageSize: size });
+          }}
+          className="h-9 w-[4.5rem]"
+        >
+          {PAGE_SIZES.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <div className="flex items-center gap-1">
+        <span className="px-2 text-xs tabular-nums text-neutral-700">{`${first}–${last} of ${total}`}</span>
+        <button type="button" aria-label="Previous page" disabled={view.page === 0} onClick={() => onChange({ page: view.page - 1 })} className={SECONDARY_BUTTON}>
+          ‹
+        </button>
+        <button type="button" aria-label="Next page" disabled={view.page >= pages - 1} onClick={() => onChange({ page: view.page + 1 })} className={SECONDARY_BUTTON}>
+          ›
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The page size is remembered per browser; it is a convenience, so storage
+// that is missing or refuses leaves the default.
+const PAGE_SIZE_KEY = "eggy.finance.pageSize";
+
+function initialView(): EntryView {
+  try {
+    const stored = Number(localStorage.getItem(PAGE_SIZE_KEY));
+    if (isPageSize(stored)) return { ...DEFAULT_VIEW, pageSize: stored };
+  } catch {
+    // Unavailable storage: keep the default.
+  }
+  return DEFAULT_VIEW;
 }
 
 // onClose is set when the page is opened as an extension window, which returns
@@ -398,7 +462,17 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
   const [currency, setCurrency] = useState<string | null>(null);
   // The search, filter and sort the list is asked for. Changing it asks only
   // for the list again; the month's totals do not depend on it.
-  const [view, setView] = useState<EntryView>(DEFAULT_VIEW);
+  const [view, setView] = useState<EntryView>(initialView);
+  const updateView = useCallback((change: Partial<EntryView>) => {
+    if (change.pageSize !== undefined) {
+      try {
+        localStorage.setItem(PAGE_SIZE_KEY, String(change.pageSize));
+      } catch {
+        // Not remembered; the choice still applies now.
+      }
+    }
+    setView((current) => changeView(current, change));
+  }, []);
   // Only the newest load may land: stepping through months quickly, or
   // retyping a search, must not end on whichever response arrived last.
   const latest = useRef(0);
@@ -470,6 +544,14 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
     if (summary) void loadList(summary, view);
   }, [view]);
 
+  // Deleting the last entry on the last page leaves an empty page; step back
+  // to the new last one rather than showing nothing.
+  useEffect(() => {
+    if (list && list.entries.length === 0 && list.total > 0 && view.page > 0) {
+      updateView({ page: pageCount(list.total, view.pageSize) - 1 });
+    }
+  }, [list]);
+
   // Runs a write, then reloads what the page shows. Resolves true on success.
   async function mutate(write: () => Promise<unknown>, failure: string): Promise<boolean> {
     setBusy(true);
@@ -527,7 +609,6 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               currency={activeCurrency(summary, currency)}
               onCurrency={setCurrency}
               entries={list.entries}
-              total={list.total}
               editingId={editingId}
               busy={busy}
               filtered={isFiltered(view)}
@@ -535,13 +616,14 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
                 <FinanceToolbar
                   view={view}
                   categories={summary.categories.map((category) => category.name)}
-                  onChange={(change) => setView((current) => ({ ...current, ...change }))}
+                  onChange={updateView}
                   onAdd={() => {
                     setAddOpen(true);
                     document.getElementById("finance-add-entry")?.scrollIntoView({ block: "center", behavior: "smooth" });
                   }}
                 />
               }
+              pager={<Pager view={view} total={list.total} shown={list.entries.length} onChange={updateView} />}
               onEdit={setEditingId}
               onSave={async (id, patch) => {
                 if (await mutate(() => updateFinanceEntry(id, patch), "Could not save the entry")) setEditingId(null);

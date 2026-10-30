@@ -85,6 +85,14 @@ func newFinanceListHandler(svc FinanceService) http.HandlerFunc {
 			}
 			filter.Limit = limit
 		}
+		if raw := query.Get("offset"); raw != "" {
+			offset, err := strconv.Atoi(raw)
+			if err != nil || offset < 0 {
+				writeWebError(w, http.StatusBadRequest, "offset must be a whole number")
+				return
+			}
+			filter.Offset = offset
+		}
 		entries, total, err := svc.List(r.Context(), filter)
 		if err != nil {
 			writeFinanceFailure(w, err)

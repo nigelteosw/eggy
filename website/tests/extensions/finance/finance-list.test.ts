@@ -25,14 +25,16 @@ test("every sort key is offered once, in a fixed order", () => {
 });
 
 test("the request always names its sort and order, and leaves blank search and filter out", () => {
-  expect(listRequest(range, DEFAULT_VIEW)).toEqual({ from: "2026-10-01", to: "2026-10-31", sort: "date", order: "desc" });
-  expect(listRequest(range, { query: "  coffee  ", category: "food", sort: "amount", order: "asc" })).toEqual({
+  expect(listRequest(range, DEFAULT_VIEW)).toEqual({ from: "2026-10-01", to: "2026-10-31", sort: "date", order: "desc", limit: 20, offset: 0 });
+  expect(listRequest(range, { ...DEFAULT_VIEW, query: "  coffee  ", category: "food", sort: "amount", order: "asc" })).toEqual({
     from: "2026-10-01",
     to: "2026-10-31",
     q: "coffee",
     category: "food",
     sort: "amount",
     order: "asc",
+    limit: 20,
+    offset: 0,
   });
   expect(listRequest(range, { ...DEFAULT_VIEW, query: "   " })).not.toHaveProperty("q");
 });
@@ -54,6 +56,8 @@ test("a kind filter narrows the list and the request names it only when set", ()
     kind: "income",
     sort: "date",
     order: "desc",
+    limit: 20,
+    offset: 0,
   });
   expect(listRequest({ from: "2026-10-01", to: "2026-10-31" }, DEFAULT_VIEW)).not.toHaveProperty("kind");
 });

@@ -801,7 +801,7 @@ export function getFinanceSummary(month?: string): Promise<FinanceSummary> {
 }
 
 export function getFinanceEntries(
-  filter: { from?: string; to?: string; kind?: string; category?: string; q?: string; sort?: string; order?: string; limit?: number } = {},
+  filter: { from?: string; to?: string; kind?: string; category?: string; q?: string; sort?: string; order?: string; limit?: number; offset?: number } = {},
 ): Promise<FinanceEntryList> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filter)) {

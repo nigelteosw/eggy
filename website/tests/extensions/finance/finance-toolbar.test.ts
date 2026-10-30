@@ -60,7 +60,6 @@ const reportWith = (over: Partial<Parameters<typeof FinanceReport>[0]>) =>
       currency: "SGD",
       onCurrency: () => {},
       entries: [],
-      total: 0,
       editingId: null,
       busy: false,
       onEdit: () => {},

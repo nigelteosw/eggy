@@ -14,7 +14,8 @@ import {
   type FinanceSummary,
 } from "../../../src/lib/api";
 import { CategoriesPanel } from "../../../src/extensions/finance/FinanceCategories";
-import { AddEntryForm, FinanceReport } from "../../../src/extensions/finance/FinancePage";
+import { AddEntryForm, FinanceReport, Pager } from "../../../src/extensions/finance/FinancePage";
+import { DEFAULT_VIEW } from "../../../src/extensions/finance/finance-list";
 import { FinanceSettingsView } from "../../../src/extensions/finance/FinanceCard";
 import { daysOfRange, monthLabel, shiftMonth } from "../../../src/extensions/finance/finance";
 test("months shift across year boundaries and read as words", () => {
@@ -108,7 +109,6 @@ function report(over: Partial<Parameters<typeof FinanceReport>[0]> = {}) {
       currency: "SGD",
       onCurrency: () => {},
       entries,
-      total: entries.length,
       editingId: null,
       busy: false,
       onEdit: () => {},
@@ -185,7 +185,6 @@ test("entries show a coloured category, a signed amount, and the kind they were 
       ...entries,
       { id: "e3", kind: "income", date: "2026-10-03", amount: "900.00", currency: "SGD", category: "salary", merchant: "", note: "", source: "panel" },
     ],
-    total: 3,
   });
   for (const text of ["Grab", "Ya Kun", "2026-10-02", "with tip"]) expect(html).toContain(text);
   expect(html).toContain("via photo");
@@ -209,15 +208,16 @@ test("an empty month says so and says how to start", () => {
   const html = report({
     summary: { ...summary, flows: [], trend: [], spending: [], days: [], insights: [] },
     entries: [],
-    total: 0,
   });
   expect(html).toContain("No money logged in October 2026");
   expect(html).toContain("Tell Eggy");
 });
 
-test("a list that was cut short says how much is not shown", () => {
-  expect(report({ total: 250 })).toContain("248 more not shown");
-  expect(report()).not.toContain("more not shown");
+test("the pager says which entries are on screen and offers the page sizes", () => {
+  const html = renderToStaticMarkup(createElement(Pager, { view: { ...DEFAULT_VIEW, pageSize: 20, page: 1 }, total: 45, shown: 20, onChange: () => {} }));
+  expect(html).toContain("21–40 of 45");
+  for (const size of ["10", "20", "50"]) expect(html).toContain(`<option value="${size}"`);
+  expect(renderToStaticMarkup(createElement(Pager, { view: DEFAULT_VIEW, total: 0, shown: 0, onChange: () => {} }))).toBe("");
 });
 
 test("the add-entry form offers the four kinds with spending first, and the supported currencies", () => {

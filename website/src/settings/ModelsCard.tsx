@@ -62,6 +62,45 @@ export function catalogEffortsFor(catalog: CommandResult | null, model: string):
   return row ? row[3] ?? "" : null;
 }
 
+// imageModelOf reads the alias generate_image draws with off the models
+// section; "" when none is chosen.
+export function imageModelOf(result: CommandResult | null): string {
+  return result?.fields?.find((field) => field.label === "image_model")?.value ?? "";
+}
+
+// ImageModelPicker chooses the model every chat model draws with. Only
+// OpenRouter aliases are offered, because only OpenRouter says which models
+// can draw; the server refuses anything else.
+function ImageModelPicker({
+  aliases,
+  current,
+  saving,
+  onChange,
+}: {
+  aliases: string[];
+  current: string;
+  saving: boolean;
+  onChange: (alias: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
+      <p className="text-[12.5px] font-medium">Image model</p>
+      <p className="text-xs text-neutral-700">
+        When you ask for a picture, whichever model you are chatting with draws it with this one. Pick an OpenRouter
+        alias whose model outputs images.
+      </p>
+      <Select aria-label="Image model" value={current} disabled={saving} onChange={(e) => onChange(e.target.value)} className="bg-background">
+        <option value="">None — no image generation</option>
+        {aliases.map((alias) => (
+          <option key={alias} value={alias}>
+            {alias}
+          </option>
+        ))}
+      </Select>
+    </div>
+  );
+}
+
 export function modelDraftForRow(row: string[]) {
   return {
     alias: row[0] ?? "",
@@ -292,6 +331,15 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               removing={removingAlias === row[0]}
             />
           )}
+        />
+
+        <ImageModelPicker
+          aliases={(result?.table_rows ?? []).filter((row) => openRouterProviders.includes(row[1] ?? "")).map((row) => row[0])}
+          current={imageModelOf(result)}
+          saving={saving}
+          onChange={async (next) => {
+            if (await save({ image_model: next })) setRestartRequired(true);
+          }}
         />
 
         {browsable.length > 0 && (

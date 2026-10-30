@@ -133,3 +133,42 @@ func TestSurfaceWithoutImagesIsToldInWords(t *testing.T) {
 		t.Fatalf("delivered=%#v", channel.delivered)
 	}
 }
+
+// drawingModel is an image model: it answers any prompt with one picture.
+type drawingModel struct{ request ports.ModelRequest }
+
+func (m *drawingModel) Generate(_ context.Context, request ports.ModelRequest) (ports.ModelResponse, error) {
+	m.request = request
+	return ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, Parts: []ports.ContentPart{drawnImage}}}, nil
+}
+
+// A text model that calls generate_image gets the picture onto its own reply:
+// kept, shown, and referenced exactly as if it had drawn it itself.
+func TestImageDrawnByTheToolArrivesWithTheReply(t *testing.T) {
+	model := &drawingModel{}
+	tool := services.NewGenerateImageTool(services.ImageTarget{
+		Alias: "painter", Model: model, ModelID: "google/gemini-2.5-flash-image",
+		Output: func(context.Context) []ports.Modality {
+			return []ports.Modality{ports.ModalityImage, ports.ModalityText}
+		},
+	})
+	loop := &fakeLoop{reply: "Here is your pour painting."}
+	loop.onRun = func(ctx context.Context) {
+		if _, err := tool.Execute(ctx, []byte(`{"prompt":"fluid acrylic pour, gold and graphite"}`)); err != nil {
+			t.Error(err)
+		}
+	}
+	channel := &imageChannel{}
+	conversation := &fakeConversation{}
+	store := &fakeImageStore{}
+	service := imageService(loop, channel, conversation, store, true)
+	if err := service.OwnerMessage(context.Background(), ports.Message{Content: "generate that photo"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if model.request.Model != "google/gemini-2.5-flash-image" || !strings.Contains(model.request.Messages[0].Content, "acrylic") {
+		t.Fatalf("image model request=%+v", model.request)
+	}
+	if !slices.Equal(channel.images, []string{"img-1:image/png"}) || len(store.saved) != 1 {
+		t.Fatalf("images shown=%v kept=%v", channel.images, store.saved)
+	}
+}

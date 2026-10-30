@@ -149,6 +149,9 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 		cancelTurn()
 	}()
 	turnContext = services.WithSelectedModel(turnContext, alias)
+	// What generate_image draws lands here rather than in the calling model's
+	// reply, and joins the reply's own pictures below.
+	turnContext, drawn := services.WithGeneratedImages(turnContext)
 	options.PendingInput = func() []ports.Message { return s.Registry.Pending(ownerContext) }
 	stopTyping := func() {}
 	if s.Presenter != nil {
@@ -193,7 +196,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 	if usageErr != nil {
 		return usageErr
 	}
-	images := generatedImages(result.Message.Parts)
+	images := append(drawn.Images(), generatedImages(result.Message.Parts)...)
 	imageIDs := s.keepImages(ctx, trace.ID(), images)
 	if policy.RecordConversation {
 		conversationID := dest.ConversationID()

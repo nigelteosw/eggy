@@ -488,6 +488,23 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		WebLoginLink:     app.webLoginLinkMinter(database, options.ConfigPath),
 		Now:              options.Now,
 	})
+	// /model's agent-facing half, registered here because it is a view onto
+	// the command service above rather than a collaborator of its own.
+	if err := gate(app.commands.ModelTool()); err != nil {
+		return nil, err
+	}
+	// generate_image exists only once an image model is chosen, and draws
+	// through the same traced adapter a turn on that alias would use.
+	if imageAlias := config.Agent.ImageModel; imageAlias != "" {
+		target := targets[imageAlias]
+		if err := gate(services.NewGenerateImageTool(services.ImageTarget{
+			Alias: imageAlias, Model: target.Model, ModelID: target.ModelID, ProviderRouting: target.ProviderRouting,
+			Output:      func(ctx context.Context) []ports.Modality { return discovery.ImageOutput(ctx, imageAlias) },
+			RecordUsage: agentRuntime.RecordUsage,
+		})); err != nil {
+			return nil, err
+		}
+	}
 	app.telegramControls = telegramSurface.controls(app.commands, options.Now)
 	// The turn orchestrator. Bootstrap's remaining job for a turn is to route
 	// an event type to the right entry point on this; everything the turn

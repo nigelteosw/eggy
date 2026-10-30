@@ -317,7 +317,11 @@ type GoogleConfig struct {
 
 type AgentConfig struct {
 	DefaultModel string `yaml:"default_model"`
-	Timezone     string `yaml:"timezone,omitempty"`
+	// ImageModel is the alias generate_image draws with, whatever model a
+	// turn runs on. Empty leaves the tool unregistered. It must be an
+	// OpenRouter alias, because only OpenRouter says which models draw.
+	ImageModel string `yaml:"image_model,omitempty"`
+	Timezone   string `yaml:"timezone,omitempty"`
 }
 
 type ProviderConfig struct {

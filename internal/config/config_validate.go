@@ -461,6 +461,15 @@ func (c Config) validateProviders() error {
 	if _, ok := c.ModelAliases[c.Agent.DefaultModel]; !ok {
 		return fmt.Errorf("agent.default_model %q is not configured", c.Agent.DefaultModel)
 	}
+	if image := c.Agent.ImageModel; image != "" {
+		model, ok := c.ModelAliases[image]
+		if !ok {
+			return fmt.Errorf("agent.image_model %q is not configured", image)
+		}
+		if !c.Providers[model.Provider].IsOpenRouter() {
+			return fmt.Errorf("agent.image_model %q must use an OpenRouter provider, the only one that says which models draw", image)
+		}
+	}
 	return nil
 }
 

@@ -76,13 +76,28 @@ On OpenRouter an alias can also pin which upstream vendors serve it; see
 Effort is chosen in the web panel and, like the model, is durable runtime state.
 The effort a turn ran on is recorded in its [trace](/eggy/use/traces/).
 
+## Changing models by asking
+
+Eggy can manage its own models on OpenRouter. Say "add Gemini Flash Image from
+OpenRouter" and it searches OpenRouter's catalog for the exact model ID, writes
+an alias with the catalog's reasoning efforts, and restarts to load it. Adding
+an alias changes the shared `config.yaml`, so in `normal` mode it asks for your
+approval first. "Switch to sonnet" changes only your own `/model` choice, so
+it runs without asking. The new model answers from your next message on.
+
 ## Generated images
 
-Pick an alias whose model can draw and ask for a picture. Eggy knows a model
-draws when OpenRouter's catalog lists `image` among its output modalities, and
-only then asks for image output, using the model's own list. A model that
-outputs only images is asked for images alone. No setting turns this on: it
-follows the alias you have selected.
+Choose an **image model** in **Settings → Models** (`agent.image_model`). It
+must be an OpenRouter alias whose model OpenRouter lists as producing `image`.
+After that, ask for a picture with any model selected: the model you are
+chatting with calls `generate_image`, which draws with the image model, and the
+picture is attached to its reply. With no image model chosen, the tool does not
+exist.
+
+If the alias you have selected can draw by itself, it also draws directly.
+Eggy knows a model draws when OpenRouter's catalog lists `image` among its
+output modalities, and only then asks for image output, using the model's own
+list. A model that outputs only images is asked for images alone.
 
 - **Only on turns you start.** Scheduled turns and check-ins never ask for an
   image, because each picture is billed and nobody asked for it.

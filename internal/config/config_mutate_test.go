@@ -1004,3 +1004,47 @@ func TestSetAppearanceRoundTripsSystem(t *testing.T) {
 		t.Fatalf("theme=%q, want %q", got, ThemeSystem)
 	}
 }
+
+// The image model is one of the OpenRouter aliases, and cannot be removed out
+// from under the tool that draws with it.
+func TestSetImageModelAcceptsOnlyAnOpenRouterAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(validConfig()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetProvider(path, ProviderInput{Name: "openrouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetModelAlias(path, ModelAliasInput{Alias: "painter", Provider: "openrouter", Model: "google/gemini-2.5-flash-image"}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for alias, model := range document.ModelAliases {
+		if model.Provider != "openrouter" {
+			if err := SetImageModel(path, alias); err == nil || !strings.Contains(err.Error(), "OpenRouter") {
+				t.Fatalf("non-OpenRouter alias %q accepted: %v", alias, err)
+			}
+		}
+	}
+	if err := SetImageModel(path, "missing"); err == nil {
+		t.Fatal("unknown alias accepted")
+	}
+	if err := SetImageModel(path, "painter"); err != nil {
+		t.Fatal(err)
+	}
+	if document, _ = LoadDocument(path); document.Agent.ImageModel != "painter" {
+		t.Fatalf("image_model=%q", document.Agent.ImageModel)
+	}
+	if err := RemoveModelAlias(path, "painter"); err == nil || !strings.Contains(err.Error(), "image model") {
+		t.Fatalf("removed the image model: %v", err)
+	}
+	if err := SetImageModel(path, ""); err != nil {
+		t.Fatal(err)
+	}
+	if body, _ := os.ReadFile(path); strings.Contains(string(body), "image_model") {
+		t.Fatalf("cleared image_model still written:\n%s", body)
+	}
+}

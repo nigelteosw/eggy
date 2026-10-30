@@ -261,11 +261,24 @@ func SetModelAlias(path string, input ModelAliasInput) error {
 	})
 }
 
+// SetImageModel names the alias generate_image draws with; empty removes the
+// tool. Validation, under the same lock, refuses an alias that is not an
+// OpenRouter one.
+func SetImageModel(path, alias string) error {
+	return mutate(path, func(cfg *Config) error {
+		cfg.Agent.ImageModel = strings.TrimSpace(alias)
+		return nil
+	})
+}
+
 func RemoveModelAlias(path, alias string) error {
 	alias = strings.TrimSpace(alias)
 	return mutate(path, func(cfg *Config) error {
 		if _, exists := cfg.ModelAliases[alias]; !exists {
 			return fmt.Errorf("model alias %q is not configured", alias)
+		}
+		if cfg.Agent.ImageModel == alias {
+			return fmt.Errorf("model alias %q is the image model; choose another image model first", alias)
 		}
 		delete(cfg.ModelAliases, alias)
 		return nil

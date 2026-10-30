@@ -1052,3 +1052,35 @@ func testGetenv(name string) string {
 		"GITHUB_TOKEN":            "gh",
 	}[name]
 }
+
+// The image model is saved from the models card and read back off its
+// section, so the picker shows what config.yaml holds.
+func TestWebModelsRouteSavesAndReportsTheImageModel(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	if err := config.SetProvider(path, config.ProviderInput{Name: "openrouter", Adapter: "openai_compatible", BaseURL: "https://openrouter.ai/api/v1", APIKeyEnv: "OPENROUTER_API_KEY"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SetModelAlias(path, config.ModelAliasInput{Alias: "painter", Provider: "openrouter", Model: "google/gemini-2.5-flash-image"}); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewWebHandler(path, testWebConfig(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)))
+	cookie := webLoginCookie(t, handler)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/config/models", strings.NewReader(`{"image_model":"painter"}`))
+	attachSession(request, cookie)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if loaded, _ := config.LoadDocument(path); loaded.Agent.ImageModel != "painter" {
+		t.Fatalf("image_model=%q", loaded.Agent.ImageModel)
+	}
+	get := httptest.NewRequest(http.MethodGet, "/api/config/models", nil)
+	attachSession(get, cookie)
+	listed := httptest.NewRecorder()
+	handler.ServeHTTP(listed, get)
+	if !strings.Contains(listed.Body.String(), `"label":"image_model","value":"painter"`) {
+		t.Fatalf("section=%s", listed.Body.String())
+	}
+}

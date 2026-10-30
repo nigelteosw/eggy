@@ -122,7 +122,10 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 					openRouter = append(openRouter, name)
 				}
 			}
-			result.Fields = []webField{{Label: "openrouter_providers", Value: strings.Join(openRouter, ",")}}
+			result.Fields = []webField{
+				{Label: "openrouter_providers", Value: strings.Join(openRouter, ",")},
+				{Label: "image_model", Value: cfg.Agent.ImageModel},
+			}
 		case "google":
 			// One row, because there is one grant. A second row would suggest
 			// per-product configuration that does not exist.
@@ -311,6 +314,13 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			err = config.SetProvider(configPath, input)
 			title = "Set provider " + named["name"] + "."
 		case "models":
+			// The image model is a choice among the aliases, so it is saved
+			// from the same card rather than a section of its own.
+			if imageModel, sent := named["image_model"]; sent {
+				err = config.SetImageModel(configPath, imageModel)
+				title = "Saved the image model."
+				break
+			}
 			input, decodeErr := config.Values(named).ModelAliasInput(named["alias"])
 			if decodeErr != nil {
 				writeWebError(w, http.StatusBadRequest, decodeErr.Error())

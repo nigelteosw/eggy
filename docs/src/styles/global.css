@@ -232,10 +232,20 @@
     color: var(--code-ink); font-size: 13px; line-height: 1.65;
   }
   .copy-code {
-    position: absolute; top: 9px; right: 9px; padding: 5px 8px;
-    border: 1px solid #50544f; border-radius: 4px; background: #2a2e2a; color: #c9cec7;
-    font-size: 11px; cursor: pointer;
+    position: absolute; top: 9px; right: 9px; width: 30px; height: 30px; padding: 0;
+    display: grid; place-items: center;
+    border: 1px solid #50544f; border-radius: 4px; background: #2a2e2a; color: #c9cec7; cursor: pointer;
   }
+  .copy-code:hover { border-color: #6b7068; color: #ffffff; }
+  .copy-code svg {
+    width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .prose .diagram {
+    margin: 0; padding: 26px 22px; overflow-x: auto;
+    border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface);
+  }
+  .prose .diagram svg { max-width: 100%; height: auto; margin-inline: auto; }
   .prose blockquote {
     padding: 17px 20px; border: 1px solid var(--callout-border); border-left: 3px solid var(--accent);
     background: var(--callout-bg); color: var(--callout-ink);

@@ -165,23 +165,31 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelectorAll("pre").forEach((block) => {
+const copyIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+const checkIcon =
+  '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+
+// Diagrams are drawn by scripts/diagrams.ts, so their source gets no copy button.
+document.querySelectorAll('pre:not([data-language="mermaid"])').forEach((block) => {
   const code = block.querySelector("code");
   if (!code) return;
   const button = document.createElement("button");
   button.type = "button";
   button.className = "copy-code";
   button.setAttribute("aria-label", "Copy code");
-  button.textContent = "Copy";
+  button.innerHTML = copyIcon;
   button.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(code.textContent ?? "");
-      button.textContent = "Copied";
+      button.innerHTML = checkIcon;
+      button.setAttribute("aria-label", "Copied");
     } catch {
-      button.textContent = "Copy failed";
+      button.setAttribute("aria-label", "Copy failed");
     }
     window.setTimeout(() => {
-      button.textContent = "Copy";
+      button.innerHTML = copyIcon;
+      button.setAttribute("aria-label", "Copy code");
     }, 1500);
   });
   block.append(button);

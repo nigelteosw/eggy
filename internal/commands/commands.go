@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -197,86 +196,6 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	default:
 		return "Unknown command. Send /help for commands.", true, nil
 	}
-}
-
-func (s *CommandService) status(ctx context.Context) (string, bool, error) {
-	model := "unconfigured"
-	if s.AgentRuntime != nil {
-		selected, err := s.AgentRuntime.SelectedModel(ctx)
-		if err != nil {
-			return "", true, err
-		}
-		if selected != "" {
-			model = selected
-		}
-	}
-	// A bare count answers "is anything waiting" but not "waiting for what",
-	// which is the question the owner actually has, so each pending approval
-	// is named by its summary.
-	waitingApprovals := []approvals.Approval(nil)
-	if s.Store != nil {
-		state, err := s.Store.Load(ctx)
-		if err != nil {
-			return "", true, err
-		}
-		for _, approval := range state.Approvals {
-			if approval.Status == approvals.Pending {
-				waitingApprovals = append(waitingApprovals, approval)
-			}
-		}
-	}
-	// Oldest first: state stores approvals in a map, so without this the order
-	// would differ between two runs of the same command.
-	slices.SortFunc(waitingApprovals, func(a, b approvals.Approval) int {
-		return a.CreatedAt.Compare(b.CreatedAt)
-	})
-	pending := len(waitingApprovals)
-	waiting := make([]string, 0, pending)
-	for _, approval := range waitingApprovals {
-		summary := approval.Summary
-		if strings.TrimSpace(summary) == "" {
-			summary = string(approval.Action)
-		}
-		waiting = append(waiting, fmt.Sprintf("- %s (`%s`, requested %s)", summary, approval.ID, approval.CreatedAt.Format("2 Jan 15:04")))
-	}
-	report := fmt.Sprintf("**Eggy status**\n\n**Active model:** %s\n**Pending approvals:** %d", model, pending)
-	if s.RestartPending != nil && s.RestartPending() {
-		report += "\n**Waiting for a restart:** a config change is not live yet. `/restart` applies it."
-	}
-	if len(waiting) > 0 {
-		report += "\n" + strings.Join(waiting, "\n")
-	}
-	// The mode is always reported now that there are three of them. A bypass
-	// the owner switched on days ago and forgot is still the failure mode worth
-	// the line, but with a middle rung "no news" no longer means one specific
-	// state, so saying nothing would leave the owner guessing which.
-	if s.Approvals != nil {
-		mode, err := s.Approvals.Mode(ctx)
-		if err != nil {
-			return "", true, err
-		}
-		report += "\n**Approvals:** " + ModeMessage(mode)
-		if mode == ports.ModeAuto {
-			report += " `/mode normal` restores the gate."
-		}
-	}
-	if s.MCP != nil {
-		statuses := s.MCP.Statuses()
-		ready, tools, attention := 0, 0, []string(nil)
-		for _, status := range statuses {
-			tools += status.Tools
-			if status.State == mcpStateReady {
-				ready++
-				continue
-			}
-			attention = append(attention, status.Name+" ("+status.State+")")
-		}
-		report += fmt.Sprintf("\n**MCP:** %d/%d ready, %d tools", ready, len(statuses), tools)
-		if len(attention) > 0 {
-			report += "\n**Needs attention:** " + strings.Join(attention, ", ")
-		}
-	}
-	return report, true, nil
 }
 
 // restartCommand is /restart. The work is in Restart below, which the panel's

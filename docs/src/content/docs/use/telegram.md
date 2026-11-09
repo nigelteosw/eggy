@@ -69,7 +69,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/menu` | Open Status, My settings, Help, and Open web panel buttons |
 | `/settings` | Open your personal model, effort, thinking, approval mode, and heartbeat controls |
 | `/help [model\|mcp\|google\|mode]` | Show grouped commands or detailed topic help |
-| `/status` | Show the active model and pending approval count |
+| `/status` | Show your model, what is waiting for you, and what needs attention |
 | `/stop` | Cancel the turn currently running in this conversation |
 | `/clear` | Clear recent conversation history without deleting durable memory |
 | `/soul` | Show Eggy's soul (`SOUL.md`); change it by asking Eggy or in the web panel |
@@ -91,7 +91,7 @@ Eggy's Telegram command surface is intentionally small.
 Unknown commands return a short `/help` pointer. Malformed known commands show
 their own syntax. Ordinary text continues to the model.
 
-`/status` also reports how many MCP servers are ready, their total tool count, and any server needing attention, and always names the approval mode in force.
+`/status` reports your model with its reasoning effort and whether thinking is shown, the approvals waiting for you (the oldest five, with a count of the rest; ones that expired undecided are counted, not listed), whether a config change is waiting for a restart, and the approval mode in force. When MCP servers or Google are configured it adds their state: how many MCP servers are ready and the first few needing attention, and the shared Google connection with `/google login` when it needs reconnecting. A section that cannot be read says so without hiding the rest.
 
 `/web` replies with a link to the [web panel](/eggy/use/web-chat/) that signs you in on the way through, so opening the panel on a phone does not mean typing a password into one. The link is a credential bound to the account your Telegram chat maps to: it works once, expires five minutes after it is sent, and the browser must press **Continue** before it takes effect — that click signs you in for twelve hours and replaces whatever account was signed in before. Do not forward it: whoever uses it first is signed in as you. It is minted only from your own mapped private Telegram chat; a group chat, another chat surface, or a schedule text cannot produce one, and without `server.public_base_url` Eggy sends the plain address and you sign in by hand.
 

@@ -16,6 +16,7 @@ type fakeGoogleRuntime struct {
 	completed []completedLogin
 	failure   error
 	status    GoogleStatus
+	statusErr error
 	loggedOut bool
 }
 
@@ -28,7 +29,7 @@ func (f *fakeGoogleRuntime) CompleteLogin(_ context.Context, code, state string)
 	return f.failure
 }
 
-func (f *fakeGoogleRuntime) Status() (GoogleStatus, error) { return f.status, nil }
+func (f *fakeGoogleRuntime) Status() (GoogleStatus, error) { return f.status, f.statusErr }
 func (f *fakeGoogleRuntime) Logout() error                 { f.loggedOut = true; return nil }
 
 func googleService(runtime GoogleRuntime) *CommandService {

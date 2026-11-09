@@ -84,23 +84,6 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
       the review screens, and OAuth login on a disabled server completing
       without a reconnect.
 
-## P2 — Make status actionable and bounded (S–M)
-
-`CommandService.status` (`internal/commands/commands.go`) reports model,
-pending approvals (unbounded), restart pending, mode, and MCP readiness. Extend
-it rather than create a parallel diagnostics command.
-
-- Add effective reasoning settings and a compact shared Google connection state
-  with a recovery command when authorization needs attention; omit
-  unconfigured integrations.
-- Bound approval summaries and integration detail, with remaining counts and a
-  `/web` pointer. Treat expired pending entries as the approval authority does.
-- Tests: missing integration, failed status read, many approvals, expiry,
-  stable ordering, account isolation.
-
-Deletion budget: ~40–80 net production lines, 0 config keys/tools/record
-types/loops.
-
 ## P2 — Telegram onboarding edges (S)
 
 Bare `/start`, `/web` without a public URL, and the reply to a redeemed pairing
@@ -217,7 +200,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 
 ## Delivery order
 
-1. Status, onboarding, Telegram feedback, as separate changes.
+1. Telegram onboarding edges, then Telegram feedback, as separate changes.
 2. Voice and inbound attachments, then outbound documents.
 3. UI theme and structure, as the review orders it.
 4. Measurement, then the typed config contract.

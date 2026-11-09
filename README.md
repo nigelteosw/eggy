@@ -1,61 +1,49 @@
 # Eggy
 
-Eggy is a single-owner personal agent written in Go. One daemon serves
-Telegram and an optional authenticated web chat, routes requests to configured
-model providers, keeps conversation/context memory, and exposes a small tool
-registry.
+Eggy is a personal agent written in Go for a small group of people. One
+daemon serves Telegram, Discord DMs, and an authenticated web panel, routes
+requests to configured model providers, keeps conversation and durable memory,
+and exposes a small tool registry. Each person signs in to their own account
+and owns their conversations, memory, schedules, approvals, and settings; the
+configuration and integrations are shared.
 
-The repository boundary is intentionally read-only. Eggy can clone configured
-repositories, inspect files and GitHub metadata, and keep a checkout attached
-to a conversation. It cannot edit repository files, run an agent shell,
-commit, push, or create pull requests.
+Repository inspection is read-only: Eggy can clone configured repositories,
+read files and GitHub metadata, and keep a checkout attached to a conversation.
+The one write path is the optional agent runner extension, which edits a
+sandboxed checkout and may push one `eggy/<run-id>` branch and open one pull
+request, and only from a run a person started in the panel or with `/code run`.
+Eggy never merges, approves, tags, force-pushes, or touches a protected branch.
 
-## Owner surfaces
+## Surfaces
 
-Telegram is for conversation, protected-action approvals, and ordinary inline
-choices. Its command surface is deliberately limited to:
+Telegram and Discord are for conversation and notices. Telegram also carries
+approval buttons and inline choices; Discord has no decision surface, so an
+approval raised there points to the web panel. Telegram's `/` menu offers the
+everyday commands (`/menu`, `/stop`, `/clear`, `/web`, `/settings`, `/help`),
+and these work when typed:
 
-- `/help`
-- `/status`
-- `/stop`
-- `/clear`
-- `/model [alias]`
-- `/mcp [add|remove|enable|disable|login|logout]`
-- `/mode [strict|normal|auto]`
-- `/restart`
+- `/status`, `/soul`, `/restart`
+- `/model`, `/mode [strict|normal|auto]`, `/heartbeat` — personal settings
+- `/mcp`, `/google` — shared administration
+- `/code` — when the agent runner extension is enabled
 
-The agent can call `telegram_select` with its own prompt and 2–8 labelled
-options. A tap returns the selected value as the owner's next ordinary message.
-Selections are transient, expire after ten minutes, and never authorize a
-protected action.
+`/help <topic>` shows the syntax. The agent can call `telegram_select` with
+2–8 labelled options; a tap returns the value as the person's next message,
+expires after ten minutes, and never authorizes a protected action. No secret
+is accepted as a chat argument: MCP settings name environment variables whose
+values must already exist in the deployment.
 
-`/mcp` is the one administration command, and it is there because the config
-it edits lives on the Eggy runtime — an owner on a phone cannot shell into the
-deployment to add a server. It can list servers with their live state, add,
-remove, enable, disable, and start or discard an OAuth authorization. No secret
-value is ever accepted as a chat argument: `bearer_env` and `client_secret_env`
-name environment variables, and their values must already exist in the
-deployment's environment.
-stdio servers stay file-only, since a subprocess command line is not a chat
-argument.
+The web panel has Home (what needs you, what Eggy is watching, what is coming
+up), Chat, Scheduled, Customize (skills, MCP and Google connectors, and
+marketplace plugins when enabled), and Traces, which shows each turn as it ran.
+Settings opens over any of them at `/settings`, and enabled extensions such as
+Finance add their own entry to the rail.
 
-The authenticated web UI has three views — chat at `/`, traces at `/traces`,
-and settings at `/settings` — plus `/auth/mcp/{server}` to start an OAuth flow
-in the browser. Settings covers providers and model aliases (including browsing
-a provider's live catalog), MCP servers and Google, the live tool catalog,
-schedules and the heartbeat with its watch list, approvals, theme, tracing, and
-raw `config.yaml` with the restart that applies it. The Traces view shows each
-turn as it ran, grouped by conversation: the prompt behind every model call,
-and the arguments and output of every tool call.
-
-Both surfaces are views onto one administration authority: every config write
+Every surface is a view onto one administration authority: each config write
 goes through `internal/config` under the same file lock with the same
-validation. Writes take effect after restarting `eggyd`, and both surfaces say
-so. `/restart` and the panel's Restart button perform that restart through one
-shared path: it rebuilds the daemon from the file on disk inside the running
-process, after checking the new config loads and letting in-flight turns
-finish. Config edited from a phone is therefore applicable from a phone, with
-no redeploy.
+validation. `/restart` and the panel's Restart share one path that checks the
+new config loads, lets in-flight turns finish, and rebuilds the daemon in the
+same process, so config edited from a phone is applied from a phone.
 
 ## Turns
 
@@ -70,11 +58,12 @@ boundary.
 
 ## Skills
 
-`skills/` holds one Markdown file per procedure, each with `name` and
-`description` frontmatter. Only the summaries are resident in the prompt; the
-model loads a full body by exact name with `skill_read`. Placing the file is the
-review — there is no installer and no marketplace — and a skill grants no tool
-and lifts no approval. A file that is oversized, unreadable, or malformed is
+`skills/` holds one procedure per Markdown file or directory, each with `name`
+and `description` frontmatter. Only the summaries are resident in the prompt;
+the model loads a full body, or one of a directory skill's reference files, by
+exact name with `skill_read`. Skills are added by placing the file, writing one
+in Customize, or installing from a marketplace after reviewing exactly what it
+writes; a skill grants no tool and lifts no approval. A file that is oversized, unreadable, or malformed is
 skipped with a warning naming it, and the aggregate index is capped, so one bad
 file cannot break the list.
 
@@ -154,7 +143,9 @@ Capability families (`internal/`)
 - `auth/session`, `auth/grants`, `auth/connections` — sign-in primitives, sealed OAuth grants, sealed chat credentials.
 - `panel/webui` — the embedded panel assets; `fsutil/atomicfile`, `fsutil/filelock` — durable writes and cross-process locks.
 
-There is no `extensions/` directory; the name is reserved for owner-addable feature extensions.
+Extensions (`internal/extensions/`)
+
+- `finance`, `agentrunner`, `marketplace` — optional features, each behind one `<name>.enabled` key; when off they cost no schema, route, goroutine, or prompt bytes. Their files in shared packages are named `ext_<name>.go`.
 
 ## Development
 

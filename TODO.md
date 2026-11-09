@@ -8,14 +8,6 @@ Triaged against the checkout on 2026-11-09, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
-## Now — small debt with a known fix (S each)
-
-Found while triaging; each is one commit.
-
-- [ ] `README.md` lags the product: the command list omits `/google`, `/soul`,
-      `/heartbeat`, `/web`, `/code` and `/menu`; it describes three web views
-      and settings at `/settings` (now Home, Chat, Scheduled, Customize,
-      Traces); it does not mention Discord, accounts, or the extensions.
 ## UI/UX — what is left of the Eggshell overhaul (M)
 
 Review: `docs/superpowers/specs/2026-10-28-ui-ux-review.md`. Bugs, trust,
@@ -225,11 +217,10 @@ Take on demonstrated use, one at a time. None may add a tool.
 
 ## Delivery order
 
-1. *Now*, one commit each.
-2. Status, onboarding, Telegram feedback, as separate changes.
-3. Voice and inbound attachments, then outbound documents.
-4. UI theme and structure, as the review orders it.
-5. Measurement, then the typed config contract.
+1. Status, onboarding, Telegram feedback, as separate changes.
+2. Voice and inbound attachments, then outbound documents.
+3. UI theme and structure, as the review orders it.
+4. Measurement, then the typed config contract.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet race build`; `make smoke` when Docker is available.

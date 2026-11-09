@@ -406,31 +406,63 @@ func (c *Client) postOnce(ctx context.Context, method, contentType string, body 
 	return result.Result, nil
 }
 
+// fenceClose ends a code block a chunk boundary cut through.
+const fenceClose = "\n```"
+
 // splitMessage breaks text into chunks that fit Telegram's message length
 // limit, preferring to cut at the last newline within the window so
-// paragraphs and code fences are not split mid-line where avoidable.
+// paragraphs and code fences are not split mid-line where avoidable. Each
+// chunk is formatted on its own, so a code block a cut runs through is closed
+// at the end of one chunk and reopened, with its language, at the start of
+// the next; otherwise neither half would render as code.
 func splitMessage(text string) []string {
 	runes := []rune(text)
 	if len(runes) <= maxMessageLength {
 		return []string{text}
 	}
 	var chunks []string
-	for len(runes) > maxMessageLength {
-		window := runes[:maxMessageLength]
+	reopen := ""
+	for {
+		budget := maxMessageLength - len([]rune(reopen))
+		if len(runes) <= budget {
+			chunks = append(chunks, reopen+string(runes))
+			return chunks
+		}
+		// Room is kept for closing a fence, whether or not one is open.
+		window := runes[:budget-len(fenceClose)]
 		cut := lastIndexRune(window, '\n')
 		if cut <= 0 {
-			cut = maxMessageLength
+			cut = len(window)
 		}
-		chunks = append(chunks, string(runes[:cut]))
+		chunk := reopen + string(runes[:cut])
+		reopen = ""
+		if opener := openFence(chunk); opener != "" {
+			chunk += fenceClose
+			reopen = opener + "\n"
+		}
+		chunks = append(chunks, chunk)
 		runes = runes[cut:]
 		for len(runes) > 0 && runes[0] == '\n' {
 			runes = runes[1:]
 		}
 	}
-	if len(runes) > 0 {
-		chunks = append(chunks, string(runes))
+}
+
+// openFence returns the opening line of a code block text leaves open, such
+// as "```go", or "" when every fence in it is closed.
+func openFence(text string) string {
+	opener := ""
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "```") {
+			continue
+		}
+		if opener == "" {
+			opener = strings.TrimSpace(line)
+		} else {
+			opener = ""
+		}
 	}
-	return chunks
+	return opener
 }
 
 func lastIndexRune(runes []rune, target rune) int {

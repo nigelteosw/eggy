@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -221,6 +222,49 @@ func TestSplitMessageSplitsAtNewlineBoundary(t *testing.T) {
 	}
 	if strings.Join(chunks, "\n") != original {
 		t.Fatalf("splitting lost or reordered content")
+	}
+}
+
+// A code block cut across two messages is closed at the end of the first and
+// reopened, with its language, at the start of the next, so each message
+// renders as code instead of showing a stray fence.
+func TestSplitMessageCarriesAnOpenCodeFenceAcrossChunks(t *testing.T) {
+	body := strings.Repeat("x := 1 // <tag>\n", 400)
+	text := "intro\n```go\n" + body + "```\nafter"
+	chunks := splitMessage(text)
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks, got %d", len(chunks))
+	}
+	for i, chunk := range chunks {
+		if len([]rune(chunk)) > maxMessageLength {
+			t.Fatalf("chunk %d is %d runes", i, len([]rune(chunk)))
+		}
+		if strings.Count(chunk, "```")%2 != 0 {
+			t.Fatalf("chunk %d leaves a fence open:\n%s", i, chunk)
+		}
+		if i > 0 && !strings.HasPrefix(chunk, "```go\n") {
+			t.Fatalf("chunk %d does not reopen the fence with its language: %q", i, chunk[:20])
+		}
+	}
+	if !strings.HasSuffix(chunks[len(chunks)-1], "```\nafter") {
+		t.Fatalf("last chunk lost the closing text: %q", chunks[len(chunks)-1])
+	}
+	if got := strings.Count(strings.Join(chunks, ""), "x := 1"); got != 400 {
+		t.Fatalf("code lines across chunks = %d, want 400", got)
+	}
+}
+
+// Splitting counts runes, so a cut never lands inside a multi-byte character.
+func TestSplitMessageKeepsUnicodeWhole(t *testing.T) {
+	text := strings.Repeat("🥚", maxMessageLength+10)
+	chunks := splitMessage(text)
+	for i, chunk := range chunks {
+		if !utf8.ValidString(chunk) || len([]rune(chunk)) > maxMessageLength {
+			t.Fatalf("chunk %d invalid or too long (%d runes)", i, len([]rune(chunk)))
+		}
+	}
+	if strings.Join(chunks, "") != text {
+		t.Fatal("splitting lost content")
 	}
 }
 

@@ -53,8 +53,8 @@ export const setInstallDisabled = (id: string, disabled: boolean) =>
   request(`/api/marketplace/installs/${id}/disabled`, { method: "POST", body: JSON.stringify({ disabled }) });
 export const removeInstall = (id: string, deleteEdited: FileRef[]) =>
   request(`/api/marketplace/installs/${id}`, { method: "DELETE", body: JSON.stringify({ delete_edited: deleteEdited }) });
-export const getSourcesConfig = () => request<{ sources: SourceConfig[] }>("/api/config/marketplace");
-export const saveSourcesConfig = (sources: SourceConfig[]) => request("/api/config/marketplace", { method: "PUT", body: JSON.stringify({ sources }) });
+export const getSourcesConfig = () => request<{ sources: SourceConfig[] }>("/api/config/marketplace/sources");
+export const saveSourcesConfig = (sources: SourceConfig[]) => request("/api/config/marketplace/sources", { method: "PUT", body: JSON.stringify({ sources }) });
 
 // The approval for a reviewed plan: exactly the commit and digest the owner saw.
 export function approvalFor(plan: Plan, renames: Record<string, string>): Approval {

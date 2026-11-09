@@ -158,9 +158,12 @@ type marketplaceSourceJSON struct {
 	Ref  string `json:"ref,omitempty"`
 }
 
+// The sources live under their own path: /api/config/marketplace itself is the
+// generic settings section (marketplace.enabled), registered whether or not the
+// extension is running, and two handlers on one pattern panic at boot.
 func registerMarketplaceRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) http.Handler, svc MarketplaceService, configPath string) {
-	mux.Handle("GET /api/config/marketplace", guard(marketplaceSourcesGetRoute(configPath)))
-	mux.Handle("PUT /api/config/marketplace", guard(marketplaceSourcesSetRoute(configPath)))
+	mux.Handle("GET /api/config/marketplace/sources", guard(marketplaceSourcesGetRoute(configPath)))
+	mux.Handle("PUT /api/config/marketplace/sources", guard(marketplaceSourcesSetRoute(configPath)))
 	mux.Handle("GET /api/marketplace/sources", guard(marketplaceSourcesRoute(svc)))
 	mux.Handle("GET /api/marketplace/items", guard(marketplaceItemsRoute(svc)))
 	mux.Handle("POST /api/marketplace/plan", guard(marketplacePlanRoute(svc)))

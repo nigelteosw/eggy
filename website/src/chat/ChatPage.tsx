@@ -247,7 +247,7 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
         "prose-pre:rounded-control prose-pre:text-small prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
         isUserBubble
           ? "user-message prose-pre:bg-black/20"
-          : "assistant-message prose-code:rounded-mark prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
+          : "markdown prose-code:rounded-mark prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
       )}
     >
       <Markdown

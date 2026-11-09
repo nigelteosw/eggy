@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readdir, readFile, rm } from "node:fs/promises";
+import { Glob } from "bun";
 import { join } from "node:path";
 
 const output = join(import.meta.dir, "../.test-dist");
@@ -34,8 +35,8 @@ function ruleFor(selector: string): string {
   return match?.[1] ?? "";
 }
 
-test("assistant markdown inherits Eggy's readable foreground palette", () => {
-  const rule = ruleFor("assistant-message");
+test("markdown inherits Eggy's readable foreground palette", () => {
+  const rule = ruleFor("markdown");
   const required = [
     /--tw-prose-body:\s*hsl\(var\(--foreground\)\)/,
     /--tw-prose-bullets:\s*hsl\(var\(--muted-foreground\)\)/,
@@ -114,3 +115,21 @@ for (const [mode, selector] of [
     }
   });
 }
+
+// The skill preview shipped bare `prose` and drew its bold labels in the
+// plugin's near-black slate on the dark ground. Any element that turns on
+// Typography must also take Eggy's palette.
+test("every prose block takes Eggy's palette", async () => {
+  const offenders: string[] = [];
+  for await (const file of new Glob("src/**/*.tsx").scan(join(import.meta.dir, ".."))) {
+    const text = await readFile(join(import.meta.dir, "..", file), "utf8");
+    // A className is one string or a cn(...) call over several lines; read up
+    // to the tag's end so a palette class in another argument counts.
+    for (const match of text.matchAll(/className=(?:"[^"]*"|\{cn\([\s\S]*?\)\})/g)) {
+      const classes = match[0];
+      if (!/(?<![\w:-])prose(?![\w:-])/.test(classes)) continue;
+      if (!/(?<![\w-])(markdown|user-message)(?![\w-])/.test(classes)) offenders.push(`${file}: ${classes}`);
+    }
+  }
+  expect(offenders).toEqual([]);
+});

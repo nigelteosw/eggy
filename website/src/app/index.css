@@ -200,8 +200,9 @@
 
   /* Typography owns its own colour variables. Setting text on only <p> and
      headings leaves list contents on the plugin's fixed light-theme slate,
-     which is the dark-on-dark regression this boundary prevents. */
-  .assistant-message {
+     which is the dark-on-dark regression this boundary prevents. Every prose
+     block carries .markdown (or .user-message, on its bubble); a test holds it. */
+  .markdown {
     --tw-prose-body: hsl(var(--foreground));
     --tw-prose-headings: hsl(var(--foreground));
     --tw-prose-lead: hsl(var(--muted-foreground));

@@ -315,7 +315,7 @@ export function SkillDetail({
                 </div>
                 <div className="scrollbar-slim max-h-[60vh] overflow-auto p-4">
                   {view === "preview" ? (
-                    <div className="prose max-w-none text-small">
+                    <div className="markdown prose max-w-none text-small">
                       <Markdown remarkPlugins={[remarkGfm]}>{skill.body}</Markdown>
                     </div>
                   ) : (

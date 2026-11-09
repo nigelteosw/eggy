@@ -12,8 +12,6 @@ budgets are estimates to refine before implementation.
 
 Found while triaging; each is one commit.
 
-- [ ] The skill-index overflow warning (`internal/core/services/skills.go`,
-      `Enabled`) logs once per dropped skill on every turn. Log on change only.
 - [ ] Telegram pairing (`identityLinkCoordinator.consumeTelegram`) links the
       account and replies nothing; send a success message and the next step.
 - [ ] `README.md` lags the product: the command list omits `/google`, `/soul`,

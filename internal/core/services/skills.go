@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"regexp"
 	"slices"
+	"strings"
+	"sync"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -23,6 +25,11 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?
 // Write, SetDisabled, Delete) sees everything, disabled and invalid included.
 type SkillsService struct {
 	store ports.SkillsStore
+
+	// lastDropped is the names the index last cut, so the overflow warning
+	// fires when that set changes rather than on every turn while it holds.
+	mu          sync.Mutex
+	lastDropped string
 }
 
 func NewSkillsService(store ports.SkillsStore) *SkillsService { return &SkillsService{store: store} }
@@ -83,14 +90,17 @@ func (s *SkillsService) Enabled(ctx context.Context) ([]ports.SkillSummary, erro
 		}
 		used -= skillNameCost(enabled[i])
 		dropped[i] = true
-		slog.Warn("skill index is at capacity, dropping skill name", "skill", enabled[i].Name, "limit", ports.SkillIndexBudget)
 	}
 	kept := make([]ports.SkillSummary, 0, len(enabled))
+	var droppedNames []string
 	for i, summary := range enabled {
-		if !dropped[i] {
-			kept = append(kept, summary)
+		if dropped[i] {
+			droppedNames = append(droppedNames, summary.Name)
+			continue
 		}
+		kept = append(kept, summary)
 	}
+	s.warnOnDroppedChange(droppedNames)
 
 	// Pass 2: descriptions, hand-placed before installed, each only if it fits.
 	for _, handPlaced := range []bool{true, false} {
@@ -107,6 +117,20 @@ func (s *SkillsService) Enabled(ctx context.Context) ([]ports.SkillSummary, erro
 		}
 	}
 	return kept, nil
+}
+
+// warnOnDroppedChange logs the names the index cut, once per distinct set. The
+// index is rebuilt every turn, so a warning per turn would bury the log under
+// one unchanged fact; an empty set resets it, so a later overflow warns again.
+func (s *SkillsService) warnOnDroppedChange(names []string) {
+	joined := strings.Join(names, ",")
+	s.mu.Lock()
+	changed := joined != s.lastDropped
+	s.lastDropped = joined
+	s.mu.Unlock()
+	if changed && len(names) > 0 {
+		slog.Warn("skill index is at capacity, dropping skill names", "skills", names, "limit", ports.SkillIndexBudget)
+	}
 }
 
 // skillNameCost is the bytes a skill's name-only index line costs the model.

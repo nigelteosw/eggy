@@ -1,10 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"reflect"
 	"slices"
@@ -418,5 +420,59 @@ func TestSkillServicePassthroughsValidateNames(t *testing.T) {
 	}
 	if err := service.WriteBundle(ctx, ports.SkillBundle{Name: "fine", Description: "Use when fine", Body: "steps"}); !errors.Is(err, ports.ErrSkillExists) {
 		t.Fatalf("second create err=%v, want ErrSkillExists", err)
+	}
+}
+
+// The index is rebuilt every turn, so the overflow warning must fire when the
+// set of dropped names changes, not once per turn while it stays the same.
+func TestIndexOverflowWarnsOnlyWhenTheDroppedSetChanges(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	store := newFakeSkillsStore()
+	for i := range 340 {
+		name := fmt.Sprintf("inst-%03d", i)
+		store.skills[name] = ports.Skill{Name: name, Description: "does a thing", Body: "x", Source: "mk/" + name}
+	}
+	service := NewSkillsService(store)
+	warnings := func() int { return strings.Count(logs.String(), "skill index is at capacity") }
+
+	for range 3 {
+		if _, err := service.Enabled(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := warnings(); got != 1 {
+		t.Fatalf("warnings after three identical turns = %d, want 1\n%s", got, logs.String())
+	}
+
+	store.skills["inst-340"] = ports.Skill{Name: "inst-340", Description: "does a thing", Body: "x", Source: "mk/inst-340"}
+	if _, err := service.Enabled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warnings(); got != 2 {
+		t.Fatalf("warnings after the dropped set changed = %d, want 2", got)
+	}
+
+	for name := range store.skills {
+		if name >= "inst-300" {
+			delete(store.skills, name)
+		}
+	}
+	if _, err := service.Enabled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.skills["inst-300"] = ports.Skill{Name: "inst-300", Description: "does a thing", Body: "x", Source: "mk/inst-300"}
+	for i := 301; i <= 340; i++ {
+		name := fmt.Sprintf("inst-%03d", i)
+		store.skills[name] = ports.Skill{Name: name, Description: "does a thing", Body: "x", Source: "mk/" + name}
+	}
+	if _, err := service.Enabled(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := warnings(); got != 3 {
+		t.Fatalf("warnings after the index fit and then overflowed again = %d, want 3", got)
 	}
 }

@@ -16,11 +16,6 @@ Found while triaging; each is one commit.
       `/heartbeat`, `/web`, `/code` and `/menu`; it describes three web views
       and settings at `/settings` (now Home, Chat, Scheduled, Customize,
       Traces); it does not mention Discord, accounts, or the extensions.
-- [ ] Zero-cost init: `bootstrap/app.go` builds `localprocess.New`, the GitHub
-      adapter, and `repo.NewWorkspaceSessions` with no repositories configured.
-      Gate construction with registration and test absent resources, not only
-      absent schemas.
-
 ## UI/UX — what is left of the Eggshell overhaul (M)
 
 Review: `docs/superpowers/specs/2026-10-28-ui-ux-review.md`. Bugs, trust,

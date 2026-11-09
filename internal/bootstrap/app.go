@@ -216,17 +216,25 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// The channel is already routed by context, so an approval asked during a
 	// Telegram turn arrives in Telegram and one asked in web chat arrives there.
 	asker := &approvalAsker{service: app.approvals, channel: app.channel}
-	allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
-	allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
-	runner, err := localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
-	if err != nil {
-		return nil, err
-	}
-	repositoryAdapter := githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
-	if !options.FakeAdapters {
-		for name, repository := range configuredRepositories {
-			if err := repositoryAdapter.ValidateCloneAccess(context.Background(), repository); err != nil {
-				return nil, fmt.Errorf("validate repository %q: %w", name, err)
+	// Repository inspection is built only when a repository is configured. An
+	// unconfigured capability costs nothing: no runner root on the volume, no
+	// adapter, and no workspace sessions for the schedule tick to reap.
+	var runner *localprocess.Runner
+	var repositoryAdapter *githubadapter.Adapter
+	if len(configuredRepositories) > 0 {
+		allowedEnvironment := append([]string(nil), config.Runner.AllowedEnv...)
+		allowedEnvironment = append(allowedEnvironment, "GIT_ASKPASS", "EGGY_GITHUB_TOKEN", "GIT_TERMINAL_PROMPT")
+		var err error
+		runner, err = localprocess.New(config.Runner.Root, allowedEnvironment, config.Runner.Timeout.Value(), config.Runner.MaxOutputBytes)
+		if err != nil {
+			return nil, err
+		}
+		repositoryAdapter = githubadapter.New(runner, secrets.GitHubToken, options.GitHubAPIBase, options.HTTPClient)
+		if !options.FakeAdapters {
+			for name, repository := range configuredRepositories {
+				if err := repositoryAdapter.ValidateCloneAccess(context.Background(), repository); err != nil {
+					return nil, fmt.Errorf("validate repository %q: %w", name, err)
+				}
 			}
 		}
 	}
@@ -280,8 +288,11 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// registry the one loop runs on: a primitive name resolves to exactly one
 	// definition and one implementation, because there is no second loop for
 	// it to mean something else in.
-	app.workspaces = repo.NewWorkspaceSessions(stateStore, database, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
-	primitives := repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
+	var primitives []ports.Tool
+	if repositoryAdapter != nil {
+		app.workspaces = repo.NewWorkspaceSessions(stateStore, database, runner, repositoryAdapter, newRunID, options.Now, options.Logger)
+		primitives = repo.NewPrimitiveTools(app.workspaces, repositoryAdapter)
+	}
 	registry := services.NewToolRegistry()
 	app.tools = registry
 	// The three collaborators every registration passes are bound once here.
@@ -303,7 +314,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if err := gate(baseTools...); err != nil {
 		return nil, err
 	}
-	if len(config.Repositories) > 0 {
+	if repositoryAdapter != nil {
 		if err := gate(repo.NewRepositoryTools(stateStore)...); err != nil {
 			return nil, err
 		}
@@ -320,7 +331,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// here at all -- they arrive as a live provider on the same registry (see
 	// AddProvider below), where the same invariant holds because a registered
 	// tool always wins the name.
-	if len(config.Repositories) > 0 {
+	if repositoryAdapter != nil {
 		if err := gate(primitives...); err != nil {
 			return nil, err
 		}

@@ -1,7 +1,9 @@
 package bootstrap
 
 import (
+	"errors"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -66,8 +68,12 @@ func TestNoCalendarToolsSurvive(t *testing.T) {
 	}
 }
 
+// An unconfigured capability costs nothing: no schema, and no resources
+// behind it either -- no workspace sessions for the schedule tick to reap and
+// no runner root created on the volume.
 func TestRepositoryToolsAreAbsentWithoutConfiguredRepositories(t *testing.T) {
-	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
+	cfg := appTestConfig(t.TempDir())
+	app, err := NewApp(cfg, appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +82,12 @@ func TestRepositoryToolsAreAbsentWithoutConfiguredRepositories(t *testing.T) {
 		if slices.Contains(names, name) {
 			t.Fatalf("unconfigured repository tool %q is registered. names=%v", name, names)
 		}
+	}
+	if app.workspaces != nil {
+		t.Fatal("workspace sessions built with no repositories configured")
+	}
+	if _, err := os.Stat(cfg.Runner.Root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runner root %q created with no repositories configured (stat err = %v)", cfg.Runner.Root, err)
 	}
 }
 

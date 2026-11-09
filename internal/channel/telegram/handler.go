@@ -89,6 +89,27 @@ func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer) *WebhookHa
 	return h
 }
 
+// pairedMessage is the reply to a redeemed pairing link.
+const pairedMessage = "You're linked. Hi, I'm Eggy: send me anything, or use /menu for the controls. /web opens the web panel with a one-tap sign-in link."
+
+// confirmPairing answers a redeemed pairing link in the chat it came from. The
+// sender is resolved again rather than trusted from the token, so the reply
+// goes only to the account the live directory now maps this sender to. A
+// failed reply is not retried: the link already stands, and redelivering the
+// update would only find its token spent.
+func (h *WebhookHandler) confirmPairing(ctx context.Context, sender int64) {
+	if h.replier == nil {
+		return
+	}
+	accountID, ok := h.resolve(sender)
+	if !ok {
+		return
+	}
+	ctx = ports.WithPrincipal(ctx, ports.Principal{AccountID: accountID})
+	ctx = destination.With(ctx, destination.Destination{Kind: destination.Telegram})
+	_ = h.replier.Deliver(ctx, pairedMessage)
+}
+
 func NewWebhookHandler(resolve SenderResolver, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
 	return &WebhookHandler{resolve: resolve, secret: secret, sink: sink, acknowledger: acknowledger}
 }
@@ -218,7 +239,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if incoming.Message != nil && h.pairing != nil {
 			parts := strings.Fields(incoming.Message.Text)
 			if len(parts) == 2 && parts[0] == "/start" && strings.TrimSpace(parts[1]) != "" {
-				_ = h.pairing(r.Context(), parts[1], sender)
+				if h.pairing(r.Context(), parts[1], sender) == nil {
+					h.confirmPairing(r.Context(), sender)
+				}
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)

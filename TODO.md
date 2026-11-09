@@ -12,8 +12,6 @@ budgets are estimates to refine before implementation.
 
 Found while triaging; each is one commit.
 
-- [ ] Telegram pairing (`identityLinkCoordinator.consumeTelegram`) links the
-      account and replies nothing; send a success message and the next step.
 - [ ] `README.md` lags the product: the command list omits `/google`, `/soul`,
       `/heartbeat`, `/web`, `/code` and `/menu`; it describes three web views
       and settings at `/settings` (now Home, Chat, Scheduled, Customize,
@@ -118,11 +116,12 @@ types/loops.
 
 ## P2 — Telegram onboarding edges (S)
 
-Bare `/start` and `/web` without a public URL are done; the pairing reply is
-under *Now*.
+Bare `/start`, `/web` without a public URL, and the reply to a redeemed pairing
+link are done.
 
-- Deterministic outcomes for consumed/expired tokens, repeated updates,
-  already-linked users opening a pairing link, and conflicting bindings. A
+- Deterministic outcomes for consumed/expired tokens (today silent: the sender
+  has no account to reply as), repeated updates, already-linked users opening a
+  pairing link, and conflicting bindings. A
   delivery failure after pairing must not repeat the mutation.
 - `/google set` should not look like a complete setup path without
   `expected_email`; point to the panel's identity setting.

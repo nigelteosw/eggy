@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { applyTheme, checkSession, clearSession, getAgent, getMode, logout, type Account, type Login, type Mode, type Theme } from "../lib/api";
+import { applyTheme, checkSession, clearSession, getAgent, getMode, logout, writes, type Account, type Login, type Mode, type Theme } from "../lib/api";
 import { isTheme } from "../lib/theme";
 import { LoginPage } from "../auth/LoginPage";
 import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "../auth/WebLoginLinkPage";
 import { ChatPage } from "../chat/ChatPage";
-import { SettingsDialog } from "../settings/SettingsDialog";
+import { ConfigPage } from "../settings/ConfigPage";
 import { TracesPage } from "../traces/TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { runningExtensions } from "../extensions";
@@ -16,7 +16,7 @@ import { RestartBar } from "./RestartBar";
 import { ThreadSidebar } from "../chat/ThreadSidebar";
 import { MenuIcon, PanelIcon } from "../components/ui/icons";
 import { useStoredFlag } from "../components/ui/sidebar";
-import { isSettingsPath, pathForView, viewForPath, type View } from "./routing";
+import { pathForView, viewForPath, type View } from "./routing";
 import { isEdgeSwipe, useVisibleHeight } from "../lib/viewport";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
@@ -31,7 +31,7 @@ export function App() {
   // rail does not offer Finance before the page knows it exists.
   const [features, setFeatures] = useState<string[] | null>(null);
   // Whether config.yaml has changed since this process started. The panel
-  // shows one restart bar for it, refreshed each time settings close.
+  // shows one restart bar for it, rechecked after each write.
   const [restartPending, setRestartPending] = useState(false);
   // A Telegram /web link lands on /auth/link#token=…: the token is taken
   // out of the address bar once, on the first render, and held in memory
@@ -43,11 +43,6 @@ export function App() {
   });
   const [view, setView] = useState<View>(() =>
     viewForPath(typeof window === "undefined" ? "/" : window.location.pathname),
-  );
-  // Settings is a popup over the view, addressable at /settings. Opening on that
-  // path shows the popup over the chat behind it.
-  const [settingsOpen, setSettingsOpen] = useState(() =>
-    typeof window !== "undefined" && isSettingsPath(window.location.pathname),
   );
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeThreadTitle, setActiveThreadTitle] = useState("New chat");
@@ -98,7 +93,6 @@ export function App() {
   useEffect(() => {
     const handlePopState = () => {
       setView(viewForPath(window.location.pathname));
-      setSettingsOpen(isSettingsPath(window.location.pathname));
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -110,26 +104,29 @@ export function App() {
     setView(next);
   }
 
-  // Settings opens over the current view and keeps its address, so the popup
-  // can be shared. Closing it puts back the address of the view underneath.
   function openSettings() {
-    if (!isSettingsPath(window.location.pathname)) window.history.pushState({}, "", "/settings");
-    setSettingsOpen(true);
-    if (window.matchMedia("(max-width: 767px)").matches) setSidebarOpen(false);
+    goTo("settings");
   }
 
-  function closeSettings() {
-    if (isSettingsPath(window.location.pathname)) window.history.replaceState({}, "", pathForView(view));
-    setSettingsOpen(false);
-    // Settings is where config changes are made, so closing it is when the
-    // restart bar should learn whether one is now waiting.
-    checkSession()
-      .then((session) => setRestartPending(session.restartPending === true))
-      .catch(() => {});
-  }
+  // A write may have put config.yaml out of step with the running process, so
+  // each one asks the server again. Several saves in a row cost one check.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const recheck = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        checkSession()
+          .then((session) => setRestartPending(session.restartPending === true))
+          .catch(() => {});
+      }, 300);
+    };
+    writes.addEventListener("write", recheck);
+    return () => {
+      clearTimeout(timer);
+      writes.removeEventListener("write", recheck);
+    };
+  }, []);
 
-  // Choosing a destination on a phone also dismisses the rail, which is an
-  // overlay there. At md and up the rail stays as the owner left it.
   function goTo(next: View) {
     // Picking a destination leaves any extension that was filling the work area.
     setActiveExtension(null);
@@ -420,17 +417,19 @@ export function App() {
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
+        ) : view === "settings" ? (
+          <div className="min-h-0 min-w-0 flex-1">
+            <ConfigPage
+              theme={theme}
+              onThemeChange={setTheme}
+              onSessionExpired={onSessionExpired}
+              features={features ?? []}
+              onOpenSidebar={() => setSidebarOpen(true)}
+            />
+          </div>
         ) : null}
         </div>
       </div>
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={closeSettings}
-        theme={theme}
-        onThemeChange={setTheme}
-        features={features ?? []}
-        onSessionExpired={onSessionExpired}
-      />
 
     </div>
   );

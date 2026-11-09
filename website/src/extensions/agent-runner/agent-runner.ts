@@ -38,12 +38,6 @@ export function canCancel(state: string): boolean {
   return ["queued", "running", "waiting_for_user", "publishing"].includes(state);
 }
 
-// A restart is needed exactly when what the file says differs from what the
-// process is running. An unsaved switch position is neither, so it claims nothing.
-export function needsRestart(savedEnabled: boolean, running: boolean): boolean {
-  return savedEnabled !== running;
-}
-
 // The notice shown when bash is withheld. Nothing is shown when it is offered.
 export function sandboxNotice(status: { sandbox_ok: boolean; sandbox_reason: string }): string | null {
   if (status.sandbox_ok) {

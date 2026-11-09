@@ -186,8 +186,8 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
           </form>
         </details>
         <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">
-          Saved servers connect after a restart. OAuth servers then need <strong>Authorize</strong> above. Scopes,
-          timeouts, and tool filters stay config.yaml-only.
+          An OAuth server needs <strong>Authorize</strong> above once it has connected. Scopes, timeouts, and tool
+          filters stay config.yaml-only.
         </p>
         {error && (
           <ErrorBanner>

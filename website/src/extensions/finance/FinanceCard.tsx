@@ -6,14 +6,11 @@ import { PRIMARY_BUTTON } from "../../components/ui/form";
 import { Select } from "../../components/ui/select";
 import { Switch } from "../../components/ui/switch";
 
-// The presentational half, so the restart rule can be tested without a server.
-//
-// savedEnabled is what config.yaml says; running is what this process started
-// with (from the session's feature list). A restart is needed exactly when the
-// two differ, and an unsaved switch position is neither, so it claims nothing.
+// The presentational half, so the card can be tested without a server. running
+// is what this process started with (from the session's feature list); a saved
+// change waiting on a restart is the restart bar's to say.
 export function FinanceSettingsView({
   enabled,
-  savedEnabled,
   currency,
   currencies,
   running,
@@ -24,7 +21,6 @@ export function FinanceSettingsView({
   onSave,
 }: {
   enabled: boolean;
-  savedEnabled: boolean;
   currency: string;
   currencies: string[];
   running: boolean;
@@ -34,7 +30,6 @@ export function FinanceSettingsView({
   onCurrencyChange: (currency: string) => void;
   onSave: () => void;
 }) {
-  const needsRestart = savedEnabled !== running;
   return (
     <section className="flex flex-col gap-3">
       <CardHeader
@@ -77,11 +72,6 @@ export function FinanceSettingsView({
           </button>
         </div>
       </form>
-      {needsRestart && (
-        <p className="rounded-card bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
-          Restart to apply: finance is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
-        </p>
-      )}
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>
   );
@@ -110,7 +100,6 @@ export function FinanceCard({ onSessionExpired, running }: { onSessionExpired: (
   return (
     <FinanceSettingsView
       enabled={draftEnabled ?? savedEnabled}
-      savedEnabled={savedEnabled}
       currency={draftCurrency ?? fields.currency ?? ""}
       currencies={currencies}
       running={running}

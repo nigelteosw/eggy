@@ -17,15 +17,14 @@ import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
 import { AccountsCard } from "./AccountsCard";
 import { PersonalSettingsCard } from "./PersonalSettingsCard";
-import { RestartCard } from "./RestartCard";
 import {
   CheckShieldIcon,
   ClockIcon,
   CpuIcon,
   FileCodeIcon,
   ChevronDownIcon,
-  CloseIcon,
   HeartIcon,
+  MenuIcon,
   PlugIcon,
   SearchIcon,
   UsersIcon,
@@ -78,7 +77,7 @@ export const SECTIONS: Section[] = [
   { id: "connections", group: "shared", label: "Connections", title: "Connections", description: "Chat bots. Skills, MCP servers and Google are on the Customize page.", terms: ["Discord", "Discord bot token", "Chat bots", "Channels"], icon: <PlugIcon /> },
   { id: "capabilities", group: "shared", label: "Capabilities", title: "Capabilities", description: "What Eggy can use during anyone's turn.", terms: ["Tools", "Built in", "Finance", "Default currency", "Marketplace", "Agent Runner", "Coding model", "Repositories"], icon: <WrenchIcon /> },
   { id: "soul", group: "shared", label: "Soul", title: "Soul", description: "Who Eggy is and how it sounds, for everyone.", terms: ["Personality", "SOUL.md", "Voice"], icon: <HeartIcon /> },
-  { id: "advanced", group: "shared", label: "Advanced", title: "Advanced", description: "Tracing, raw configuration, and restart controls.", terms: ["Tracing", "config.yaml", "Restart", "Raw configuration"], icon: <FileCodeIcon /> },
+  { id: "advanced", group: "shared", label: "Advanced", title: "Advanced", description: "Tracing and the raw configuration file.", terms: ["Tracing", "config.yaml", "Raw configuration"], icon: <FileCodeIcon /> },
 ];
 
 // sectionMatches finds a settings section by its name, its title, what its
@@ -96,7 +95,7 @@ export function ConfigPage({
   onSessionExpired,
   features = [],
   initialSection = "personal",
-  onClose,
+  onOpenSidebar,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -105,9 +104,8 @@ export function ConfigPage({
   // card reads whether it is running, so it can say a restart is pending.
   features?: string[];
   initialSection?: SectionId;
-  // Passed by the settings popup. Its close control sits in the phone's top
-  // bar, where the sticky header would otherwise cover it.
-  onClose?: () => void;
+  // Opens the rail from the phone's header row, as every work-area page does.
+  onOpenSidebar?: () => void;
 }) {
   const [active, setActive] = useState<SectionId>(initialSection);
   // On a phone, whether the page for the active section is pushed over the list.
@@ -131,20 +129,22 @@ export function ConfigPage({
               Settings
             </button>
           ) : (
-            <span className="min-w-0 flex-1 px-2 text-body font-semibold">Settings</span>
+            <>
+              {onOpenSidebar && (
+                <button
+                  type="button"
+                  onClick={onOpenSidebar}
+                  aria-label="Open sidebar"
+                  title="Open sidebar"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  <MenuIcon />
+                </button>
+              )}
+              <span className="min-w-0 flex-1 px-2 text-title font-semibold">Settings</span>
+            </>
           )}
           {opened && <span className="min-w-0 flex-1 truncate text-small text-neutral-700">{section.label}</span>}
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close settings"
-              title="Close"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            >
-              <CloseIcon />
-            </button>
-          )}
         </div>
       </div>
       <nav aria-label="Mobile settings navigation" className={`scrollbar-slim min-h-0 flex-1 overflow-y-auto md:hidden ${opened ? "hidden" : ""}`}>
@@ -223,7 +223,7 @@ export function ConfigPage({
       </div>
 
       <div className={`app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))] ${opened ? "" : "hidden"} md:block`}>
-        <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 sm:pr-14 lg:max-w-[960px] lg:px-10 lg:pt-8">
+        <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 lg:max-w-[960px] lg:px-10 lg:pt-8">
           <header className="flex flex-col gap-1.5 pb-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <h1 className="text-title font-semibold tracking-tight">{section.title}</h1>
@@ -241,7 +241,6 @@ export function ConfigPage({
             <>
               <ProvidersCard onSessionExpired={onSessionExpired} />
               <ModelsCard onSessionExpired={onSessionExpired} />
-              <p className="text-small text-muted-foreground">New model choices appear in chat after restart. The bar at the top of the panel restarts Eggy.</p>
             </>
           )}
           {active === "connections" && (
@@ -270,7 +269,6 @@ export function ConfigPage({
             <>
               <TracingCard onSessionExpired={onSessionExpired} />
               <AdvancedCard onSessionExpired={onSessionExpired} />
-              <RestartCard onSessionExpired={onSessionExpired} />
             </>
           )}
         </div>

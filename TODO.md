@@ -22,13 +22,8 @@ theme tokens, Home, phone layout and most polish have landed.
 
 **Structure**
 
-- [ ] Settings becomes a page in the work area (today `/settings` opens a popup
-      over chat); Log out only in the account menu (it is also in
-      `ThreadSidebar` and `App`).
 - [ ] Check-ins: move the personal heartbeat toggle off My settings, and use
       time pickers for the cadence.
-- [ ] Pending restart: drop the Advanced fallback Restart card and the "after
-      restart" captions now that the bar exists.
 - [ ] Group integrations by job: Channels (Telegram, Discord), Connectors
       (Google, MCP), Skills, Extensions; Settings → Connections goes away.
 

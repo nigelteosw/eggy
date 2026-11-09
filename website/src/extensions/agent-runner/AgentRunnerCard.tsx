@@ -5,14 +5,13 @@ import { ErrorBanner } from "../../components/ui/error-banner";
 import { FIELD_LABEL, PRIMARY_BUTTON, FIELD } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
-import { AGENT_SKILLS, EXTENSION_COPY, needsRestart, skillsFromField, skillsToField } from "./agent-runner";
+import { AGENT_SKILLS, EXTENSION_COPY, skillsFromField, skillsToField } from "./agent-runner";
 
-// The presentational half, so the restart rule and the copy can be tested
-// without a server. savedEnabled is what config.yaml says; running is what this
-// process started with. An unsaved switch position claims nothing.
+// The presentational half, so the copy can be tested without a server. running
+// is what this process started with; a saved change waiting on a restart is the
+// restart bar's to say.
 export function AgentRunnerSettingsView({
   enabled,
-  savedEnabled,
   model,
   skills,
   running,
@@ -24,7 +23,6 @@ export function AgentRunnerSettingsView({
   onSave,
 }: {
   enabled: boolean;
-  savedEnabled: boolean;
   model: string;
   skills: Record<string, boolean>;
   running: boolean;
@@ -35,7 +33,6 @@ export function AgentRunnerSettingsView({
   onSkillChange: (skill: string, on: boolean) => void;
   onSave: () => void;
 }) {
-  const restart = needsRestart(savedEnabled, running);
   return (
     <section className="flex flex-col gap-3">
       <CardHeader
@@ -80,11 +77,6 @@ export function AgentRunnerSettingsView({
           </button>
         </div>
       </form>
-      {restart && (
-        <p className="rounded-card bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
-          Restart to apply: Agent Runner is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
-        </p>
-      )}
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>
   );
@@ -117,7 +109,6 @@ export function AgentRunnerCard({ onSessionExpired, running }: { onSessionExpire
   return (
     <AgentRunnerSettingsView
       enabled={draftEnabled ?? savedEnabled}
-      savedEnabled={savedEnabled}
       model={draftModel ?? fields.model ?? ""}
       skills={skills}
       running={running}

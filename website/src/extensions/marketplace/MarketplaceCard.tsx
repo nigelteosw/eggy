@@ -6,15 +6,12 @@ import { PRIMARY_BUTTON } from "../../components/ui/form";
 import { Switch } from "../../components/ui/switch";
 
 // The settings card for marketplace.enabled. Like finance, it applies on
-// restart: savedEnabled is what config.yaml says and running is what this
-// process started with, so a restart is needed exactly when the two differ.
+// restart, which the restart bar offers once for the whole panel.
 export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpired: () => void; running: boolean }) {
   const { result, error, saving, save } = useConfigSection("marketplace", onSessionExpired);
   const [draft, setDraft] = useState<boolean | null>(null);
   const fields = Object.fromEntries((result?.fields ?? []).map((field) => [field.label, field.value]));
   const savedEnabled = fields.enabled === "true";
-  // Nothing to compare until the saved state has loaded.
-  const needsRestart = result != null && savedEnabled !== running;
 
   async function handleSave() {
     if (await save({ enabled: String(draft ?? savedEnabled) })) setDraft(null);
@@ -47,11 +44,6 @@ export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpire
           </button>
         </div>
       </form>
-      {needsRestart && (
-        <p className="rounded-card bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
-          Restart to apply: the marketplace is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
-        </p>
-      )}
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>
   );

@@ -6,7 +6,7 @@ import { ConfigPage } from "../src/settings/ConfigPage";
 import { runningExtensions } from "../src/extensions";
 import { ThreadSidebar, groupThreads } from "../src/chat/ThreadSidebar";
 import type { Thread } from "../src/lib/api";
-import { isSettingsPath, pathForView, viewForPath, type View } from "../src/app/routing";
+import { pathForView, viewForPath, type View } from "../src/app/routing";
 
 test("maps each destination to its browser path", () => {
   expect(pathForView("chat")).toBe("/");
@@ -22,11 +22,10 @@ test("maps browser paths back to app views", () => {
   expect(viewForPath("/unknown-page")).toBe("chat");
 });
 
-test("settings is a popup path over the chat, with or without a trailing slash", () => {
-  expect(isSettingsPath("/settings")).toBe(true);
-  expect(isSettingsPath("/settings/")).toBe(true);
-  expect(isSettingsPath("/")).toBe(false);
-  expect(viewForPath("/settings")).toBe("chat");
+test("settings is a page of its own, with or without a trailing slash", () => {
+  expect(pathForView("settings")).toBe("/settings");
+  expect(viewForPath("/settings")).toBe("settings");
+  expect(viewForPath("/settings/")).toBe("settings");
 });
 
 test("retired pages fall back to chat rather than an empty screen", () => {

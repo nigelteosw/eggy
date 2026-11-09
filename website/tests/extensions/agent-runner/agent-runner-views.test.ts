@@ -60,7 +60,7 @@ test("the token field never shows a saved token, and reports only the login and 
   expect(markup).not.toMatch(/value="[^"]+"/);
 });
 
-test("the settings card asks for a restart exactly when saved and running differ", () => {
+test("the settings card leaves a pending restart to the restart bar", () => {
   const base = {
     enabled: true,
     model: "deepseek-pro",
@@ -72,10 +72,8 @@ test("the settings card asks for a restart exactly when saved and running differ
     onSkillChange: () => {},
     onSave: () => {},
   };
-  const differs = renderToStaticMarkup(createElement(AgentRunnerSettingsView, { ...base, savedEnabled: true, running: false }));
-  expect(differs).toContain("Restart to apply");
-  const same = renderToStaticMarkup(createElement(AgentRunnerSettingsView, { ...base, savedEnabled: true, running: true }));
-  expect(same).not.toContain("Restart to apply");
+  const html = renderToStaticMarkup(createElement(AgentRunnerSettingsView, { ...base, running: false }));
+  expect(html).not.toContain("Restart to apply");
 });
 
 test("the Extensions menu lists Agent Runner only while its feature is running", () => {

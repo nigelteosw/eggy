@@ -66,6 +66,11 @@ async function readBody<T>(response: Response): Promise<T> {
   }
 }
 
+// Announces each successful write, so the restart bar can ask whether
+// config.yaml is now out of step with the running process. Chat traffic is
+// left out: it never changes config, and a session check per message is waste.
+export const writes = new EventTarget();
+
 export async function request<T = CommandResult>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const csrf: Record<string, string> = session?.csrf && method !== "GET" && method !== "HEAD" ? { [CSRF_HEADER]: session.csrf } : {};
@@ -82,6 +87,7 @@ export async function request<T = CommandResult>(path: string, init?: RequestIni
   if (!response.ok) {
     throw new RequestError(body.title ?? "Request failed", response.status, body as Record<string, unknown>);
   }
+  if (method !== "GET" && method !== "HEAD" && !path.startsWith("/api/chat/")) writes.dispatchEvent(new Event("write"));
   return body;
 }
 

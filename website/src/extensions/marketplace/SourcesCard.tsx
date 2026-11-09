@@ -36,7 +36,7 @@ export function SourcesCard({ onSessionExpired }: { onSessionExpired: () => void
   return (
     <section className="flex flex-col gap-3">
       <p className="text-caption leading-relaxed text-neutral-700">
-        Public GitHub repositories only. Sources apply to the next check; turning the marketplace on or off takes effect after a restart.
+        Public GitHub repositories only. Sources apply to the next check.
       </p>
       {rows.map((row, index) => (
         <div key={index} className="grid grid-cols-1 gap-2 rounded-card bg-neutral-100 p-3 sm:grid-cols-2">

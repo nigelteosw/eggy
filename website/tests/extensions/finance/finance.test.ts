@@ -327,7 +327,6 @@ function settings(over: Partial<Parameters<typeof FinanceSettingsView>[0]> = {})
   return renderToStaticMarkup(
     createElement(FinanceSettingsView, {
       enabled: false,
-      savedEnabled: false,
       currency: "SGD",
       currencies: summary.currencies,
       running: false,
@@ -341,22 +340,15 @@ function settings(over: Partial<Parameters<typeof FinanceSettingsView>[0]> = {})
   );
 }
 
-test("the settings card says to restart only when saved and running states differ", () => {
-  expect(settings({ enabled: true, savedEnabled: true, running: false })).toContain("Restart to apply");
-  expect(settings({ enabled: false, savedEnabled: false, running: true })).toContain("Restart to apply");
-  expect(settings({ enabled: true, savedEnabled: true, running: true })).not.toContain("Restart to apply");
-  expect(settings({ enabled: false, savedEnabled: false, running: false })).not.toContain("Restart to apply");
+// The restart bar names a pending restart once for the whole panel; the card
+// does not say it a second time.
+test("the settings card leaves a pending restart to the restart bar", () => {
+  expect(settings({ enabled: true, running: false })).not.toContain("restart");
 });
 
 test("the settings card identifies whether Finance is running", () => {
   expect(settings({ running: true })).toContain("Running");
   expect(settings({ running: false })).toContain("Not running");
-});
-
-// Flipping the switch is not yet a change to config.yaml, so it cannot yet
-// need a restart.
-test("an unsaved switch does not claim a restart is needed", () => {
-  expect(settings({ enabled: true, savedEnabled: false, running: false })).not.toContain("Restart to apply");
 });
 
 test("the settings card offers the supported currencies and reassures about data", () => {

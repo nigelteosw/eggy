@@ -3,7 +3,6 @@ import {
   AGENT_START_COPY,
   EXTENSION_COPY,
   canCancel,
-  needsRestart,
   parseChecks,
   sandboxNotice,
   skillsFromField,
@@ -16,13 +15,6 @@ test("the start and extension copy are the spec's wording, verbatim", () => {
     "This run will push a feature branch and open a pull request on your behalf. Eggy will not approve or merge it. Your repository's CI will run on the branch.",
   );
   expect(EXTENSION_COPY).toBe("Runs commands as a sandboxed user that can reach the internet but not Eggy's data.");
-});
-
-test("a restart is asked for exactly when the saved and running states differ", () => {
-  expect(needsRestart(true, false)).toBe(true);
-  expect(needsRestart(false, true)).toBe(true);
-  expect(needsRestart(true, true)).toBe(false);
-  expect(needsRestart(false, false)).toBe(false);
 });
 
 test("bash is reported unavailable with the reason, and not when it is available", () => {

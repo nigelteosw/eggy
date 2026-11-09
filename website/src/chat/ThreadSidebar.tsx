@@ -490,7 +490,7 @@ export function ThreadSidebar({
       </nav>
 
       {error && (
-        <p className="mx-3 mb-2 rounded-control bg-destructive/10 px-2.5 py-1.5 text-caption text-destructive" role="alert">
+        <p className="mx-3 mb-2 rounded-control bg-tomato-soft px-2.5 py-1.5 text-caption text-tomato" role="alert">
           {error}
         </p>
       )}
@@ -600,7 +600,7 @@ export function ThreadSidebar({
                         <button
                           type="button"
                           onClick={() => handleDelete(thread)}
-                          className="h-11 w-full px-3 text-left text-small text-destructive hover:bg-destructive/10"
+                          className="h-11 w-full px-3 text-left text-small text-tomato hover:bg-tomato-soft"
                         >
                           Delete
                         </button>

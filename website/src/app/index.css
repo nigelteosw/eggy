@@ -25,14 +25,9 @@
     --accent: 40 36% 88%;
     --accent-foreground: 33 15% 15%;
 
-    --destructive: 10 61% 44%;
-    --destructive-foreground: 40 100% 98%;
-
     --border: 39 30% 83%;
     --input: 40 29% 77%;
     --ring: 33 15% 15%;
-
-
 
     --surface: 40 100% 98%;
 
@@ -56,15 +51,15 @@
     --accent-800: 39 100% 21%;
     --accent-900: 39 100% 12%;
 
-    /* Status colours the traces waterfall and approval banners read. */
-    --eg-blue: 41 79% 50%;
-    --eg-green: 107 30% 33%;
-    --eg-yellow: 41 79% 50%;
-    --eg-red: 10 61% 44%;
-    --eg-red-tint: 16 63% 92%;
-    --eg-red-ink: 10 67% 33%;
-    --eg-ask: 43 87% 88%;
-    --eg-ask-ink: 40 100% 18%;
+    /* Status: three kitchen colours, used where status is news. Tomato is
+       destructive and failed, chive is done, yolk-soft with yolk-ink is what
+       needs the owner. */
+    --tomato: 10 61% 40%;
+    --tomato-soft: 16 63% 93%;
+    --on-tomato: 40 100% 98%;
+    --chive: 107 30% 33%;
+    --yolk-soft: 43 87% 88%;
+    --yolk-ink: 40 100% 18%;
     color-scheme: light;
   }
 
@@ -89,14 +84,9 @@
     --accent: 0 0% 16%;
     --accent-foreground: 0 0% 93%;
 
-    --destructive: 11 67% 63%;
-    --destructive-foreground: 0 0% 9%;
-
     --border: 0 0% 21%;
     --input: 0 0% 29%;
     --ring: 0 0% 93%;
-
-
 
     --surface: 0 0% 12%;
 
@@ -120,14 +110,12 @@
     --accent-800: 43 89% 76%;
     --accent-900: 43 91% 87%;
 
-    --eg-blue: 41 88% 57%;
-    --eg-green: 105 28% 61%;
-    --eg-yellow: 41 88% 57%;
-    --eg-red: 11 67% 63%;
-    --eg-red-tint: 14 35% 17%;
-    --eg-red-ink: 12 78% 75%;
-    --eg-ask: 52 45% 13%;
-    --eg-ask-ink: 43 90% 66%;
+    --tomato: 11 67% 63%;
+    --tomato-soft: 14 35% 17%;
+    --on-tomato: 0 0% 9%;
+    --chive: 105 28% 61%;
+    --yolk-soft: 52 45% 13%;
+    --yolk-ink: 43 90% 66%;
     color-scheme: dark;
   }
 

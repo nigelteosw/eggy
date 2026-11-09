@@ -212,7 +212,7 @@ export function Composer({
     <form onSubmit={submit} className="composer-dock shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8 sm:pb-7">
       <div className="mx-auto w-full max-w-4xl">
         {note && (
-          <p className="mb-2 rounded-control bg-destructive/10 px-3 py-2 text-caption text-destructive" role="alert">
+          <p className="mb-2 rounded-control bg-tomato-soft px-3 py-2 text-caption text-tomato" role="alert">
             {note}
           </p>
         )}
@@ -301,7 +301,7 @@ export function Composer({
               onClick={() => changeApproval("normal")}
               disabled={busy}
               title={APPROVAL_TITLES[agent.approval_mode]}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-eg-ask px-3 text-caption font-medium text-eg-ask-ink transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-yolk-soft px-3 text-caption font-medium text-yolk-ink transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               {APPROVAL_WARNINGS[agent.approval_mode] ?? agent.approval_mode}
               <span className="font-normal underline underline-offset-2">Restore</span>

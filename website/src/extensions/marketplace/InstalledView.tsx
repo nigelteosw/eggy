@@ -116,7 +116,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
                 <code>{install.commit_sha.slice(0, 7)}</code> · installed by {install.installed_by} on{" "}
                 {new Date(install.installed_at).toLocaleDateString()}
               </p>
-              {status.edited.length > 0 && <p className="text-caption text-amber-800">Edited here: {status.edited.map(editedLabel).join(", ")}</p>}
+              {status.edited.length > 0 && <p className="text-caption text-yolk-ink">Edited here: {status.edited.map(editedLabel).join(", ")}</p>}
               {plan && status.status === "update_available" && (
                 <p className="text-caption text-neutral-700">A new version is ready to review.</p>
               )}

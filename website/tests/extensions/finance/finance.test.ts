@@ -143,7 +143,7 @@ test("the overview says what was left over, how much was saved, and how spending
 test("a negative figure is marked as negative", () => {
   const html = report({ currency: "JPY" });
   expect(html).toContain("-JPY 1200");
-  expect(html).toContain("text-eg-red-ink");
+  expect(html).toContain("text-tomato");
 });
 
 test("insights show for the default currency only", () => {

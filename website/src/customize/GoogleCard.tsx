@@ -55,13 +55,13 @@ export function GoogleIdentity({
   }
   const mismatch = expected !== "" && connected !== expected && connected !== "unverified";
   return (
-    <div className={`rounded-card px-[18px] py-3.5 text-small ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
-      <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-eg-red-ink" : "text-accent-900"}`}>
+    <div className={`rounded-card px-[18px] py-3.5 text-small ${mismatch ? "bg-tomato-soft" : "bg-accent-100"}`}>
+      <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-tomato" : "text-accent-900"}`}>
         Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
         <span className="rounded-control bg-background px-2 py-0.5 text-caption text-neutral-700">Shared with all Eggy users</span>
       </p>
       {mismatch && (
-        <p className="mt-1.5 text-eg-red-ink" role="alert">
+        <p className="mt-1.5 text-tomato" role="alert">
           This is not Eggy&apos;s account: expected {expected}. Disconnect and reconnect signed in as {expected}.
         </p>
       )}
@@ -274,7 +274,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       );
                     })}
                   {!useDefaults && gated.length === 0 && (
-                    <p className="text-caption text-eg-red-ink">Nothing is checked, so Google writes will run without asking.</p>
+                    <p className="text-caption text-tomato">Nothing is checked, so Google writes will run without asking.</p>
                   )}
                 </div>
               </div>

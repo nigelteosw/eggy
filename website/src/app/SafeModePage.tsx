@@ -58,7 +58,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
     <div className="app-canvas min-h-screen px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-card bg-eg-red-tint text-display">🥚</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-card bg-tomato-soft text-display">🥚</div>
           <div>
             <h1 className="text-title font-semibold tracking-tight">Eggy is in safe mode</h1>
             <p className="text-small text-neutral-700">Startup failed, so the agent is not running.</p>
@@ -67,7 +67,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
 
         <section className="flex flex-col gap-3">
           <CardHeader title="Why it did not start" description="Fix the config below and save. Eggy retries startup as soon as it loads." />
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded-card bg-eg-red-tint px-4 py-3 text-small text-eg-red-ink">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-card bg-tomato-soft px-4 py-3 text-small text-tomato">
             {loading ? "Loading..." : failure}
           </pre>
         </section>

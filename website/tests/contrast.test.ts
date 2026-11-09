@@ -92,9 +92,14 @@ const TEXT_PAIRS: [string, string][] = [
   ["muted-foreground", "muted"],
   ["accent-700", "background"],
   ["primary-foreground", "primary"],
-  ["destructive", "background"],
-  ["eg-red-ink", "eg-red-tint"],
-  ["eg-ask-ink", "eg-ask"],
+  ["tomato", "background"],
+  ["tomato", "card"],
+  ["tomato", "tomato-soft"],
+  ["on-tomato", "tomato"],
+  ["chive", "background"],
+  ["chive", "card"],
+  ["yolk-ink", "yolk-soft"],
+  ["yolk-ink", "background"],
 ];
 
 for (const [mode, selector] of [

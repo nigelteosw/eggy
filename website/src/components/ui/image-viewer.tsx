@@ -188,7 +188,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
           <span
             className={cn(
               "flex animate-in fade-in slide-in-from-bottom-2 items-center gap-1.5 rounded-full px-4 py-2 text-small font-medium shadow-lg backdrop-blur-md",
-              feedback.failed ? "bg-destructive/90 text-destructive-foreground" : "bg-white/15 text-white",
+              feedback.failed ? "bg-tomato/90 text-on-tomato" : "bg-white/15 text-white",
             )}
           >
             {!feedback.failed && <CheckIcon className="h-4 w-4" />}

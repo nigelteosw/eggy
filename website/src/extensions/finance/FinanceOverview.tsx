@@ -9,8 +9,8 @@ import { cn } from "../../lib/utils";
 // percentages, so the page only places and labels them.
 
 const TONE: Record<Movement["tone"], string> = {
-  good: "text-emerald-700 dark:text-emerald-400",
-  bad: "text-eg-red-ink",
+  good: "text-chive",
+  bad: "text-tomato",
   neutral: "text-neutral-700",
 };
 const ARROW: Record<Movement["arrow"], string> = { up: "▲", down: "▼", flat: "–" };
@@ -73,7 +73,7 @@ export function Overview({ flow, currency }: { flow: FinanceFlow; currency: stri
     <section aria-label="Overview" className="flex flex-col gap-3">
       <div className="rounded-card bg-neutral-100 p-5 sm:p-6">
         <p className="text-caption font-medium uppercase tracking-wide text-neutral-700">Left over this month</p>
-        <p className={cn("mt-2 text-display font-semibold leading-none tracking-tight tabular-nums sm:text-display", negative && "text-eg-red-ink")}>
+        <p className={cn("mt-2 text-display font-semibold leading-none tracking-tight tabular-nums", negative && "text-tomato")}>
           {money(currency, flow.net)}
         </p>
         <p className="mt-2 text-caption text-neutral-700">After spending and investing.</p>
@@ -122,10 +122,10 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
       <div className="rounded-card bg-neutral-100 p-4">
         <div className="mb-4 flex gap-4 text-caption text-neutral-700">
           <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-eg-green" /> In
+            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-chive" /> In
           </span>
           <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-eg-red" /> Out
+            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-tomato" /> Out
           </span>
         </div>
         <ol aria-label="Money in and out by month" className="grid gap-2" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
@@ -136,8 +136,8 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
               title={`${monthShort(point.month)}: in ${point.inflow}, out ${point.outflow}, net ${point.net}`}
             >
               <div className="flex h-36 w-full items-end justify-center gap-1">
-                <span className="w-2.5 rounded-t-control bg-eg-green sm:w-3.5" style={{ height: percentOf(point.inflow_share) }} />
-                <span className="w-2.5 rounded-t-control bg-eg-red sm:w-3.5" style={{ height: percentOf(point.outflow_share) }} />
+                <span className="w-2.5 rounded-t-control bg-chive sm:w-3.5" style={{ height: percentOf(point.inflow_share) }} />
+                <span className="w-2.5 rounded-t-control bg-tomato sm:w-3.5" style={{ height: percentOf(point.outflow_share) }} />
               </div>
               <span className={cn("text-caption", point.month === current ? "font-semibold text-foreground" : "text-neutral-700")}>
                 {monthShort(point.month)}

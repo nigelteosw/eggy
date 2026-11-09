@@ -159,7 +159,7 @@ export function InstallReview({
                   <span className="block text-neutral-700">{skill.description}</span>
                 </summary>
                 {skill.warnings?.map((warning) => (
-                  <p key={warning} className="mt-2 text-caption text-amber-800">
+                  <p key={warning} className="mt-2 text-caption text-yolk-ink">
                     {warning}
                   </p>
                 ))}

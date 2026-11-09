@@ -106,7 +106,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
                   type="button"
                   disabled={cancelling === row[ID]}
                   onClick={() => handleCancel(row)}
-                  className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
+                  className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-tomato transition-colors hover:bg-tomato-soft disabled:pointer-events-none disabled:opacity-50"
                 >
                   {cancelling === row[ID] ? "Cancelling…" : "Cancel"}
                 </button>

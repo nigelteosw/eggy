@@ -50,7 +50,7 @@ type Message = { tone: "success" | "error" | "info"; text: string };
 const TONE_CLASS: Record<Message["tone"], string> = {
   success: "bg-neutral-100 text-foreground",
   info: "bg-neutral-100 text-neutral-700",
-  error: "bg-red-950/40 text-red-200",
+  error: "bg-tomato-soft text-tomato",
 };
 
 // One message area for the whole page, so a result is always where the owner is
@@ -296,7 +296,7 @@ function RepositoryCard({
             One command per line. Changes apply after Eggy restarts.
           </p>
           {parsed.length > MAX_CHECKS && (
-            <p className="text-caption text-red-300">At most {MAX_CHECKS} checks.</p>
+            <p className="text-caption text-tomato">At most {MAX_CHECKS} checks.</p>
           )}
           <div>
             <button
@@ -533,7 +533,7 @@ export function AgentRunnerPage({
         {waiting.length > 0 && (
           <div
             role="status"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-amber-950/30 px-4 py-3 text-small"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-yolk-soft px-4 py-3 text-small"
           >
             <span>
               {waiting.length === 1

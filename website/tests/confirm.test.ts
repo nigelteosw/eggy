@@ -17,7 +17,7 @@ test("a destructive confirm names the action and its consequence, and is an aler
   expect(html).toContain("Delete this chat?");
   expect(html).toContain("cannot be undone");
   expect(html).toContain("Delete chat");
-  expect(html).toContain("bg-destructive");
+  expect(html).toContain("bg-tomato");
   expect(html).toContain(">Cancel<");
 });
 
@@ -27,5 +27,5 @@ test("the confirm sheet anchors to the bottom edge on a phone", () => {
   );
   expect(html).toContain("items-end");
   expect(html).toContain("rounded-t-card");
-  expect(html).not.toContain("bg-destructive");
+  expect(html).not.toContain("bg-tomato");
 });

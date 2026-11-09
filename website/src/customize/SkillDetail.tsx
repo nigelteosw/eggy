@@ -227,7 +227,7 @@ export function SkillDetail({
                   setMenuOpen(false);
                   setConfirmingDelete(true);
                 }}
-                className="flex min-h-9 w-full items-center rounded-control px-3 text-left text-small text-destructive hover:bg-neutral-100"
+                className="flex min-h-9 w-full items-center rounded-control px-3 text-left text-small text-tomato hover:bg-neutral-100"
               >
                 Delete skill
               </button>
@@ -239,7 +239,7 @@ export function SkillDetail({
       {confirmingDelete && (
         <div className="flex flex-wrap items-center gap-2 rounded-card bg-neutral-100 p-3 text-small">
           Delete {name} for everyone? This cannot be undone.
-          <button type="button" disabled={saving} onClick={() => void remove()} className="min-h-9 rounded-control bg-destructive px-3 font-medium text-destructive-foreground">
+          <button type="button" disabled={saving} onClick={() => void remove()} className="min-h-9 rounded-control bg-tomato px-3 font-medium text-on-tomato">
             Delete
           </button>
           <button type="button" onClick={() => setConfirmingDelete(false)} className={SECONDARY_BUTTON}>

@@ -82,7 +82,7 @@ export function SkillsPanel({
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="truncate font-mono text-small text-foreground">{row.name}</span>
                   {row.invalid ? (
-                    <span className="rounded-control bg-destructive/10 px-1.5 py-0.5 text-caption text-destructive">Invalid</span>
+                    <span className="rounded-control bg-tomato-soft px-1.5 py-0.5 text-caption text-tomato">Invalid</span>
                   ) : row.disabled ? (
                     <span className="rounded-control bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">Disabled</span>
                   ) : null}

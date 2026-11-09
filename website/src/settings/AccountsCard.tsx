@@ -38,11 +38,11 @@ import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "../components/ui/for
 const ghostButtonClass =
   "min-h-10 whitespace-nowrap rounded-control px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
 const destructiveButtonClass =
-  "min-h-10 whitespace-nowrap rounded-control bg-eg-red-tint px-4 text-small font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-control bg-tomato-soft px-4 text-small font-semibold text-tomato transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
 const textActionClass =
   "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
 const destructiveTextActionClass =
-  "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
+  "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-tomato transition-colors hover:bg-tomato-soft disabled:pointer-events-none disabled:opacity-50";
 const panelClass = "rounded-card bg-neutral-100 p-4";
 
 export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
@@ -457,8 +457,8 @@ export function PasswordForm({ account, saving, onSubmit, onCancel }: { account:
 // the one credential control the environment-managed account has here.
 export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account: string; self: boolean; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-card bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
-      <p className="text-small text-eg-red-ink">
+    <div className="flex flex-col gap-3 rounded-card bg-tomato-soft p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
+      <p className="text-small text-tomato">
         Revoke every session of <strong>{account}</strong>? {self ? "You" : "They"} will be signed out everywhere and any unused
         Telegram sign-in link stops working. The password does not change.
       </p>
@@ -476,8 +476,8 @@ export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account:
 
 function RemoveConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-card bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
-      <p className="text-small text-eg-red-ink">
+    <div className="flex flex-col gap-3 rounded-card bg-tomato-soft p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
+      <p className="text-small text-tomato">
         Remove <strong>{account}</strong>? They are signed out immediately and can no longer sign in. Their private
         conversations and memory stay in the database, and this username is never reissued.
       </p>

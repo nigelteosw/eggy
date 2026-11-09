@@ -12,7 +12,7 @@ export function ErrorBanner({
   className?: string;
   preformatted?: boolean;
 }) {
-  const base = "rounded-card bg-eg-red-tint px-3.5 py-2.5 text-small text-eg-red-ink";
+  const base = "rounded-card bg-tomato-soft px-3.5 py-2.5 text-small text-tomato";
   if (preformatted) {
     return (
       <pre role="alert" className={cn("overflow-x-auto whitespace-pre-wrap", base, className)}>

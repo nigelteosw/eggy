@@ -425,7 +425,7 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
 export function ApprovalCard({ approval, onDecide }: { approval: PendingApproval; onDecide: (approved: boolean) => void }) {
   const [showDetails, setShowDetails] = useState(false);
   return (
-    <div className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-card bg-eg-ask p-[18px] text-small text-eg-ask-ink">
+    <div className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-card bg-yolk-soft p-[18px] text-small text-yolk-ink">
       <div className="mb-2 flex items-center gap-2 text-caption font-semibold">
         <LockIcon className="h-3.5 w-3.5" />
         Needs your approval
@@ -888,7 +888,7 @@ export function ChatPage({
             </p>
           ))}
           {error && (
-            <p className="rounded-control bg-destructive/10 px-3 py-2 text-small text-destructive" role="alert">
+            <p className="rounded-control bg-tomato-soft px-3 py-2 text-small text-tomato" role="alert">
               {error}
             </p>
           )}

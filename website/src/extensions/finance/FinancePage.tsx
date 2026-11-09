@@ -363,7 +363,7 @@ export function FinanceReport({
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className={cn("text-small font-semibold tabular-nums", isCashIn(entry.kind) && "text-emerald-700 dark:text-emerald-400")}>
+                        <p className={cn("text-small font-semibold tabular-nums", isCashIn(entry.kind) && "text-chive")}>
                           {signedAmount(entry.kind, entry.currency, entry.amount)}
                         </p>
                         <p className="mt-0.5 text-caption text-neutral-700">{KIND_LABEL[entry.kind as Kind] ?? entry.kind}</p>

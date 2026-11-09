@@ -26,9 +26,9 @@ import {
 export function Badge({ children, tone = "plain" }: { children: ReactNode; tone?: "plain" | "warn" | "good" }) {
   const toneClass =
     tone === "warn"
-      ? "bg-amber-950/50 text-amber-200"
+      ? "bg-yolk-soft text-yolk-ink"
       : tone === "good"
-        ? "bg-emerald-950/50 text-emerald-200"
+        ? "bg-neutral-100 text-chive"
         : "bg-neutral-200/60 text-neutral-700";
   return <span className={`rounded-full px-2 py-0.5 text-caption font-medium ${toneClass}`}>{children}</span>;
 }
@@ -214,7 +214,7 @@ export function AgentRunDetailView({
 
       {isWaiting(run.state) && (
         <form
-          className="flex flex-col gap-2 rounded-card bg-amber-950/30 p-4"
+          className="flex flex-col gap-2 rounded-card bg-yolk-soft p-4"
           onSubmit={(event) => {
             event.preventDefault();
             onAnswer(answer);

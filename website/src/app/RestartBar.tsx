@@ -24,7 +24,7 @@ export function RestartBar({ onSessionExpired }: { onSessionExpired: () => void 
   }
 
   return (
-    <div role="status" className="flex flex-wrap items-center gap-3 bg-eg-ask px-4 py-2.5 text-small text-eg-ask-ink sm:px-8">
+    <div role="status" className="flex flex-wrap items-center gap-3 bg-yolk-soft px-4 py-2.5 text-small text-yolk-ink sm:px-8">
       <span className="min-w-0 flex-1">Changes to your settings take effect after a restart.</span>
       <button
         type="button"

@@ -19,9 +19,6 @@ theme tokens, Home, phone layout and most polish have landed.
       sign-in line). *Done:* the type scale and the radii, each a replaced
       Tailwind scale with a test banning anything outside it, and Geist
       everywhere.
-- [ ] Merge the red families and the remaining raw `amber/emerald` literals
-      (marketplace `InstallReview`/`InstalledView`, finance) into `--tomato`,
-      `--chive`, `--yolk-soft`.
 - [ ] Undo for chat delete.
 - [ ] Docs site toggle offers Match system explicitly (today it flips between
       two themes).

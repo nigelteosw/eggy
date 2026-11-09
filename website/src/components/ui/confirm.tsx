@@ -80,7 +80,7 @@ export function ConfirmDialog({ title, body, confirmLabel, destructive = false, 
             onClick={() => onAnswer(true)}
             className={cn(
               "min-h-11 rounded-control px-4 text-small font-semibold transition-opacity hover:opacity-90 sm:min-h-10",
-              destructive ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
+              destructive ? "bg-tomato text-on-tomato" : "bg-primary text-primary-foreground",
             )}
           >
             {confirmLabel}

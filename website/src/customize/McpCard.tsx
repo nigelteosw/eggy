@@ -131,7 +131,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                 variant="ghost"
                 size="sm"
                 onClick={() => handleRemove(row[NAME])}
-                className="text-eg-red-ink hover:bg-eg-red-tint hover:text-eg-red-ink"
+                className="text-tomato hover:bg-tomato-soft hover:text-tomato"
               >
                 Remove
               </Button>

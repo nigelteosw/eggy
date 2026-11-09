@@ -113,7 +113,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                     type="button"
                     disabled={deciding === row[ID]}
                     onClick={() => decide(row, false)}
-                    className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
+                    className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-tomato transition-colors hover:bg-tomato-soft disabled:pointer-events-none disabled:opacity-50"
                   >
                     Decline
                   </button>

@@ -125,7 +125,7 @@ export function ModelRowActions({
   return (
     <div className="flex justify-end gap-1">
       <Button type="button" variant="ghost" size="sm" aria-label={`Edit ${alias}`} onClick={onEdit}>Edit</Button>
-      <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${alias}`} onClick={onRemove} disabled={removing} className="text-eg-red-ink hover:bg-eg-red-tint hover:text-eg-red-ink">
+      <Button type="button" variant="ghost" size="sm" aria-label={`Remove ${alias}`} onClick={onRemove} disabled={removing} className="text-tomato hover:bg-tomato-soft hover:text-tomato">
         {removing ? "Removing..." : "Remove"}
       </Button>
     </div>

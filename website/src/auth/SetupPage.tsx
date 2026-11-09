@@ -220,7 +220,7 @@ export function SetupPage() {
             <CardHeader title="Deployment variables" />
             <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-4 text-small">
               {Object.entries(validation.variables).map(([name, present]) => (
-                <p key={name} className={present ? "text-neutral-700" : "text-eg-red-ink"}>
+                <p key={name} className={present ? "text-neutral-700" : "text-tomato"}>
                   <span className="font-mono">{name}</span>: {present ? "present" : "missing"}
                 </p>
               ))}

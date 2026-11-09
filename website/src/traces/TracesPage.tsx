@@ -249,8 +249,8 @@ function layoutSpans(trace: TraceSummary, spans: TraceSpan[]): Layout {
 }
 
 function barColor(span: TraceSpan): string {
-  if (span.error) return "bg-destructive";
-  return span.kind === "model_call" ? "bg-primary" : "bg-sky-500 dark:bg-sky-400";
+  if (span.error) return "bg-tomato";
+  return span.kind === "model_call" ? "bg-primary" : "bg-neutral-600";
 }
 
 function TickLines({ ticks, window }: { ticks: number[]; window: number }) {
@@ -435,8 +435,8 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
 
 const WATERFALL_LEGEND = [
   { label: "Model call", dot: "bg-primary" },
-  { label: "Tool call", dot: "bg-sky-500 dark:bg-sky-400" },
-  { label: "Failed", dot: "bg-destructive" },
+  { label: "Tool call", dot: "bg-neutral-600" },
+  { label: "Failed", dot: "bg-tomato" },
 ];
 
 // One strip of what the turn cost, read left to right: how long, how many
@@ -533,7 +533,7 @@ function TraceImages({ ids }: { ids: string[] }) {
 
 function TraceStatus({ trace }: { trace: TraceSummary }) {
   return (
-    <span className={`text-caption ${trace.error ? "font-medium text-eg-red-ink" : "text-neutral-700"}`}>
+    <span className={`text-caption ${trace.error ? "font-medium text-tomato" : "text-neutral-700"}`}>
       {trace.error ? "Failed" : trace.complete ? "Completed" : "Incomplete"}
     </span>
   );
@@ -562,7 +562,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
   if (error)
     return (
       <div role="alert">
-        <p className="mb-3 text-small text-eg-red-ink">{error}</p>
+        <p className="mb-3 text-small text-tomato">{error}</p>
         <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
           Try again
         </Button>
@@ -695,8 +695,8 @@ export function TraceBrowser({
                   {count(item.traces.length, "turn")} · {formatShortTime(item.lastAt)}
                 </span>
                 {item.errors > 0 && (
-                  <span className="ml-auto flex shrink-0 items-center gap-1 text-eg-red-ink" title={`${item.errors} failed`}>
-                    <span className="h-1.5 w-1.5 rounded-full bg-eg-red" />
+                  <span className="ml-auto flex shrink-0 items-center gap-1 text-tomato" title={`${item.errors} failed`}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-tomato" />
                     {item.errors}
                   </span>
                 )}

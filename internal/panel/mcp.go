@@ -12,7 +12,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 )
 
-func webMCPListRoute(configPath string) http.HandlerFunc {
+// webMCPListRoute lists the configured servers. ownerOf names the marketplace
+// install a server came from, or "" for one added by hand; it is nil when the
+// marketplace is off, and then the From column is not sent at all.
+func webMCPListRoute(configPath string, ownerOf func(server string) string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		servers, err := config.GetMCPServersConfig(configPath)
 		if err != nil {
@@ -26,11 +29,24 @@ func webMCPListRoute(configPath string) http.HandlerFunc {
 			// Only names are ever rendered, never values: bearer_token_env and
 			// oauth_client_secret_env are variable names, and the client id is
 			// public by construction. No secret reaches this response.
-			rows = append(rows, []string{name, server.Transport, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv, server.OAuthClientID, server.OAuthClientSecretEnv})
+			row := []string{name, server.Transport, server.URL, server.Auth, strconv.FormatBool(server.Enabled), server.BearerTokenEnv, server.OAuthClientID, server.OAuthClientSecretEnv}
+			if ownerOf != nil {
+				from := ""
+				if install := ownerOf(name); install != "" {
+					from = "Plugin " + install
+				}
+				row = append(row, from)
+			}
+			rows = append(rows, row)
+		}
+		// The SPA reads these columns by position, so From goes last.
+		headers := []string{"Name", "Transport", "URL", "Auth", "Enabled", "Bearer token env", "OAuth client id", "OAuth client secret env"}
+		if ownerOf != nil {
+			headers = append(headers, "From")
 		}
 		writeWebResult(w, webResult{
 			State:        webSuccess,
-			TableHeaders: []string{"Name", "Transport", "URL", "Auth", "Enabled", "Bearer token env", "OAuth client id", "OAuth client secret env"},
+			TableHeaders: headers,
 			TableRows:    rows,
 		})
 	}

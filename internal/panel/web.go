@@ -362,7 +362,11 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("PUT /api/skills/{name}", guard(skillsUpdateRoute(webConfig.Skills)))
 		mux.Handle("DELETE /api/skills/{name}", guard(skillsDeleteRoute(webConfig.Skills)))
 	}
-	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath)))
+	var mcpOwnerOf func(string) string
+	if webConfig.Marketplace != nil {
+		mcpOwnerOf = webConfig.Marketplace.OwnerOf
+	}
+	mux.Handle("GET /api/config/mcp", guard(webMCPListRoute(configPath, mcpOwnerOf)))
 	mux.Handle("POST /api/config/mcp", guard(webMCPSetRoute(configPath)))
 	mux.Handle("DELETE /api/config/mcp/{name}", guard(webMCPRemoveRoute(configPath)))
 	registerMCPApprovalRoutes(mux, guard, configPath, webConfig.MCPPreview)

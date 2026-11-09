@@ -148,6 +148,8 @@ func (p panelMarketplace) SetDisabled(ctx context.Context, id string, disabled b
 	return translateMarketplaceError(p.svc.SetDisabled(ctx, id, disabled))
 }
 
+func (p panelMarketplace) OwnerOf(mcpServer string) string { return p.svc.OwnerOf(mcpServer) }
+
 func (p panelMarketplace) Remove(ctx context.Context, id string, deleteEdited []panel.MarketplaceFileRef) error {
 	files := make([]marketplace.EditedFile, 0, len(deleteEdited))
 	for _, f := range deleteEdited {

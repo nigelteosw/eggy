@@ -583,7 +583,7 @@ func (s *Service) OwnerOf(mcpServer string) string {
 	}
 	for _, install := range installs {
 		for _, f := range install.Files {
-			if f.Kind == "mcp_server" && f.Target == mcpServer && f.ContentHash != tombstoneHash {
+			if f.Kind == kindMCP && f.Target == mcpServer && f.ContentHash != tombstoneHash {
 				return install.SourceName + "/" + install.Item
 			}
 		}

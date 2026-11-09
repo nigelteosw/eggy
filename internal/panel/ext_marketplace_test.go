@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,5 +48,52 @@ func TestMarketplaceConflictBodyListsNames(t *testing.T) {
 	}
 	if len(body.Conflicts) != 2 || body.Conflicts[0] != "pdf" {
 		t.Fatalf("conflicts = %v", body.Conflicts)
+	}
+}
+
+// A server a plugin brought is labelled with the install it came from; one the
+// owner added by hand is not, and with the marketplace off there is no column.
+func TestMCPListLabelsServersFromAPlugin(t *testing.T) {
+	path := writeConfigFile(t, validConfig())
+	for _, name := range []string{"deploy-api", "railway"} {
+		body := strings.NewReader(`{"name":"` + name + `","url":"https://mcp.example.com/` + name + `","auth":"none","enabled":"false"}`)
+		rec := httptest.NewRecorder()
+		webMCPSetRoute(path)(rec, httptest.NewRequest(http.MethodPost, "/api/config/mcp", body))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("add %s: status %d body %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	list := func(ownerOf func(string) string) webResult {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		webMCPListRoute(path, ownerOf)(rec, httptest.NewRequest(http.MethodGet, "/api/config/mcp", nil))
+		var result webResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	labelled := list(func(name string) string {
+		if name == "deploy-api" {
+			return "team/deploy-tools"
+		}
+		return ""
+	})
+	last := len(labelled.TableHeaders) - 1
+	if labelled.TableHeaders[last] != "From" {
+		t.Fatalf("headers = %v, want a trailing From column", labelled.TableHeaders)
+	}
+	from := map[string]string{}
+	for _, row := range labelled.TableRows {
+		from[row[0]] = row[last]
+	}
+	if from["deploy-api"] != "Plugin team/deploy-tools" || from["railway"] != "" {
+		t.Fatalf("from = %v", from)
+	}
+
+	plain := list(nil)
+	if slices.Contains(plain.TableHeaders, "From") {
+		t.Fatalf("headers = %v, want no From column with the marketplace off", plain.TableHeaders)
 	}
 }

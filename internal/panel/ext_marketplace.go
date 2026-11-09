@@ -54,6 +54,9 @@ type MarketplaceService interface {
 	Update(ctx context.Context, id string, req MarketplaceApproval, replaceEdited []string) (MarketplaceInstall, error)
 	SetDisabled(ctx context.Context, id string, disabled bool) error
 	Remove(ctx context.Context, id string, deleteEdited []MarketplaceFileRef) error
+	// OwnerOf names the install that brought an MCP server, or "" for one the
+	// owner added by hand, for the Connectors list.
+	OwnerOf(mcpServer string) string
 }
 
 type MarketplaceSourceStatus struct {

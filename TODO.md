@@ -89,8 +89,6 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 - A failed file download is acknowledged and explained like unsupported input,
   so a transient failure is not retried. Decide whether a retryable download
   failure should ask the owner to resend, rather than holding the update.
-- Bounded, cancellation-aware waits on explicit Telegram rate-limit rejections;
-  never replay a send after an ambiguous transport failure.
 - Tests for splitting around long help, Unicode, code blocks and buttons.
 
 Deletion budget: ~80–150 net production lines, 0 config keys/tools/record

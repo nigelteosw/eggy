@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -50,13 +51,15 @@ type Client struct {
 	// property of who Eggy is talking to rather than of the message.
 	chats ChatResolver
 	http  *http.Client
+	// sleep waits out a rate limit; tests replace it to keep time still.
+	sleep func(context.Context, time.Duration) error
 }
 
 func NewClient(baseURL, token string, chats ChatResolver, client *http.Client) *Client {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, chats: chats, http: client}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/"), token: token, chats: chats, http: client, sleep: sleepContext}
 }
 
 // chatID is the one place a call learns which chat it is for.
@@ -312,9 +315,55 @@ func (c *Client) DeliverImage(ctx context.Context, _ string, image ports.Content
 	return err
 }
 
+// maxRateLimitAttempts and maxRateLimitWait bound how long a send waits out
+// Telegram's rate limit before reporting it: a reply that would arrive minutes
+// late is better reported as late than held.
+const (
+	maxRateLimitAttempts = 3
+	maxRateLimitWait     = 30 * time.Second
+)
+
+// RateLimitError is Telegram refusing a request with 429 and naming when to
+// ask again, after the client has waited as long as it will.
+type RateLimitError struct {
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitError) Error() string {
+	return fmt.Sprintf("Telegram rate limit: retry after %s", e.RetryAfter)
+}
+
 // post sends one Bot API request and unwraps Telegram's {"ok", "result"}
-// envelope, for a JSON call and an upload alike.
+// envelope, for a JSON call and an upload alike. An explicit 429 is the one
+// refusal it repeats: Telegram has said it delivered nothing and when to ask
+// again, so a replay cannot duplicate a message. A transport failure is never
+// repeated, because the request may have been delivered before it failed.
 func (c *Client) post(ctx context.Context, method, contentType string, body []byte) (json.RawMessage, error) {
+	for attempt := 1; ; attempt++ {
+		result, err := c.postOnce(ctx, method, contentType, body)
+		var limited *RateLimitError
+		if !errors.As(err, &limited) || attempt == maxRateLimitAttempts || limited.RetryAfter > maxRateLimitWait {
+			return result, err
+		}
+		if err := c.sleep(ctx, limited.RetryAfter); err != nil {
+			return nil, err
+		}
+	}
+}
+
+// sleepContext waits d or until ctx ends, whichever is first.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (c *Client) postOnce(ctx context.Context, method, contentType string, body []byte) (json.RawMessage, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/bot"+c.token+"/"+method, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -332,8 +381,12 @@ func (c *Client) post(ctx context.Context, method, contentType string, body []by
 	defer response.Body.Close()
 	var result struct {
 		OK          bool            `json:"ok"`
+		ErrorCode   int             `json:"error_code"`
 		Description string          `json:"description"`
 		Result      json.RawMessage `json:"result"`
+		Parameters  struct {
+			RetryAfter int `json:"retry_after"`
+		} `json:"parameters"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -342,6 +395,9 @@ func (c *Client) post(ctx context.Context, method, contentType string, body []by
 		return nil, fmt.Errorf("decode Telegram response: %w", err)
 	}
 	if !result.OK {
+		if result.ErrorCode == http.StatusTooManyRequests && result.Parameters.RetryAfter > 0 {
+			return nil, &RateLimitError{RetryAfter: time.Duration(result.Parameters.RetryAfter) * time.Second}
+		}
 		if result.Description == "" {
 			result.Description = fmt.Sprintf("Telegram returned HTTP %d", response.StatusCode)
 		}

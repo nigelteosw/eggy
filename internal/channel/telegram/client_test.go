@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
 )
@@ -444,5 +445,74 @@ func TestClientDeliverImageReportsTelegramRefusalWithoutTheToken(t *testing.T) {
 	err := NewClient(server.URL, "token", FixedChat("42"), server.Client()).DeliverImage(context.Background(), "", ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")})
 	if err == nil || !strings.Contains(err.Error(), "PHOTO_INVALID_DIMENSIONS") || strings.Contains(err.Error(), "token") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// rateLimitedServer answers with Telegram's 429 shape for the first refusals
+// calls, then succeeds.
+func rateLimitedServer(refusals int, retryAfter int) (*http.Client, *int) {
+	calls := 0
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		body := `{"ok":true,"result":{"message_id":1}}`
+		status := http.StatusOK
+		if calls <= refusals {
+			status = http.StatusTooManyRequests
+			body = fmt.Sprintf(`{"ok":false,"error_code":429,"description":"Too Many Requests: retry after %d","parameters":{"retry_after":%d}}`, retryAfter, retryAfter)
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}, &calls
+}
+
+// A 429 is Telegram saying it delivered nothing and when to ask again, so the
+// send waits that long and repeats -- within a bound, and never past the
+// caller's cancellation.
+func TestClientWaitsOutAnExplicitRateLimit(t *testing.T) {
+	httpClient, calls := rateLimitedServer(1, 2)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("42"), httpClient)
+	var waited []time.Duration
+	client.sleep = func(_ context.Context, d time.Duration) error { waited = append(waited, d); return nil }
+	if err := client.Deliver(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 2 || len(waited) != 1 || waited[0] != 2*time.Second {
+		t.Fatalf("calls=%d waited=%v", *calls, waited)
+	}
+}
+
+func TestClientGivesUpOnARateLimitPastTheBound(t *testing.T) {
+	httpClient, calls := rateLimitedServer(1, 600)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("42"), httpClient)
+	client.sleep = func(context.Context, time.Duration) error { t.Fatal("waited past the bound"); return nil }
+	err := client.Deliver(context.Background(), "hello")
+	var limited *RateLimitError
+	if !errors.As(err, &limited) || limited.RetryAfter != 600*time.Second || *calls != 1 {
+		t.Fatalf("err=%v calls=%d", err, *calls)
+	}
+}
+
+func TestClientStopsRetryingAfterTheAttemptBound(t *testing.T) {
+	httpClient, calls := rateLimitedServer(10, 1)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("42"), httpClient)
+	client.sleep = func(context.Context, time.Duration) error { return nil }
+	var limited *RateLimitError
+	if err := client.Deliver(context.Background(), "hello"); !errors.As(err, &limited) {
+		t.Fatalf("err=%v", err)
+	}
+	if *calls != maxRateLimitAttempts {
+		t.Fatalf("calls=%d, want %d", *calls, maxRateLimitAttempts)
+	}
+}
+
+func TestClientRateLimitWaitHonoursCancellation(t *testing.T) {
+	httpClient, calls := rateLimitedServer(1, 2)
+	client := NewClient("https://api.telegram.test", "token", FixedChat("42"), httpClient)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := client.Deliver(ctx, "hello"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	if *calls > 1 {
+		t.Fatalf("calls=%d after cancellation", *calls)
 	}
 }

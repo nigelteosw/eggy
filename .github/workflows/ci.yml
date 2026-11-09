@@ -13,8 +13,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Each job below runs only when a path it depends on changed. A skipped job
+  # counts as passed for a required check, so a docs-only change does not wait
+  # on the Go race suite or the Docker build.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      website: ${{ steps.filter.outputs.website }}
+      docs: ${{ steps.filter.outputs.docs }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            go:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'staticcheck.conf'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+            website:
+              - 'website/**'
+              - '.github/workflows/ci.yml'
+            docs:
+              - 'docs/**'
+              - '.github/workflows/ci.yml'
+            # The image embeds the website build and the Go binary, so either
+            # one changing means the smoke test has something new to check.
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'cmd/**'
+              - 'internal/**'
+              - 'website/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'scripts/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+
   go:
     name: Go
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,12 +102,23 @@ jobs:
 
   website:
     name: Website
+    needs: changes
+    if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      # Keyed on the lockfile. A changed lockfile restores the closest earlier
+      # cache and downloads only the packages it does not already have.
+      - name: Cache bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-website-${{ hashFiles('website/bun.lock') }}
+          restore-keys: bun-website-
 
       - name: Install dependencies
         working-directory: website
@@ -74,12 +135,21 @@ jobs:
 
   docs:
     name: Documentation
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Cache bun packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-docs-${{ hashFiles('docs/bun.lock') }}
+          restore-keys: bun-docs-
 
       - name: Install dependencies
         working-directory: docs
@@ -95,6 +165,8 @@ jobs:
 
   smoke:
     name: Docker smoke
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -16,6 +16,7 @@ import { Input } from "../components/ui/input";
 import { Switch } from "../components/ui/switch";
 import { FIELD, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../components/ui/form";
 import { FileCodeIcon } from "../components/ui/icons";
+import { CodeEditor, Highlighted, splitFrontMatter } from "../components/ui/code-editor";
 
 // One skill's page. `name` is "new" for the create form. The page has two
 // reading tabs, Overview and Contents, and an editor that create and edit share.
@@ -163,12 +164,7 @@ export function SkillDetail({
           </label>
           <label className="flex flex-col gap-1.5">
             <span className={FIELD_LABEL}>Instructions (Markdown)</span>
-            <textarea
-              value={draft.body}
-              onChange={(event) => setDraft({ ...draft, body: event.target.value })}
-              rows={14}
-              className="scrollbar-slim w-full rounded-control bg-background p-3 font-mono text-small leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            />
+            <CodeEditor language="markdown" label="Instructions" value={draft.body} onChange={(body) => setDraft({ ...draft, body })} minHeight="21rem" />
           </label>
           <Switch checked={!draft.disabled} onCheckedChange={(on) => setDraft({ ...draft, disabled: !on })} label="Available to Eggy" />
           <p className="text-caption text-neutral-700">Skills are shared by everyone on this Eggy. Changes apply to new turns.</p>
@@ -315,11 +311,11 @@ export function SkillDetail({
                 </div>
                 <div className="scrollbar-slim max-h-[60vh] overflow-auto p-4">
                   {view === "preview" ? (
-                    <div className="markdown prose max-w-none text-small">
-                      <Markdown remarkPlugins={[remarkGfm]}>{skill.body}</Markdown>
-                    </div>
+                    <SkillPreview body={skill.body} />
                   ) : (
-                    <pre className="whitespace-pre-wrap break-words font-mono text-small leading-6 text-foreground">{skill.body}</pre>
+                    <pre className="whitespace-pre-wrap break-words font-mono text-small leading-6 text-foreground">
+                      <Highlighted value={skill.body} language="markdown" />
+                    </pre>
                   )}
                 </div>
               </div>
@@ -328,5 +324,23 @@ export function SkillDetail({
         </>
       )}
     </section>
+  );
+}
+
+// The rendered view of a SKILL.md: its front matter, if it has one, as the YAML
+// it is, and only the rest rendered as Markdown.
+function SkillPreview({ body }: { body: string }) {
+  const parts = splitFrontMatter(body);
+  return (
+    <div className="flex flex-col gap-4">
+      {parts.frontMatter !== null && (
+        <pre className="m-0 whitespace-pre-wrap break-words rounded-control bg-neutral-100 px-3 py-2.5 font-mono text-caption leading-5 text-foreground">
+          <Highlighted value={parts.frontMatter} language="yaml" />
+        </pre>
+      )}
+      <div className="markdown prose max-w-none text-small prose-code:rounded-mark prose-code:bg-neutral-100 prose-code:px-1 prose-code:py-0.5 prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
+        <Markdown remarkPlugins={[remarkGfm]}>{parts.body}</Markdown>
+      </div>
+    </div>
   );
 }

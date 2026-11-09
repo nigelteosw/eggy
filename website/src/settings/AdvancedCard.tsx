@@ -3,6 +3,7 @@ import { SessionExpiredError, getRawConfig, saveRawConfig } from "../lib/api";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { errorMessage } from "../lib/utils";
+import { CodeEditor } from "../components/ui/code-editor";
 
 export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => void }) {
   const [config, setConfig] = useState("");
@@ -48,15 +49,16 @@ export function AdvancedCard({ onSessionExpired }: { onSessionExpired: () => voi
       <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Edit config.yaml</summary>
         <div className="mt-3 flex flex-col gap-3">
-          <textarea
-            spellCheck={false}
+          <CodeEditor
+            language="yaml"
+            label="config.yaml"
             value={config}
-            onChange={(event) => {
-              setConfig(event.target.value);
+            onChange={(next) => {
+              setConfig(next);
               setSaved(false);
             }}
             disabled={loading}
-            className="min-h-[26rem] w-full whitespace-pre rounded-card bg-background px-4 py-3.5 font-mono text-small leading-relaxed text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+            minHeight="26rem"
           />
           <div>
             <button

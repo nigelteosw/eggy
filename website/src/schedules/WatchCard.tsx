@@ -4,6 +4,7 @@ import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { PRIMARY_BUTTON } from "../components/ui/form";
 import { errorMessage } from "../lib/utils";
+import { CodeEditor } from "../components/ui/code-editor";
 
 // The heartbeat's watch list, sitting directly above the heartbeat itself
 // because an interval with an empty list is a heartbeat that never beats.
@@ -75,17 +76,17 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
         <span className="text-small font-medium">watch.md</span>
         <span className="text-caption text-neutral-700">An empty list means every beat is skipped</span>
       </div>
-      <textarea
-        spellCheck={false}
+      <CodeEditor
+        language="markdown"
+        label="WATCH.md"
         value={watch}
         placeholder={"# Watch\n\n- Unread mail from real people older than a day\n- Calendar events in the next 12 hours I have not accepted"}
-        onChange={(event) => {
-          setWatch(event.target.value);
+        onChange={(next) => {
+          setWatch(next);
           setSaved(false);
           setDetail(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre rounded-card bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button

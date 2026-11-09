@@ -5,6 +5,7 @@ import { ErrorBanner } from "../components/ui/error-banner";
 import { PRIMARY_BUTTON } from "../components/ui/form";
 import { SaveBar } from "../components/ui/save-bar";
 import { errorMessage } from "../lib/utils";
+import { CodeEditor } from "../components/ui/code-editor";
 
 // SOUL.md, Eggy's identity, as a setting rather than a file on a volume. It
 // is shared: every turn for every person starts from it. Eggy rewrites it too
@@ -80,15 +81,15 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
         <span className="text-small font-medium">SOUL.md</span>
         <span className="text-caption text-neutral-700">Up to 4 KB</span>
       </div>
-      <textarea
-        spellCheck={false}
+      <CodeEditor
+        language="markdown"
+        label="SOUL.md"
         value={soul}
-        onChange={(event) => {
-          setSoul(event.target.value);
+        onChange={(next) => {
+          setSoul(next);
           setStatus(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre-wrap rounded-card bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={() => save(soul)} disabled={loading || saving} className={PRIMARY_BUTTON}>

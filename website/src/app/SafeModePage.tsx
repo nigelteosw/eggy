@@ -4,6 +4,7 @@ import { Button } from "../components/ui/button";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { errorMessage } from "../lib/utils";
+import { CodeEditor } from "../components/ui/code-editor";
 
 // Shown when eggyd could not start. There is no chat and no settings panel
 // behind this screen -- the agent is not running -- so it offers the one thing
@@ -74,13 +75,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
 
         <section className="flex flex-col gap-3">
           <CardHeader title="config.yaml" description="Saved only if it loads, so a second bad config cannot lock you out." />
-          <textarea
-            spellCheck={false}
-            value={config}
-            onChange={(event) => setConfig(event.target.value)}
-            disabled={loading || saved}
-            className="min-h-[26rem] w-full whitespace-pre rounded-card border-0 bg-neutral-100 px-4 py-3 font-mono text-small leading-relaxed shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          />
+          <CodeEditor language="yaml" label="config.yaml" value={config} onChange={setConfig} disabled={loading || saved} minHeight="26rem" />
           <div>
             <Button type="button" onClick={handleSave} disabled={loading || saving || saved} className="rounded-control">
               {saved ? "Restarting..." : saving ? "Checking..." : "Validate and save"}

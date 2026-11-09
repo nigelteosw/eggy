@@ -456,6 +456,11 @@ func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message)
 		}
 	}
 	part, err := h.downloader.DownloadFile(ctx, fileID, size, mediaType, filename)
+	if errors.Is(err, errFileUnavailable) {
+		// Holding the update for a retry would hold every later one behind
+		// it; the owner resending is the retry.
+		return events.Message{}, errors.New("Telegram didn't hand the file over just now; send it again")
+	}
 	if err != nil {
 		return events.Message{}, fmt.Errorf("download Telegram file: %w", err)
 	}

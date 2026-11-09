@@ -84,16 +84,6 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
       the review screens, and OAuth login on a disabled server completing
       without a reconnect.
 
-## P2 — Telegram feedback and delivery resilience (M)
-
-- A failed file download is acknowledged and explained like unsupported input,
-  so a transient failure is not retried. Decide whether a retryable download
-  failure should ask the owner to resend, rather than holding the update.
-- Tests for splitting around long help, Unicode, code blocks and buttons.
-
-Deletion budget: ~80–150 net production lines, 0 config keys/tools/record
-types/loops.
-
 ## P2 — Voice and inbound attachments everywhere (M)
 
 Telegram passes images and PDFs and refuses voice and other media with a
@@ -182,10 +172,9 @@ Take on demonstrated use, one at a time. None may add a tool.
 
 ## Delivery order
 
-1. Telegram feedback and delivery resilience.
-2. Voice and inbound attachments, then outbound documents.
-3. UI theme and structure, as the review orders it.
-4. Measurement, then the typed config contract.
+1. Voice and inbound attachments, then outbound documents.
+2. UI theme and structure, as the review orders it.
+3. Measurement, then the typed config contract.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet race build`; `make smoke` when Docker is available.

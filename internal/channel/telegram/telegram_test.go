@@ -157,6 +157,27 @@ func TestWebhookRefusesMessagesItCannotRead(t *testing.T) {
 	}
 }
 
+// A download that failed on Telegram's side is worth trying again, and only
+// the owner can: the update is acknowledged so it does not hold back every
+// later one, and the reply asks for the file again rather than naming an
+// internal error.
+func TestWebhookAsksForAFileAgainWhenTheDownloadFailedTransiently(t *testing.T) {
+	downloader := &recordingFileDownloader{err: fmt.Errorf("download Telegram file: HTTP 502: %w", errFileUnavailable)}
+	replier := &recordingReplier{}
+	handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { return nil }, nil).WithFileDownloader(downloader).WithReplier(replier)
+	body := `{"update_id":18,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},"document":{"file_id":"image","file_name":"list.png","mime_type":"image/png","file_size":400}}}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if !strings.Contains(replier.text, "send it again") || strings.Contains(replier.text, "502") {
+		t.Fatalf("reply=%q", replier.text)
+	}
+}
+
 // A message Eggy cannot turn into a turn is still a delivered update.
 // Telegram retries any non-2xx response and holds every later update behind
 // it, so answering 400 to one PDF silenced the bot for that person until the

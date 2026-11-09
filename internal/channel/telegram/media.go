@@ -12,6 +12,10 @@ import (
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
+// errFileUnavailable marks a download that failed on the way rather than on
+// the file: the same file may well arrive if it is sent again.
+var errFileUnavailable = errors.New("Telegram file unavailable")
+
 // maxFileBytes is also Telegram's own ceiling for a bot download.
 const maxFileBytes int64 = 20 << 20
 
@@ -36,7 +40,7 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 
 	result, err := c.call(ctx, "getFile", map[string]any{"file_id": fileID})
 	if err != nil {
-		return ports.ContentPart{}, fmt.Errorf("resolve Telegram file: %w", err)
+		return ports.ContentPart{}, fmt.Errorf("resolve Telegram file: %w: %w", errFileUnavailable, err)
 	}
 	var file struct {
 		FilePath string `json:"file_path"`
@@ -66,18 +70,18 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 		if ctx.Err() != nil {
 			return ports.ContentPart{}, ctx.Err()
 		}
-		return ports.ContentPart{}, errors.New("download Telegram file")
+		return ports.ContentPart{}, fmt.Errorf("download Telegram file: %w", errFileUnavailable)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return ports.ContentPart{}, fmt.Errorf("download Telegram file: HTTP %d", response.StatusCode)
+		return ports.ContentPart{}, fmt.Errorf("download Telegram file: HTTP %d: %w", response.StatusCode, errFileUnavailable)
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxFileBytes+1))
 	if err != nil {
 		if ctx.Err() != nil {
 			return ports.ContentPart{}, ctx.Err()
 		}
-		return ports.ContentPart{}, errors.New("read Telegram file")
+		return ports.ContentPart{}, fmt.Errorf("read Telegram file: %w", errFileUnavailable)
 	}
 	if int64(len(data)) > maxFileBytes {
 		return ports.ContentPart{}, fmt.Errorf("Telegram file exceeds the %d MB limit", maxFileBytes>>20)

@@ -163,6 +163,17 @@ type message struct {
 	MediaGroupID string      `json:"media_group_id"`
 	Photo        []photoSize `json:"photo"`
 	Document     *document   `json:"document"`
+	// The kinds of message Eggy cannot read. Only their presence matters, so
+	// they are kept raw; unsupportedKind names whichever arrived.
+	Voice     json.RawMessage `json:"voice"`
+	Audio     json.RawMessage `json:"audio"`
+	Video     json.RawMessage `json:"video"`
+	VideoNote json.RawMessage `json:"video_note"`
+	Animation json.RawMessage `json:"animation"`
+	Sticker   json.RawMessage `json:"sticker"`
+	Location  json.RawMessage `json:"location"`
+	Contact   json.RawMessage `json:"contact"`
+	Poll      json.RawMessage `json:"poll"`
 	// ReplyTo is the message the owner replied to, and Quote the part of it
 	// they selected when they replied to a passage rather than the whole.
 	ReplyTo *message `json:"reply_to_message"`
@@ -369,8 +380,36 @@ func (h *WebhookHandler) normalize(ctx context.Context, incoming update) (events
 	return events.Event{}, fmt.Errorf("unsupported Telegram update")
 }
 
+// unsupportedKind names a message Eggy cannot read, or "" for one it can.
+// Telegram sends an animation with a document beside it, so this is checked
+// before the document is.
+func (m *message) unsupportedKind() string {
+	for _, kind := range []struct {
+		raw  json.RawMessage
+		name string
+	}{
+		{m.Voice, "a voice message"}, {m.Audio, "an audio file"}, {m.Video, "a video"},
+		{m.VideoNote, "a video message"}, {m.Animation, "a GIF"}, {m.Sticker, "a sticker"},
+		{m.Location, "a location"}, {m.Contact, "a contact"}, {m.Poll, "a poll"},
+	} {
+		if len(kind.raw) > 0 && string(kind.raw) != "null" {
+			return kind.name
+		}
+	}
+	return ""
+}
+
 func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message) (events.Message, error) {
+	// Refused before anything is downloaded or enqueued: a turn with nothing
+	// to read costs a model call with nothing to answer, and a caption alone
+	// would be answered as if it were the whole message.
+	if kind := message.unsupportedKind(); kind != "" {
+		return events.Message{}, fmt.Errorf("%s isn't something I can read yet; send text, a photo, or a PDF", kind)
+	}
 	if len(message.Photo) == 0 && message.Document == nil {
+		if strings.TrimSpace(message.Text) == "" {
+			return events.Message{}, errors.New("there was nothing in it I can read; send text, a photo, or a PDF")
+		}
 		return events.Message{Text: message.Text, Quote: message.quote()}, nil
 	}
 	if h.downloader == nil {

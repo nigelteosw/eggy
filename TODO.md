@@ -88,9 +88,9 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 - Expired or already-used selection buttons get an actionable response; remove
   obsolete keyboards where editing allows.
-- Unsupported input gets a clear reply. A voice message is not parsed and
-  arrives as an empty turn. Distinguish permanent unsupported input from a
-  retryable download failure so redelivery does not repeat notices or calls.
+- A failed file download is acknowledged and explained like unsupported input,
+  so a transient failure is not retried. Decide whether a retryable download
+  failure should ask the owner to resend, rather than holding the update.
 - Bounded, cancellation-aware waits on explicit Telegram rate-limit rejections;
   never replay a send after an ambiguous transport failure.
 - Tests for splitting around long help, Unicode, code blocks and buttons.
@@ -100,8 +100,9 @@ types/loops.
 
 ## P2 — Voice and inbound attachments everywhere (M)
 
-Telegram passes images and PDFs; Discord refuses attachments with a notice; web
-chat has no upload control; nothing handles voice.
+Telegram passes images and PDFs and refuses voice and other media with a
+reply; Discord refuses attachments with a notice; web chat has no upload
+control.
 
 - Voice: one optional transcriber behind a narrow port, with download,
   duration and size bounds. Unconfigured, it costs nothing and voice gets the

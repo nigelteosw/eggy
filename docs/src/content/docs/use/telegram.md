@@ -215,6 +215,10 @@ models this is decided before the call, from OpenRouter's own catalog. For
 providers that do not publish what a model accepts, such as DeepSeek, Eggy
 sends the attachment and recognizes the provider's refusal.
 
+Voice messages, audio, video, stickers, GIFs, locations, contacts, and polls are
+not read yet: Eggy replies saying so, and nothing is sent to the model. A
+caption on one of them is not sent on alone.
+
 Image bytes are not retained in conversation history. To ask about the same
 image in a later turn, attach it again.
 

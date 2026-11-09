@@ -125,6 +125,38 @@ func (r *recordingReplier) Deliver(ctx context.Context, text string) error {
 	return nil
 }
 
+// A message with nothing Eggy can read -- a voice note, a sticker, a
+// location -- used to arrive as an empty turn and cost a model call that had
+// nothing to answer. It is refused with a reply naming what was sent, and a
+// caption on it is not quietly sent on alone as if it were the whole message.
+func TestWebhookRefusesMessagesItCannotRead(t *testing.T) {
+	tests := []struct{ name, fields, want string }{
+		{"voice", `"voice":{"file_id":"v","duration":3}`, "voice message"},
+		{"captioned voice", `"voice":{"file_id":"v","duration":3},"caption":"deal with this"`, "voice message"},
+		{"sticker", `"sticker":{"file_id":"s"}`, "sticker"},
+		{"location", `"location":{"latitude":1,"longitude":2}`, "location"},
+		{"empty", `"text":""`, "text, a photo, or a PDF"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := &recordingReplier{}
+			enqueued := false
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error { enqueued = true; return nil }, nil).WithReplier(replier)
+			body := `{"update_id":17,"message":{"message_id":5,"from":{"id":42},"chat":{"id":42},` + tc.fields + `}}`
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != http.StatusNoContent || enqueued {
+				t.Fatalf("status=%d enqueued=%v", response.Code, enqueued)
+			}
+			if !strings.Contains(replier.text, tc.want) {
+				t.Fatalf("reply=%q, want it to mention %q", replier.text, tc.want)
+			}
+		})
+	}
+}
+
 // A message Eggy cannot turn into a turn is still a delivered update.
 // Telegram retries any non-2xx response and holds every later update behind
 // it, so answering 400 to one PDF silenced the bot for that person until the

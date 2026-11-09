@@ -86,8 +86,6 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 
 ## P2 — Telegram feedback and delivery resilience (M)
 
-- Expired or already-used selection buttons get an actionable response; remove
-  obsolete keyboards where editing allows.
 - A failed file download is acknowledged and explained like unsupported input,
   so a transient failure is not retried. Decide whether a retryable download
   failure should ask the owner to resend, rather than holding the update.

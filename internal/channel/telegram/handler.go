@@ -32,6 +32,9 @@ type PairingNotifier interface {
 // tapped inline button. *Client implements it.
 type CallbackAcknowledger interface {
 	AnswerCallback(ctx context.Context, callbackQueryID, text string) error
+	// ClearButtons removes the inline keyboard from a message in the acting
+	// account's chat, once a choice on it is settled.
+	ClearButtons(ctx context.Context, messageID string) error
 }
 
 // FileDownloader fetches a Telegram photo or document as a content part.
@@ -100,6 +103,25 @@ func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer, notify Pai
 	return h
 }
 
+// staleChoice is the toast for a choice that can no longer be made.
+const staleChoice = "That choice expired or was already used. Ask again if you still need it."
+
+// settleChoice answers a tap on a model-offered choice and removes the
+// buttons it was on, whether or not the choice still stood: a current one has
+// just been made, and a stale one can never be made from that message again.
+// Both calls are best-effort; neither decides what the tap did.
+func (h *WebhookHandler) settleChoice(ctx context.Context, callback *callbackQuery, current bool) {
+	if h.acknowledger == nil {
+		return
+	}
+	toast := ""
+	if !current {
+		toast = staleChoice
+	}
+	_ = h.acknowledger.AnswerCallback(ctx, callback.ID, toast)
+	_ = h.acknowledger.ClearButtons(ctx, strconv.FormatInt(callback.Message.MessageID, 10))
+}
+
 // pairedMessage and pairingRefused are the two answers a pairing attempt
 // gets. A refusal says the same thing whatever the reason -- expired, used,
 // or an account already linked elsewhere -- so an unknown sender learns
@@ -139,17 +161,19 @@ func (h *WebhookHandler) WithFileDownloader(downloader FileDownloader) *WebhookH
 }
 
 type update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *message `json:"message"`
-	Callback *struct {
-		ID      string `json:"id"`
-		From    user   `json:"from"`
-		Data    string `json:"data"`
-		Message struct {
-			MessageID int64 `json:"message_id"`
-			Chat      chat  `json:"chat"`
-		} `json:"message"`
-	} `json:"callback_query"`
+	UpdateID int64          `json:"update_id"`
+	Message  *message       `json:"message"`
+	Callback *callbackQuery `json:"callback_query"`
+}
+
+type callbackQuery struct {
+	ID      string `json:"id"`
+	From    user   `json:"from"`
+	Data    string `json:"data"`
+	Message struct {
+		MessageID int64 `json:"message_id"`
+		Chat      chat  `json:"chat"`
+	} `json:"message"`
 }
 
 type message struct {
@@ -270,16 +294,21 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if incoming.Callback != nil && h.acknowledger != nil && !strings.HasPrefix(incoming.Callback.Data, "control:") {
+	choice := incoming.Callback != nil && strings.HasPrefix(incoming.Callback.Data, "select:")
+	if incoming.Callback != nil && h.acknowledger != nil && !choice && !strings.HasPrefix(incoming.Callback.Data, "control:") {
 		// Best-effort: a failed ack only leaves a spinner on the owner's
 		// button, and must not stop the decision itself from being handled.
 		// A menu tap is answered by its control, once the action has run, so
-		// the toast can say what changed.
+		// the toast can say what changed; a choice is answered once it has
+		// resolved, below, for the same reason.
 		_ = h.acknowledger.AnswerCallback(r.Context(), incoming.Callback.ID, "")
 	}
 	verified := ports.WithPrincipal(r.Context(), ports.Principal{AccountID: accountID})
 	verified = destination.With(verified, destination.Destination{Kind: destination.Telegram})
 	event, err := h.normalize(verified, incoming)
+	if choice {
+		h.settleChoice(verified, incoming.Callback, err == nil)
+	}
 	if err == nil {
 		// The owner is the resolved account, never the sender's number as
 		// text: the dispatcher validates it against configured accounts.

@@ -239,11 +239,61 @@ func TestWebhookVerifiesSecretOwnerAndNormalizesMessage(t *testing.T) {
 	}
 }
 
-type recordingAcknowledger struct{ acked []string }
+type recordingAcknowledger struct {
+	acked   []string
+	toasts  []string
+	cleared []string
+}
 
-func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryID, _ string) error {
+func (a *recordingAcknowledger) AnswerCallback(_ context.Context, callbackQueryID, text string) error {
 	a.acked = append(a.acked, callbackQueryID)
+	a.toasts = append(a.toasts, text)
 	return nil
+}
+
+func (a *recordingAcknowledger) ClearButtons(_ context.Context, messageID string) error {
+	a.cleared = append(a.cleared, messageID)
+	return nil
+}
+
+// A choice is answered once it has resolved. A stale one -- expired, or
+// already used -- says so in the toast rather than only stopping the spinner,
+// and either way the tapped message loses its buttons, so the same choice
+// cannot be tapped twice.
+func TestWebhookSettlesAChoiceTapAndClearsItsButtons(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		resolves  bool
+		wantToast string
+	}{
+		{"current", true, ""},
+		{"stale", false, "expired or was already used"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			acknowledger := &recordingAcknowledger{}
+			enqueued := false
+			handler := NewWebhookHandler(SingleOwner(42), "secret", func(context.Context, events.Event) error {
+				enqueued = true
+				return nil
+			}, acknowledger).WithSelectionResolver(func(context.Context, string) (string, bool) {
+				return "Thursday", tc.resolves
+			})
+			body := `{"update_id":12,"callback_query":{"id":"cb","from":{"id":42},"data":"select:opaque:1","message":{"message_id":124,"chat":{"id":42}}}}`
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+			req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
+			handler.ServeHTTP(httptest.NewRecorder(), req)
+
+			if enqueued != tc.resolves {
+				t.Fatalf("enqueued=%v, want %v", enqueued, tc.resolves)
+			}
+			if len(acknowledger.acked) != 1 || !strings.Contains(acknowledger.toasts[0], tc.wantToast) || (tc.wantToast == "" && acknowledger.toasts[0] != "") {
+				t.Fatalf("acked=%v toasts=%q", acknowledger.acked, acknowledger.toasts)
+			}
+			if len(acknowledger.cleared) != 1 || acknowledger.cleared[0] != "124" {
+				t.Fatalf("cleared=%v, want the tapped message's buttons removed", acknowledger.cleared)
+			}
+		})
+	}
 }
 
 func TestWebhookCarriesARepliedToMessageAsAQuote(t *testing.T) {
@@ -565,6 +615,25 @@ func TestWebhookAnswersEveryPairingAttemptInTheSendersChat(t *testing.T) {
 	}
 	if linked.chat != "77" || !strings.Contains(linked.text, "linked") {
 		t.Fatalf("confirmation = %+v", linked)
+	}
+}
+
+// Clearing a message's buttons edits only its keyboard, in the acting
+// account's chat.
+func TestClientClearsAMessagesButtons(t *testing.T) {
+	var methods []string
+	var payload map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		methods = append(methods, request.URL.Path[strings.LastIndex(request.URL.Path, "/")+1:])
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":true}`))}, nil
+	})}
+	client := NewClient("https://api.telegram.test", "token", FixedChat("42"), httpClient)
+	if err := client.ClearButtons(context.Background(), "124"); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 1 || methods[0] != "editMessageReplyMarkup" || fmt.Sprint(payload["chat_id"]) != "42" || fmt.Sprint(payload["message_id"]) != "124" {
+		t.Fatalf("methods=%v payload=%v", methods, payload)
 	}
 }
 

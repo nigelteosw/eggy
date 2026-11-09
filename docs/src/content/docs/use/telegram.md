@@ -200,8 +200,10 @@ options. Tapping an option sends its value back as that account's next ordinary
 message in the same conversation.
 
 Each account can have its own pending selection. Selections expire after ten
-minutes and are removed after use. Another account cannot consume one, and a
-selection value cannot run a slash command or approve a protected action.
+minutes and are removed after use; the tapped message loses its buttons either
+way, and a tap on one that expired or was already used says so. Another account
+cannot consume one, and a selection value cannot run a slash command or approve
+a protected action.
 
 ## Images
 

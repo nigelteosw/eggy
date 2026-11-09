@@ -136,6 +136,20 @@ func (c *Client) DeleteMessage(ctx context.Context, messageID string) error {
 	return err
 }
 
+// ClearButtons removes a message's inline keyboard, leaving its text. A tapped
+// choice loses its buttons so it cannot be tapped twice.
+func (c *Client) ClearButtons(ctx context.Context, messageID string) error {
+	chatID, err := c.chatID(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = c.call(ctx, "editMessageReplyMarkup", map[string]any{
+		"chat_id": chatID, "message_id": messageID,
+		"reply_markup": map[string]any{"inline_keyboard": [][]map[string]string{}},
+	})
+	return err
+}
+
 func (c *Client) EditText(ctx context.Context, messageID, text string) error {
 	chatID, err := c.chatID(ctx)
 	if err != nil {

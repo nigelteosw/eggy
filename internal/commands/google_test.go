@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +247,40 @@ func TestGoogleLoginWithAWebClientNeedsNoPaste(t *testing.T) {
 	}
 	if strings.Contains(output, "paste") || strings.Contains(output, "fail to load") {
 		t.Fatalf("a web client's login asks for a paste: %q", output)
+	}
+}
+
+// In account mode Google cannot be enabled without naming Eggy's own
+// identity, so /google set must be able to name it -- and say so when it is
+// missing, rather than leave a setup path that cannot complete.
+func TestGoogleSetTakesTheExpectedIdentityInAccountMode(t *testing.T) {
+	path := mcpTestConfig(t)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := strings.Replace(string(body), "owner:\n  id: \"42\"\n", "accounts:\n  - id: nigel\nweb:\n  password_account_id: nigel\n", 1)
+	if err := os.WriteFile(path, []byte(accounts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := New(Options{ConfigPath: path})
+
+	output := run(t, service, "/google set client_id=x.apps.googleusercontent.com products=calendar")
+	if !strings.Contains(output, "expected_email=") {
+		t.Fatalf("missing identity not explained with the argument that fixes it: %q", output)
+	}
+	output = run(t, service, "/google set client_id=x.apps.googleusercontent.com products=calendar expected_email=Eggy@Example.com")
+	if !strings.Contains(output, "Saved") {
+		t.Fatalf("output=%q", output)
+	}
+	stored, err := storedGoogle(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Enabled || stored.ExpectedEmail != "eggy@example.com" {
+		t.Fatalf("stored=%#v", stored)
+	}
+	if output := run(t, service, "/google set expected_email=not-an-address"); !strings.Contains(output, "not an email address") {
+		t.Fatalf("output=%q", output)
 	}
 }

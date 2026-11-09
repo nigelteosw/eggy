@@ -420,7 +420,10 @@ type GoogleInput struct {
 	ClientID        string
 	ClientSecretEnv string
 	ClientType      string
-	Products        []string
+	// ExpectedEmail names Eggy's own Workspace identity; empty leaves the
+	// stored one alone. SetExpectedGoogleEmail is how it is cleared.
+	ExpectedEmail string
+	Products      []string
 	// RequireApproval carries three states through one pointer, because the
 	// setting itself has three and collapsing any two would silently change
 	// what asks. Nil leaves the stored list alone, like every other field
@@ -439,9 +442,16 @@ type GoogleInput struct {
 // before the file is touched, so an unknown product name or a client id left
 // blank is rejected with the existing config still in place.
 func SetGoogle(path string, input GoogleInput) error {
+	expected, err := expectedGoogleEmail(input.ExpectedEmail)
+	if err != nil {
+		return err
+	}
 	return mutate(path, func(cfg *Config) error {
 		google := cfg.Google
 		google.Enabled = input.Enabled
+		if expected != "" {
+			google.ExpectedEmail = expected
+		}
 		if input.ClientID != "" {
 			google.ClientID = input.ClientID
 		}

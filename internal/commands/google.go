@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -167,6 +168,9 @@ func (s *CommandService) googleSet(args []string) (string, bool, error) {
 		return fieldErrorReply(err, googleSetUsage), true, nil
 	}
 	if err := config.SetGoogle(s.ConfigPath, input); err != nil {
+		if errors.Is(err, config.ErrGoogleIdentityRequired) {
+			return "Not saved: name Eggy's own Workspace address, the only account its Google connection may belong to. Add expected_email=eggy@yourdomain to the same command.", true, nil
+		}
 		return fmt.Sprintf("Could not save Google configuration: %v", err), true, nil
 	}
 	message := "Saved Google Workspace. " + restartNotice
@@ -180,7 +184,7 @@ func (s *CommandService) googleSet(args []string) (string, bool, error) {
 }
 
 const googleSetUsage = "/google set client_id=<desktop client id> [client_secret_env=VAR] " +
-	"[products=calendar,gmail,drive,docs,sheets,contacts] [enabled=true|false]"
+	"[expected_email=<Eggy's Workspace address>] [products=calendar,gmail,drive,docs,sheets,contacts] [enabled=true|false]"
 
 func googleUsage() string {
 	return strings.Join([]string{

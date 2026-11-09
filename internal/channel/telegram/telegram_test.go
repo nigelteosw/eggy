@@ -469,7 +469,7 @@ func TestWebhookAllowsOnlyExactPrivatePairingForUnmappedSender(t *testing.T) {
 	}, nil).WithPairingConsumer(func(_ context.Context, code string, userID int64) error {
 		payload, sender = code, userID
 		return nil
-	})
+	}, nil)
 	post := func(chat int64, text string) int {
 		body := fmt.Sprintf(`{"update_id":1,"message":{"message_id":1,"from":{"id":77},"chat":{"id":%d},"text":%q}}`, chat, text)
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
@@ -492,43 +492,66 @@ func TestWebhookAllowsOnlyExactPrivatePairingForUnmappedSender(t *testing.T) {
 	}
 }
 
-// A redeemed pairing link is answered in the newly linked account's chat, so
-// the person is not left wondering whether tapping the link did anything. A
-// refused one stays silent: the sender is still unknown, and Eggy has no
-// account to reply as.
-func TestWebhookConfirmsASuccessfulPairing(t *testing.T) {
-	linked := map[int64]string{}
+type chatNotice struct{ chat, text string }
+
+type recordingNotifier struct{ notices []chatNotice }
+
+func (n *recordingNotifier) DeliverToChat(_ context.Context, chatID, text string) error {
+	n.notices = append(n.notices, chatNotice{chatID, text})
+	return nil
+}
+
+// Every pairing attempt gets one answer in the sender's own private chat:
+// linked, or why not. A refused link is answered too, so the person is not
+// left wondering whether tapping it did anything; the reply is the same for
+// every refusal, and nothing else from an unknown sender is answered.
+func TestWebhookAnswersEveryPairingAttemptInTheSendersChat(t *testing.T) {
 	pairErr := error(nil)
-	replier := &recordingReplier{}
-	handler := NewWebhookHandler(func(sender int64) (string, bool) {
-		account, ok := linked[sender]
-		return account, ok
-	}, "secret", func(context.Context, events.Event) error { return nil }, nil).
-		WithReplier(replier).
-		WithPairingConsumer(func(_ context.Context, _ string, sender int64) error {
-			if pairErr != nil {
-				return pairErr
-			}
-			linked[sender] = "partner"
-			return nil
-		})
-	post := func(updateID int) {
-		body := fmt.Sprintf(`{"update_id":%d,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":"/start token"}}`, updateID)
+	notifier := &recordingNotifier{}
+	handler := NewWebhookHandler(func(int64) (string, bool) { return "", false }, "secret", func(context.Context, events.Event) error { return nil }, nil).
+		WithPairingConsumer(func(context.Context, string, int64) error { return pairErr }, notifier)
+	post := func(updateID int, text string) {
+		body := fmt.Sprintf(`{"update_id":%d,"message":{"message_id":1,"from":{"id":77},"chat":{"id":77},"text":%q}}`, updateID, text)
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", "secret")
 		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}
 
-	pairErr = errors.New("expired")
-	post(1)
-	if replier.text != "" {
-		t.Fatalf("refused pairing replied %q", replier.text)
-	}
-
+	pairErr = errors.New("claim row 9 locked")
+	post(1, "/start token")
 	pairErr = nil
-	post(2)
-	if replier.account != "partner" || !strings.Contains(replier.text, "linked") {
-		t.Fatalf("reply = %+v, want a confirmation to the linked account", replier)
+	post(2, "/start token")
+	post(3, "hello")
+	post(4, "/start")
+
+	if len(notifier.notices) != 2 {
+		t.Fatalf("notices = %+v, want one per pairing attempt and none otherwise", notifier.notices)
+	}
+	refused, linked := notifier.notices[0], notifier.notices[1]
+	if refused.chat != "77" || !strings.Contains(refused.text, "didn't work") || strings.Contains(refused.text, "row 9") {
+		t.Fatalf("refusal = %+v", refused)
+	}
+	if linked.chat != "77" || !strings.Contains(linked.text, "linked") {
+		t.Fatalf("confirmation = %+v", linked)
+	}
+}
+
+// A pairing reply goes to the chat it names, which is how a sender with no
+// account yet is answered at all.
+func TestClientDeliversToANamedChat(t *testing.T) {
+	var chats []string
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+		chats = append(chats, fmt.Sprint(payload["chat_id"]))
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"ok":true,"result":{"message_id":1}}`))}, nil
+	})}
+	client := NewClient("https://api.telegram.test", "token", func(string) (string, bool) { return "", false }, httpClient)
+	if err := client.DeliverToChat(context.Background(), "77", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if len(chats) != 1 || chats[0] != "77" {
+		t.Fatalf("chats = %v", chats)
 	}
 }
 

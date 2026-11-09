@@ -79,8 +79,10 @@ Three ways in, all writing the same section through the same validation and the 
 **From Telegram**, which is the only path that works when you have nothing but a phone:
 
 ```
-/google set client_id=xxxx.apps.googleusercontent.com client_secret_env=GOOGLE_CLIENT_SECRET products=calendar,gmail
+/google set client_id=xxxx.apps.googleusercontent.com client_secret_env=GOOGLE_CLIENT_SECRET products=calendar,gmail expected_email=eggy@yourdomain.com
 ```
+
+`expected_email` names Eggy's own Workspace user, the only identity the connection may belong to. A deployment with accounts cannot enable Google without it, and `/google set` says so if it is missing.
 
 Both are upserts: fields you leave out keep their stored values, so `/google set enabled=false` turns Google off without erasing the client you would need to turn it back on. Neither surface can set `scopes`, `timeout`, or `max_output_bytes` — those are reviewed decisions and are preserved untouched by an edit from either.
 

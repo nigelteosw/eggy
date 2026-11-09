@@ -447,3 +447,15 @@ func TestHeartbeatCommandSwitchesThePersonalHeartbeat(t *testing.T) {
 		t.Fatalf("unconfigured reply=%q", reply)
 	}
 }
+
+// A person already linked who opens a pairing link gets a plain answer: the
+// link was not used, and this Telegram stays linked as it is.
+func TestStartWithALinkFromALinkedAccountSaysItWasNotUsed(t *testing.T) {
+	output := run(t, New(Options{}), "/start c29tZS10b2tlbg")
+	if !strings.Contains(output, "already linked") || !strings.Contains(output, "not used") {
+		t.Fatalf("output=%q", output)
+	}
+	if output := run(t, New(Options{}), "/start"); strings.Contains(output, "already linked") {
+		t.Fatalf("bare /start talks about links: %q", output)
+	}
+}

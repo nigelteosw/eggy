@@ -253,7 +253,7 @@ func (c Config) validateAccounts() error {
 		}
 	}
 	if c.Google.Enabled && strings.TrimSpace(c.Google.ExpectedEmail) == "" {
-		return errors.New("google.expected_email is required when accounts are configured and google is enabled: it names Eggy's own Workspace identity, the only one a user may connect")
+		return ErrGoogleIdentityRequired
 	}
 	return nil
 }
@@ -357,18 +357,32 @@ func RemoveAccount(path, id string) error {
 	})
 }
 
+// ErrGoogleIdentityRequired refuses enabling Google in account mode without
+// naming Eggy's own Workspace identity. Surfaces match it to say how to name it.
+var ErrGoogleIdentityRequired = errors.New("google.expected_email is required when accounts are configured and google is enabled: it names Eggy's own Workspace identity, the only one a user may connect")
+
 // SetExpectedGoogleEmail writes the address Eggy's shared Google grant must
 // belong to. Blank clears it, which validation then refuses while Google is
 // enabled in account mode.
 func SetExpectedGoogleEmail(path, email string) error {
-	normalized := normalizeEmail(email)
-	if normalized != "" && !validEmail(normalized) {
-		return fmt.Errorf("google.expected_email %q is not an email address", email)
+	normalized, err := expectedGoogleEmail(email)
+	if err != nil {
+		return err
 	}
 	return mutate(path, func(cfg *Config) error {
 		cfg.Google.ExpectedEmail = normalized
 		return nil
 	})
+}
+
+// expectedGoogleEmail is the one normalization and check every write of
+// google.expected_email goes through, whichever surface it comes from.
+func expectedGoogleEmail(email string) (string, error) {
+	normalized := normalizeEmail(email)
+	if normalized != "" && !validEmail(normalized) {
+		return "", fmt.Errorf("google.expected_email %q is not an email address", email)
+	}
+	return normalized, nil
 }
 
 // SetMigrationOwner names the account that receives a legacy deployment's

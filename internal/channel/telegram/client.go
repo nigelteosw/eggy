@@ -216,6 +216,19 @@ func (c *Client) sendMessage(ctx context.Context, text string, extra map[string]
 	if err != nil {
 		return "", err
 	}
+	return c.sendMessageTo(ctx, chatID, text, extra)
+}
+
+// DeliverToChat sends text to a chat named by the caller rather than resolved
+// from the principal. It exists for the one sender with no account yet: the
+// webhook answers a pairing attempt in the verified sender's own private chat.
+// Everything else is delivered through chatID, to the acting account.
+func (c *Client) DeliverToChat(ctx context.Context, chatID, text string) error {
+	_, err := c.sendMessageTo(ctx, chatID, text, map[string]any{"link_preview_options": map[string]bool{"is_disabled": true}})
+	return err
+}
+
+func (c *Client) sendMessageTo(ctx context.Context, chatID, text string, extra map[string]any) (string, error) {
 	build := func(html bool) map[string]any {
 		payload := map[string]any{"chat_id": chatID}
 		if html {

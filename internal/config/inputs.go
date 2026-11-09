@@ -126,6 +126,8 @@ func (v Values) GoogleInput() (GoogleInput, error) {
 			input.Products = SplitCommaList(value)
 		case "client_type":
 			input.ClientType = strings.ToLower(strings.TrimSpace(value))
+		case "expected_email":
+			input.ExpectedEmail = value
 		case "require_approval", "require_approval_mode":
 		case "client_secret_env":
 			if input.ClientSecretEnv, err = envName(key, value); err != nil {

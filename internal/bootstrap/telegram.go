@@ -113,7 +113,13 @@ func (w telegramWiring) webhook(cfg config.Config, secrets config.Secrets, sink 
 	}
 	handler := telegram.NewWebhookHandler(telegramSenders(w.accounts), secrets.TelegramWebhookSecret, sink, w.acknowledger)
 	if w.pairing != nil {
-		handler.WithPairingConsumer(w.pairing)
+		// Without a real client there is nobody to answer the attempt with;
+		// a nil notifier keeps the redemption itself working.
+		var notify telegram.PairingNotifier
+		if w.client != nil {
+			notify = w.client
+		}
+		handler.WithPairingConsumer(w.pairing, notify)
 	}
 	if w.client != nil {
 		handler.WithFileDownloader(w.client).WithReplier(w.client)

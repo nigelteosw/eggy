@@ -84,21 +84,6 @@ Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
       the review screens, and OAuth login on a disabled server completing
       without a reconnect.
 
-## P2 — Telegram onboarding edges (S)
-
-Bare `/start`, `/web` without a public URL, and the reply to a redeemed pairing
-link are done.
-
-- Deterministic outcomes for consumed/expired tokens (today silent: the sender
-  has no account to reply as), repeated updates, already-linked users opening a
-  pairing link, and conflicting bindings. A
-  delivery failure after pairing must not repeat the mutation.
-- `/google set` should not look like a complete setup path without
-  `expected_email`; point to the panel's identity setting.
-
-Deletion budget: ~30–60 net production lines, 0 config keys/tools/record
-types/loops.
-
 ## P2 — Telegram feedback and delivery resilience (M)
 
 - Expired or already-used selection buttons get an actionable response; remove
@@ -200,7 +185,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 
 ## Delivery order
 
-1. Telegram onboarding edges, then Telegram feedback, as separate changes.
+1. Telegram feedback and delivery resilience.
 2. Voice and inbound attachments, then outbound documents.
 3. UI theme and structure, as the review orders it.
 4. Measurement, then the typed config contract.

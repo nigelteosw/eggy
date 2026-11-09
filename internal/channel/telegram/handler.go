@@ -21,6 +21,13 @@ import (
 type EventSink func(context.Context, events.Event) error
 type PairingConsumer func(context.Context, string, int64) error
 
+// PairingNotifier answers a pairing attempt in the sender's own private chat.
+// The sender has no account yet, so the chat is named rather than resolved.
+// *Client implements it.
+type PairingNotifier interface {
+	DeliverToChat(ctx context.Context, chatID, text string) error
+}
+
 // CallbackAcknowledger clears the loading spinner Telegram shows on a
 // tapped inline button. *Client implements it.
 type CallbackAcknowledger interface {
@@ -70,6 +77,7 @@ type WebhookHandler struct {
 	downloader       FileDownloader
 	resolveSelection func(context.Context, string) (string, bool)
 	pairing          PairingConsumer
+	pairingNotifier  PairingNotifier
 	replier          Replier
 	// albums holds media groups still waiting for their next item; see
 	// album.go. albumWindow is the quiet gap that ends one (zero means the
@@ -84,30 +92,36 @@ func (h *WebhookHandler) WithReplier(replier Replier) *WebhookHandler {
 	return h
 }
 
-func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer) *WebhookHandler {
+// WithPairingConsumer redeems "/start <token>" from an unmapped sender, and
+// answers the attempt through notify when it is non-nil.
+func (h *WebhookHandler) WithPairingConsumer(consume PairingConsumer, notify PairingNotifier) *WebhookHandler {
 	h.pairing = consume
+	h.pairingNotifier = notify
 	return h
 }
 
-// pairedMessage is the reply to a redeemed pairing link.
-const pairedMessage = "You're linked. Hi, I'm Eggy: send me anything, or use /menu for the controls. /web opens the web panel with a one-tap sign-in link."
+// pairedMessage and pairingRefused are the two answers a pairing attempt
+// gets. A refusal says the same thing whatever the reason -- expired, used,
+// or an account already linked elsewhere -- so an unknown sender learns
+// nothing about which accounts exist.
+const (
+	pairedMessage  = "You're linked. Hi, I'm Eggy: send me anything, or use /menu for the controls. /web opens the web panel with a one-tap sign-in link."
+	pairingRefused = "That link didn't work: it may have expired or already been used, or the account may already be linked to another Telegram. Make a new link in the Eggy web panel and open it again."
+)
 
-// confirmPairing answers a redeemed pairing link in the chat it came from. The
-// sender is resolved again rather than trusted from the token, so the reply
-// goes only to the account the live directory now maps this sender to. A
-// failed reply is not retried: the link already stands, and redelivering the
-// update would only find its token spent.
-func (h *WebhookHandler) confirmPairing(ctx context.Context, sender int64) {
-	if h.replier == nil {
+// answerPairing replies to a pairing attempt in the chat it came from, which
+// is the sender's own: the handler only reaches here for a private chat. A
+// failed reply is not retried: a successful link already stands, and
+// redelivering the update would only find its token spent.
+func (h *WebhookHandler) answerPairing(ctx context.Context, sender int64, err error) {
+	if h.pairingNotifier == nil {
 		return
 	}
-	accountID, ok := h.resolve(sender)
-	if !ok {
-		return
+	text := pairedMessage
+	if err != nil {
+		text = pairingRefused
 	}
-	ctx = ports.WithPrincipal(ctx, ports.Principal{AccountID: accountID})
-	ctx = destination.With(ctx, destination.Destination{Kind: destination.Telegram})
-	_ = h.replier.Deliver(ctx, pairedMessage)
+	_ = h.pairingNotifier.DeliverToChat(ctx, strconv.FormatInt(sender, 10), text)
 }
 
 func NewWebhookHandler(resolve SenderResolver, secret string, sink EventSink, acknowledger CallbackAcknowledger) *WebhookHandler {
@@ -235,13 +249,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	accountID, ok := h.resolve(sender)
 	if !ok {
 		// An unmapped sender is ignored, silently, unless the message is a
-		// pairing link; a failed pairing is ignored the same way.
+		// pairing link, which is answered either way.
 		if incoming.Message != nil && h.pairing != nil {
 			parts := strings.Fields(incoming.Message.Text)
 			if len(parts) == 2 && parts[0] == "/start" && strings.TrimSpace(parts[1]) != "" {
-				if h.pairing(r.Context(), parts[1], sender) == nil {
-					h.confirmPairing(r.Context(), sender)
-				}
+				h.answerPairing(r.Context(), sender, h.pairing(r.Context(), parts[1], sender))
 			}
 		}
 		w.WriteHeader(http.StatusNoContent)

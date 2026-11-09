@@ -53,7 +53,11 @@ requests a single-use pairing link good for ten minutes, valid for that one
 account only. Opening it and sending `/start` to the bot completes the link
 immediately — no restart needed, since pairing writes only the account's
 `telegram_user_id` through the same live config path the rest of the panel
-uses. **Unlink Telegram** removes the mapping the same way.
+uses. Eggy answers in the chat either way: a confirmation once you are linked,
+or one message saying the link didn't work — it expired, was already used, or
+the account is already linked to another Telegram — with no detail about
+which. Opening a pairing link from a Telegram that is already linked does not
+use it. **Unlink Telegram** removes the mapping the same way.
 
 There is no `@userinfobot` step and no numeric ID to find and paste: the
 button is the whole flow. A pending pairing link is itself a credential —
@@ -136,7 +140,7 @@ Docs, Sheets, and Contacts. See [Google Workspace](/eggy/configure/google-worksp
 | Command | Behavior |
 | --- | --- |
 | `/google` | Whether Google Workspace is authorized, and with which scopes |
-| `/google set client_id=… [client_secret_env=VAR] [products=…] [enabled=…]` | Configure Google without editing `config.yaml` |
+| `/google set client_id=… [client_secret_env=VAR] [expected_email=…] [products=…] [enabled=…]` | Configure Google without editing `config.yaml` |
 | `/google login [pasted redirect URL or code]` | Start authorization, or finish it from the paste |
 | `/google logout` | Discard the stored Google grant |
 

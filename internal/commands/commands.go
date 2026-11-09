@@ -154,6 +154,12 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		panel, err := s.Control(ctx, name)
 		return panel.Text, true, err
 	case "start":
+		// Only a linked sender reaches commands, so a /start carrying a
+		// pairing token is someone already linked opening another link. It
+		// is not redeemed: this chat stays bound as it is.
+		if len(args) > 0 {
+			return "This Telegram is already linked to your Eggy account, so that link was not used. To link a different account, unlink this one in the web panel first.", true, nil
+		}
 		return "Hi, I'm Eggy. Send me anything, or use /menu for the controls. /web opens the web panel with a one-tap sign-in link.", true, nil
 	case "help":
 		return s.help(args), true, nil

@@ -4,6 +4,9 @@ import { ErrorBanner } from "../../components/ui/error-banner";
 import {
   Approval,
   checkInstall,
+  editedLabel,
+  editedSkillNames,
+  fileKey,
   handleFailure,
   InstallStatus,
   listInstalls,
@@ -78,7 +81,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
       <InstallReview
         request={{ source: updating.install.source, item: updating.install.item, install_id: updating.install.id }}
         approveLabel="Update"
-        editedSkills={updating.edited}
+        editedSkills={editedSkillNames(updating.edited)}
         onBack={() => setUpdating(null)}
         onSessionExpired={onSessionExpired}
         onApprove={async (approval: Approval, replaceEdited: string[]) => {
@@ -113,7 +116,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
                 <code>{install.commit_sha.slice(0, 7)}</code> · installed by {install.installed_by} on{" "}
                 {new Date(install.installed_at).toLocaleDateString()}
               </p>
-              {status.edited.length > 0 && <p className="text-xs text-amber-800">Edited here: {status.edited.join(", ")}</p>}
+              {status.edited.length > 0 && <p className="text-xs text-amber-800">Edited here: {status.edited.map(editedLabel).join(", ")}</p>}
               {plan && status.status === "update_available" && (
                 <p className="text-xs text-neutral-700">A new version is ready to review.</p>
               )}
@@ -139,19 +142,20 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
               {removing?.install.id === install.id && (
                 <div className="flex flex-col gap-2 rounded-lg bg-background p-2">
                   <p className="text-xs">Removing deletes what this install wrote.</p>
-                  {status.edited.map((name) => (
-                    <label key={name} className="flex items-center gap-2 text-[12.5px]">
+                  {status.edited.map((file) => (
+                    <label key={fileKey(file)} className="flex items-center gap-2 text-[12.5px]">
                       <input
                         type="checkbox"
-                        checked={ticked.has(name)}
+                        checked={ticked.has(fileKey(file))}
                         onChange={() => {
+                          const key = fileKey(file);
                           const next = new Set(ticked);
-                          if (next.has(name)) next.delete(name);
-                          else next.add(name);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
                           setTicked(next);
                         }}
                       />
-                      Delete my edits to {name}
+                      Delete my edits to {editedLabel(file)}
                     </label>
                   ))}
                   <div className="flex gap-1">

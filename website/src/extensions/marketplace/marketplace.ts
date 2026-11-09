@@ -30,9 +30,12 @@ export type Install = {
   installed_at: string;
   updated_at: string;
   disabled: boolean;
-  files: { kind: string; target: string }[];
+  files: FileRef[];
 };
-export type InstallStatus = { install: Install; status: string; edited: string[] };
+// One skill or MCP entry an install wrote. The kind is part of its identity:
+// a skill and an MCP server may share a name.
+export type FileRef = { kind: string; target: string };
+export type InstallStatus = { install: Install; status: string; edited: FileRef[] };
 export type SourceConfig = { name: string; kind: string; repo: string; path?: string; ref?: string };
 
 // The approval a plan produces: the commit and digest the owner was shown.
@@ -48,7 +51,7 @@ export const updateInstall = (id: string, body: Approval & { replace_edited?: st
   request<Install>(`/api/marketplace/installs/${id}`, { method: "PUT", body: JSON.stringify(body) });
 export const setInstallDisabled = (id: string, disabled: boolean) =>
   request(`/api/marketplace/installs/${id}/disabled`, { method: "POST", body: JSON.stringify({ disabled }) });
-export const removeInstall = (id: string, deleteEdited: string[]) =>
+export const removeInstall = (id: string, deleteEdited: FileRef[]) =>
   request(`/api/marketplace/installs/${id}`, { method: "DELETE", body: JSON.stringify({ delete_edited: deleteEdited }) });
 export const getSourcesConfig = () => request<{ sources: SourceConfig[] }>("/api/config/marketplace");
 export const saveSourcesConfig = (sources: SourceConfig[]) => request("/api/config/marketplace", { method: "PUT", body: JSON.stringify({ sources }) });
@@ -67,10 +70,22 @@ export function planRequestFor(source: string, item: string, renames: Record<str
   return request;
 }
 
-// Only the ticked edited skills are deleted; the rest stay as hand-placed skills.
-export function removePayload(edited: string[], ticked: Set<string>): string[] {
-  return edited.filter((name) => ticked.has(name));
+// The key a remove checkbox is ticked under: kind and name, never name alone.
+export const fileKey = (file: FileRef) => `${file.kind}/${file.target}`;
+
+// Only the ticked edits are deleted; an unticked skill stays as hand-placed and
+// an unticked MCP entry stays as the owner left it.
+export function removePayload(edited: FileRef[], ticked: Set<string>): FileRef[] {
+  return edited.filter((file) => ticked.has(fileKey(file)));
 }
+
+// The edited skills an update review marks; edited MCP entries are never
+// replaced by an update, so they are not offered there.
+export const editedSkillNames = (edited: FileRef[]) =>
+  edited.filter((file) => file.kind === "skill").map((file) => file.target);
+
+// How an edited entry reads to the owner.
+export const editedLabel = (file: FileRef) => (file.kind === "skill" ? file.target : `${file.target} (MCP server)`);
 
 // A plan with conflicts cannot be installed until each one is renamed.
 export function canInstall(plan: Plan): boolean {

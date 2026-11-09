@@ -284,15 +284,15 @@ func TestATombstoneNeverTouchesALaterSkillOfTheSameName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range statuses[0].Edited {
-		if name == "pdf" {
+	for _, edited := range statuses[0].Edited {
+		if edited.Target == "pdf" {
 			t.Fatal("the owner's own pdf is labelled an edit of the install")
 		}
 	}
 	if err := update(); !errors.Is(err, ErrConflicts) {
 		t.Fatalf("update err = %v, want a conflict rather than an overwrite", err)
 	}
-	if err := h.svc.Remove(h.ctx, inst.ID, []string{"pdf"}); err != nil {
+	if err := h.svc.Remove(h.ctx, inst.ID, []EditedFile{{Kind: "skill", Target: "pdf"}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.skills.skills["pdf"]; got == nil || got.body != "the owner's own pdf" {

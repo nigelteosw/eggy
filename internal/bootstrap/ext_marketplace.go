@@ -148,8 +148,12 @@ func (p panelMarketplace) SetDisabled(ctx context.Context, id string, disabled b
 	return translateMarketplaceError(p.svc.SetDisabled(ctx, id, disabled))
 }
 
-func (p panelMarketplace) Remove(ctx context.Context, id string, deleteEdited []string) error {
-	return translateMarketplaceError(p.svc.Remove(ctx, id, deleteEdited))
+func (p panelMarketplace) Remove(ctx context.Context, id string, deleteEdited []panel.MarketplaceFileRef) error {
+	files := make([]marketplace.EditedFile, 0, len(deleteEdited))
+	for _, f := range deleteEdited {
+		files = append(files, marketplace.EditedFile{Kind: f.Kind, Target: f.Target})
+	}
+	return translateMarketplaceError(p.svc.Remove(ctx, id, files))
 }
 
 // translateMarketplaceError maps the extension's refusals onto the panel's
@@ -222,6 +226,9 @@ func installToPanel(install ports.MarketplaceInstall) panel.MarketplaceInstall {
 }
 
 func statusToPanel(status marketplace.InstallStatus) panel.MarketplaceInstallStatus {
-	edited := append([]string{}, status.Edited...)
+	edited := make([]panel.MarketplaceFileRef, 0, len(status.Edited))
+	for _, f := range status.Edited {
+		edited = append(edited, panel.MarketplaceFileRef{Kind: f.Kind, Target: f.Target})
+	}
 	return panel.MarketplaceInstallStatus{Install: installToPanel(status.Install), Status: status.Status, Edited: edited}
 }

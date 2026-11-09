@@ -53,7 +53,7 @@ type MarketplaceService interface {
 	Check(ctx context.Context, id string) (MarketplaceInstallStatus, MarketplacePlan, error)
 	Update(ctx context.Context, id string, req MarketplaceApproval, replaceEdited []string) (MarketplaceInstall, error)
 	SetDisabled(ctx context.Context, id string, disabled bool) error
-	Remove(ctx context.Context, id string, deleteEdited []string) error
+	Remove(ctx context.Context, id string, deleteEdited []MarketplaceFileRef) error
 }
 
 type MarketplaceSourceStatus struct {
@@ -141,9 +141,9 @@ type MarketplaceInstall struct {
 }
 
 type MarketplaceInstallStatus struct {
-	Install MarketplaceInstall `json:"install"`
-	Status  string             `json:"status"`
-	Edited  []string           `json:"edited"`
+	Install MarketplaceInstall   `json:"install"`
+	Status  string               `json:"status"`
+	Edited  []MarketplaceFileRef `json:"edited"`
 }
 
 // marketplaceSourceJSON is one configured source, as the settings card edits it.
@@ -321,7 +321,7 @@ func marketplaceDisabledRoute(svc MarketplaceService) http.HandlerFunc {
 func marketplaceRemoveRoute(svc MarketplaceService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			DeleteEdited []string `json:"delete_edited,omitempty"`
+			DeleteEdited []MarketplaceFileRef `json:"delete_edited,omitempty"`
 		}
 		// A DELETE with no body is valid: it removes the install and keeps every edit.
 		if err := decodeMarketplaceBody(w, r, &body); err != nil && !errors.Is(err, io.EOF) {

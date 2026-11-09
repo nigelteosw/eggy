@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -496,6 +497,39 @@ func TestRemoveKeepsEditedAsHandPlaced(t *testing.T) {
 	}
 	if len(h.installs.rows) != 0 {
 		t.Fatal("record survived removal")
+	}
+}
+
+// A skill and an MCP entry may share a name. Ticking "delete my edits" on the
+// skill must not also delete the owner's edited MCP entry.
+func TestRemoveDeletesOnlyTheTickedKindOfASharedName(t *testing.T) {
+	h := newHarness(t)
+	req := deployReq()
+	req.Renames = map[string]string{"pdf": "deploy-tools-api"}
+	inst, err := h.svc.Install(h.ctx, h.approve(t, req))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.skills.skills["deploy-tools-api"].body = "owner edited this"
+	if err := h.mcp.SetEnabled("deploy-tools-api", true); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := h.svc.Installs(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []EditedFile{{Kind: "mcp_server", Target: "deploy-tools-api"}, {Kind: "skill", Target: "deploy-tools-api"}}
+	if got := statuses[0].Edited; !slices.Equal(got, want) {
+		t.Fatalf("edited = %+v, want %+v", got, want)
+	}
+	if err := h.svc.Remove(h.ctx, inst.ID, []EditedFile{{Kind: "skill", Target: "deploy-tools-api"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.skills.skills["deploy-tools-api"]; ok {
+		t.Fatal("ticked edited skill survived removal")
+	}
+	if _, ok := h.mcp.servers["deploy-tools-api"]; !ok {
+		t.Fatal("unticked edited MCP entry was deleted because a skill shares its name")
 	}
 }
 

@@ -3,6 +3,8 @@ import { RequestError } from "../src/lib/api";
 import {
   approvalFor,
   canInstall,
+  editedSkillNames,
+  fileKey,
   installBlocked,
   latestOnly,
   planRequestFor,
@@ -83,12 +85,25 @@ describe("digest refusal", () => {
 });
 
 describe("remove", () => {
-  test("deletes only the edited skills the owner ticked", () => {
-    expect(removePayload(["pdf", "docx", "xlsx"], new Set(["docx"]))).toEqual(["docx"]);
+  const skill = (target: string) => ({ kind: "skill", target });
+  const mcp = (target: string) => ({ kind: "mcp_server", target });
+
+  test("deletes only the edits the owner ticked", () => {
+    const edited = [skill("pdf"), skill("docx"), skill("xlsx")];
+    expect(removePayload(edited, new Set([fileKey(skill("docx"))]))).toEqual([skill("docx")]);
+  });
+
+  test("ticking a skill does not tick an MCP server of the same name", () => {
+    const edited = [mcp("api"), skill("api")];
+    expect(removePayload(edited, new Set([fileKey(skill("api"))]))).toEqual([skill("api")]);
   });
 
   test("ticking nothing keeps every edit", () => {
-    expect(removePayload(["pdf"], new Set())).toEqual([]);
+    expect(removePayload([skill("pdf")], new Set())).toEqual([]);
+  });
+
+  test("an update review is offered only the edited skills", () => {
+    expect(editedSkillNames([mcp("api"), skill("pdf")])).toEqual(["pdf"]);
   });
 });
 

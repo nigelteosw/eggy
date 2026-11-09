@@ -15,9 +15,6 @@ Found while triaging; each is one commit.
 - [ ] `marketplace.Service.OwnerOf` has no caller, so Connectors rows still lack
       a "from plugin" label. Wire it into the MCP list route and `McpCard`, or
       delete it.
-- [ ] Marketplace `Remove` matches "delete my edits" by bare name (`del[f.Target]`),
-      so an install owning a skill and an MCP server of the same name deletes
-      both. Key it by `fileKey(kind, target)` as the state lookup already is.
 - [ ] The skill-index overflow warning (`internal/core/services/skills.go`,
       `Enabled`) logs once per dropped skill on every turn. Log on change only.
 - [ ] Telegram pairing (`identityLinkCoordinator.consumeTelegram`) links the
@@ -92,8 +89,8 @@ modal frame). No new config keys, tables, tools or loops.
 
 ## Marketplace — remaining follow-ups (S–M)
 
-Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`. The two
-bare-name and label items are under *Now*.
+Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`. The
+"from plugin" label is under *Now*.
 
 - [ ] Rollback restores an MCP entry with URL only (`snapshotMCP`); its OAuth
       client, timeouts and filters are lost. Snapshot the whole entry.

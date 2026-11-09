@@ -110,7 +110,15 @@ type ApproveRequest struct {
 type InstallStatus struct {
 	Install ports.MarketplaceInstall
 	Status  string
-	Edited  []string
+	Edited  []EditedFile
+}
+
+// EditedFile names one skill or MCP entry an install wrote that the owner has
+// since changed. It carries the kind because a skill and an MCP entry may share
+// a name, and the owner's choice about one must not reach the other.
+type EditedFile struct {
+	Kind   string
+	Target string
 }
 
 // New checks that every collaborator is present, so a missing one is a boot
@@ -263,7 +271,7 @@ func (s *Service) Installs(ctx context.Context) ([]InstallStatus, error) {
 	}
 	out := make([]InstallStatus, 0, len(installs))
 	for _, install := range installs {
-		edited, err := s.editedNames(ctx, install)
+		edited, err := s.editedFiles(ctx, install)
 		if err != nil {
 			return nil, err
 		}
@@ -278,7 +286,7 @@ func (s *Service) Check(ctx context.Context, id string) (InstallStatus, Plan, er
 	if err != nil {
 		return InstallStatus{}, Plan{}, err
 	}
-	edited, err := s.editedNames(ctx, install)
+	edited, err := s.editedFiles(ctx, install)
 	if err != nil {
 		return InstallStatus{}, Plan{}, err
 	}
@@ -506,10 +514,10 @@ func (s *Service) SetDisabled(ctx context.Context, id string, disabled bool) err
 }
 
 // Remove deletes an install's skills and MCP entries, except local edits the
-// owner did not name in deleteEdited. A kept skill becomes hand-placed. Anything
+// owner did not name in deleteEdited, which names each by kind as well. A kept skill becomes hand-placed. Anything
 // the owner already deleted by hand is skipped. A failure at any step restores
 // what was changed and leaves the record in place.
-func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) error {
+func (s *Service) Remove(ctx context.Context, id string, deleteEdited []EditedFile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	install, err := s.opts.Store.GetInstall(ctx, id)
@@ -520,7 +528,10 @@ func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) 
 	if err != nil {
 		return err
 	}
-	del := toSet(deleteEdited)
+	del := make(map[string]bool, len(deleteEdited))
+	for _, f := range deleteEdited {
+		del[fileKey(f.Kind, f.Target)] = true
+	}
 	var undo journal
 	fail := func(err error) error {
 		return undo.rollback(ctx, err)
@@ -530,7 +541,7 @@ func (s *Service) Remove(ctx context.Context, id string, deleteEdited []string) 
 		if state.missing || state.tombstone {
 			continue
 		}
-		keep := state.edited && !del[f.Target]
+		keep := state.edited && !del[fileKey(f.Kind, f.Target)]
 		switch f.Kind {
 		case kindSkill:
 			if err := s.snapshotSkill(ctx, &undo, f.Target); err != nil {
@@ -766,21 +777,26 @@ func (s *Service) fileStates(ctx context.Context, install ports.MarketplaceInsta
 	return states, nil
 }
 
-// editedNames lists the skills and MCP entries an install owns that the owner
-// has changed, for the Installed view.
-func (s *Service) editedNames(ctx context.Context, install ports.MarketplaceInstall) ([]string, error) {
+// editedFiles lists the skills and MCP entries an install owns that the owner
+// has changed, for the Installed view, ordered by name and then kind.
+func (s *Service) editedFiles(ctx context.Context, install ports.MarketplaceInstall) ([]EditedFile, error) {
 	states, err := s.fileStates(ctx, install)
 	if err != nil {
 		return nil, err
 	}
-	var names []string
+	var edited []EditedFile
 	for _, f := range install.Files {
 		if states[fileKey(f.Kind, f.Target)].edited {
-			names = append(names, f.Target)
+			edited = append(edited, EditedFile{Kind: f.Kind, Target: f.Target})
 		}
 	}
-	sort.Strings(names)
-	return names, nil
+	sort.Slice(edited, func(i, j int) bool {
+		if edited[i].Target != edited[j].Target {
+			return edited[i].Target < edited[j].Target
+		}
+		return edited[i].Kind < edited[j].Kind
+	})
+	return edited, nil
 }
 
 func (s *Service) targetExists(ctx context.Context, f ports.MarketplaceFile) (bool, error) {

@@ -1,4 +1,5 @@
 import { activeHeadingId } from "./outline";
+import { LABELS, STORAGE_KEY, nextPreference, readPreference, resolveTheme, type Preference } from "./theme";
 
 type SearchItem = {
   title: string;
@@ -16,21 +17,39 @@ let searchItems: SearchItem[] | null = null;
 const themeToggle = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
 const themeMeta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 
-function applyTheme(theme: "dark" | "light") {
+const deviceDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function storedPreference(): Preference {
+  try {
+    return readPreference(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return "system";
+  }
+}
+
+let preference = storedPreference();
+
+function applyTheme() {
+  const theme = resolveTheme(preference, deviceDark.matches);
   document.documentElement.dataset.theme = theme;
-  themeToggle?.setAttribute(
-    "aria-label",
-    theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
-  );
+  if (themeToggle) {
+    themeToggle.dataset.preference = preference;
+    themeToggle.setAttribute("aria-label", `Theme: ${LABELS[preference]}. Switch to ${LABELS[nextPreference(preference)]}`);
+    themeToggle.title = `Theme: ${LABELS[preference]}`;
+  }
   if (themeMeta) themeMeta.content = theme === "dark" ? "#151515" : "#F6F1E7";
 }
 
-applyTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+applyTheme();
+deviceDark.addEventListener("change", () => {
+  if (preference === "system") applyTheme();
+});
 themeToggle?.addEventListener("click", () => {
-  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  applyTheme(next);
+  preference = nextPreference(preference);
+  applyTheme();
   try {
-    localStorage.setItem("eggy-docs-theme", next);
+    if (preference === "system") localStorage.removeItem(STORAGE_KEY);
+    else localStorage.setItem(STORAGE_KEY, preference);
   } catch {
     // The selected theme still applies for the current page.
   }

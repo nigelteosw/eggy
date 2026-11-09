@@ -127,9 +127,11 @@
   .github-link svg { width: 19px; fill: currentColor; }
   .theme-toggle { cursor: pointer; }
   .theme-toggle svg { width: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; }
-  .theme-icon-moon { display: none; }
-  :root[data-theme="light"] .theme-icon-sun { display: none; }
-  :root[data-theme="light"] .theme-icon-moon { display: block; }
+  /* The icon names the reader's preference, not the theme it resolved to. */
+  .theme-icon { display: none; }
+  .theme-toggle[data-preference="system"] .theme-icon-system,
+  .theme-toggle[data-preference="light"] .theme-icon-sun,
+  .theme-toggle[data-preference="dark"] .theme-icon-moon { display: block; }
   .menu-trigger { display: none; cursor: pointer; }
   .menu-trigger svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 

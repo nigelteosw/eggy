@@ -26,7 +26,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <script is:inline>
       try {
         // A choice the reader made wins; otherwise the page follows the device.
-        const stored = localStorage.getItem("eggy-docs-theme");
+        const stored = localStorage.getItem("eggy-docs-theme"); // STORAGE_KEY in scripts/theme.ts
         const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         const theme = stored === "light" || stored === "dark" ? stored : prefersDark ? "dark" : "light";
         document.documentElement.dataset.theme = theme;

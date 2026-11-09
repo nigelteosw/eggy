@@ -59,7 +59,7 @@ export function DiscoverView({ onSessionExpired, onInstalled }: { onSessionExpir
   return (
     <section className="flex flex-col gap-3">
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      <label className="flex items-center gap-2 text-[12.5px]">
+      <label className="flex items-center gap-2 text-small">
         Source
         <Select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source" className="bg-background">
           {sources.map((s) => (
@@ -69,13 +69,13 @@ export function DiscoverView({ onSessionExpired, onInstalled }: { onSessionExpir
           ))}
         </Select>
       </label>
-      {sources.length === 0 && <p className="text-xs text-neutral-700">No sources yet. Add one in Sources.</p>}
+      {sources.length === 0 && <p className="text-caption text-neutral-700">No sources yet. Add one in Sources.</p>}
       <ul className="flex flex-col gap-2">
         {items.map((item) => (
           <li key={item.name} className="flex items-center justify-between gap-3 rounded-xl bg-neutral-100 p-3">
             <span className="min-w-0">
-              <span className="block text-[12.5px] font-medium">{item.name}</span>
-              <span className="block text-xs text-neutral-700">{item.unsupported ? `Cannot install: ${item.unsupported}` : item.description}</span>
+              <span className="block text-small font-medium">{item.name}</span>
+              <span className="block text-caption text-neutral-700">{item.unsupported ? `Cannot install: ${item.unsupported}` : item.description}</span>
             </span>
             <Button type="button" variant="ghost" size="sm" disabled={!!item.unsupported} onClick={() => setSelected(item.name)}>
               Review

@@ -23,7 +23,7 @@ export function PluginsTab({ onSessionExpired }: { onSessionExpired: () => void 
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={cn("min-h-9 rounded-lg px-3.5 text-sm", tab === id ? "bg-background font-medium shadow-sm" : "text-neutral-700")}
+            className={cn("min-h-9 rounded-lg px-3.5 text-small", tab === id ? "bg-background font-medium shadow-sm" : "text-neutral-700")}
           >
             {LABELS[id]}
           </button>

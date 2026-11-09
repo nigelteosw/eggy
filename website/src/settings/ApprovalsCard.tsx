@@ -78,7 +78,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
           }
         />
         {rows.length === 0 ? (
-          <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">
+          <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
             Nothing is waiting on you.
           </p>
         ) : (
@@ -90,22 +90,22 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
               >
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-mono text-[14.5px] text-foreground [overflow-wrap:anywhere]">{row[ACTION]}</span>
-                    <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] tracking-wide text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]">
+                    <span className="font-mono text-body text-foreground [overflow-wrap:anywhere]">{row[ACTION]}</span>
+                    <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-caption tracking-wide text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]">
                       {row[STATE]}
                     </span>
                   </span>
-                  <span className="mt-1 block break-words text-xs leading-relaxed text-neutral-700">{row[SUMMARY]}</span>
+                  <span className="mt-1 block break-words text-caption leading-relaxed text-neutral-700">{row[SUMMARY]}</span>
                 </span>
                 <span className="flex flex-wrap items-center gap-1.5">
                   {row[REQUESTED] && (
-                    <span className="mr-1 whitespace-nowrap text-xs tabular-nums text-neutral-700">{row[REQUESTED]}</span>
+                    <span className="mr-1 whitespace-nowrap text-caption tabular-nums text-neutral-700">{row[REQUESTED]}</span>
                   )}
                   <button
                     type="button"
                     disabled={deciding === row[ID] || row[STATE] === "expired"}
                     onClick={() => decide(row, true)}
-                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50"
+                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50"
                   >
                     Approve
                   </button>
@@ -113,7 +113,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                     type="button"
                     disabled={deciding === row[ID]}
                     onClick={() => decide(row, false)}
-                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
+                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
                   >
                     Decline
                   </button>

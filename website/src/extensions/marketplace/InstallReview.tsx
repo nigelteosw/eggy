@@ -107,30 +107,30 @@ export function InstallReview({
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[14px] font-medium">Review {request.item}</h2>
+        <h2 className="text-small font-medium">Review {request.item}</h2>
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
           Back
         </Button>
       </div>
-      {!plan && !error && <p className="text-xs text-neutral-700">Reading the plan...</p>}
+      {!plan && !error && <p className="text-caption text-neutral-700">Reading the plan...</p>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {plan && (
         <>
-          <p className="text-xs leading-relaxed text-neutral-700">
+          <p className="text-caption leading-relaxed text-neutral-700">
             From {plan.repo} at <code>{plan.sha.slice(0, 7)}</code>. Skills are shared by every account. Their instructions reach the model on
             any turn where they match.
           </p>
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             The skills add {plan.index_bytes} bytes to the index. When the index is full, descriptions are left out first, installed
             skills before yours.
           </p>
 
           {plan.conflicts.length > 0 && (
             <div className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-3">
-              <p className="text-xs font-medium">These names are taken or not valid in Eggy. Rename them to install.</p>
+              <p className="text-caption font-medium">These names are taken or not valid in Eggy. Rename them to install.</p>
               {plan.conflicts.map((upstream) => (
                 <div key={upstream} className="flex items-center gap-2">
-                  <span className="text-[12.5px]">{upstream}</span>
+                  <span className="text-small">{upstream}</span>
                   <Input
                     aria-label={`Rename ${upstream}`}
                     placeholder="new name"
@@ -150,28 +150,28 @@ export function InstallReview({
           )}
 
           <div className="flex flex-col gap-2">
-            <h3 className="text-[13px] font-medium">Skills ({plan.skills.length})</h3>
+            <h3 className="text-small font-medium">Skills ({plan.skills.length})</h3>
             {plan.skills.map((skill) => (
               <details key={skill.name} className="rounded-xl bg-neutral-100 p-3">
-                <summary className="cursor-pointer text-[12.5px]">
+                <summary className="cursor-pointer text-small">
                   <span className="font-medium">{skill.name}</span>
                   {skill.upstream_name !== skill.name && <span className="text-neutral-700"> (from {skill.upstream_name})</span>}
                   <span className="block text-neutral-700">{skill.description}</span>
                 </summary>
                 {skill.warnings?.map((warning) => (
-                  <p key={warning} className="mt-2 text-xs text-amber-800">
+                  <p key={warning} className="mt-2 text-caption text-amber-800">
                     {warning}
                   </p>
                 ))}
-                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-[12px]">{skill.body}</pre>
+                <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-caption">{skill.body}</pre>
                 {Object.entries(skill.contents ?? {}).map(([file, text]) => (
                   <details key={file} className="mt-2">
-                    <summary className="cursor-pointer text-[12px]">{file}</summary>
-                    <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-[12px]">{text}</pre>
+                    <summary className="cursor-pointer text-caption">{file}</summary>
+                    <pre className="max-h-60 overflow-auto whitespace-pre-wrap text-caption">{text}</pre>
                   </details>
                 ))}
                 {editedSkills.includes(skill.name) && (
-                  <label className="mt-2 flex items-center gap-2 text-[12.5px]">
+                  <label className="mt-2 flex items-center gap-2 text-small">
                     <input type="checkbox" checked={replace.has(skill.name)} onChange={() => toggleReplace(skill.name)} />
                     Replace my local edits to {skill.name}
                   </label>
@@ -182,9 +182,9 @@ export function InstallReview({
 
           {plan.mcp.length > 0 && (
             <div className="flex flex-col gap-1">
-              <h3 className="text-[13px] font-medium">Remote servers (added disabled)</h3>
+              <h3 className="text-small font-medium">Remote servers (added disabled)</h3>
               {plan.mcp.map((server) => (
-                <p key={server.name} className="text-[12.5px]">
+                <p key={server.name} className="text-small">
                   {server.name} <span className="text-neutral-700">{server.url}</span>
                 </p>
               ))}
@@ -193,9 +193,9 @@ export function InstallReview({
 
           {plan.skipped.length > 0 && (
             <div className="flex flex-col gap-1">
-              <h3 className="text-[13px] font-medium">Left out</h3>
+              <h3 className="text-small font-medium">Left out</h3>
               {plan.skipped.map((item) => (
-                <p key={`${item.path}-${item.reason}`} className="text-[12.5px] text-neutral-700">
+                <p key={`${item.path}-${item.reason}`} className="text-small text-neutral-700">
                   {item.path}: {item.reason}
                 </p>
               ))}
@@ -203,7 +203,7 @@ export function InstallReview({
           )}
 
           {mustReread && (
-            <label className="flex items-center gap-2 text-[12.5px]">
+            <label className="flex items-center gap-2 text-small">
               <input type="checkbox" checked={false} onChange={() => setMustReread(false)} />
               I have read the new version, including the skills that changed
             </label>

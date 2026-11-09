@@ -67,8 +67,8 @@ export function AppearanceCard({
                 className={cn("h-[38px] w-[38px] shrink-0 rounded-xl shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]", option.swatch)}
               />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">{option.label}</span>
-                <span className="mt-0.5 block text-xs text-neutral-700">{option.description}</span>
+                <span className="block text-small font-medium">{option.label}</span>
+                <span className="mt-0.5 block text-caption text-neutral-700">{option.description}</span>
               </span>
               <SelectedCheckIcon selected={selected} />
             </button>

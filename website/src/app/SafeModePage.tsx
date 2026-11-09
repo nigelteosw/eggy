@@ -58,16 +58,16 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
     <div className="app-canvas min-h-screen px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-eg-red-tint text-2xl">🥚</div>
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-eg-red-tint text-display">🥚</div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Eggy is in safe mode</h1>
-            <p className="text-sm text-neutral-700">Startup failed, so the agent is not running.</p>
+            <h1 className="text-title font-semibold tracking-tight">Eggy is in safe mode</h1>
+            <p className="text-small text-neutral-700">Startup failed, so the agent is not running.</p>
           </div>
         </div>
 
         <section className="flex flex-col gap-3">
           <CardHeader title="Why it did not start" description="Fix the config below and save. Eggy retries startup as soon as it loads." />
-          <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-4 py-3 text-sm text-eg-red-ink">
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-2xl bg-eg-red-tint px-4 py-3 text-small text-eg-red-ink">
             {loading ? "Loading..." : failure}
           </pre>
         </section>
@@ -79,7 +79,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
             value={config}
             onChange={(event) => setConfig(event.target.value)}
             disabled={loading || saved}
-            className="min-h-[26rem] w-full whitespace-pre rounded-2xl border-0 bg-neutral-100 px-4 py-3 font-mono text-[13px] leading-relaxed shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="min-h-[26rem] w-full whitespace-pre rounded-2xl border-0 bg-neutral-100 px-4 py-3 font-mono text-small leading-relaxed shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           />
           <div>
             <Button type="button" onClick={handleSave} disabled={loading || saving || saved} className="rounded-xl">
@@ -93,7 +93,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
             </ErrorBanner>
           )}
           {saved && (
-            <p className="rounded-2xl bg-accent-100 px-4 py-3 text-sm text-accent-900" role="status">
+            <p className="rounded-2xl bg-accent-100 px-4 py-3 text-small text-accent-900" role="status">
               Config saved. Eggy is starting up again — this page reloads in a moment.
             </p>
           )}

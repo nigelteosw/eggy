@@ -35,7 +35,7 @@ export function SourcesCard({ onSessionExpired }: { onSessionExpired: () => void
 
   return (
     <section className="flex flex-col gap-3">
-      <p className="text-xs leading-relaxed text-neutral-700">
+      <p className="text-caption leading-relaxed text-neutral-700">
         Public GitHub repositories only. Sources apply to the next check; turning the marketplace on or off takes effect after a restart.
       </p>
       {rows.map((row, index) => (
@@ -61,7 +61,7 @@ export function SourcesCard({ onSessionExpired }: { onSessionExpired: () => void
           Save sources
         </Button>
       </div>
-      {saved && <p className="text-xs text-neutral-700">Saved.</p>}
+      {saved && <p className="text-caption text-neutral-700">Saved.</p>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>
   );

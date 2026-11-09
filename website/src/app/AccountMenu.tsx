@@ -55,7 +55,7 @@ export function AccountMenu({
           aria-label="Account"
           className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift"
         >
-          <p className="truncate px-3.5 pb-1.5 pt-1 text-xs text-muted-foreground" title={name}>
+          <p className="truncate px-3.5 pb-1.5 pt-1 text-caption text-muted-foreground" title={name}>
             {name}
           </p>
           <MenuItem icon={<SettingsIcon />} label="Settings" onClick={() => choose(onOpenSettings)} />
@@ -79,11 +79,11 @@ export function AccountMenu({
       >
         <span
           aria-hidden="true"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-100 text-xs font-semibold text-accent-700"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-100 text-caption font-semibold text-accent-700"
         >
           {name.charAt(0).toUpperCase()}
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
+        <span className="min-w-0 flex-1 truncate text-small font-medium">{name}</span>
         <ChevronDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
     </div>
@@ -121,7 +121,7 @@ function ThemeSwitch({ theme, onChange }: { theme: Theme; onChange: (theme: Them
           type="button"
           aria-pressed={theme === choice.value}
           onClick={() => choose(choice.value)}
-          className={`flex h-9 flex-1 items-center justify-center rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${
+          className={`flex h-9 flex-1 items-center justify-center rounded-lg text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${
             theme === choice.value ? "bg-card text-foreground shadow-subtle" : "text-neutral-700 hover:text-foreground"
           }`}
         >
@@ -138,7 +138,7 @@ function MenuItem({ icon, label, onClick }: { icon: React.ReactNode; label: stri
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-sm text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
+      className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-small text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
       {label}

@@ -125,15 +125,15 @@ export function ConfigPage({
             <button
               type="button"
               onClick={() => setOpened(false)}
-              className="flex h-11 min-w-0 items-center gap-1 rounded-xl px-2 text-sm font-medium text-foreground transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="flex h-11 min-w-0 items-center gap-1 rounded-xl px-2 text-small font-medium text-foreground transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <ChevronDownIcon className="h-4 w-4 rotate-90" />
               Settings
             </button>
           ) : (
-            <span className="min-w-0 flex-1 px-2 text-base font-semibold">Settings</span>
+            <span className="min-w-0 flex-1 px-2 text-body font-semibold">Settings</span>
           )}
-          {opened && <span className="min-w-0 flex-1 truncate text-sm text-neutral-700">{section.label}</span>}
+          {opened && <span className="min-w-0 flex-1 truncate text-small text-neutral-700">{section.label}</span>}
           {onClose && (
             <button
               type="button"
@@ -150,7 +150,7 @@ export function ConfigPage({
       <nav aria-label="Mobile settings navigation" className={`scrollbar-slim min-h-0 flex-1 overflow-y-auto md:hidden ${opened ? "hidden" : ""}`}>
         {GROUPS.map((group) => (
           <section key={group.id} className="px-4 pb-4 pt-5">
-            <p className="px-1 pb-2 text-[13px] text-neutral-700" title={group.note}>
+            <p className="px-1 pb-2 text-small text-neutral-700" title={group.note}>
               {group.heading}
             </p>
             <div className="flex flex-col overflow-hidden rounded-2xl bg-neutral-100">
@@ -162,7 +162,7 @@ export function ConfigPage({
                     setActive(candidate.id);
                     setOpened(true);
                   }}
-                  className="flex min-h-12 items-center gap-3 px-4 text-left text-base text-foreground shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none"
+                  className="flex min-h-12 items-center gap-3 px-4 text-left text-body text-foreground shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none"
                 >
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center text-neutral-700 [&>svg]:h-5 [&>svg]:w-5">{candidate.icon}</span>
                   <span className="min-w-0 flex-1">{candidate.label}</span>
@@ -184,18 +184,18 @@ export function ConfigPage({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search"
               aria-label="Search settings"
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-small text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
             />
           </label>
         </div>
-        <div className="shrink-0 px-4 pb-1 pt-3 text-[13px] text-neutral-700">Settings</div>
+        <div className="shrink-0 px-4 pb-1 pt-3 text-small text-neutral-700">Settings</div>
         <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           {GROUPS.map((group) => {
             const matches = SECTIONS.filter((candidate) => candidate.group === group.id && sectionMatches(candidate, query));
             if (matches.length === 0) return null;
             return (
               <div key={group.id} className="mb-3">
-                <p className="px-3 pb-1 pt-3 text-[13px] text-neutral-700" title={group.note}>
+                <p className="px-3 pb-1 pt-3 text-small text-neutral-700" title={group.note}>
                   {group.heading}
                 </p>
                 {matches.map((candidate) => (
@@ -205,7 +205,7 @@ export function ConfigPage({
                     aria-current={candidate.id === active ? "page" : undefined}
                     onClick={() => setActive(candidate.id)}
                     className={cn(
-                      "mb-0.5 flex min-h-[36px] w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm text-foreground transition-colors",
+                      "mb-0.5 flex min-h-[36px] w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-small text-foreground transition-colors",
                       candidate.id === active ? "bg-neutral-200/70 font-medium" : "font-normal hover:bg-neutral-200/40",
                     )}
                   >
@@ -217,7 +217,7 @@ export function ConfigPage({
             );
           })}
           {query.trim() !== "" && SECTIONS.every((candidate) => !sectionMatches(candidate, query)) && (
-            <p className="px-3 py-2 text-sm text-neutral-700">No settings match “{query.trim()}”.</p>
+            <p className="px-3 py-2 text-small text-neutral-700">No settings match “{query.trim()}”.</p>
           )}
         </div>
       </div>
@@ -226,10 +226,10 @@ export function ConfigPage({
         <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 sm:pr-14 lg:max-w-[960px] lg:px-10 lg:pt-8">
           <header className="flex flex-col gap-1.5 pb-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="text-xl font-semibold tracking-tight">{section.title}</h1>
-              <span className="rounded-full bg-neutral-200/70 px-2.5 py-0.5 text-xs text-neutral-700">{SCOPE_LABEL[section.group]}</span>
+              <h1 className="text-title font-semibold tracking-tight">{section.title}</h1>
+              <span className="rounded-full bg-neutral-200/70 px-2.5 py-0.5 text-caption text-neutral-700">{SCOPE_LABEL[section.group]}</span>
             </div>
-            <p className="max-w-2xl text-sm leading-6 text-neutral-700">{section.description}</p>
+            <p className="max-w-2xl text-small leading-6 text-neutral-700">{section.description}</p>
           </header>
           {active === "personal" && (
             <>
@@ -241,7 +241,7 @@ export function ConfigPage({
             <>
               <ProvidersCard onSessionExpired={onSessionExpired} />
               <ModelsCard onSessionExpired={onSessionExpired} />
-              <p className="text-sm text-muted-foreground">New model choices appear in chat after restart. The bar at the top of the panel restarts Eggy.</p>
+              <p className="text-small text-muted-foreground">New model choices appear in chat after restart. The bar at the top of the panel restarts Eggy.</p>
             </>
           )}
           {active === "connections" && (

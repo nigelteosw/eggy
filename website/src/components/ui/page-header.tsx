@@ -33,10 +33,10 @@ export function PageHeader({
             <MenuIcon />
           </button>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-title font-semibold tracking-tight">{title}</h1>
         {action}
       </div>
-      {description && <p className="max-w-2xl text-sm leading-6 text-neutral-700">{description}</p>}
+      {description && <p className="max-w-2xl text-small leading-6 text-neutral-700">{description}</p>}
     </header>
   );
 }

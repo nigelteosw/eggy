@@ -17,7 +17,7 @@ import { GitHubTokenField } from "./GitHubTokenField";
 // their own heading and are deliberately not mixed in here.
 
 const selectClass =
-  "h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+  "h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export const APPROVAL_MODES: { value: string; label: string; hint: string }[] = [
   { value: "strict", label: "Strict", hint: "Every tool call asks you first." },
@@ -95,7 +95,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
                 <option key={alias} value={alias}>{alias}</option>
               ))}
             </select>
-            <button type="button" disabled={busy} onClick={() => apply(() => setAgentModel("default"))} className="self-start text-xs text-neutral-700 underline-offset-4 hover:underline">
+            <button type="button" disabled={busy} onClick={() => apply(() => setAgentModel("default"))} className="self-start text-caption text-neutral-700 underline-offset-4 hover:underline">
               Use the deployment default
             </button>
           </div>
@@ -123,7 +123,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
               disabled={busy}
               onCheckedChange={(checked) => apply(() => setAgentThinking(checked))}
             />
-            <p className="text-xs text-neutral-700">Deliver the model&apos;s reasoning as a separate message before its reply.</p>
+            <p className="text-caption text-neutral-700">Deliver the model&apos;s reasoning as a separate message before its reply.</p>
           </div>
           <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
             <Switch
@@ -132,12 +132,12 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
               disabled={busy}
               onCheckedChange={(checked) => apply(() => setAgentHeartbeat(checked))}
             />
-            <p className="text-xs text-neutral-700">Let Eggy check your watch list and message you on Telegram when something needs you. Off until you turn it on.</p>
+            <p className="text-caption text-neutral-700">Let Eggy check your watch list and message you on Telegram when something needs you. Off until you turn it on.</p>
           </div>
           <fieldset className="flex flex-col gap-2">
             <legend className={FIELD_LABEL}>When Eggy asks</legend>
             {APPROVAL_MODES.map((mode) => (
-              <label key={mode.value} className="flex cursor-pointer items-start gap-3 rounded-2xl bg-neutral-100 p-3.5 text-sm">
+              <label key={mode.value} className="flex cursor-pointer items-start gap-3 rounded-2xl bg-neutral-100 p-3.5 text-small">
                 <input
                   type="radio"
                   name="personal-approval-mode"
@@ -149,7 +149,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
                 />
                 <span>
                   <span className="font-medium">{mode.label}</span>
-                  <span className="block text-xs text-neutral-700">{selection.approval_summaries?.[mode.value] ?? mode.hint}</span>
+                  <span className="block text-caption text-neutral-700">{selection.approval_summaries?.[mode.value] ?? mode.hint}</span>
                 </span>
               </label>
             ))}

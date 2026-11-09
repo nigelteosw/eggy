@@ -44,7 +44,7 @@ export function FinanceSettingsView({
             <span
               role="status"
               aria-label="Finance extension status"
-              className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700"
+              className="rounded-full bg-neutral-100 px-2 py-0.5 text-caption font-medium text-neutral-700"
             >
               {running ? "Running" : "Not running"}
             </span>
@@ -60,7 +60,7 @@ export function FinanceSettingsView({
         className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
       >
         <Switch checked={enabled} onCheckedChange={onEnabledChange} label="Enable finance" />
-        <label className="flex max-w-xs flex-col gap-1.5 text-[11.5px] text-neutral-700">
+        <label className="flex max-w-xs flex-col gap-1.5 text-caption text-neutral-700">
           Default currency
           <Select value={currency} onChange={(event) => onCurrencyChange(event.target.value)} aria-label="Default currency">
             {currencies.map((code) => (
@@ -70,7 +70,7 @@ export function FinanceSettingsView({
             ))}
           </Select>
         </label>
-        <p className="text-xs text-neutral-700">Entries can still use any listed currency; this is what an entry takes when none is said.</p>
+        <p className="text-caption text-neutral-700">Entries can still use any listed currency; this is what an entry takes when none is said.</p>
         <div>
           <button type="submit" disabled={saving} className={PRIMARY_BUTTON}>
             {saving ? "Saving..." : "Save"}
@@ -78,7 +78,7 @@ export function FinanceSettingsView({
         </div>
       </form>
       {needsRestart && (
-        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">
+        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
           Restart to apply: finance is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
         </p>
       )}

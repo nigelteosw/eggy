@@ -70,7 +70,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
       {view && <SummaryRows headers={["State", "Application ID", "Bot token"]} row={describeDiscord(view)} />}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Configure Discord</summary>
+        <summary className="cursor-pointer text-small font-medium">Configure Discord</summary>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -101,7 +101,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
               <Input id="discord-application" inputMode="numeric" placeholder="From the Developer Portal" value={applicationId} onChange={(e) => setApplicationId(e.target.value)} className={FIELD_COMPACT} />
             </div>
           </div>
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             Create a bot in the Discord Developer Portal, copy its token, and invite it to any server you share with it (DMs need no
             server permissions). The token is stored encrypted on the server and never shown again. Message content intent is not required.
           </p>
@@ -118,7 +118,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
         </form>
       </details>
 
-      {notice && <p className="mt-2 text-xs text-neutral-700">{notice}</p>}
+      {notice && <p className="mt-2 text-caption text-neutral-700">{notice}</p>}
       {error && <ErrorBanner className="mt-3">{error}</ErrorBanner>}
     </div>
   );

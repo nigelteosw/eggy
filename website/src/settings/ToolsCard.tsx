@@ -71,7 +71,7 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
           className="rounded-xl border-0 bg-neutral-100"
         />
         {visible.length === 0 ? (
-          <p className="rounded-xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">
+          <p className="rounded-xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
             {filter ? `No tool matches "${filter}".` : "No tools are registered."}
           </p>
         ) : (
@@ -81,7 +81,7 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
             ))}
           </ul>
         )}
-        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
+        <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">
           The list is read-only. Kernel tools are compiled in; <code className="rounded bg-neutral-100 px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
           tools come from the servers above and appear or disappear as those connect, reload, or are logged out of.
         </p>
@@ -116,16 +116,16 @@ function ToolRow({ name, source, description }: { name: string; source: string; 
   return (
     <li className="flex flex-col gap-1.5 px-4 py-3">
       <div className="flex items-center gap-2">
-        <code className="text-sm font-medium text-foreground">{name}</code>
-        <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700">{sourceLabel(source)}</span>
+        <code className="text-small font-medium text-foreground">{name}</code>
+        <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">{sourceLabel(source)}</span>
       </div>
-      <p className="text-[13px] leading-5 text-neutral-700">{firstSentence(description)}</p>
+      <p className="text-small leading-5 text-neutral-700">{firstSentence(description)}</p>
       {description.trim() !== firstSentence(description) && (
         <div>
-          <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="text-xs font-medium text-neutral-700 underline-offset-2 hover:underline">
+          <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)} className="text-caption font-medium text-neutral-700 underline-offset-2 hover:underline">
             {open ? "Hide details" : "Details"}
           </button>
-          {open && <p className="mt-1.5 text-xs leading-5 text-neutral-700">{description}</p>}
+          {open && <p className="mt-1.5 text-caption leading-5 text-neutral-700">{description}</p>}
         </div>
       )}
     </li>

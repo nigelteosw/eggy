@@ -121,7 +121,7 @@ export function SkillDetail({
   }
 
   const backLink = (
-    <button type="button" onClick={onBack} className="flex min-h-9 w-fit items-center gap-1.5 text-sm text-neutral-700 hover:text-foreground">
+    <button type="button" onClick={onBack} className="flex min-h-9 w-fit items-center gap-1.5 text-small text-neutral-700 hover:text-foreground">
       <span aria-hidden="true">←</span> Your skills
     </button>
   );
@@ -130,7 +130,7 @@ export function SkillDetail({
     return (
       <section className="flex flex-col gap-5">
         {backLink}
-        <h1 className="text-xl font-semibold tracking-tight">{isNew ? "New skill" : draft.name}</h1>
+        <h1 className="text-title font-semibold tracking-tight">{isNew ? "New skill" : draft.name}</h1>
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -148,7 +148,7 @@ export function SkillDetail({
               className={FIELD}
               aria-describedby="skill-name-help"
             />
-            <span id="skill-name-help" className="text-[12px] text-neutral-700">
+            <span id="skill-name-help" className="text-caption text-neutral-700">
               {isNew ? "Lowercase letters, digits, and hyphens." : "A skill's name cannot change. Add a new one to rename it."}
             </span>
           </label>
@@ -167,11 +167,11 @@ export function SkillDetail({
               value={draft.body}
               onChange={(event) => setDraft({ ...draft, body: event.target.value })}
               rows={14}
-              className="scrollbar-slim w-full rounded-xl bg-background p-3 font-mono text-[13px] leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="scrollbar-slim w-full rounded-xl bg-background p-3 font-mono text-small leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
           </label>
           <Switch checked={!draft.disabled} onCheckedChange={(on) => setDraft({ ...draft, disabled: !on })} label="Available to Eggy" />
-          <p className="text-[12px] text-neutral-700">Skills are shared by everyone on this Eggy. Changes apply to new turns.</p>
+          <p className="text-caption text-neutral-700">Skills are shared by everyone on this Eggy. Changes apply to new turns.</p>
 
           {notice && <ErrorBanner>{notice}</ErrorBanner>}
 
@@ -201,8 +201,8 @@ export function SkillDetail({
           <FileCodeIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-mono text-lg font-semibold tracking-tight">{name}</h1>
-          <p className="text-[13px] text-neutral-700">{skill ? (skill.disabled ? "Disabled. Eggy will not use it." : "Enabled. Eggy can use it when it fits a task.") : "Could not load"}</p>
+          <h1 className="truncate font-mono text-title font-semibold tracking-tight">{name}</h1>
+          <p className="text-small text-neutral-700">{skill ? (skill.disabled ? "Disabled. Eggy will not use it." : "Enabled. Eggy can use it when it fits a task.") : "Could not load"}</p>
         </div>
         {skill && (
           <div className="flex items-center gap-2">
@@ -217,7 +217,7 @@ export function SkillDetail({
             onClick={() => setMenuOpen((open) => !open)}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-700 hover:bg-neutral-100 hover:text-foreground"
           >
-            <span aria-hidden="true" className="text-lg leading-none">⋮</span>
+            <span aria-hidden="true" className="text-title leading-none">⋮</span>
           </button>
           {menuOpen && (
             <div className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-xl bg-background p-1 shadow-lg ring-1 ring-neutral-200">
@@ -227,7 +227,7 @@ export function SkillDetail({
                   setMenuOpen(false);
                   setConfirmingDelete(true);
                 }}
-                className="flex min-h-9 w-full items-center rounded-lg px-3 text-left text-sm text-destructive hover:bg-neutral-100"
+                className="flex min-h-9 w-full items-center rounded-lg px-3 text-left text-small text-destructive hover:bg-neutral-100"
               >
                 Delete skill
               </button>
@@ -237,7 +237,7 @@ export function SkillDetail({
       </header>
 
       {confirmingDelete && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-neutral-100 p-3 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-neutral-100 p-3 text-small">
           Delete {name} for everyone? This cannot be undone.
           <button type="button" disabled={saving} onClick={() => void remove()} className="min-h-9 rounded-lg bg-destructive px-3 font-medium text-destructive-foreground">
             Delete
@@ -253,7 +253,7 @@ export function SkillDetail({
       {loadError ? (
         <ErrorBanner>{loadError}</ErrorBanner>
       ) : !skill ? (
-        <p className="text-sm text-neutral-700">Loading…</p>
+        <p className="text-small text-neutral-700">Loading…</p>
       ) : (
         <>
           <div role="tablist" aria-label="Skill sections" className="flex gap-6 border-b border-neutral-200">
@@ -265,7 +265,7 @@ export function SkillDetail({
                 aria-selected={tab === item}
                 onClick={() => setTab(item)}
                 className={cn(
-                  "-mb-px min-h-10 border-b-2 text-sm capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                  "-mb-px min-h-10 border-b-2 text-small capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                   tab === item ? "border-foreground font-medium text-foreground" : "border-transparent text-neutral-700 hover:text-foreground",
                 )}
               >
@@ -278,7 +278,7 @@ export function SkillDetail({
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <span className={FIELD_LABEL}>When to use it</span>
-                <p className="text-[15px] leading-7 text-foreground">{skill.description}</p>
+                <p className="text-body leading-7 text-foreground">{skill.description}</p>
               </div>
               <div>
                 <button type="button" onClick={startEdit} className={SECONDARY_BUTTON}>
@@ -291,15 +291,15 @@ export function SkillDetail({
           {tab === "contents" && (
             <div className="grid min-h-[320px] overflow-hidden rounded-2xl ring-1 ring-neutral-200 sm:grid-cols-[200px_1fr]">
               <ul className="border-b border-neutral-200 bg-neutral-100 p-2 sm:border-b-0 sm:border-r">
-                <li className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 font-mono text-[13px]">
+                <li className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 font-mono text-small">
                   <FileCodeIcon className="h-4 w-4 text-neutral-700" />
                   SKILL.md
                 </li>
               </ul>
               <div className="flex min-w-0 flex-col">
                 <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-2">
-                  <span className="font-mono text-[12px] text-neutral-700">/SKILL.md</span>
-                  <div role="group" aria-label="View" className="flex rounded-lg bg-neutral-100 p-0.5 text-[12px]">
+                  <span className="font-mono text-caption text-neutral-700">/SKILL.md</span>
+                  <div role="group" aria-label="View" className="flex rounded-lg bg-neutral-100 p-0.5 text-caption">
                     {(["preview", "source"] as const).map((mode) => (
                       <button
                         key={mode}
@@ -315,11 +315,11 @@ export function SkillDetail({
                 </div>
                 <div className="scrollbar-slim max-h-[60vh] overflow-auto p-4">
                   {view === "preview" ? (
-                    <div className="prose max-w-none text-sm">
+                    <div className="prose max-w-none text-small">
                       <Markdown remarkPlugins={[remarkGfm]}>{skill.body}</Markdown>
                     </div>
                   ) : (
-                    <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-6 text-foreground">{skill.body}</pre>
+                    <pre className="whitespace-pre-wrap break-words font-mono text-small leading-6 text-foreground">{skill.body}</pre>
                   )}
                 </div>
               </div>

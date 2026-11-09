@@ -36,13 +36,13 @@ import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "../components/ui/for
 // no roles.
 
 const ghostButtonClass =
-  "min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-xl px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
 const destructiveButtonClass =
-  "min-h-10 whitespace-nowrap rounded-xl bg-eg-red-tint px-4 text-[13.5px] font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-xl bg-eg-red-tint px-4 text-small font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
 const textActionClass =
-  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
 const destructiveTextActionClass =
-  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-[12.5px] text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
+  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
 const panelClass = "rounded-2xl bg-neutral-100 p-4";
 
 export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
@@ -59,7 +59,7 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
     }
   }
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
+    <div className="flex items-center justify-between gap-3 text-small">
       <span>Telegram is {enabled ? "enabled" : "disabled"}.</span>
       <button type="button" disabled={busy} onClick={toggle} className={ghostButtonClass}>
         {busy ? "Saving…" : enabled ? "Disable Telegram" : "Enable Telegram"}
@@ -136,20 +136,20 @@ export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { accou
   return (
     <div className={cn(panelClass, "flex flex-col gap-3")} role="status" aria-label={`Getting ${account.id} started`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium">{complete ? `${account.id} is all set` : `Getting ${account.id} started`}</p>
+        <p className="text-small font-medium">{complete ? `${account.id} is all set` : `Getting ${account.id} started`}</p>
         {onDismiss && (
           <button type="button" onClick={onDismiss} className={textActionClass}>
             Dismiss
           </button>
         )}
       </div>
-      <ol className="flex flex-col gap-2 text-sm">
+      <ol className="flex flex-col gap-2 text-small">
         {steps.map((step, index) => (
           <li key={index} className="flex gap-3">
             <span
               aria-hidden
               className={cn(
-                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs",
+                "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-caption",
                 step.done ? "bg-primary text-primary-foreground" : "text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]",
               )}
             >
@@ -157,7 +157,7 @@ export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { accou
             </span>
             <div className="min-w-0">
               <p className={step.done ? "text-neutral-700 line-through" : ""}>{step.label}</p>
-              {step.hint && <p className="text-xs text-neutral-700">{step.hint}</p>}
+              {step.hint && <p className="text-caption text-neutral-700">{step.hint}</p>}
             </div>
           </li>
         ))}
@@ -195,7 +195,7 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
   }
   if (pairing) {
     return (
-      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-sm text-accent-900">
+      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-small text-accent-900">
         <p className="font-medium">Finish in Telegram</p>
         <ol className="list-decimal pl-5">
           <li>Open the link below on the device where you use Telegram.</li>
@@ -211,7 +211,7 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
             I&apos;ve done this
           </button>
         </div>
-        <p className="text-xs">
+        <p className="text-caption">
           Single-use, expires at {new Date(pairing.expires_at).toLocaleTimeString()}. Don&apos;t forward it: whoever opens it first claims your account&apos;s Telegram.
         </p>
       </div>
@@ -258,14 +258,14 @@ export function DiscordLinkControl({ account, available, onError }: { account: A
   }
   if (link) {
     return (
-      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-sm text-accent-900">
+      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-small text-accent-900">
         <p className="font-medium">Finish in Discord</p>
         <ol className="list-decimal pl-5">
           <li>Open a direct message with the Eggy bot.</li>
           <li>Send it the command below, exactly as shown.</li>
           <li>Come back here — your row updates when it&apos;s done.</li>
         </ol>
-        <code className="break-all rounded-lg bg-background px-2 py-1 text-xs">{link.command}</code>
+        <code className="break-all rounded-lg bg-background px-2 py-1 text-caption">{link.command}</code>
         <div className="flex flex-wrap items-center gap-2">
           <CopyButton text={link.command} label="Copy command" />
           {link.dm_url && (
@@ -277,7 +277,7 @@ export function DiscordLinkControl({ account, available, onError }: { account: A
             I&apos;ve done this
           </button>
         </div>
-        <p className="text-xs">
+        <p className="text-caption">
           Single-use, expires at {new Date(link.expires_at).toLocaleTimeString()}. Don&apos;t share it: whoever sends it first claims your account&apos;s Discord.
         </p>
       </div>
@@ -301,7 +301,7 @@ function Avatar({ id, self }: { id: string; self: boolean }) {
     <span
       aria-hidden
       className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[13px] font-semibold",
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-small font-semibold",
         self ? "bg-accent-100 text-accent-900" : "bg-neutral-100 text-neutral-700",
       )}
     >
@@ -348,7 +348,7 @@ export function AccountsList({
   onError: (message: string) => void;
 }) {
   if (accounts.length === 0) {
-    return <p className="text-sm text-neutral-700">No accounts yet. Add the first one below.</p>;
+    return <p className="text-small text-neutral-700">No accounts yet. Add the first one below.</p>;
   }
   return (
     <ul className="flex flex-col">
@@ -364,11 +364,11 @@ export function AccountsList({
           <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
             <Avatar id={account.id} self={account.self} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
+              <p className="truncate text-small font-medium">
                 {account.id}
                 {account.self && <span className="ml-1 text-neutral-700">(you)</span>}
               </p>
-              <p className="mt-0.5 text-xs tabular-nums text-neutral-700">{status.join(" · ")}</p>
+              <p className="mt-0.5 text-caption tabular-nums text-neutral-700">{status.join(" · ")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-1">
               {pending && !account.self && (
@@ -424,11 +424,11 @@ export function PasswordForm({ account, saving, onSubmit, onCancel }: { account:
       className={cn(panelClass, "flex flex-col gap-3")}
       aria-label={title}
     >
-      <p className="text-[12.5px] font-medium">{title}</p>
+      <p className="text-small font-medium">{title}</p>
       {account.self ? (
-        <p className="text-xs text-neutral-700">You will be signed out everywhere and sign in again with the new password.</p>
+        <p className="text-caption text-neutral-700">You will be signed out everywhere and sign in again with the new password.</p>
       ) : (
-        <p className="text-xs text-neutral-700">They are signed out everywhere and any unused Telegram sign-in link stops working. Hand the new password over yourself; it is never shown again.</p>
+        <p className="text-caption text-neutral-700">They are signed out everywhere and any unused Telegram sign-in link stops working. Hand the new password over yourself; it is never shown again.</p>
       )}
       {account.self && (
         <div className="flex flex-col gap-1.5">
@@ -458,7 +458,7 @@ export function PasswordForm({ account, saving, onSubmit, onCancel }: { account:
 export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account: string; self: boolean; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
-      <p className="text-sm text-eg-red-ink">
+      <p className="text-small text-eg-red-ink">
         Revoke every session of <strong>{account}</strong>? {self ? "You" : "They"} will be signed out everywhere and any unused
         Telegram sign-in link stops working. The password does not change.
       </p>
@@ -477,7 +477,7 @@ export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account:
 function RemoveConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
-      <p className="text-sm text-eg-red-ink">
+      <p className="text-small text-eg-red-ink">
         Remove <strong>{account}</strong>? They are signed out immediately and can no longer sign in. Their private
         conversations and memory stay in the database, and this username is never reissued.
       </p>
@@ -523,14 +523,14 @@ function AccountForm({
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="account-id" className={FIELD_LABEL}>Username</Label>
             <Input id="account-id" value={id} onChange={(e) => setId(e.target.value)} placeholder="short name, e.g. nigel" autoCapitalize="none" required className={FIELD_COMPACT} />
-            <p className="text-xs text-neutral-700">Immutable: it cannot be renamed later, and a removed username is never reissued.</p>
+            <p className="text-caption text-neutral-700">Immutable: it cannot be renamed later, and a removed username is never reissued.</p>
           </div>
         )}
         {initial && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="account-name" className={FIELD_LABEL}>Name (optional)</Label>
             <Input id="account-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={initial.id} maxLength={60} className={FIELD_COMPACT} />
-            <p className="text-xs text-neutral-700">How the panel names this person. Leave blank to show their username.</p>
+            <p className="text-caption text-neutral-700">How the panel names this person. Leave blank to show their username.</p>
           </div>
         )}
         {!initial && (
@@ -607,14 +607,14 @@ export function ConvertForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <p className="text-sm text-neutral-700">
+      <p className="text-small text-neutral-700">
         This Eggy has one owner. Converting gives each person their own account with a username and password. The
         existing conversations and memory go to the migration owner; everyone else starts empty. One account keeps
         signing in with the deployment&apos;s EGGY_UI_USER_EMAIL / EGGY_UI_PASSWORD; set the others&apos; passwords
         from the list afterwards.
       </p>
       <fieldset className={cn(panelClass, "flex flex-col gap-3")}>
-        <legend className="text-[12.5px] font-medium">People</legend>
+        <legend className="text-small font-medium">People</legend>
         {accounts.map((account, index) => (
           <div
             key={index}
@@ -641,7 +641,7 @@ export function ConvertForm({
           id="convert-migration-owner"
           value={migrationOwner}
           onChange={(e) => setMigrationOwner(e.target.value)}
-          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
@@ -656,7 +656,7 @@ export function ConvertForm({
           id="convert-password-account"
           value={passwordAccount}
           onChange={(e) => setPasswordAccount(e.target.value)}
-          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
@@ -767,7 +767,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           {error}
         </ErrorBanner>
       )}
-      {notice && <p className="rounded-xl bg-neutral-100 px-3 py-2 text-sm">{notice}</p>}
+      {notice && <p className="rounded-xl bg-neutral-100 px-3 py-2 text-small">{notice}</p>}
 
       {view && !view.account_mode ? (
         <ConvertForm
@@ -798,7 +798,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             onError={setError}
           />
           {view?.environment_alias && (
-            <p className="text-xs text-neutral-700">
+            <p className="text-caption text-neutral-700">
               <strong>{view.password_account_id}</strong> signs in as <code>{view.environment_alias}</code> with the password set
               in the deployment environment (EGGY_UI_PASSWORD). Changing it means changing the variable and restarting.
             </p>
@@ -847,9 +847,9 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             />
           )}
           <div className={cn(panelClass, "flex flex-col gap-3")}>
-            <p className="text-[12.5px] font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
+            <p className="text-small font-medium">{editing ? `Edit ${editing.id}` : "Add an account"}</p>
             {!editing && (
-              <p className="text-xs text-neutral-700">
+              <p className="text-caption text-neutral-700">
                 Choose their username and a password, and hand the password over yourself. You&apos;ll get an invite to
                 send them; the password is never in it.
               </p>
@@ -901,9 +901,9 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
       )}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Telegram</summary>
+        <summary className="cursor-pointer text-small font-medium">Telegram</summary>
         <div className="mt-3 flex flex-col gap-3">
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             With Telegram enabled, each person links their own Telegram from their row above: a single-use link,
             opened in Telegram, binds that sender to their account. Nobody can link on someone else&apos;s behalf.
           </p>
@@ -918,7 +918,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
             />
           )}
           {view?.telegram_enabled && !view.telegram_pairing_available && (
-            <p className="text-xs text-neutral-700">
+            <p className="text-caption text-neutral-700">
               Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart.
             </p>
           )}
@@ -926,14 +926,14 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
       </details>
 
       {view?.discord_enabled && (
-        <p className="text-xs text-neutral-700">
+        <p className="text-caption text-neutral-700">
           Discord is enabled: each person links their own Discord from their row above by sending the bot a single-use
           command in a DM. The bot itself is set up under Settings → Connections.
         </p>
       )}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Expected Google account</summary>
+        <summary className="cursor-pointer text-small font-medium">Expected Google account</summary>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -941,7 +941,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           }}
           className="mt-3 flex flex-col gap-3"
         >
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             Eggy&apos;s own Google Workspace user. Only this account can be connected under Connections; anyone
             accidentally authorizing their personal account is refused.
           </p>

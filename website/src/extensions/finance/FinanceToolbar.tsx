@@ -23,7 +23,7 @@ function ToolButton({ label, active, expanded, badge, onClick, children }: { lab
       )}
     >
       {children}
-      {badge ? <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{badge}</span> : null}
+      {badge ? <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-caption font-semibold text-primary-foreground">{badge}</span> : null}
     </button>
   );
 }
@@ -136,10 +136,10 @@ export function FinanceToolbar({
                     onChange({ sort: next.sort, order: next.order });
                     setMenu(null);
                   }}
-                  className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13.5px] transition-colors hover:bg-neutral-100"
+                  className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-small transition-colors hover:bg-neutral-100"
                 >
                   <span>{SORTS[key].label}</span>
-                  {active && <span className="text-xs text-neutral-700">{view.order === "asc" ? "↑" : "↓"}</span>}
+                  {active && <span className="text-caption text-neutral-700">{view.order === "asc" ? "↑" : "↓"}</span>}
                 </button>
               );
             })}

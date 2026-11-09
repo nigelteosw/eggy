@@ -1,5 +1,12 @@
 import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// The panel's type scale replaces Tailwind's (tailwind.config.js). Without
+// naming the sizes here, tailwind-merge reads text-small as a colour and drops
+// it beside text-foreground.
+const twMerge = extendTailwindMerge({
+  override: { classGroups: { "font-size": [{ text: ["caption", "small", "body", "field", "title", "display"] }] } },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

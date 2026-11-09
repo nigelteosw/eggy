@@ -107,7 +107,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
         onClick={(event) => event.stopPropagation()}
         className="flex items-center gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-5"
       >
-        <span className="min-w-0 truncate text-sm text-white/70">
+        <span className="min-w-0 truncate text-small text-white/70">
           Generated image{many && <span className="tabular-nums"> · {current + 1} of {ids.length}</span>}
         </span>
         <div className="ml-auto flex items-center gap-1">
@@ -187,7 +187,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
         {feedback && (
           <span
             className={cn(
-              "flex animate-in fade-in slide-in-from-bottom-2 items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium shadow-lg backdrop-blur-md",
+              "flex animate-in fade-in slide-in-from-bottom-2 items-center gap-1.5 rounded-full px-4 py-2 text-small font-medium shadow-lg backdrop-blur-md",
               feedback.failed ? "bg-destructive/90 text-destructive-foreground" : "bg-white/15 text-white",
             )}
           >
@@ -220,7 +220,7 @@ function ViewerAction({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex h-10 min-w-10 items-center justify-center gap-2 rounded-full px-2.5 text-sm text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+      className="flex h-10 min-w-10 items-center justify-center gap-2 rounded-full px-2.5 text-small text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
     >
       {children}
       {text && <span className="hidden sm:inline">{text}</span>}

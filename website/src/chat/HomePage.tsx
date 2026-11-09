@@ -32,7 +32,7 @@ type Checklist = { chatted: boolean; watching: boolean; checkins: boolean };
 
 const watchText = (result: CommandResult) => result.fields?.find((field) => field.label === "watch")?.value ?? "";
 
-const HEADER_BUTTON = "text-xs font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
+const HEADER_BUTTON = "text-caption font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
 const TRASH_BUTTON =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-700 transition-colors hover:bg-eg-red-tint hover:text-eg-red-ink disabled:pointer-events-none disabled:opacity-50";
 
@@ -156,11 +156,11 @@ export function HomePage({
       <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
         <PageHeader title="Home" onOpenSidebar={onOpenSidebar} description={status} />
 
-        {error && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
+        {error && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-small text-destructive" role="alert">{error}</p>}
 
         {!checklistDone && loaded && (
           <section aria-label="Getting started" className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-5">
-            <h2 className="text-sm font-semibold">Getting started</h2>
+            <h2 className="text-small font-semibold">Getting started</h2>
             <ul className="flex flex-col gap-1">
               <ChecklistRow done={checklist.chatted} label="Ask Eggy something" action="Start a chat" onAction={onNewChat} />
               <ChecklistRow done={checklist.watching} label="Add something to keep an eye on" action="Add one" onAction={() => editWatch(true)} />
@@ -175,7 +175,7 @@ export function HomePage({
 
         <section aria-labelledby="home-watching" className="flex flex-col gap-3">
           <div className="flex items-baseline justify-between gap-3">
-            <h2 id="home-watching" className="text-sm font-semibold">Watching</h2>
+            <h2 id="home-watching" className="text-small font-semibold">Watching</h2>
             {watchDraft === null ? (
               <button type="button" onClick={() => editWatch(false)} disabled={watch === null} className={HEADER_BUTTON}>
                 Edit
@@ -234,19 +234,19 @@ export function HomePage({
               </li>
             </ul>
           ) : watch === null ? (
-            <p className="text-sm text-neutral-700">Loading…</p>
+            <p className="text-small text-neutral-700">Loading…</p>
           ) : watch.length === 0 ? (
-            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-sm text-neutral-700">
+            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-small text-neutral-700">
               Nothing yet. Tell Eggy what to keep an eye on, and it will check on it between your conversations.
             </p>
           ) : (
             <ul className="flex flex-col">
               {watch.slice(0, 5).map((item) => (
-                <li key={item.line} className="py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                <li key={item.line} className="py-2.5 text-small shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
                   {item.text}
                 </li>
               ))}
-              {watch.length > 5 && <li className="pt-2.5 text-xs text-neutral-700">and {watch.length - 5} more</li>}
+              {watch.length > 5 && <li className="pt-2.5 text-caption text-neutral-700">and {watch.length - 5} more</li>}
             </ul>
           )}
         </section>
@@ -254,7 +254,7 @@ export function HomePage({
         <section aria-labelledby="home-coming-up" className="flex flex-col gap-3">
           {confirmDialog}
           <div className="flex items-baseline justify-between gap-3">
-            <h2 id="home-coming-up" className="text-sm font-semibold">Coming up</h2>
+            <h2 id="home-coming-up" className="text-small font-semibold">Coming up</h2>
             <span className="flex items-baseline gap-4">
               {upcoming.length > 0 && (
                 <button type="button" onClick={() => setEditingSchedules((editing) => !editing)} className={HEADER_BUTTON}>
@@ -267,16 +267,16 @@ export function HomePage({
             </span>
           </div>
           {schedules === null ? (
-            <p className="text-sm text-neutral-700">Loading…</p>
+            <p className="text-small text-neutral-700">Loading…</p>
           ) : upcoming.length === 0 ? (
-            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-sm text-neutral-700">Nothing is scheduled.</p>
+            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-small text-neutral-700">Nothing is scheduled.</p>
           ) : (
             <ul className="flex flex-col">
               {upcoming.map((row) => (
-                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-sm shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-small shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
                   <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
                   <span className="flex shrink-0 items-center gap-2">
-                    <span title={row[NEXT_RUN]} className="text-xs tabular-nums text-neutral-700">
+                    <span title={row[NEXT_RUN]} className="text-caption tabular-nums text-neutral-700">
                       {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
                     </span>
                     {editingSchedules && (
@@ -304,16 +304,16 @@ export function HomePage({
 
 function ChecklistRow({ done, label, action, onAction }: { done: boolean; label: string; action: string; onAction: () => void }) {
   return (
-    <li className="flex min-h-11 items-center gap-3 text-sm">
+    <li className="flex min-h-11 items-center gap-3 text-small">
       <span
         aria-hidden="true"
-        className={done ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] text-primary-foreground" : "h-5 w-5 shrink-0 rounded-full border border-neutral-400"}
+        className={done ? "flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-caption text-primary-foreground" : "h-5 w-5 shrink-0 rounded-full border border-neutral-400"}
       >
         {done ? "✓" : ""}
       </span>
       <span className={done ? "min-w-0 flex-1 text-neutral-700 line-through" : "min-w-0 flex-1"}>{label}</span>
       {!done && (
-        <button type="button" onClick={onAction} className="shrink-0 text-xs font-medium underline-offset-2 hover:underline">
+        <button type="button" onClick={onAction} className="shrink-0 text-caption font-medium underline-offset-2 hover:underline">
           {action}
         </button>
       )}

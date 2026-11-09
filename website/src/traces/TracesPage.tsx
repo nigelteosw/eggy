@@ -119,7 +119,7 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
   const prompted = trace.kind === "owner";
   return (
     <span
-      className={`whitespace-nowrap rounded-md px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ${
+      className={`whitespace-nowrap rounded-md px-2 py-0.5 text-caption font-semibold uppercase tracking-wide ${
         prompted ? "bg-accent-100 text-accent-700" : "bg-neutral-200 text-neutral-700"
       }`}
     >
@@ -138,11 +138,11 @@ function Prompt({ request }: { request: string }) {
     return (
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs font-medium text-neutral-700">Request</span>
+          <span className="text-caption font-medium text-neutral-700">Request</span>
           {prompt && (
             <button
               type="button"
-              className="text-xs text-accent-700 underline-offset-2 hover:underline"
+              className="text-caption text-accent-700 underline-offset-2 hover:underline"
               onClick={() => setRaw(false)}
             >
               Show as conversation
@@ -156,12 +156,12 @@ function Prompt({ request }: { request: string }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-medium text-neutral-700">
+        <span className="text-caption font-medium text-neutral-700">
           Prompt · {count(prompt.messages?.length ?? 0, "message")} · {count(prompt.tool_names?.length ?? 0, "tool")} offered
         </span>
         <button
           type="button"
-          className="text-xs text-accent-700 underline-offset-2 hover:underline"
+          className="text-caption text-accent-700 underline-offset-2 hover:underline"
           onClick={() => setRaw(true)}
         >
           Show raw JSON
@@ -170,14 +170,14 @@ function Prompt({ request }: { request: string }) {
       <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
           <div key={index} className="rounded-xl bg-neutral-100 p-3.5">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-neutral-700">
+            <div className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-[0.1em] text-neutral-700">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
               {Array.isArray(message.tool_calls) && message.tool_calls.length > 0 && (
                 <span className="font-normal normal-case">{count(message.tool_calls.length, "tool call")}</span>
               )}
             </div>
-            <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/90">
+            <pre className="scrollbar-slim max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-caption leading-relaxed text-foreground/90">
               {message.content ||
                 (Array.isArray(message.tool_calls) ? JSON.stringify(message.tool_calls, null, 2) : "")}
             </pre>
@@ -185,7 +185,7 @@ function Prompt({ request }: { request: string }) {
         ))}
       </div>
       {prompt.tool_names && prompt.tool_names.length > 0 && (
-        <p className="break-words text-xs text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
+        <p className="break-words text-caption text-muted-foreground">Tools offered: {prompt.tool_names.join(", ")}</p>
       )}
     </div>
   );
@@ -290,7 +290,7 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
         title={`${item.span.name}: ${label} at +${formatDuration(item.offset)}`}
       />
       <span
-        className={`absolute top-0 flex h-full items-center whitespace-nowrap text-xs tabular-nums ${
+        className={`absolute top-0 flex h-full items-center whitespace-nowrap text-caption tabular-nums ${
           placement === "inside" ? "px-2 font-medium text-primary-foreground" : "px-1.5 text-neutral-700"
         }`}
         style={labelStyle}
@@ -324,13 +324,13 @@ function SpanRow({
       className={`trace-step ${selected ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
     >
       <span className="flex min-w-0 items-center gap-3">
-        <span className="w-4 shrink-0 text-xs tabular-nums text-neutral-700">{span.sequence}</span>
+        <span className="w-4 shrink-0 text-caption tabular-nums text-neutral-700">{span.sequence}</span>
         <span className={`h-2 w-2 shrink-0 rounded-full ${barColor(span)}`} />
         <span className="min-w-0" title={span.name}>
-          <span className="block truncate text-sm font-medium">
+          <span className="block truncate text-small font-medium">
             {span.kind === "model_call" ? shortModel(span.name) : span.name}
           </span>
-          <span className="block text-xs text-neutral-700">
+          <span className="block text-caption text-neutral-700">
             {span.kind === "model_call" ? "Model" : "Tool"}
             {span.error ? " · Failed" : ""}
           </span>
@@ -351,10 +351,10 @@ function StepInspector({ item }: { item: Placed }) {
   return (
     <section aria-label="Step inspector" className="trace-hairline-t mt-5 pt-5">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold">
+        <h3 className="text-small font-semibold">
           Step {span.sequence} · {span.name}
         </h3>
-        <span className="text-xs tabular-nums text-neutral-700">
+        <span className="text-caption tabular-nums text-neutral-700">
           Started +{formatDuration(item.offset)} · {formatDuration(item.duration)}
         </span>
       </div>
@@ -364,7 +364,7 @@ function StepInspector({ item }: { item: Placed }) {
         </ErrorBanner>
       )}
       {model && (
-        <p className="mb-4 text-xs tabular-nums text-neutral-700">
+        <p className="mb-4 text-caption tabular-nums text-neutral-700">
           {formatTokens(span.prompt_tokens || 0)} prompt · {formatTokens(span.cached_prompt_tokens || 0)} cached ·{" "}
           {span.cache_write_tokens ? `${formatTokens(span.cache_write_tokens)} cache written · ` : ""}
           {formatTokens(span.completion_tokens || 0)} completion tokens
@@ -373,7 +373,7 @@ function StepInspector({ item }: { item: Placed }) {
       )}
       <div className="grid min-w-0 gap-5 xl:grid-cols-2">
         <div className="min-w-0">
-          <h4 className="mb-3 text-sm font-medium">{model ? "Request" : "Arguments"}</h4>
+          <h4 className="mb-3 text-small font-medium">{model ? "Request" : "Arguments"}</h4>
           {model ? (
             <Prompt request={span.request} />
           ) : (
@@ -381,7 +381,7 @@ function StepInspector({ item }: { item: Placed }) {
           )}
         </div>
         <div className="min-w-0">
-          <h4 className="mb-3 text-sm font-medium">{model ? "Response" : "Output"}</h4>
+          <h4 className="mb-3 text-small font-medium">{model ? "Response" : "Output"}</h4>
           <pre className="code-panel max-h-96">{prettyBody(span.response) || "No output recorded."}</pre>
         </div>
       </div>
@@ -393,23 +393,23 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
   const { placed, window, ticks } = useMemo(() => layoutSpans(trace, spans), [trace, spans]);
   const [sequence, setSequence] = useState<number | null>(null);
   const selected = placed.find((item) => item.span.sequence === sequence);
-  if (!spans.length) return <p className="py-6 text-sm text-neutral-700">This turn recorded no steps.</p>;
+  if (!spans.length) return <p className="py-6 text-small text-neutral-700">This turn recorded no steps.</p>;
   return (
     <div>
       <div className="overflow-hidden rounded-2xl bg-neutral-100">
-        <div className="trace-step trace-axis text-xs text-neutral-700">
+        <div className="trace-step trace-axis text-caption text-neutral-700">
           <span>Step</span>
           <span className="relative h-4">
             {ticks.map((at) => (
               <span
                 key={at}
-                className="absolute -translate-x-1/2 text-xs tabular-nums"
+                className="absolute -translate-x-1/2 text-caption tabular-nums"
                 style={{ left: `${(at / window) * 100}%` }}
               >
                 {formatDuration(at)}
               </span>
             ))}
-            <span className="absolute right-0 text-xs tabular-nums">{formatDuration(window)}</span>
+            <span className="absolute right-0 text-caption tabular-nums">{formatDuration(window)}</span>
           </span>
           <span />
         </div>
@@ -427,7 +427,7 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
       {selected ? (
         <StepInspector key={selected.span.sequence} item={selected} />
       ) : (
-        <p className="mt-3 text-xs text-neutral-700">Select a step to inspect its request and response.</p>
+        <p className="mt-3 text-caption text-neutral-700">Select a step to inspect its request and response.</p>
       )}
     </div>
   );
@@ -457,11 +457,11 @@ function TraceStats({ trace }: { trace: TraceSummary }) {
     <dl className="trace-hairline-t flex flex-wrap gap-x-10 gap-y-4 pt-5">
       {stats.map((stat) => (
         <div key={stat.label} className="min-w-0">
-          <dt className="text-xs text-neutral-700">{stat.label}</dt>
-          <dd className="mt-1 break-words text-sm font-medium tabular-nums" title={stat.title}>
+          <dt className="text-caption text-neutral-700">{stat.label}</dt>
+          <dd className="mt-1 break-words text-small font-medium tabular-nums" title={stat.title}>
             {stat.value}
           </dd>
-          {stat.detail && <dd className="mt-0.5 text-xs tabular-nums text-neutral-700">{stat.detail}</dd>}
+          {stat.detail && <dd className="mt-0.5 text-caption tabular-nums text-neutral-700">{stat.detail}</dd>}
         </div>
       ))}
     </dl>
@@ -473,19 +473,19 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
   return (
     <article className="min-w-0 space-y-6">
       <header>
-        <div className="mb-2.5 flex flex-wrap items-center gap-2.5 text-xs text-neutral-700">
+        <div className="mb-2.5 flex flex-wrap items-center gap-2.5 text-caption text-neutral-700">
           <SourceBadge trace={trace} />
           <span className="tabular-nums">{formatTime(trace.started_at)}</span>
           <span aria-hidden="true">·</span>
           <TraceStatus trace={trace} />
         </div>
-        <h2 className="whitespace-pre-wrap break-words text-lg font-semibold leading-snug">
+        <h2 className="whitespace-pre-wrap break-words text-title font-semibold leading-snug">
           {trace.input || "Unprompted turn"}
         </h2>
         {trace.output && (
           <details className="mt-1">
-            <summary className="cursor-pointer text-sm text-neutral-700 hover:text-foreground">View reply</summary>
-            <p className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-sm leading-7">{trace.output}</p>
+            <summary className="cursor-pointer text-small text-neutral-700 hover:text-foreground">View reply</summary>
+            <p className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-small leading-7">{trace.output}</p>
           </details>
         )}
       </header>
@@ -498,10 +498,10 @@ export function TraceDetailPanel({ detail }: { detail: TraceDetail }) {
       {detail.images && detail.images.length > 0 && <TraceImages key={trace.id} ids={detail.images} />}
       <section aria-label="Execution timeline">
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-          <h3 className="text-sm font-semibold">Timeline</h3>
+          <h3 className="text-small font-semibold">Timeline</h3>
           <div className="ml-auto flex flex-wrap items-center gap-3">
             {WATERFALL_LEGEND.map((entry) => (
-              <span key={entry.label} className="flex items-center gap-1.5 text-xs text-neutral-700">
+              <span key={entry.label} className="flex items-center gap-1.5 text-caption text-neutral-700">
                 <span className={`h-2 w-2 rounded-full ${entry.dot}`} />
                 {entry.label}
               </span>
@@ -520,7 +520,7 @@ function TraceImages({ ids }: { ids: string[] }) {
   const [viewing, setViewing] = useState<number | null>(null);
   return (
     <section aria-label="Images">
-      <h3 className="mb-3 text-sm font-semibold">Images</h3>
+      <h3 className="mb-3 text-small font-semibold">Images</h3>
       <div className="flex flex-wrap gap-3">
         {ids.map((id, at) => (
           <ImageThumb key={id} id={id} onOpen={() => setViewing(at)} className="my-0 [&_img]:max-h-48" />
@@ -533,7 +533,7 @@ function TraceImages({ ids }: { ids: string[] }) {
 
 function TraceStatus({ trace }: { trace: TraceSummary }) {
   return (
-    <span className={`text-xs ${trace.error ? "font-medium text-eg-red-ink" : "text-neutral-700"}`}>
+    <span className={`text-caption ${trace.error ? "font-medium text-eg-red-ink" : "text-neutral-700"}`}>
       {trace.error ? "Failed" : trace.complete ? "Completed" : "Incomplete"}
     </span>
   );
@@ -562,7 +562,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
   if (error)
     return (
       <div role="alert">
-        <p className="mb-3 text-sm text-eg-red-ink">{error}</p>
+        <p className="mb-3 text-small text-eg-red-ink">{error}</p>
         <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>
           Try again
         </Button>
@@ -570,7 +570,7 @@ function TraceInspector({ id, onSessionExpired }: { id: string; onSessionExpired
     );
   if (!detail)
     return (
-      <p role="status" className="text-sm text-neutral-700">
+      <p role="status" className="text-small text-neutral-700">
         Loading turn…
       </p>
     );
@@ -673,8 +673,8 @@ export function TraceBrowser({
     <div ref={browserRef} className="trace-browser">
       <aside aria-label="Conversations" className={`trace-conversations ${selected ? "hidden lg:block" : ""}`}>
         <div className="mb-3 flex items-center justify-between px-1">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-700">Conversations</h2>
-          <span className="text-xs tabular-nums text-neutral-700">{groups.length}</span>
+          <h2 className="text-caption font-semibold uppercase tracking-wider text-neutral-700">Conversations</h2>
+          <span className="text-caption tabular-nums text-neutral-700">{groups.length}</span>
         </div>
         <div className="trace-conversation-list">
           {groups.map((item) => (
@@ -689,8 +689,8 @@ export function TraceBrowser({
               }}
               className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
-              <span className="block truncate text-sm font-medium">{conversationLabel(item, titles)}</span>
-              <span className="mt-0.5 flex items-center gap-1.5 text-xs tabular-nums text-neutral-700">
+              <span className="block truncate text-small font-medium">{conversationLabel(item, titles)}</span>
+              <span className="mt-0.5 flex items-center gap-1.5 text-caption tabular-nums text-neutral-700">
                 <span className="truncate">
                   {count(item.traces.length, "turn")} · {formatShortTime(item.lastAt)}
                 </span>
@@ -707,8 +707,8 @@ export function TraceBrowser({
       </aside>
       <section aria-label="Turns" className={`trace-turns ${selected ? "hidden lg:block" : ""}`}>
         <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
-          <h2 className="truncate text-sm font-semibold">{group ? conversationLabel(group, titles) : "Turns"}</h2>
-          {group && <span className="shrink-0 text-xs tabular-nums text-neutral-700">{count(group.traces.length, "turn")}</span>}
+          <h2 className="truncate text-small font-semibold">{group ? conversationLabel(group, titles) : "Turns"}</h2>
+          {group && <span className="shrink-0 text-caption tabular-nums text-neutral-700">{count(group.traces.length, "turn")}</span>}
         </div>
         <div className="space-y-1">
           {group?.traces.map((trace) => (
@@ -724,8 +724,8 @@ export function TraceBrowser({
               }}
               className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${selected?.id === trace.id ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
-              <span className="line-clamp-2 break-words text-sm leading-5">{trace.input || "Unprompted turn"}</span>
-              <span className="mt-1 flex items-center gap-1.5 text-xs tabular-nums text-neutral-700">
+              <span className="line-clamp-2 break-words text-small leading-5">{trace.input || "Unprompted turn"}</span>
+              <span className="mt-1 flex items-center gap-1.5 text-caption tabular-nums text-neutral-700">
                 <span className="truncate">
                   {formatShortTime(trace.started_at)} · {formatDuration(trace.duration_ms)} · {count(trace.spans, "step")}
                 </span>
@@ -751,7 +751,7 @@ export function TraceBrowser({
             <button
               type="button"
               onClick={() => setTraceId(null)}
-              className="mb-5 flex min-h-11 items-center gap-2 text-sm text-neutral-700 lg:hidden"
+              className="mb-5 flex min-h-11 items-center gap-2 text-small text-neutral-700 lg:hidden"
             >
               <ChevronLeftIcon />
               Back to turns
@@ -760,8 +760,8 @@ export function TraceBrowser({
           </>
         ) : (
           <div className="flex min-h-64 flex-col justify-center gap-2 text-center">
-            <h2 className="text-base font-medium">Select a turn to inspect</h2>
-            <p className="text-sm text-neutral-700">Review its outcome, timing, and individual steps.</p>
+            <h2 className="text-body font-medium">Select a turn to inspect</h2>
+            <p className="text-small text-neutral-700">Review its outcome, timing, and individual steps.</p>
           </div>
         )}
       </section>
@@ -829,7 +829,7 @@ export function TracesPage({ onSessionExpired, onOpenSidebar }: { onSessionExpir
         title="Traces"
         onOpenSidebar={onOpenSidebar}
         className="shrink-0 px-5 py-4 sm:px-6"
-        description={<span className="text-xs tabular-nums">{count(traces.length, "recent turn", "recent turns")}</span>}
+        description={<span className="text-caption tabular-nums">{count(traces.length, "recent turn", "recent turns")}</span>}
         action={
           <Button variant="ghost" onClick={reload} disabled={loading} className="shrink-0 rounded-xl hover:bg-neutral-200">
             {loading ? "Loading…" : "Refresh"}
@@ -845,7 +845,7 @@ export function TracesPage({ onSessionExpired, onOpenSidebar }: { onSessionExpir
         <TraceBrowser traces={traces} titles={titles} onSessionExpired={rowFailed} />
       ) : (
         !error && (
-          <div role="status" className="p-12 text-center text-sm text-neutral-700">
+          <div role="status" className="p-12 text-center text-small text-neutral-700">
             {loading ? "Loading turns…" : "No turns recorded yet. Send a message and it will appear here."}
           </div>
         )

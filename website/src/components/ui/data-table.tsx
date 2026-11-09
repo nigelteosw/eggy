@@ -21,7 +21,7 @@ export function DataTable({
 }) {
   if (!rows || rows.length === 0) {
     return (
-      <div className={cn("rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700", className)}>
+      <div className={cn("rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700", className)}>
         {empty}
       </div>
     );
@@ -33,13 +33,13 @@ export function DataTable({
           sideways scrolling, so below the breakpoint each row becomes a card
           whose values carry their column's label. */}
       <div className="scrollbar-slim hidden overflow-x-auto sm:block">
-        <table className="w-full border-collapse text-left text-sm">
+        <table className="w-full border-collapse text-left text-small">
           <thead>
             <tr>
               {headers?.map((header) => (
                 <th
                   key={header}
-                  className="whitespace-nowrap px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.05em] text-neutral-700"
+                  className="whitespace-nowrap px-4 py-2.5 text-caption font-semibold uppercase tracking-[0.05em] text-neutral-700"
                 >
                   {header}
                 </th>
@@ -70,9 +70,9 @@ export function DataTable({
       <ul className="flex flex-col sm:hidden">
         {rows.map((row, index) => (
           <li key={row[0] ?? index} className="flex flex-col gap-2 px-4 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
-            <span className="break-words text-sm font-medium text-foreground">{row[0]}</span>
+            <span className="break-words text-small font-medium text-foreground">{row[0]}</span>
             {row.slice(1).map((cell, cellIndex) => (
-              <span key={cellIndex + 1} className="flex min-w-0 items-baseline justify-between gap-4 text-xs">
+              <span key={cellIndex + 1} className="flex min-w-0 items-baseline justify-between gap-4 text-caption">
                 <span className="shrink-0 text-neutral-700">{headers?.[cellIndex + 1] ?? ""}</span>
                 <span className="min-w-0 break-words text-right text-foreground">{cell}</span>
               </span>

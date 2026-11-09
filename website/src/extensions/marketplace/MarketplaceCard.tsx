@@ -26,7 +26,7 @@ export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpire
         title={
           <span className="flex flex-wrap items-center gap-2">
             <span>Marketplace</span>
-            <span role="status" aria-label="Marketplace status" className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+            <span role="status" aria-label="Marketplace status" className="rounded-full bg-neutral-100 px-2 py-0.5 text-caption font-medium text-neutral-700">
               {running ? "Running" : "Not running"}
             </span>
           </span>
@@ -48,7 +48,7 @@ export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpire
         </div>
       </form>
       {needsRestart && (
-        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">
+        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
           Restart to apply: the marketplace is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
         </p>
       )}

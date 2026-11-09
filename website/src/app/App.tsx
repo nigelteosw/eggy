@@ -240,7 +240,7 @@ export function App() {
     return (
       <div className="app-canvas flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
         <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
-        <span className="text-sm">Loading...</span>
+        <span className="text-small">Loading...</span>
       </div>
     );
   }
@@ -405,7 +405,7 @@ export function App() {
             </div>
           ) : (
             <div className="app-canvas flex flex-1 items-center justify-center px-6 text-center">
-              <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
+              <p className="text-small text-muted-foreground">Select a chat or start a new one.</p>
             </div>
           )
         ) : view === "scheduled" ? (

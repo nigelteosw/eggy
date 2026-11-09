@@ -43,22 +43,22 @@ export function GoogleIdentity({
           <Button asChild>
             <a href={connectUrl}>Connect Google</a>
           </Button>
-          <p className="text-sm text-neutral-700">Sign in as {account}, not your own account.</p>
+          <p className="text-small text-neutral-700">Sign in as {account}, not your own account.</p>
         </div>
       );
     }
     return (
-      <p className="mx-0.5 text-sm text-neutral-700">
+      <p className="mx-0.5 text-small text-neutral-700">
         Not connected.{expected ? ` Connect as ${expected} with /google login in chat.` : ""}
       </p>
     );
   }
   const mismatch = expected !== "" && connected !== expected && connected !== "unverified";
   return (
-    <div className={`rounded-2xl px-[18px] py-3.5 text-sm ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
+    <div className={`rounded-2xl px-[18px] py-3.5 text-small ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
       <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-eg-red-ink" : "text-accent-900"}`}>
         Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
-        <span className="rounded-md bg-background px-2 py-0.5 text-xs text-neutral-700">Shared with all Eggy users</span>
+        <span className="rounded-md bg-background px-2 py-0.5 text-caption text-neutral-700">Shared with all Eggy users</span>
       </p>
       {mismatch && (
         <p className="mt-1.5 text-eg-red-ink" role="alert">
@@ -70,7 +70,7 @@ export function GoogleIdentity({
       )}
       {connectUrl && (
         <p className="mt-1.5">
-          <a href={connectUrl} className="text-xs underline">
+          <a href={connectUrl} className="text-caption underline">
             Reconnect as {account}
           </a>
         </p>
@@ -172,7 +172,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
           />
         )}
         <details className="rounded-2xl bg-neutral-100 p-4">
-          <summary className="cursor-pointer text-[12.5px] font-medium">Configure Google Workspace</summary>
+          <summary className="cursor-pointer text-small font-medium">Configure Google Workspace</summary>
           <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
             <Input
               placeholder="client_id (xxxx.apps.googleusercontent.com)"
@@ -182,14 +182,14 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
               className={FIELD}
             />
             <fieldset className="flex flex-col gap-2 rounded-2xl bg-background p-3.5">
-              <legend className="px-0.5 pb-2.5 text-[12.5px] font-medium">OAuth client type</legend>
+              <legend className="px-0.5 pb-2.5 text-small font-medium">OAuth client type</legend>
               {(
                 [
                   ["web", "Web application", "Connect from this panel and Google brings you back. Register the redirect URI below on the client."],
                   ["desktop", "Desktop app", "Nothing to register. Run /google login in chat and paste back the page that fails to load."],
                 ] as const
               ).map(([value, label, help]) => (
-                <label key={value} className="flex items-start gap-2 text-sm">
+                <label key={value} className="flex items-start gap-2 text-small">
                   <input
                     type="radio"
                     name="google-client-type"
@@ -200,18 +200,18 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                   />
                   <span>
                     <span className="font-medium">{label}</span>
-                    <span className="block text-xs text-neutral-700">{help}</span>
+                    <span className="block text-caption text-neutral-700">{help}</span>
                   </span>
                 </label>
               ))}
               {clientType === "web" && field(result, "callback_url") && (
-                <p className="text-xs text-neutral-700">
+                <p className="text-caption text-neutral-700">
                   Authorized redirect URI: <code className="select-all break-all">{field(result, "callback_url")}</code>
                 </p>
               )}
             </fieldset>
             <fieldset className="rounded-2xl bg-background p-3.5">
-              <legend className="px-0.5 pb-2.5 text-[12.5px] font-medium">Products</legend>
+              <legend className="px-0.5 pb-2.5 text-small font-medium">Products</legend>
               <div className="flex flex-wrap gap-1.5">
                 {PRODUCTS.map((product) => {
                   const active = products.includes(product);
@@ -223,7 +223,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       aria-checked={active}
                       onClick={() => toggleProduct(product)}
                       className={cn(
-                        "min-h-[34px] rounded-full px-3.5 text-[12.5px] font-medium transition-colors",
+                        "min-h-[34px] rounded-full px-3.5 text-small font-medium transition-colors",
                         active ? "bg-primary text-primary-foreground" : "bg-neutral-100 text-foreground hover:bg-neutral-200",
                       )}
                     >
@@ -234,7 +234,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
               </div>
             </fieldset>
             <details>
-              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 flex flex-col gap-3">
                 <Input
                   placeholder="client_secret_env"
@@ -244,7 +244,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                 />
                 <div className="flex flex-col gap-3 rounded-2xl bg-background p-3.5">
                   <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
-                  <p className="text-xs text-neutral-700">
+                  <p className="text-caption text-neutral-700">
                     New write actions are gated automatically. Turn this off to choose action by action.
                   </p>
                   {!useDefaults &&
@@ -253,12 +253,12 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       if (actions.length === 0) return null;
                       return (
                         <fieldset key={product} className="flex flex-wrap gap-x-3 gap-y-2">
-                          <legend className="pb-1 text-sm font-medium">{product}</legend>
+                          <legend className="pb-1 text-small font-medium">{product}</legend>
                           {actions.map((action) => {
                             const entry = `${product}.${action}`;
                             const writes = list(result, `mutations.${product}`).includes(action);
                             return (
-                              <label key={entry} className="flex items-center gap-1.5 text-sm">
+                              <label key={entry} className="flex items-center gap-1.5 text-small">
                                 <input
                                   type="checkbox"
                                   checked={gated.includes(entry) || gated.includes(`${product}.*`)}
@@ -274,7 +274,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       );
                     })}
                   {!useDefaults && gated.length === 0 && (
-                    <p className="text-xs text-eg-red-ink">Nothing is checked, so Google writes will run without asking.</p>
+                    <p className="text-caption text-eg-red-ink">Nothing is checked, so Google writes will run without asking.</p>
                   )}
                 </div>
               </div>
@@ -287,11 +287,11 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
             </div>
           </form>
         </details>
-        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
+        <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">
           The client secret itself is never stored here — name the environment variable that holds it. After saving,
           restart Eggy, then connect: with the Connect button for a Web client, or <code>/google login</code> in chat.
         </p>
-        {result?.detail && <p className="mx-0.5 text-xs text-neutral-700">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-caption text-neutral-700">{result.detail}</p>}
         {error && (
           <ErrorBanner>
             {error}

@@ -72,8 +72,8 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
       />
 
       <div className="flex items-baseline justify-between gap-3 px-0.5 pb-2">
-        <span className="text-[12.5px] font-medium">watch.md</span>
-        <span className="text-[11.5px] text-neutral-700">An empty list means every beat is skipped</span>
+        <span className="text-small font-medium">watch.md</span>
+        <span className="text-caption text-neutral-700">An empty list means every beat is skipped</span>
       </div>
       <textarea
         spellCheck={false}
@@ -85,7 +85,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
           setDetail(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+        className="min-h-[14rem] w-full whitespace-pre rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button
@@ -98,12 +98,12 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
         </button>
       </div>
       {saved && !detail && (
-        <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
+        <p className="mt-3 text-caption leading-relaxed text-neutral-700" role="status">
           Saved. The next heartbeat reads it — no restart needed.
         </p>
       )}
       {detail && (
-        <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
+        <p className="mt-3 text-caption leading-relaxed text-neutral-700" role="status">
           {detail}
         </p>
       )}

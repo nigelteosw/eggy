@@ -100,28 +100,28 @@ export function McpEnableDialog({
 
   return (
     <div role="dialog" aria-label={`Review ${server}`} className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
-      <h3 className="text-[13px] font-medium">Review {server}</h3>
-      {phase.kind === "loading" && <p className="text-xs text-neutral-700">Connecting to read the server's tools...</p>}
+      <h3 className="text-small font-medium">Review {server}</h3>
+      {phase.kind === "loading" && <p className="text-caption text-neutral-700">Connecting to read the server's tools...</p>}
       {phase.kind === "restart" && (
-        <p className="text-xs leading-relaxed text-neutral-700">
+        <p className="text-caption leading-relaxed text-neutral-700">
           This server was added after Eggy started. Restart Eggy, then review it again.
         </p>
       )}
       {phase.kind === "login" && (
-        <p className="text-xs leading-relaxed text-neutral-700">
+        <p className="text-caption leading-relaxed text-neutral-700">
           This server needs authorization first. <a className="underline" href={`/auth/mcp/${encodeURIComponent(server)}`}>Authorize</a>, then
           review it again.
         </p>
       )}
       {phase.kind === "tools" && (
         <>
-          <p className="text-xs leading-relaxed text-neutral-700">
+          <p className="text-caption leading-relaxed text-neutral-700">
             Ticked tools ask you before each call. Untick a tool only if you trust it to run without asking.
           </p>
           <ul className="flex flex-col gap-2">
             {phase.tools.map((tool) => (
               <li key={tool.name}>
-                <label className="flex items-start gap-2 text-[12.5px]">
+                <label className="flex items-start gap-2 text-small">
                   <input type="checkbox" checked={ticked.has(tool.name)} onChange={() => toggle(tool.name)} className="mt-0.5" />
                   <span>
                     <span className="font-medium">{tool.name}</span>
@@ -137,7 +137,7 @@ export function McpEnableDialog({
         </>
       )}
       {phase.kind === "saved" && (
-        <p role="status" className="text-xs leading-relaxed text-neutral-700">
+        <p role="status" className="text-caption leading-relaxed text-neutral-700">
           Saved. Restart Eggy to connect this server. Only the tools you reviewed are allowed; a tool the server adds later stays off
           until you review it again.
         </p>

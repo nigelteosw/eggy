@@ -55,17 +55,17 @@ export function SkillsPanel({
   }
 
   if (error) return <ErrorBanner>{error}</ErrorBanner>;
-  if (rows === null) return <p className="text-sm text-neutral-700">Loading skills…</p>;
+  if (rows === null) return <p className="text-small text-neutral-700">Loading skills…</p>;
   if (rows.length === 0) {
-    return <p className="text-sm text-neutral-700">No skills yet. Add one to teach Eggy a procedure it can follow.</p>;
+    return <p className="text-small text-neutral-700">No skills yet. Add one to teach Eggy a procedure it can follow.</p>;
   }
-  if (visible.length === 0) return <p className="text-sm text-neutral-700">No skills match “{query.trim()}”.</p>;
+  if (visible.length === 0) return <p className="text-small text-neutral-700">No skills match “{query.trim()}”.</p>;
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="flex items-center gap-2 text-[15px] font-medium">
+      <h2 className="flex items-center gap-2 text-body font-medium">
         Yours
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[12px] text-neutral-700">{rows.length}</span>
+        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-caption text-neutral-700">{rows.length}</span>
       </h2>
       <ul className="flex flex-col divide-y divide-neutral-200 border-y border-neutral-200">
         {visible.map((row) => (
@@ -80,14 +80,14 @@ export function SkillsPanel({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-2">
-                  <span className="truncate font-mono text-[13.5px] text-foreground">{row.name}</span>
+                  <span className="truncate font-mono text-small text-foreground">{row.name}</span>
                   {row.invalid ? (
-                    <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-[11px] text-destructive">Invalid</span>
+                    <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-caption text-destructive">Invalid</span>
                   ) : row.disabled ? (
-                    <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-700">Disabled</span>
+                    <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">Disabled</span>
                   ) : null}
                 </span>
-                <span className="line-clamp-2 text-[13px] leading-5 text-neutral-700">{row.invalid ? `Could not load: ${row.invalid}` : row.description}</span>
+                <span className="line-clamp-2 text-small leading-5 text-neutral-700">{row.invalid ? `Could not load: ${row.invalid}` : row.description}</span>
               </span>
             </button>
             {!row.invalid && (

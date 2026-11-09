@@ -28,16 +28,16 @@ export function GitHubTokenView({
     .join(", ");
   return (
     <section className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
-      <h3 className="text-sm font-medium text-foreground">GitHub token for Agent Runner</h3>
+      <h3 className="text-small font-medium text-foreground">GitHub token for Agent Runner</h3>
       <p className={FIELD_LABEL}>
         A fine-grained token with Contents and Pull requests read and write, for the repositories you allow. Only you see it.
       </p>
       {status.connected ? (
-        <p className="text-sm text-neutral-700" role="status">
+        <p className="text-small text-neutral-700" role="status">
           Connected as {status.login}. {access}
         </p>
       ) : (
-        <p className="text-sm text-neutral-700" role="status">
+        <p className="text-small text-neutral-700" role="status">
           Not connected.
         </p>
       )}
@@ -48,7 +48,7 @@ export function GitHubTokenView({
         }}
         className="flex flex-col gap-2"
       >
-        <label className="flex flex-col gap-1.5 text-[11.5px] text-neutral-700">
+        <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
           {status.connected ? "Replace token" : "Token"}
           <Input
             className={FIELD}

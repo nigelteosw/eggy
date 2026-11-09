@@ -39,8 +39,8 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
       <div className="flex w-full max-w-sm animate-fade-in-up flex-col gap-7">
         <EggyBrand className="justify-center" />
         <div className="flex flex-col gap-1.5 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in to Eggy</h1>
-          <p className="text-sm text-neutral-700">Your conversations stay on this deployment.</p>
+          <h1 className="text-display font-semibold tracking-tight">Sign in to Eggy</h1>
+          <p className="text-small text-neutral-700">Your conversations stay on this deployment.</p>
         </div>
 
         <div className="rounded-3xl bg-card p-6 shadow-lift">
@@ -77,14 +77,14 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
                 />
               </div>
               {error && <ErrorBanner>{error}</ErrorBanner>}
-              <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-xl text-base font-semibold">
+              <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-xl text-body font-semibold">
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>
           )}
         </div>
 
-        <p className="text-center text-xs leading-relaxed text-neutral-700">
+        <p className="text-center text-caption leading-relaxed text-neutral-700">
           On a phone, send /web to Eggy in Telegram for a one-tap sign-in link.
         </p>
       </div>

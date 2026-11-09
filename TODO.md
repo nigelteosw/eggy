@@ -15,10 +15,10 @@ theme tokens, Home, phone layout and most polish have landed.
 
 **Theme**
 
-- [ ] Five text-size tokens and three radii. There are 145 arbitrary
-      `text-[…px]` values in `website/src` (up from 15 at review time), so add a
-      test banning them once they are gone. Geist everywhere, one serif for
-      voice moments only.
+- [ ] Three radii (10 px controls, 16 px cards and dialogs, full for pills).
+      *Done:* the type scale -- caption, small, body, title, display, and a
+      16 px field size -- with Geist everywhere and a test banning other
+      sizes. *Still open:* one serif for voice moments only.
 - [ ] Merge the red families and the remaining raw `amber/emerald` literals
       (marketplace `InstallReview`/`InstalledView`, finance) into `--tomato`,
       `--chive`, `--yolk-soft`.

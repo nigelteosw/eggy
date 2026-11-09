@@ -74,7 +74,7 @@ function KindPicker({ value, onChange }: { value: Kind; onChange: (kind: Kind) =
           aria-checked={kind === value}
           onClick={() => onChange(kind)}
           className={cn(
-            "min-h-10 rounded-xl px-3 text-[13px] font-medium transition-colors",
+            "min-h-10 rounded-xl px-3 text-small font-medium transition-colors",
             kind === value ? "bg-neutral-200 text-foreground" : "text-neutral-700 hover:text-foreground",
           )}
         >
@@ -155,7 +155,7 @@ export function AddEntryForm({
 
   return (
     <details id="finance-add-entry" className="rounded-2xl bg-neutral-100 p-4" open={open} onToggle={(event) => onOpenChange?.(event.currentTarget.open)}>
-      <summary className="cursor-pointer text-[13.5px] font-medium">Add an entry</summary>
+      <summary className="cursor-pointer text-small font-medium">Add an entry</summary>
       <form onSubmit={submit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <KindPicker value={kind} onChange={setKind} />
@@ -320,7 +320,7 @@ export function FinanceReport({
   return (
     <>
       {empty ? (
-        <p className="rounded-2xl bg-neutral-100 px-5 py-8 text-center text-sm leading-6 text-neutral-700">
+        <p className="rounded-2xl bg-neutral-100 px-5 py-8 text-center text-small leading-6 text-neutral-700">
           {`No money logged in ${monthLabel(summary.month)} yet. Tell Eggy what you spent or earned, or add an entry below.`}
         </p>
       ) : (
@@ -338,7 +338,7 @@ export function FinanceReport({
         <section className="flex flex-col gap-3">
           <CardHeader title="Entries" />
           {listControls}
-          {entries.length === 0 && <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">No entries match.</p>}
+          {entries.length === 0 && <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">No entries match.</p>}
           <ul className="flex flex-col gap-2">
             {entries.map((entry) => (
               <li key={entry.id} className="flex flex-col gap-3 rounded-2xl bg-neutral-100 px-4 py-3">
@@ -355,22 +355,22 @@ export function FinanceReport({
                   <>
                     <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{entryTitle(entry)}</p>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-700">
+                        <p className="truncate text-small font-medium">{entryTitle(entry)}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-neutral-700">
                           <CategoryChip name={entry.category} color={colors.get(entry.category) ?? ""} />
                           <span className="tabular-nums">{entry.date}</span>
                           {entry.note && <span className="truncate">{entry.note}</span>}
                         </div>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className={cn("text-sm font-semibold tabular-nums", isCashIn(entry.kind) && "text-emerald-700 dark:text-emerald-400")}>
+                        <p className={cn("text-small font-semibold tabular-nums", isCashIn(entry.kind) && "text-emerald-700 dark:text-emerald-400")}>
                           {signedAmount(entry.kind, entry.currency, entry.amount)}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-neutral-700">{KIND_LABEL[entry.kind as Kind] ?? entry.kind}</p>
+                        <p className="mt-0.5 text-caption text-neutral-700">{KIND_LABEL[entry.kind as Kind] ?? entry.kind}</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-neutral-700">{`via ${entry.source}`}</span>
+                      <span className="text-caption text-neutral-700">{`via ${entry.source}`}</span>
                       <div className="flex gap-1">
                         <button type="button" onClick={() => onEdit(entry.id)} className={SECONDARY_BUTTON}>
                           Edit
@@ -400,7 +400,7 @@ export function Pager({ view, total, shown, onChange }: { view: EntryView; total
   if (total === 0) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-      <label className="flex items-center gap-2 text-xs text-neutral-700">
+      <label className="flex items-center gap-2 text-caption text-neutral-700">
         Show
         <Select
           aria-label="Entries per page"
@@ -419,7 +419,7 @@ export function Pager({ view, total, shown, onChange }: { view: EntryView; total
         </Select>
       </label>
       <div className="flex items-center gap-1">
-        <span className="px-2 text-xs tabular-nums text-neutral-700">{`${first}–${last} of ${total}`}</span>
+        <span className="px-2 text-caption tabular-nums text-neutral-700">{`${first}–${last} of ${total}`}</span>
         <button type="button" aria-label="Previous page" disabled={view.page === 0} onClick={() => onChange({ page: view.page - 1 })} className={SECONDARY_BUTTON}>
           ‹
         </button>
@@ -574,7 +574,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
       <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-4 pb-11 pt-8 sm:px-7 sm:pt-10">
         <header className="flex flex-col gap-3 pb-1">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
+            <h1 className="text-title font-semibold tracking-tight">Finance</h1>
             {onClose && (
               <button
                 type="button"
@@ -592,7 +592,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
               <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(summary.month, -1))} className={SECONDARY_BUTTON}>
                 ‹
               </button>
-              <span className="min-w-[8.5rem] text-center text-sm font-medium">{monthLabel(summary.month)}</span>
+              <span className="min-w-[8.5rem] text-center text-small font-medium">{monthLabel(summary.month)}</span>
               <button type="button" aria-label="Next month" onClick={() => setMonth(shiftMonth(summary.month, 1))} className={SECONDARY_BUTTON}>
                 ›
               </button>
@@ -601,7 +601,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
         </header>
         {error && <ErrorBanner>{error}</ErrorBanner>}
         {!summary || !list ? (
-          !error && <p className="text-sm text-muted-foreground">Loading...</p>
+          !error && <p className="text-small text-muted-foreground">Loading...</p>
         ) : (
           <>
             <FinanceReport

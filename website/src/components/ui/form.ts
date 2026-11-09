@@ -8,12 +8,12 @@ export const FIELD = "rounded-xl border-0 bg-background shadow-[inset_0_0_0_1px_
 // A labelled input in a compact grid, where the Input primitive's height and
 // ring are replaced wholesale rather than layered.
 export const FIELD_COMPACT =
-  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-base text-foreground sm:text-[13px] caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+  "h-[42px] w-full rounded-xl border border-neutral-200 bg-background px-3.5 text-field text-foreground sm:text-small caret-accent-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
-export const FIELD_LABEL = "text-[11.5px] font-normal text-neutral-700";
+export const FIELD_LABEL = "text-caption font-normal text-neutral-700";
 
 export const PRIMARY_BUTTON =
-  "min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-[13.5px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-xl bg-primary px-4 text-small font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
 
 export const SECONDARY_BUTTON =
-  "min-h-10 whitespace-nowrap rounded-xl px-4 text-[13.5px] font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-xl px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";

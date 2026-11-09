@@ -148,12 +148,12 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
           />
         )}
         <details className="rounded-2xl bg-neutral-100 p-4">
-          <summary className="cursor-pointer text-[12.5px] font-medium">Add MCP server</summary>
+          <summary className="cursor-pointer text-small font-medium">Add MCP server</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
             <Input placeholder="url (https://...)" value={url} onChange={(e) => setUrl(e.target.value)} required className={FIELD} />
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <Select value={transport} onChange={(e) => setTransport(e.target.value)} aria-label="Transport" className="bg-background">
                   <option value="streamable-http">streamable-http</option>
@@ -168,7 +168,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                   <>
                     <Input placeholder="oauth_client_id (optional)" value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className={FIELD} />
                     <Input placeholder="oauth_client_secret_env (optional)" value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} className={FIELD} />
-                    <p className="text-xs leading-relaxed text-neutral-700 sm:col-span-2">
+                    <p className="text-caption leading-relaxed text-neutral-700 sm:col-span-2">
                       Leave both empty for dynamic registration. Otherwise use callback{" "}
                       <code className="rounded bg-background px-1 py-0.5 text-[0.9em]">
                         {typeof window === "undefined" ? "" : window.location.origin}/auth/mcp/{name || "<name>"}/callback
@@ -185,7 +185,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
             </Button>
           </form>
         </details>
-        <p className="mx-0.5 text-xs leading-relaxed text-neutral-700">
+        <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">
           Saved servers connect after a restart. OAuth servers then need <strong>Authorize</strong> above. Scopes,
           timeouts, and tool filters stay config.yaml-only.
         </p>

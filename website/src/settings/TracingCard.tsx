@@ -51,17 +51,17 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
       <CardHeader title="Tracing" className="mb-3" description="Choose what the Traces dashboard records and how long it is retained." />
 
       {!row ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">Tracing is off.</p>
+        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Tracing is off.</p>
       ) : (
         <SummaryRows headers={headers} row={row} />
       )}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Configure tracing</summary>
+        <summary className="cursor-pointer text-small font-medium">Configure tracing</summary>
         <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-4">
           <Switch checked={enabled} onCheckedChange={setEnabled} label={enabled ? "Recording turns" : "Not recording turns"} />
           <details>
-            <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+            <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
             <div
               className={`mt-2.5 grid grid-cols-1 gap-2.5 transition-opacity sm:grid-cols-3 ${enabled ? "" : "pointer-events-none opacity-50"}`}
             >
@@ -87,7 +87,7 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
                 <Input id="tracing-max-body" inputMode="numeric" placeholder="1048576" value={maxBodyBytes} onChange={(e) => setMaxBodyBytes(e.target.value)} className={FIELD_COMPACT} />
               </div>
             </div>
-            <p className="mt-2.5 text-xs text-neutral-700">Blank fields use defaults. The first limit reached drops the oldest traces.</p>
+            <p className="mt-2.5 text-caption text-neutral-700">Blank fields use defaults. The first limit reached drops the oldest traces.</p>
           </details>
           <div className="flex flex-wrap gap-2 pt-1">
             <button
@@ -109,7 +109,7 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
         </form>
       </details>
 
-      {result?.detail && <p className="mt-2 text-xs text-neutral-700">{result.detail}</p>}
+      {result?.detail && <p className="mt-2 text-caption text-neutral-700">{result.detail}</p>}
       {error && (
         <ErrorBanner className="mt-3">
           {error}

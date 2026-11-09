@@ -84,8 +84,8 @@ function ImageModelPicker({
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
-      <p className="text-[12.5px] font-medium">Image model</p>
-      <p className="text-xs text-neutral-700">
+      <p className="text-small font-medium">Image model</p>
+      <p className="text-caption text-neutral-700">
         When you ask for a picture, whichever model you are chatting with draws it with this one. Pick an OpenRouter
         alias whose model outputs images.
       </p>
@@ -344,7 +344,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
 
         {browsable.length > 0 && (
           <div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
-            <p className="text-[12.5px] font-medium">Browse a provider</p>
+            <p className="text-small font-medium">Browse a provider</p>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_auto]">
               <Select
                 value={browseProvider}
@@ -386,9 +386,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                         onClick={() => choose(row)}
                         className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-neutral-100"
                       >
-                        <span className="font-mono text-xs [overflow-wrap:anywhere]">{row[0]}</span>
+                        <span className="font-mono text-caption [overflow-wrap:anywhere]">{row[0]}</span>
                         {(row[1] || row[2] || row[3]) && (
-                          <span className="text-xs text-neutral-700">
+                          <span className="text-caption text-neutral-700">
                             {[row[1], row[2] ? `${Number(row[2]).toLocaleString()} ctx` : "", row[3] ? `efforts: ${row[3]}` : ""]
                               .filter(Boolean)
                               .join(" · ")}
@@ -398,10 +398,10 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                     </li>
                   ))}
                   {matches.length === 0 && (
-                    <li className="px-3 py-2 text-sm text-neutral-700">No model matches that filter.</li>
+                    <li className="px-3 py-2 text-small text-neutral-700">No model matches that filter.</li>
                   )}
                 </ul>
-                <p className="text-xs text-neutral-700">
+                <p className="text-caption text-neutral-700">
                   {matches.length} shown. Pick one to fill the form below, then add it as an alias.
                 </p>
               </>
@@ -415,7 +415,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         )}
 
         <details ref={form} className="rounded-2xl bg-neutral-100 p-4">
-          <summary className="cursor-pointer text-[12.5px] font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
+          <summary className="cursor-pointer text-small font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
             <Input
@@ -441,12 +441,12 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               className={cn(FIELD, "sm:col-span-2 font-mono")}
             />
             {catalogEfforts !== null && (
-              <p className="text-xs text-neutral-700 sm:col-span-2" role="status">
+              <p className="text-caption text-neutral-700 sm:col-span-2" role="status">
                 {catalogEfforts ? `Reasoning efforts: ${catalogEfforts}` : "No reasoning efforts"} (from {provider.trim()})
               </p>
             )}
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               {/* The efforts field is typed only when the provider gave no
                   answer, or the owner insists: a catalog answer is the
                   provider's own and rarely worth second-guessing. */}
@@ -465,8 +465,8 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               )}
               {routable && (
                 <>
-                  <p className="mt-3 text-[12.5px] font-medium">OpenRouter routing</p>
-                  <p className="mt-1 text-xs text-neutral-700">
+                  <p className="mt-3 text-small font-medium">OpenRouter routing</p>
+                  <p className="mt-1 text-caption text-neutral-700">
                     Which upstream vendors may serve this alias. Slugs are OpenRouter's (anthropic, amazon-bedrock, deepinfra…).
                   </p>
                   <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
@@ -495,11 +495,11 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </form>
         </details>
         {restartRequired && (
-          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-sm text-accent-900" role="status">
+          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">
             Restart Eggy before using these model changes in chat.
           </p>
         )}
-        {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-small text-neutral-700">{result.detail}</p>}
         {(actionError || error) && (
           <ErrorBanner>
             {actionError || error}

@@ -65,7 +65,7 @@ function Notice({
   return (
     <div
       role={message.tone === "error" ? "alert" : "status"}
-      className={`flex items-start justify-between gap-3 rounded-2xl px-4 py-3 text-sm ${TONE_CLASS[message.tone]}`}
+      className={`flex items-start justify-between gap-3 rounded-2xl px-4 py-3 text-small ${TONE_CLASS[message.tone]}`}
     >
       <span>{message.text}</span>
       {onDismiss && (
@@ -108,7 +108,7 @@ export function AgentRunStartForm({
   );
   if (startable.length === 0) {
     return (
-      <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+      <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">
         No repository is ready. Add one under Repositories, restart Eggy if it says so, then
         turn it on for your account.
       </p>
@@ -122,7 +122,7 @@ export function AgentRunStartForm({
         onStart();
       }}
     >
-      <label className="flex max-w-md flex-col gap-1.5 text-[11.5px] text-neutral-700">
+      <label className="flex max-w-md flex-col gap-1.5 text-caption text-neutral-700">
         Repository
         <Select
           value={repository}
@@ -136,17 +136,17 @@ export function AgentRunStartForm({
           ))}
         </Select>
       </label>
-      <label className="flex flex-col gap-1.5 text-[11.5px] text-neutral-700">
+      <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
         What should change
         <textarea
-          className={`${FIELD} min-h-24 rounded-xl px-3 py-2 text-sm`}
+          className={`${FIELD} min-h-24 rounded-xl px-3 py-2 text-small`}
           value={task}
           onChange={(event) => onTaskChange(event.target.value)}
           aria-label="Task"
           placeholder="Describe the change in a sentence or two"
         />
       </label>
-      <p className="text-xs text-neutral-700">{AGENT_START_COPY}</p>
+      <p className="text-caption text-neutral-700">{AGENT_START_COPY}</p>
       <div>
         <button
           type="submit"
@@ -188,7 +188,7 @@ export function AddRepositoryForm({
       }}
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5 text-[11.5px] text-neutral-700">
+        <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
           Name
           <Input
             className={FIELD}
@@ -198,7 +198,7 @@ export function AddRepositoryForm({
             placeholder="widgets"
           />
         </label>
-        <label className="flex flex-col gap-1.5 text-[11.5px] text-neutral-700">
+        <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
           Base branch
           <Input
             className={FIELD}
@@ -209,7 +209,7 @@ export function AddRepositoryForm({
           />
         </label>
       </div>
-      <label className="flex flex-col gap-1.5 text-[11.5px] text-neutral-700">
+      <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
         GitHub URL
         <Input
           className={FIELD}
@@ -219,7 +219,7 @@ export function AddRepositoryForm({
           placeholder="https://github.com/owner/repo.git"
         />
       </label>
-      <p className="text-xs text-neutral-700">
+      <p className="text-caption text-neutral-700">
         Eggy restarts to apply it, then checks your saved GitHub token against
         the repository on its own.
       </p>
@@ -263,7 +263,7 @@ function RepositoryCard({
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-foreground">{repo.name}</span>
+        <span className="text-small font-medium text-foreground">{repo.name}</span>
         {repo.enabled && !waiting && <Badge tone="good">On</Badge>}
         {repo.pending && <Badge tone="warn">Starts after restart</Badge>}
         {repo.removed && <Badge tone="warn">Removed after restart</Badge>}
@@ -281,22 +281,22 @@ function RepositoryCard({
         label="Allow runs on this repository for my account"
       />
       <details className="group rounded-xl bg-neutral-200/30 px-3 py-2">
-        <summary className="cursor-pointer text-sm text-neutral-700">
+        <summary className="cursor-pointer text-small text-neutral-700">
           Checks ({parsed.length}) · the only commands a run may run
         </summary>
         <div className="mt-3 flex flex-col gap-2">
           <textarea
-            className={`${FIELD} min-h-20 rounded-xl px-3 py-2 font-mono text-xs`}
+            className={`${FIELD} min-h-20 rounded-xl px-3 py-2 font-mono text-caption`}
             value={checks}
             onChange={(event) => setChecks(event.target.value)}
             aria-label={`Checks for ${repo.name}`}
             placeholder={"go vet ./...\ngo test ./..."}
           />
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             One command per line. Changes apply after Eggy restarts.
           </p>
           {parsed.length > MAX_CHECKS && (
-            <p className="text-xs text-red-300">At most {MAX_CHECKS} checks.</p>
+            <p className="text-caption text-red-300">At most {MAX_CHECKS} checks.</p>
           )}
           <div>
             <button
@@ -313,7 +313,7 @@ function RepositoryCard({
       <div className="flex items-center gap-2">
         {confirming ? (
           <>
-            <span className="text-sm text-neutral-700">
+            <span className="text-small text-neutral-700">
               Remove {repo.name}?
             </span>
             <button
@@ -337,7 +337,7 @@ function RepositoryCard({
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              className="text-xs text-neutral-700 underline"
+              className="text-caption text-neutral-700 underline"
             >
               Remove repository
             </button>
@@ -533,7 +533,7 @@ export function AgentRunnerPage({
         {waiting.length > 0 && (
           <div
             role="status"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-950/30 px-4 py-3 text-sm"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-950/30 px-4 py-3 text-small"
           >
             <span>
               {waiting.length === 1
@@ -571,7 +571,7 @@ export function AgentRunnerPage({
                 aria-controls="agent-runner-panel"
                 onClick={() => setTab(item.id)}
                 className={cn(
-                  "min-h-9 rounded-lg px-3.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                  "min-h-9 rounded-lg px-3.5 text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                   tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                 )}
               >
@@ -611,7 +611,7 @@ export function AgentRunnerPage({
                 }
               >
                 {runs.length === 0 ? (
-                  <p className="text-sm text-neutral-700">No runs yet.</p>
+                  <p className="text-small text-neutral-700">No runs yet.</p>
                 ) : (
                   <ul className="flex flex-col gap-2">
                     {runs.slice(0, RECENT_RUNS).map((run) => (
@@ -644,7 +644,7 @@ export function AgentRunnerPage({
                   />
                 )}
                 {repos !== null && repos.length === 0 && !adding && (
-                  <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+                  <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">
                     No repositories yet. Add one to let Eggy work on it.
                   </p>
                 )}

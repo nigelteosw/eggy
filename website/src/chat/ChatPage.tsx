@@ -154,14 +154,14 @@ function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCop
         onClick={(event) => event.stopPropagation()}
         className="flex w-full flex-col gap-1 rounded-t-3xl bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lift"
       >
-        <button type="button" onClick={onReply} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-sm font-medium transition-colors hover:bg-neutral-100">
+        <button type="button" onClick={onReply} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-small font-medium transition-colors hover:bg-neutral-100">
           <ReplyIcon className="h-4 w-4" />
           Reply
         </button>
-        <button type="button" onClick={onCopy} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-sm font-medium transition-colors hover:bg-neutral-100">
+        <button type="button" onClick={onCopy} className="flex min-h-12 items-center gap-3 rounded-2xl px-4 text-left text-small font-medium transition-colors hover:bg-neutral-100">
           Copy
         </button>
-        <button type="button" onClick={onClose} className="min-h-12 rounded-2xl px-4 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100">
+        <button type="button" onClick={onClose} className="min-h-12 rounded-2xl px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-100">
           Cancel
         </button>
       </div>
@@ -227,7 +227,7 @@ function MessageTime({ at }: { at: string }) {
       type="button"
       title={full}
       onClick={() => setExact((current) => !current)}
-      className="flex min-h-7 items-center rounded-lg px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      className="flex min-h-7 items-center rounded-lg px-2 text-caption text-muted-foreground transition-colors hover:text-foreground"
     >
       <time dateTime={at}>{exact ? full : timeAgo(at, Date.now())}</time>
     </button>
@@ -242,9 +242,9 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   return (
     <div
       className={cn(
-        "prose max-w-none break-words text-[0.9375rem] leading-7",
+        "prose max-w-none break-words text-body leading-7",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        "prose-pre:rounded-md prose-pre:text-[0.8125rem] prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
+        "prose-pre:rounded-md prose-pre:text-small prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
         isUserBubble
           ? "user-message prose-pre:bg-black/20"
           : "assistant-message prose-code:rounded prose-code:bg-muted prose-code:px-1 prose-code:py-0.5",
@@ -283,7 +283,7 @@ function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds
     ? (steps[steps.length - 1] ?? "I'm typing")
     : `Used ${steps.length} ${steps.length === 1 ? "tool" : "tools"}${seconds !== null ? ` · ${seconds}s` : ""}`;
   return (
-    <div className="text-sm">
+    <div className="text-small">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -301,7 +301,7 @@ function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds
         <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </button>
       {open && steps.length > 0 && (
-        <ul className="mt-2 space-y-2 border-l border-border pl-4 text-[0.8125rem] text-muted-foreground">
+        <ul className="mt-2 space-y-2 border-l border-border pl-4 text-small text-muted-foreground">
           {steps.map((step, index) => {
             const running = live && index === steps.length - 1;
             return (
@@ -325,7 +325,7 @@ function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds
 function ThoughtBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="text-sm">
+    <div className="text-small">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
@@ -382,7 +382,7 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
           if (event.key === "Enter") finish(true);
           if (event.key === "Escape") finish(false);
         }}
-        className="min-w-0 max-w-full rounded-lg bg-neutral-100 px-2 py-1 text-base font-medium tracking-tight outline-none ring-2 ring-ring/40"
+        className="min-w-0 max-w-full rounded-lg bg-neutral-100 px-2 py-1 text-field font-medium tracking-tight outline-none ring-2 ring-ring/40"
       />
     );
   }
@@ -395,7 +395,7 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
         onClick={() => setMenuOpen((open) => !open)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        className="flex max-w-full items-center gap-1 rounded-lg px-2 py-1 text-base font-medium tracking-tight transition-colors hover:bg-neutral-100 disabled:hover:bg-transparent"
+        className="flex max-w-full items-center gap-1 rounded-lg px-2 py-1 text-body font-medium tracking-tight transition-colors hover:bg-neutral-100 disabled:hover:bg-transparent"
       >
         <span className="truncate">{title}</span>
         {renamable && <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
@@ -408,7 +408,7 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
               type="button"
               role="menuitem"
               onClick={startEditing}
-              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-small transition-colors hover:bg-neutral-100"
             >
               Rename
             </button>
@@ -425,8 +425,8 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
 export function ApprovalCard({ approval, onDecide }: { approval: PendingApproval; onDecide: (approved: boolean) => void }) {
   const [showDetails, setShowDetails] = useState(false);
   return (
-    <div className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-2xl bg-eg-ask p-[18px] text-sm text-eg-ask-ink">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold">
+    <div className="ml-[2.6rem] max-w-lg animate-fade-in-up self-start rounded-2xl bg-eg-ask p-[18px] text-small text-eg-ask-ink">
+      <div className="mb-2 flex items-center gap-2 text-caption font-semibold">
         <LockIcon className="h-3.5 w-3.5" />
         Needs your approval
       </div>
@@ -437,13 +437,13 @@ export function ApprovalCard({ approval, onDecide }: { approval: PendingApproval
             type="button"
             aria-expanded={showDetails}
             onClick={() => setShowDetails((open) => !open)}
-            className="flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
+            className="flex items-center gap-1 text-caption font-medium underline-offset-2 hover:underline"
           >
             {showDetails ? "Hide details" : "Show details"}
             <ChevronDownIcon className={cn("h-3.5 w-3.5 transition-transform", showDetails && "rotate-180")} />
           </button>
           {showDetails && (
-            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-background/70 p-3 font-mono text-xs leading-relaxed text-foreground">
+            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-background/70 p-3 font-mono text-caption leading-relaxed text-foreground">
               {approval.details}
             </pre>
           )}
@@ -815,7 +815,7 @@ export function ChatPage({
             }}
             style={{ top: selection.top, left: selection.left }}
             className={cn(
-              "absolute z-10 flex -translate-y-[calc(100%+8px)] items-center gap-2 rounded-xl bg-foreground px-3.5 py-2 text-sm font-medium text-background shadow-lg",
+              "absolute z-10 flex -translate-y-[calc(100%+8px)] items-center gap-2 rounded-xl bg-foreground px-3.5 py-2 text-small font-medium text-background shadow-lg",
               "hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
             )}
           >
@@ -826,7 +826,7 @@ export function ChatPage({
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
             <div className="py-16 text-center">
-              <p className="text-sm text-muted-foreground">Start by asking a question or describing a task.</p>
+              <p className="text-small text-muted-foreground">Start by asking a question or describing a task.</p>
             </div>
           )}
           {messages.map((message, index) => {
@@ -835,11 +835,11 @@ export function ChatPage({
               const { quote: quoted, body } = splitQuote(message.text);
               return (
                 <div key={message.id} data-message-id={message.id} data-role="user" className="group flex animate-fade-in-up flex-col items-end gap-1">
-                  <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-sm text-foreground sm:max-w-[72%] sm:px-5">
+                  <div className="max-w-[88%] rounded-2xl bg-surface px-4 py-3 text-small text-foreground sm:max-w-[72%] sm:px-5">
                     {quoted !== null && (
                       <div className="mb-2.5 flex items-start rounded-xl bg-black/5 px-3 py-2">
                         <span aria-hidden="true" className="mr-2.5 w-0.5 shrink-0 self-stretch rounded-full bg-muted-foreground/50" />
-                        <p className="line-clamp-4 whitespace-pre-line break-words text-xs leading-5 text-foreground/75">{quoted}</p>
+                        <p className="line-clamp-4 whitespace-pre-line break-words text-caption leading-5 text-foreground/75">{quoted}</p>
                       </div>
                     )}
                     <MessageBody text={body} isUserBubble />
@@ -861,7 +861,7 @@ export function ChatPage({
             // latest reply once the turn has finished.
             const retryFrom = isLatest && !typing ? previousUserIndex(index) : -1;
             return (
-              <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-sm">
+              <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-small">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
                 <MessageFooter
@@ -880,7 +880,7 @@ export function ChatPage({
             <ApprovalCard key={approval.id} approval={approval} onDecide={(approved) => handleApproval(approval.id, approved)} />
           ))}
           {decisions.map((decision) => (
-            <p key={decision.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+            <p key={decision.id} className="flex items-center gap-2 text-caption text-muted-foreground">
               <span className="font-medium text-foreground">
                 {decision.approved ? "Approved" : "Declined"}
               </span>
@@ -888,7 +888,7 @@ export function ChatPage({
             </p>
           ))}
           {error && (
-            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+            <p className="rounded-xl bg-destructive/10 px-3 py-2 text-small text-destructive" role="alert">
               {error}
             </p>
           )}

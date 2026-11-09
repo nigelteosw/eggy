@@ -73,7 +73,7 @@ export function RestartCard({ onSessionExpired }: { onSessionExpired: () => void
           </ErrorBanner>
         )}
         {restarted && (
-          <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">
+          <p className="flex flex-wrap items-center gap-2 rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
             Restarting. In-flight turns finish first, so give it a few seconds.
             <Button type="button" variant="ghost" size="sm" onClick={() => window.location.reload()}>
               Reload panel

@@ -9,8 +9,8 @@ export function SummaryRows({ headers, row }: { headers: string[]; row: string[]
           key={label}
           className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]"
         >
-          <span className="min-w-0 text-sm">{label}</span>
-          <span className="min-w-0 text-right text-[13.5px] tabular-nums text-neutral-700 [overflow-wrap:anywhere]">{row[i]}</span>
+          <span className="min-w-0 text-small">{label}</span>
+          <span className="min-w-0 text-right text-small tabular-nums text-neutral-700 [overflow-wrap:anywhere]">{row[i]}</span>
         </div>
       ))}
     </div>

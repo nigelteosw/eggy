@@ -14,8 +14,8 @@ export function CardHeader({
 }) {
   return (
     <div className={cn("mx-0.5", className)}>
-      <h3 className="text-[15px] font-semibold tracking-tight">{title}</h3>
-      {description && <p className="mt-1.5 max-w-[620px] text-[12.5px] leading-relaxed text-neutral-700">{description}</p>}
+      <h3 className="text-body font-semibold tracking-tight">{title}</h3>
+      {description && <p className="mt-1.5 max-w-[620px] text-small leading-relaxed text-neutral-700">{description}</p>}
     </div>
   );
 }

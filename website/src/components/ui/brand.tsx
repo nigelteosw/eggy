@@ -14,7 +14,7 @@ export function EggyBrand({ className }: { className?: string }) {
       >
         <span className="h-2 w-2 rounded-full bg-[#dba400]" />
       </span>
-      <span className="text-[18px] font-[760] tracking-[-0.03em]">Eggy</span>
+      <span className="text-title font-[760] tracking-[-0.03em]">Eggy</span>
     </span>
   );
 }

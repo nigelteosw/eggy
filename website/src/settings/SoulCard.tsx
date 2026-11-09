@@ -77,8 +77,8 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
         }
       />
       <div className="flex items-baseline justify-between gap-3 px-0.5 pb-2">
-        <span className="text-[12.5px] font-medium">SOUL.md</span>
-        <span className="text-[11.5px] text-neutral-700">Up to 4 KB</span>
+        <span className="text-small font-medium">SOUL.md</span>
+        <span className="text-caption text-neutral-700">Up to 4 KB</span>
       </div>
       <textarea
         spellCheck={false}
@@ -88,7 +88,7 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
           setStatus(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre-wrap rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-[12.5px] leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+        className="min-h-[14rem] w-full whitespace-pre-wrap rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={() => save(soul)} disabled={loading || saving} className={PRIMARY_BUTTON}>
@@ -98,14 +98,14 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
           type="button"
           onClick={() => save("")}
           disabled={loading || saving}
-          className="text-xs text-neutral-700 underline-offset-4 hover:underline"
+          className="text-caption text-neutral-700 underline-offset-4 hover:underline"
         >
           Reset to built-in soul
         </button>
       </div>
       <SaveBar dirty={!loading && soul !== savedSoul} saving={saving} label="Save soul" onSave={() => save(soul)} />
       {status && (
-        <p className="mt-3 text-xs leading-relaxed text-neutral-700" role="status">
+        <p className="mt-3 text-caption leading-relaxed text-neutral-700" role="status">
           {status}
         </p>
       )}

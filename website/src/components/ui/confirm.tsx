@@ -57,11 +57,11 @@ export function ConfirmDialog({ title, body, confirmLabel, destructive = false, 
         className="flex w-full flex-col gap-4 rounded-t-3xl bg-card p-6 shadow-lift sm:max-w-sm sm:rounded-2xl"
       >
         <div className="flex flex-col gap-1.5">
-          <h2 id="confirm-title" className="text-base font-semibold tracking-tight">
+          <h2 id="confirm-title" className="text-body font-semibold tracking-tight">
             {title}
           </h2>
           {body && (
-            <p id="confirm-body" className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
+            <p id="confirm-body" className="whitespace-pre-line text-small leading-relaxed text-neutral-700">
               {body}
             </p>
           )}
@@ -71,7 +71,7 @@ export function ConfirmDialog({ title, body, confirmLabel, destructive = false, 
             ref={cancelRef}
             type="button"
             onClick={() => onAnswer(false)}
-            className="min-h-11 rounded-xl px-4 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-200 sm:min-h-10"
+            className="min-h-11 rounded-xl px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 sm:min-h-10"
           >
             Cancel
           </button>
@@ -79,7 +79,7 @@ export function ConfirmDialog({ title, body, confirmLabel, destructive = false, 
             type="button"
             onClick={() => onAnswer(true)}
             className={cn(
-              "min-h-11 rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-90 sm:min-h-10",
+              "min-h-11 rounded-xl px-4 text-small font-semibold transition-opacity hover:opacity-90 sm:min-h-10",
               destructive ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
             )}
           >

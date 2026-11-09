@@ -138,6 +138,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family:
+      Geist,
       ui-sans-serif,
       system-ui,
       -apple-system,
@@ -198,11 +199,11 @@
   }
 
   .section-eyebrow {
-    @apply text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-primary;
+    @apply text-caption font-semibold uppercase tracking-[0.14em] text-primary;
   }
 
   .code-panel {
-    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-neutral-100 p-3.5 font-mono text-xs leading-relaxed text-neutral-800;
+    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-neutral-100 p-3.5 font-mono text-caption leading-relaxed text-neutral-800;
   }
 
   details > summary {

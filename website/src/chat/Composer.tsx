@@ -40,7 +40,7 @@ function ModelMenu({
         onClick={() => (open ? close() : setOpen(true))}
         title="Which model runs the next turn, and how hard it thinks"
         className={cn(
-          "flex h-9 min-w-0 items-center gap-1.5 rounded-xl px-2 text-xs transition-colors hover:bg-neutral-200 disabled:opacity-60",
+          "flex h-9 min-w-0 items-center gap-1.5 rounded-xl px-2 text-caption transition-colors hover:bg-neutral-200 disabled:opacity-60",
           open && "bg-neutral-200",
         )}
       >
@@ -61,7 +61,7 @@ function ModelMenu({
                   close();
                   if (model !== agent.model) onModel(model);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100"
+                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
               >
                 <span className="truncate">{model}</span>
                 {model === agent.model && <CheckIcon className="h-4 w-4 shrink-0 text-accent-700" />}
@@ -74,7 +74,7 @@ function ModelMenu({
                   type="button"
                   aria-expanded={effortsOpen}
                   onClick={() => setEffortsOpen((current) => !current)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
                 >
                   <span>Effort</span>
                   <span className="flex items-center gap-1 text-muted-foreground">
@@ -93,7 +93,7 @@ function ModelMenu({
                         close();
                         if (effort !== agent.effort) onEffort(effort);
                       }}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2 pl-6 pr-3 text-left text-sm text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
+                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2 pl-6 pr-3 text-left text-small text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
                     >
                       <span>{titleCase(effort)}</span>
                       {effort === agent.effort && <CheckIcon className="h-4 w-4 shrink-0 text-accent-700" />}
@@ -212,7 +212,7 @@ export function Composer({
     <form onSubmit={submit} className="composer-dock shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8 sm:pb-7">
       <div className="mx-auto w-full max-w-4xl">
         {note && (
-          <p className="mb-2 rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
+          <p className="mb-2 rounded-xl bg-destructive/10 px-3 py-2 text-caption text-destructive" role="alert">
             {note}
           </p>
         )}
@@ -223,7 +223,7 @@ export function Composer({
             <div className="px-3 pt-3">
               <div className="relative inline-flex max-w-[16rem] items-start rounded-2xl bg-background px-3 py-2.5 pr-8 shadow-sm">
                 <span aria-hidden="true" className="mr-2.5 mt-0.5 w-0.5 shrink-0 self-stretch rounded-full bg-muted-foreground/50" />
-                <p className="line-clamp-6 whitespace-pre-line break-words text-xs leading-5 text-foreground/85">{quote.text}</p>
+                <p className="line-clamp-6 whitespace-pre-line break-words text-caption leading-5 text-foreground/85">{quote.text}</p>
                 <button
                   type="button"
                   aria-label="Remove quoted text"
@@ -253,7 +253,7 @@ export function Composer({
                 }
               }}
               placeholder={quote ? "Reply to the quoted text..." : "Ask Eggy anything..."}
-              className="scrollbar-slim max-h-[220px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-base leading-relaxed outline-none placeholder:text-muted-foreground/70"
+              className="scrollbar-slim max-h-[220px] min-w-0 flex-1 resize-none bg-transparent py-2.5 text-field leading-relaxed outline-none placeholder:text-muted-foreground/70"
             />
             {running && onStop && !draft.trim() ? (
               <button
@@ -301,7 +301,7 @@ export function Composer({
               onClick={() => changeApproval("normal")}
               disabled={busy}
               title={APPROVAL_TITLES[agent.approval_mode]}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-eg-ask px-3 text-xs font-medium text-eg-ask-ink transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-eg-ask px-3 text-caption font-medium text-eg-ask-ink transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               {APPROVAL_WARNINGS[agent.approval_mode] ?? agent.approval_mode}
               <span className="font-normal underline underline-offset-2">Restore</span>

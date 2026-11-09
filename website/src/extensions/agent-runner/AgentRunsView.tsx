@@ -30,7 +30,7 @@ export function Badge({ children, tone = "plain" }: { children: ReactNode; tone?
       : tone === "good"
         ? "bg-emerald-950/50 text-emerald-200"
         : "bg-neutral-200/60 text-neutral-700";
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${toneClass}`}>{children}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-caption font-medium ${toneClass}`}>{children}</span>;
 }
 
 export function Section({ title, hint, action, children }: { title: string; hint?: string; action?: ReactNode; children: ReactNode }) {
@@ -38,8 +38,8 @@ export function Section({ title, hint, action, children }: { title: string; hint
     <section className="flex flex-col gap-3">
       <div className="flex items-end justify-between gap-3">
         <div className="flex flex-col gap-0.5">
-          <h3 className="text-sm font-medium text-foreground">{title}</h3>
-          {hint && <p className="text-xs text-neutral-700">{hint}</p>}
+          <h3 className="text-small font-medium text-foreground">{title}</h3>
+          {hint && <p className="text-caption text-neutral-700">{hint}</p>}
         </div>
         {action}
       </div>
@@ -60,13 +60,13 @@ export function AgentRunRow({ run, onOpen }: { run: AgentRun; onOpen: (id: strin
       >
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">{run.repository}</span>
+            <span className="truncate text-small font-medium text-foreground">{run.repository}</span>
             <Badge tone={runTone(run.state)}>{stateLabel(run.state)}</Badge>
           </span>
-          {briefTitle(run.brief) && <span className="truncate text-sm text-foreground">{briefTitle(run.brief)}</span>}
-          <span className="line-clamp-2 text-sm text-neutral-700">{runHeadline(run)}</span>
+          {briefTitle(run.brief) && <span className="truncate text-small text-foreground">{briefTitle(run.brief)}</span>}
+          <span className="line-clamp-2 text-small text-neutral-700">{runHeadline(run)}</span>
         </span>
-        <span className="flex shrink-0 flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-neutral-700 sm:flex-col sm:items-end">
+        <span className="flex shrink-0 flex-wrap gap-x-3 gap-y-0.5 text-caption text-neutral-700 sm:flex-col sm:items-end">
           <span>{timeAgo(run.created_at)}</span>
           {run.used_tokens > 0 && <span>{formatTokens(run.used_tokens)} tokens</span>}
         </span>
@@ -101,7 +101,7 @@ export function AgentRunsList({
               type="button"
               aria-pressed={selected}
               onClick={() => onFilterChange(item.id)}
-              className={`flex min-h-8 items-center gap-1.5 rounded-full px-3 text-xs transition-colors ${
+              className={`flex min-h-8 items-center gap-1.5 rounded-full px-3 text-caption transition-colors ${
                 selected ? "bg-foreground text-background" : "bg-neutral-100 text-neutral-700 hover:text-foreground"
               }`}
             >
@@ -112,7 +112,7 @@ export function AgentRunsList({
         })}
       </div>
       {shown.length === 0 ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-sm text-neutral-700">{emptyRunsCopy(runs.length, filter)}</p>
+        <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">{emptyRunsCopy(runs.length, filter)}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {shown.map((run) => (
@@ -177,7 +177,7 @@ export function AgentRunDetailView({
         )}
         {onDelete && canDelete(run.state) && confirming && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-neutral-700">Delete this run and its steps? A pull request it opened stays on GitHub.</span>
+            <span className="text-small text-neutral-700">Delete this run and its steps? A pull request it opened stays on GitHub.</span>
             <button type="button" disabled={busy} onClick={onDelete} className={SECONDARY_BUTTON}>
               Yes, delete
             </button>
@@ -190,23 +190,23 @@ export function AgentRunDetailView({
 
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-base font-medium text-foreground">{run.repository}</h3>
+          <h3 className="text-body font-medium text-foreground">{run.repository}</h3>
           <Badge tone={runTone(run.state)}>{stateLabel(run.state)}</Badge>
         </div>
         {run.brief && (
           <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
-            <h4 className="text-xs font-medium text-neutral-700">Task</h4>
-            <p className="whitespace-pre-wrap break-words text-sm text-foreground">{run.brief}</p>
+            <h4 className="text-caption font-medium text-neutral-700">Task</h4>
+            <p className="whitespace-pre-wrap break-words text-small text-foreground">{run.brief}</p>
           </div>
         )}
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-small sm:grid-cols-4">
           <Fact label="Started" value={timeAgo(run.created_at)} title={new Date(run.created_at).toLocaleString()} />
           <Fact label="Working time" value={run.active_seconds > 0 ? formatDuration(run.active_seconds) : "—"} />
           <Fact label="Tokens" value={run.used_tokens > 0 ? formatTokens(run.used_tokens) : "—"} />
           <Fact label="Base branch" value={run.base_branch || "—"} />
         </dl>
         {run.branch && (
-          <p className="text-xs text-neutral-700">
+          <p className="text-caption text-neutral-700">
             Working branch <code className="rounded bg-neutral-200/60 px-1 py-0.5">{run.branch}</code>
           </p>
         )}
@@ -221,8 +221,8 @@ export function AgentRunDetailView({
             setAnswer("");
           }}
         >
-          <h4 className="text-sm font-medium text-foreground">The agent is asking you</h4>
-          <p className="text-sm text-neutral-700">{run.question}</p>
+          <h4 className="text-small font-medium text-foreground">The agent is asking you</h4>
+          <p className="text-small text-neutral-700">{run.question}</p>
           <Input className={FIELD} value={answer} onChange={(event) => setAnswer(event.target.value)} aria-label="Your answer" />
           <div>
             <button type="submit" disabled={busy || answer.trim() === ""} className={PRIMARY_BUTTON}>
@@ -235,11 +235,11 @@ export function AgentRunDetailView({
       {run.pr_url && (
         <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <h4 className="text-sm font-medium text-foreground">{run.draft ? "Draft pull request" : "Pull request"}</h4>
+            <h4 className="text-small font-medium text-foreground">{run.draft ? "Draft pull request" : "Pull request"}</h4>
             {run.draft && <Badge>Draft</Badge>}
           </div>
-          {run.pr_title && <p className="text-sm text-foreground">{run.pr_title}</p>}
-          <a href={run.pr_url} target="_blank" rel="noreferrer" className="break-all text-sm underline">
+          {run.pr_title && <p className="text-small text-foreground">{run.pr_title}</p>}
+          <a href={run.pr_url} target="_blank" rel="noreferrer" className="break-all text-small underline">
             {run.pr_url}
           </a>
         </div>
@@ -247,18 +247,18 @@ export function AgentRunDetailView({
 
       {isStopped(run.state) && (
         <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
-          <h4 className="text-sm font-medium text-foreground">Why it stopped</h4>
-          <p className="text-sm text-neutral-700">{run.failure || "No reason was recorded for this run."}</p>
-          {run.stage && <p className="text-xs text-neutral-700">Stopped at: {stageLabel(run.stage)}</p>}
+          <h4 className="text-small font-medium text-foreground">Why it stopped</h4>
+          <p className="text-small text-neutral-700">{run.failure || "No reason was recorded for this run."}</p>
+          {run.stage && <p className="text-caption text-neutral-700">Stopped at: {stageLabel(run.stage)}</p>}
         </div>
       )}
 
       {showProgress && (
         <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
-          <h4 className="text-sm font-medium text-foreground">Progress</h4>
+          <h4 className="text-small font-medium text-foreground">Progress</h4>
           <ol className="flex flex-wrap gap-x-5 gap-y-1.5">
             {publishProgress(run.stage ?? "").map((checkpoint) => (
-              <li key={checkpoint.label} className={`flex items-center gap-1.5 text-sm ${checkpoint.done ? "text-foreground" : "text-neutral-500"}`}>
+              <li key={checkpoint.label} className={`flex items-center gap-1.5 text-small ${checkpoint.done ? "text-foreground" : "text-neutral-500"}`}>
                 <span aria-hidden="true">{checkpoint.done ? "✓" : "○"}</span>
                 {checkpoint.label}
               </li>
@@ -269,25 +269,25 @@ export function AgentRunDetailView({
 
       <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-sm font-medium text-foreground">What happened</h4>
+          <h4 className="text-small font-medium text-foreground">What happened</h4>
           {modelCalls > 0 && (
-            <button type="button" onClick={() => setShowModel((on) => !on)} className="text-xs text-neutral-700 underline">
+            <button type="button" onClick={() => setShowModel((on) => !on)} className="text-caption text-neutral-700 underline">
               {showModel ? "Hide model calls" : `Show ${modelCalls} model call${modelCalls === 1 ? "" : "s"}`}
             </button>
           )}
         </div>
-        {steps.length === 0 && <p className="text-sm text-neutral-700">No steps recorded yet.</p>}
+        {steps.length === 0 && <p className="text-small text-neutral-700">No steps recorded yet.</p>}
         {steps.length > 0 && visibleSteps.length === 0 && (
-          <p className="text-sm text-neutral-700">Only model calls so far. Show them to see each one.</p>
+          <p className="text-small text-neutral-700">Only model calls so far. Show them to see each one.</p>
         )}
         {visibleSteps.length > 0 && (
           <ol className="flex flex-col gap-2">
             {visibleSteps.map((step) => (
               <li key={step.seq} className="flex flex-col gap-0.5 border-l border-neutral-300 pl-3">
-                <span className="text-[11px] text-neutral-700">
+                <span className="text-caption text-neutral-700">
                   {new Date(step.at).toLocaleTimeString()} · {step.kind}
                 </span>
-                <span className="whitespace-pre-wrap break-words text-sm text-neutral-700">{step.text}</span>
+                <span className="whitespace-pre-wrap break-words text-small text-neutral-700">{step.text}</span>
               </li>
             ))}
           </ol>
@@ -296,8 +296,8 @@ export function AgentRunDetailView({
 
       {run.output && (
         <details className="rounded-2xl bg-neutral-100 p-4">
-          <summary className="cursor-pointer text-sm font-medium text-foreground">What the run produced</summary>
-          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-xs text-neutral-700">{run.output}</pre>
+          <summary className="cursor-pointer text-small font-medium text-foreground">What the run produced</summary>
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-caption text-neutral-700">{run.output}</pre>
         </details>
       )}
     </div>
@@ -307,8 +307,8 @@ export function AgentRunDetailView({
 function Fact({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-[11.5px] text-neutral-700">{label}</dt>
-      <dd className="text-sm text-foreground" title={title}>
+      <dt className="text-caption text-neutral-700">{label}</dt>
+      <dd className="text-small text-foreground" title={title}>
         {value}
       </dd>
     </div>

@@ -68,10 +68,10 @@ export function WebLoginLinkPage({
     <div className="app-canvas relative flex min-h-screen items-center justify-center overflow-hidden px-4">
       <div className="relative w-full max-w-sm animate-fade-in-up">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-100 text-2xl">🥚</div>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-100 text-display">🥚</div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Sign in from Telegram</h1>
-            <p className="mt-1 text-sm text-neutral-700">This link was requested with /web in a Telegram chat.</p>
+            <h1 className="text-display font-semibold tracking-tight">Sign in from Telegram</h1>
+            <p className="mt-1 text-small text-neutral-700">This link was requested with /web in a Telegram chat.</p>
           </div>
         </div>
         <div className="flex flex-col gap-4 rounded-3xl bg-neutral-100 p-6 shadow-lift">
@@ -79,25 +79,25 @@ export function WebLoginLinkPage({
             <ErrorBanner>This link is incomplete. Send /web to Eggy in Telegram again and open the new link.</ErrorBanner>
           )}
           {status === "failed" && error && <ErrorBanner>{error}</ErrorBanner>}
-          {status === "done" && <p className="text-sm">Signed in. Opening the panel…</p>}
+          {status === "done" && <p className="text-small">Signed in. Opening the panel…</p>}
           {(status === "ready" || status === "pending") && (
             <>
-              <p className="text-sm">
+              <p className="text-small">
                 Continue using the account that requested this Telegram link. This may replace your current sign-in.
               </p>
               {currentUsername && (
-                <p className="text-sm text-neutral-700">
+                <p className="text-small text-neutral-700">
                   This browser is currently signed in as <strong>{currentUsername}</strong>.
                 </p>
               )}
-              <Button type="button" onClick={proceed} disabled={status === "pending"} className="h-12 w-full rounded-xl text-base font-semibold">
+              <Button type="button" onClick={proceed} disabled={status === "pending"} className="h-12 w-full rounded-xl text-body font-semibold">
                 {status === "pending" ? "Signing in…" : "Continue"}
               </Button>
-              <p className="text-xs text-neutral-700">The link works once and expires five minutes after it was sent.</p>
+              <p className="text-caption text-neutral-700">The link works once and expires five minutes after it was sent.</p>
             </>
           )}
           {(status === "failed" || status === "missing") && (
-            <a href="/" className="text-center text-sm text-primary underline-offset-4 hover:underline">
+            <a href="/" className="text-center text-small text-primary underline-offset-4 hover:underline">
               Go to the sign-in page
             </a>
           )}

@@ -13,7 +13,7 @@ export function CategoryDot({ color, className }: { color: string; className?: s
 
 export function CategoryChip({ name, color }: { name: string; color: string }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-foreground">
+    <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-neutral-200 px-2 py-0.5 text-caption text-foreground">
       <CategoryDot color={color} />
       <span className="truncate">{name}</span>
     </span>
@@ -39,11 +39,11 @@ export function CategoriesPanel({
   if (categories.length === 0) return null;
   return (
     <details className="rounded-2xl bg-neutral-100 p-4">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13.5px] font-medium">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-small font-medium">
         Categories
-        <span className="text-[12px] tabular-nums text-neutral-700">{categories.length}</span>
+        <span className="text-caption tabular-nums text-neutral-700">{categories.length}</span>
       </summary>
-      <p className="mt-3 text-[12px] leading-5 text-neutral-700">
+      <p className="mt-3 text-caption leading-5 text-neutral-700">
         Pick a colour for each. Renaming a category to the name of another merges the two, and keeps the colour of the one you rename into.
       </p>
       <ul className="mt-4 flex flex-col gap-3">
@@ -85,9 +85,9 @@ function CategoryRow({
     <li className="flex flex-col gap-3 rounded-xl bg-background px-4 py-3">
       <div className="flex items-center gap-3">
         <CategoryDot color={category.color} className="h-3 w-3" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{category.name}</span>
-        <span className="text-[11.5px] tabular-nums text-neutral-700">{entriesWord(category.count)}</span>
-        <button type="button" aria-expanded={renaming} onClick={() => setRenaming((open) => !open)} className={cn(SECONDARY_BUTTON, "min-h-9 px-3 text-[12.5px]")}>
+        <span className="min-w-0 flex-1 truncate text-small font-medium">{category.name}</span>
+        <span className="text-caption tabular-nums text-neutral-700">{entriesWord(category.count)}</span>
+        <button type="button" aria-expanded={renaming} onClick={() => setRenaming((open) => !open)} className={cn(SECONDARY_BUTTON, "min-h-9 px-3 text-small")}>
           Rename
         </button>
       </div>

@@ -96,7 +96,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
   return (
     <section className="flex flex-col gap-3">
       {error && <ErrorBanner>{error}</ErrorBanner>}
-      {installs.length === 0 && <p className="text-xs text-neutral-700">Nothing installed from a marketplace yet.</p>}
+      {installs.length === 0 && <p className="text-caption text-neutral-700">Nothing installed from a marketplace yet.</p>}
       <ul className="flex flex-col gap-2">
         {installs.map((status) => {
           const { install } = status;
@@ -104,21 +104,21 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
           return (
             <li key={install.id} className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-[12.5px] font-medium">
+                <span className="text-small font-medium">
                   {install.item} <span className="font-normal text-neutral-700">from {install.source}</span>
                 </span>
-                <span className="text-xs text-neutral-700">
+                <span className="text-caption text-neutral-700">
                   {STATUS_LABEL[status.status] ?? status.status}
                   {install.disabled ? " · disabled" : ""}
                 </span>
               </div>
-              <p className="text-xs text-neutral-700">
+              <p className="text-caption text-neutral-700">
                 <code>{install.commit_sha.slice(0, 7)}</code> · installed by {install.installed_by} on{" "}
                 {new Date(install.installed_at).toLocaleDateString()}
               </p>
-              {status.edited.length > 0 && <p className="text-xs text-amber-800">Edited here: {status.edited.map(editedLabel).join(", ")}</p>}
+              {status.edited.length > 0 && <p className="text-caption text-amber-800">Edited here: {status.edited.map(editedLabel).join(", ")}</p>}
               {plan && status.status === "update_available" && (
-                <p className="text-xs text-neutral-700">A new version is ready to review.</p>
+                <p className="text-caption text-neutral-700">A new version is ready to review.</p>
               )}
               <div className="flex flex-wrap gap-1">
                 <Button type="button" variant="ghost" size="sm" onClick={() => check(status)}>
@@ -141,9 +141,9 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
               </div>
               {removing?.install.id === install.id && (
                 <div className="flex flex-col gap-2 rounded-lg bg-background p-2">
-                  <p className="text-xs">Removing deletes what this install wrote.</p>
+                  <p className="text-caption">Removing deletes what this install wrote.</p>
                   {status.edited.map((file) => (
-                    <label key={fileKey(file)} className="flex items-center gap-2 text-[12.5px]">
+                    <label key={fileKey(file)} className="flex items-center gap-2 text-small">
                       <input
                         type="checkbox"
                         checked={ticked.has(fileKey(file))}

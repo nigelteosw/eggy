@@ -34,13 +34,13 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
       <CardHeader title="Heartbeat" className="mb-3" description="A periodic check-in that messages you only when something needs attention." />
 
       {!row ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-sm text-neutral-700">Heartbeat is off.</p>
+        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Heartbeat is off.</p>
       ) : (
         <SummaryRows headers={headers} row={row} />
       )}
 
       <details className="rounded-2xl bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-[12.5px] font-medium">Configure heartbeat</summary>
+        <summary className="cursor-pointer text-small font-medium">Configure heartbeat</summary>
         <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input
@@ -51,7 +51,7 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
             />
           </div>
           <details>
-            <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+            <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
             <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <Input
                 placeholder="instruction (optional)"
@@ -86,7 +86,7 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
         <SaveBar dirty={dirty} saving={saving} label="Save check-ins" onSave={submit} />
       </details>
 
-      {result?.detail && <p className="mt-2 text-xs text-neutral-700">{result.detail}</p>}
+      {result?.detail && <p className="mt-2 text-caption text-neutral-700">{result.detail}</p>}
       {error && (
         <ErrorBanner className="mt-3">
           {error}

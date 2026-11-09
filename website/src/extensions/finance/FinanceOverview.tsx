@@ -35,7 +35,7 @@ export function CurrencySwitch({ currencies, value, onChange }: { currencies: st
           aria-selected={code === value}
           onClick={() => onChange(code)}
           className={cn(
-            "min-h-10 rounded-full px-4 text-[12.5px] font-medium tabular-nums transition-colors",
+            "min-h-10 rounded-full px-4 text-small font-medium tabular-nums transition-colors",
             code === value ? "bg-background text-foreground shadow-subtle" : "text-neutral-700 hover:text-foreground",
           )}
         >
@@ -49,9 +49,9 @@ export function CurrencySwitch({ currencies, value, onChange }: { currencies: st
 function Tile({ label, value, move, note }: { label: string; value: string; move?: Movement | null; note?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl bg-neutral-100 p-4">
-      <p className="text-[11.5px] text-neutral-700">{label}</p>
-      <p className="truncate text-[17px] font-semibold tabular-nums tracking-tight">{value}</p>
-      <p className="truncate text-[11.5px] text-neutral-700">
+      <p className="text-caption text-neutral-700">{label}</p>
+      <p className="truncate text-title font-semibold tabular-nums tracking-tight">{value}</p>
+      <p className="truncate text-caption text-neutral-700">
         {move ? (
           <>
             <MovementText move={move} /> vs last month
@@ -72,12 +72,12 @@ export function Overview({ flow, currency }: { flow: FinanceFlow; currency: stri
   return (
     <section aria-label="Overview" className="flex flex-col gap-3">
       <div className="rounded-3xl bg-neutral-100 p-5 sm:p-6">
-        <p className="text-[11.5px] font-medium uppercase tracking-wide text-neutral-700">Left over this month</p>
-        <p className={cn("mt-2 text-[34px] font-semibold leading-none tracking-tight tabular-nums sm:text-[40px]", negative && "text-eg-red-ink")}>
+        <p className="text-caption font-medium uppercase tracking-wide text-neutral-700">Left over this month</p>
+        <p className={cn("mt-2 text-display font-semibold leading-none tracking-tight tabular-nums sm:text-display", negative && "text-eg-red-ink")}>
           {money(currency, flow.net)}
         </p>
-        <p className="mt-2 text-[12px] text-neutral-700">After spending and investing.</p>
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-[12.5px]">
+        <p className="mt-2 text-caption text-neutral-700">After spending and investing.</p>
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-small">
           {flow.savings_rate !== null && (
             <span className="rounded-full bg-background px-3 py-1 font-medium tabular-nums">{`${flow.savings_rate}% saved`}</span>
           )}
@@ -103,7 +103,7 @@ export function Insights({ items }: { items: string[] }) {
   return (
     <ul aria-label="Insights" className="flex flex-col gap-2">
       {items.map((text) => (
-        <li key={text} className="flex items-start gap-3 rounded-2xl bg-neutral-100 px-4 py-3 text-[13.5px] leading-6">
+        <li key={text} className="flex items-start gap-3 rounded-2xl bg-neutral-100 px-4 py-3 text-small leading-6">
           <span aria-hidden className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
           {text}
         </li>
@@ -120,7 +120,7 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
     <section className="flex flex-col gap-3">
       <CardHeader title="Last six months" description="Money in and out, month by month." />
       <div className="rounded-2xl bg-neutral-100 p-4">
-        <div className="mb-4 flex gap-4 text-[11.5px] text-neutral-700">
+        <div className="mb-4 flex gap-4 text-caption text-neutral-700">
           <span className="flex items-center gap-1.5">
             <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-eg-green" /> In
           </span>
@@ -139,10 +139,10 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
                 <span className="w-2.5 rounded-t-md bg-eg-green sm:w-3.5" style={{ height: percentOf(point.inflow_share) }} />
                 <span className="w-2.5 rounded-t-md bg-eg-red sm:w-3.5" style={{ height: percentOf(point.outflow_share) }} />
               </div>
-              <span className={cn("text-[11.5px]", point.month === current ? "font-semibold text-foreground" : "text-neutral-700")}>
+              <span className={cn("text-caption", point.month === current ? "font-semibold text-foreground" : "text-neutral-700")}>
                 {monthShort(point.month)}
               </span>
-              <span className="w-full truncate text-center text-[10.5px] tabular-nums text-neutral-700">{point.net}</span>
+              <span className="w-full truncate text-center text-caption tabular-nums text-neutral-700">{point.net}</span>
             </li>
           ))}
         </ol>
@@ -159,7 +159,7 @@ export function Spending({ lines, currency }: { lines: FinanceSpending[]; curren
       <CardHeader title="Where it went" description={`${currency}, by category, against last month.`} />
       <div className="flex flex-col gap-4 rounded-2xl bg-neutral-100 p-4">
         {lines.length === 0 ? (
-          <p className="text-sm text-neutral-700">{`Nothing spent in ${currency} this month.`}</p>
+          <p className="text-small text-neutral-700">{`Nothing spent in ${currency} this month.`}</p>
         ) : (
           <>
             <div role="img" aria-label="Spending split by category" className="flex h-3 overflow-hidden rounded-full bg-neutral-200">
@@ -174,15 +174,15 @@ export function Spending({ lines, currency }: { lines: FinanceSpending[]; curren
                   <li key={line.category} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0" title={`Last month: ${currency} ${line.previous}`}>
                     <CategoryDot color={line.color} className="h-3 w-3" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{line.category}</p>
-                      <p className="flex flex-wrap items-center gap-x-2 text-[11.5px] text-neutral-700">
+                      <p className="truncate text-small font-medium">{line.category}</p>
+                      <p className="flex flex-wrap items-center gap-x-2 text-caption text-neutral-700">
                         <span>{entriesWord(line.count)}</span>
                         {move && <MovementText move={move} />}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold tabular-nums">{line.amount}</p>
-                      <p className="text-[11.5px] tabular-nums text-neutral-700">{`${Math.round(line.share * 100)}%`}</p>
+                      <p className="text-small font-semibold tabular-nums">{line.amount}</p>
+                      <p className="text-caption tabular-nums text-neutral-700">{`${Math.round(line.share * 100)}%`}</p>
                     </div>
                   </li>
                 );
@@ -219,7 +219,7 @@ export function DailyStrip({ days, flow, currency, from, to }: { days: FinanceDa
           </ol>
           <span aria-hidden className="pointer-events-none absolute inset-x-0 border-t border-dashed border-foreground/50" style={{ bottom: percentOf(flow.average_share) }} />
         </div>
-        <div className="mt-2 flex justify-between text-[11px] text-neutral-700">
+        <div className="mt-2 flex justify-between text-caption text-neutral-700">
           <span>{dayLabel(from)}</span>
           <span>{dayLabel(to)}</span>
         </div>

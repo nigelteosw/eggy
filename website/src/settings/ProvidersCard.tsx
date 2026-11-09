@@ -39,12 +39,12 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
       <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No providers configured yet." />
         <details className="rounded-2xl bg-neutral-100 p-4">
-          <summary className="cursor-pointer text-[12.5px] font-medium">Add provider</summary>
+          <summary className="cursor-pointer text-small font-medium">Add provider</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
             <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required className={FIELD} />
             <details className="sm:col-span-2">
-              <summary className="cursor-pointer text-[12.5px] text-neutral-700">Advanced options</summary>
+              <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required className={FIELD} />
                 <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required className={FIELD} />
@@ -61,7 +61,7 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
             </Button>
           </form>
         </details>
-        {result?.detail && <p className="mx-0.5 text-[12.5px] text-neutral-700">{result.detail}</p>}
+        {result?.detail && <p className="mx-0.5 text-small text-neutral-700">{result.detail}</p>}
         {error && (
           <ErrorBanner>
             {error}

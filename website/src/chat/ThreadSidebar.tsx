@@ -143,14 +143,14 @@ function NavRow({
       disabled={disabled}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
+        "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
         active ? "bg-background font-medium shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
       )}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge && (
-        <span aria-label={`${badge} waiting for you`} className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
+        <span aria-label={`${badge} waiting for you`} className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-caption font-semibold text-primary-foreground">
           {badge}
         </span>
       )}
@@ -477,7 +477,7 @@ export function ThreadSidebar({
                       setExtensionsOpen(false);
                       onOpenExtension(extension.id);
                     }}
-                    className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-sm text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
+                    className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-small text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
                   >
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{extension.icon}</span>
                     {extension.label}
@@ -490,13 +490,13 @@ export function ThreadSidebar({
       </nav>
 
       {error && (
-        <p className="mx-3 mb-2 rounded-xl bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive" role="alert">
+        <p className="mx-3 mb-2 rounded-xl bg-destructive/10 px-2.5 py-1.5 text-caption text-destructive" role="alert">
           {error}
         </p>
       )}
 
       {undoable && (
-        <div role="status" className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-card py-1 pl-3 pr-1 text-xs shadow-subtle">
+        <div role="status" className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-card py-1 pl-3 pr-1 text-caption shadow-subtle">
           <span className="min-w-0 flex-1 truncate">Deleted “{undoable.title || "New chat"}”</span>
           <button
             type="button"
@@ -518,18 +518,18 @@ export function ThreadSidebar({
               onChange={(event) => setChatQuery(event.target.value)}
               placeholder="Search chats"
               aria-label="Search chats"
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-small text-foreground placeholder:text-neutral-500 focus-visible:outline-none"
             />
           </label>
         )}
         {threads.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
+          <p className="px-2 py-6 text-center text-caption text-muted-foreground">No chats yet.</p>
         ) : matching.length === 0 ? (
-          <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats match “{chatQuery.trim()}”.</p>
+          <p className="px-2 py-6 text-center text-caption text-muted-foreground">No chats match “{chatQuery.trim()}”.</p>
         ) : (
           groups.map((group) => (
             <section key={group.label} aria-label={group.label} className="flex flex-col gap-0.5">
-              <h2 className="px-2.5 pb-2 pt-4 text-xs font-medium text-muted-foreground">{group.label}</h2>
+              <h2 className="px-2.5 pb-2 pt-4 text-caption font-medium text-muted-foreground">{group.label}</h2>
               {group.threads.map((thread) => {
                 const active = view === "chat" && thread.id === activeThreadId;
                 if (thread.id === renamingId) {
@@ -546,7 +546,7 @@ export function ThreadSidebar({
                         if (event.key === "Enter") commitRename(thread.id);
                         if (event.key === "Escape") setRenamingId(null);
                       }}
-                      className="h-11 w-full rounded-2xl bg-background px-3 text-sm outline-none ring-2 ring-ring/40"
+                      className="h-11 w-full rounded-2xl bg-background px-3 text-small outline-none ring-2 ring-ring/40"
                     />
                   );
                 }
@@ -557,7 +557,7 @@ export function ThreadSidebar({
                       onClick={() => pickThread(thread.id)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex h-9 w-full items-center rounded-xl pl-2.5 pr-9 text-left text-sm transition-colors",
+                        "flex h-9 w-full items-center rounded-xl pl-2.5 pr-9 text-left text-small transition-colors",
                         active ? "bg-background font-medium shadow-subtle" : "font-normal text-foreground/80 hover:bg-neutral-200/60",
                       )}
                     >
@@ -593,14 +593,14 @@ export function ThreadSidebar({
                         <button
                           type="button"
                           onClick={() => startRename(thread)}
-                          className="h-11 w-full px-3 text-left text-sm text-foreground/90 hover:bg-neutral-100"
+                          className="h-11 w-full px-3 text-left text-small text-foreground/90 hover:bg-neutral-100"
                         >
                           Rename
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDelete(thread)}
-                          className="h-11 w-full px-3 text-left text-sm text-destructive hover:bg-destructive/10"
+                          className="h-11 w-full px-3 text-left text-small text-destructive hover:bg-destructive/10"
                         >
                           Delete
                         </button>

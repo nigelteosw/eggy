@@ -42,7 +42,7 @@ export function AgentRunnerSettingsView({
         title={
           <span className="flex flex-wrap items-center gap-2">
             <span>Agent Runner</span>
-            <span role="status" aria-label="Agent Runner status" className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
+            <span role="status" aria-label="Agent Runner status" className="rounded-full bg-neutral-100 px-2 py-0.5 text-caption font-medium text-neutral-700">
               {running ? "Running" : "Not running"}
             </span>
           </span>
@@ -57,7 +57,7 @@ export function AgentRunnerSettingsView({
         className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
       >
         <Switch checked={enabled} onCheckedChange={onEnabledChange} label="Enable Agent Runner" />
-        <label className="flex max-w-md flex-col gap-1.5 text-[11.5px] text-neutral-700">
+        <label className="flex max-w-md flex-col gap-1.5 text-caption text-neutral-700">
           Coding model
           <Input
             className={FIELD}
@@ -81,7 +81,7 @@ export function AgentRunnerSettingsView({
         </div>
       </form>
       {restart && (
-        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-sm text-neutral-700" role="status">
+        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
           Restart to apply: Agent Runner is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
         </p>
       )}

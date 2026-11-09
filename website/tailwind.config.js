@@ -3,11 +3,23 @@ export default {
   darkMode: ["class"],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
+    // Five sizes and a field size, replacing Tailwind's scale rather than
+    // extending it, so a size outside the set does not exist to reach for.
+    // Field is 16 px because a phone zooms on focus below it; it is for form
+    // controls only. tests/type-scale.test.ts holds the set, and src/lib/utils
+    // tells tailwind-merge these are sizes.
+    fontSize: {
+      caption: ["12px", { lineHeight: "16px" }],
+      small: ["13px", { lineHeight: "18px" }],
+      body: ["15px", { lineHeight: "22px" }],
+      field: ["16px", { lineHeight: "24px" }],
+      title: ["18px", { lineHeight: "24px" }],
+      display: ["24px", { lineHeight: "30px" }],
+    },
     extend: {
       fontFamily: {
-        sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
-        // The wordmark's face. Used where the brand is shown (the sign-in page),
-        // not app-wide, so the rest of the panel keeps the system UI face.
+        // Geist everywhere: panel, sign-in and docs share one face.
+        sans: ["Geist", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
         brand: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
       },

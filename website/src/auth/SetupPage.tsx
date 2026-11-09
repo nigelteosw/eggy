@@ -140,12 +140,12 @@ export function SetupPage() {
     <main className="app-canvas min-h-screen px-4 py-8 sm:py-12">
       <form className="mx-auto flex w-full max-w-3xl flex-col gap-6" onSubmit={submit}>
         <header>
-          <p className="text-sm font-medium text-accent-700">First-run setup</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Configure Eggy</h1>
-          <p className="mt-2 text-sm text-neutral-700">Settings are written to config.yaml. Credential values stay in your deployment environment.</p>
+          <p className="text-small font-medium text-accent-700">First-run setup</p>
+          <h1 className="mt-1 text-display font-semibold tracking-tight">Configure Eggy</h1>
+          <p className="mt-2 text-small text-neutral-700">Settings are written to config.yaml. Credential values stay in your deployment environment.</p>
         </header>
 
-        {!authorized && !error && <p className="rounded-2xl bg-neutral-100 p-3.5 text-sm text-neutral-700">Authorizing this setup link…</p>}
+        {!authorized && !error && <p className="rounded-2xl bg-neutral-100 p-3.5 text-small text-neutral-700">Authorizing this setup link…</p>}
         {sections.map((section) => (
           <section key={section.title} className="flex flex-col gap-3">
             <CardHeader
@@ -158,7 +158,7 @@ export function SetupPage() {
                   <Label htmlFor="provider-preset">Provider</Label>
                   <select
                     id="provider-preset"
-                    className={`mt-2 h-11 w-full rounded-xl bg-background px-3 text-base ${FIELD}`}
+                    className={`mt-2 h-11 w-full rounded-xl bg-background px-3 text-field ${FIELD}`}
                     defaultValue=""
                     disabled={completed}
                     onChange={(event) => {
@@ -206,7 +206,7 @@ export function SetupPage() {
                     onChange={(event) => update(field.name, event.target.value)}
                     disabled={completed}
                   />
-                  {field.hint && <p className="mt-1 text-xs text-neutral-700">{field.hint}</p>}
+                  {field.hint && <p className="mt-1 text-caption text-neutral-700">{field.hint}</p>}
                 </div>
               ))}
             </div>
@@ -218,7 +218,7 @@ export function SetupPage() {
         {validation && (
           <section className="flex flex-col gap-3">
             <CardHeader title="Deployment variables" />
-            <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4 text-sm">
+            <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4 text-small">
               {Object.entries(validation.variables).map(([name, present]) => (
                 <p key={name} className={present ? "text-neutral-700" : "text-eg-red-ink"}>
                   <span className="font-mono">{name}</span>: {present ? "present" : "missing"}
@@ -232,7 +232,7 @@ export function SetupPage() {
         )}
         {error && <ErrorBanner>{error}</ErrorBanner>}
         {completed ? (
-          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-sm text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
+          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
         ) : (
           <div><Button type="submit" disabled={!authorized || busy} className="rounded-xl">{busy ? "Checking…" : "Validate and start"}</Button></div>
         )}

@@ -24,13 +24,13 @@ export function RestartBar({ onSessionExpired }: { onSessionExpired: () => void 
   }
 
   return (
-    <div role="status" className="flex flex-wrap items-center gap-3 bg-eg-ask px-4 py-2.5 text-sm text-eg-ask-ink sm:px-8">
+    <div role="status" className="flex flex-wrap items-center gap-3 bg-eg-ask px-4 py-2.5 text-small text-eg-ask-ink sm:px-8">
       <span className="min-w-0 flex-1">Changes to your settings take effect after a restart.</span>
       <button
         type="button"
         onClick={restart}
         disabled={restarting}
-        className="min-h-9 rounded-xl bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="min-h-9 rounded-xl bg-primary px-3.5 text-small font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
       >
         {restarting ? "Restarting…" : "Restart now"}
       </button>

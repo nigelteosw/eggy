@@ -96,7 +96,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                     aria-controls="customize-panel"
                     onClick={() => go({ tab: item.id, skill: null }, false)}
                     className={cn(
-                      "min-h-11 rounded-lg px-3.5 text-sm transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      "min-h-11 rounded-lg px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       route.tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                     )}
                   >
@@ -115,7 +115,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search skills"
                       aria-label="Search skills"
-                      className="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 sm:h-9 sm:text-sm"
+                      className="h-11 min-w-0 flex-1 border-0 bg-transparent p-0 text-field shadow-none focus-visible:ring-0 sm:h-9 sm:text-small"
                     />
                   </label>
                   <button type="button" onClick={() => go({ tab: "skills", skill: "new" })} className={cn(PRIMARY_BUTTON, "min-h-11 shrink-0 sm:min-h-10")}>

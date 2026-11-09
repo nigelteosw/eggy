@@ -58,13 +58,13 @@ export function AppearanceCard({
               onClick={() => choose(option.value)}
               aria-pressed={selected}
               className={cn(
-                "flex items-center gap-3 rounded-2xl p-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
+                "flex items-center gap-3 rounded-card p-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
                 selected ? "bg-accent-100 shadow-[inset_0_0_0_1px_hsl(var(--accent-300))]" : "bg-neutral-100 hover:bg-neutral-200",
               )}
             >
               <span
                 aria-hidden
-                className={cn("h-[38px] w-[38px] shrink-0 rounded-xl shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]", option.swatch)}
+                className={cn("h-[38px] w-[38px] shrink-0 rounded-control shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]", option.swatch)}
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-small font-medium">{option.label}</span>

@@ -12,7 +12,7 @@ export function ImageThumb({ id, onOpen, className }: { id: string; onOpen: () =
         type="button"
         onClick={onOpen}
         aria-label="View image"
-        className="block cursor-zoom-in overflow-hidden rounded-2xl bg-muted ring-1 ring-border/70 transition-shadow hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="block cursor-zoom-in overflow-hidden rounded-card bg-muted ring-1 ring-border/70 transition-shadow hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         <img src={imageURL(id)} alt="Generated image" loading="lazy" className="block max-h-[28rem] max-w-full transition-transform duration-300 group-hover/image:scale-[1.015]" />
       </button>
@@ -140,7 +140,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
           onLoad={() => setLoaded(true)}
           onClick={(event) => event.stopPropagation()}
           className={cn(
-            "max-h-full max-w-full select-none rounded-xl object-contain shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] transition-all duration-300",
+            "max-h-full max-w-full select-none rounded-control object-contain shadow-[0_24px_80px_-12px_rgba(0,0,0,0.8)] transition-all duration-300",
             loaded ? "scale-100 opacity-100" : "scale-[0.98] opacity-0",
           )}
         />
@@ -173,7 +173,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
                 setCurrent(at);
               }}
               className={cn(
-                "h-14 w-14 shrink-0 overflow-hidden rounded-lg ring-2 transition-all",
+                "h-14 w-14 shrink-0 overflow-hidden rounded-control ring-2 transition-all",
                 at === current ? "opacity-100 ring-white/90" : "opacity-50 ring-transparent hover:opacity-80",
               )}
             >
@@ -255,7 +255,7 @@ export function ImagePlaceholder() {
       role="img"
       aria-label="Drawing an image"
       aria-busy="true"
-      className="image-placeholder relative aspect-square w-full max-w-[22rem] animate-fade-in-up overflow-hidden rounded-3xl bg-surface ring-1 ring-border/70"
+      className="image-placeholder relative aspect-square w-full max-w-[22rem] animate-fade-in-up overflow-hidden rounded-card bg-surface ring-1 ring-border/70"
     >
       <span className="image-placeholder-dots absolute inset-0" aria-hidden="true" />
       <span className="image-placeholder-sheen absolute inset-0" aria-hidden="true" />

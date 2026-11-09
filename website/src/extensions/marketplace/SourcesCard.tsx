@@ -39,7 +39,7 @@ export function SourcesCard({ onSessionExpired }: { onSessionExpired: () => void
         Public GitHub repositories only. Sources apply to the next check; turning the marketplace on or off takes effect after a restart.
       </p>
       {rows.map((row, index) => (
-        <div key={index} className="grid grid-cols-1 gap-2 rounded-xl bg-neutral-100 p-3 sm:grid-cols-2">
+        <div key={index} className="grid grid-cols-1 gap-2 rounded-card bg-neutral-100 p-3 sm:grid-cols-2">
           <Input aria-label="Source name" placeholder="name" value={row.name} onChange={(e) => update(index, { name: e.target.value })} />
           <Select aria-label="Source kind" value={row.kind} onChange={(e) => update(index, { kind: e.target.value })} className="bg-background">
             <option value="skills_repo">Skills repository</option>

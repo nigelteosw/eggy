@@ -48,7 +48,7 @@ export function CurrencySwitch({ currencies, value, onChange }: { currencies: st
 
 function Tile({ label, value, move, note }: { label: string; value: string; move?: Movement | null; note?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 rounded-2xl bg-neutral-100 p-4">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-card bg-neutral-100 p-4">
       <p className="text-caption text-neutral-700">{label}</p>
       <p className="truncate text-title font-semibold tabular-nums tracking-tight">{value}</p>
       <p className="truncate text-caption text-neutral-700">
@@ -71,7 +71,7 @@ export function Overview({ flow, currency }: { flow: FinanceFlow; currency: stri
   const negative = flow.net.startsWith("-");
   return (
     <section aria-label="Overview" className="flex flex-col gap-3">
-      <div className="rounded-3xl bg-neutral-100 p-5 sm:p-6">
+      <div className="rounded-card bg-neutral-100 p-5 sm:p-6">
         <p className="text-caption font-medium uppercase tracking-wide text-neutral-700">Left over this month</p>
         <p className={cn("mt-2 text-display font-semibold leading-none tracking-tight tabular-nums sm:text-display", negative && "text-eg-red-ink")}>
           {money(currency, flow.net)}
@@ -103,7 +103,7 @@ export function Insights({ items }: { items: string[] }) {
   return (
     <ul aria-label="Insights" className="flex flex-col gap-2">
       {items.map((text) => (
-        <li key={text} className="flex items-start gap-3 rounded-2xl bg-neutral-100 px-4 py-3 text-small leading-6">
+        <li key={text} className="flex items-start gap-3 rounded-card bg-neutral-100 px-4 py-3 text-small leading-6">
           <span aria-hidden className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
           {text}
         </li>
@@ -119,13 +119,13 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
   return (
     <section className="flex flex-col gap-3">
       <CardHeader title="Last six months" description="Money in and out, month by month." />
-      <div className="rounded-2xl bg-neutral-100 p-4">
+      <div className="rounded-card bg-neutral-100 p-4">
         <div className="mb-4 flex gap-4 text-caption text-neutral-700">
           <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-eg-green" /> In
+            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-eg-green" /> In
           </span>
           <span className="flex items-center gap-1.5">
-            <span aria-hidden className="h-2.5 w-2.5 rounded-sm bg-eg-red" /> Out
+            <span aria-hidden className="h-2.5 w-2.5 rounded-mark bg-eg-red" /> Out
           </span>
         </div>
         <ol aria-label="Money in and out by month" className="grid gap-2" style={{ gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))` }}>
@@ -136,8 +136,8 @@ export function Trend({ points, current }: { points: FinanceTrendPoint[]; curren
               title={`${monthShort(point.month)}: in ${point.inflow}, out ${point.outflow}, net ${point.net}`}
             >
               <div className="flex h-36 w-full items-end justify-center gap-1">
-                <span className="w-2.5 rounded-t-md bg-eg-green sm:w-3.5" style={{ height: percentOf(point.inflow_share) }} />
-                <span className="w-2.5 rounded-t-md bg-eg-red sm:w-3.5" style={{ height: percentOf(point.outflow_share) }} />
+                <span className="w-2.5 rounded-t-control bg-eg-green sm:w-3.5" style={{ height: percentOf(point.inflow_share) }} />
+                <span className="w-2.5 rounded-t-control bg-eg-red sm:w-3.5" style={{ height: percentOf(point.outflow_share) }} />
               </div>
               <span className={cn("text-caption", point.month === current ? "font-semibold text-foreground" : "text-neutral-700")}>
                 {monthShort(point.month)}
@@ -157,7 +157,7 @@ export function Spending({ lines, currency }: { lines: FinanceSpending[]; curren
   return (
     <section className="flex flex-col gap-3">
       <CardHeader title="Where it went" description={`${currency}, by category, against last month.`} />
-      <div className="flex flex-col gap-4 rounded-2xl bg-neutral-100 p-4">
+      <div className="flex flex-col gap-4 rounded-card bg-neutral-100 p-4">
         {lines.length === 0 ? (
           <p className="text-small text-neutral-700">{`Nothing spent in ${currency} this month.`}</p>
         ) : (
@@ -202,7 +202,7 @@ export function DailyStrip({ days, flow, currency, from, to }: { days: FinanceDa
   return (
     <section className="flex flex-col gap-3">
       <CardHeader title="Daily spending" description={`${currency}. The dashed line is the average day so far, ${money(currency, flow.average_day)}.`} />
-      <div className="rounded-2xl bg-neutral-100 p-4">
+      <div className="rounded-card bg-neutral-100 p-4">
         <div className="relative">
           <ol data-testid="day-strip" className="flex h-28 items-end gap-0.5">
             {daysOfRange(from, to).map((day) => {
@@ -211,7 +211,7 @@ export function DailyStrip({ days, flow, currency, from, to }: { days: FinanceDa
                 <li
                   key={day}
                   title={row ? `${dayLabel(day)}: ${money(currency, row.amount)}` : `${dayLabel(day)}: nothing`}
-                  className={cn("min-w-0 flex-1 rounded-sm", row ? "bg-primary/80" : "bg-neutral-200")}
+                  className={cn("min-w-0 flex-1 rounded-mark", row ? "bg-primary/80" : "bg-neutral-200")}
                   style={{ height: row ? `${Math.max(row.share * 100, 4)}%` : "4%" }}
                 />
               );

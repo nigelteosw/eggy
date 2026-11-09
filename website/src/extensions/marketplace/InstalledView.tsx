@@ -102,7 +102,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
           const { install } = status;
           const plan = checked[install.id];
           return (
-            <li key={install.id} className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-3">
+            <li key={install.id} className="flex flex-col gap-2 rounded-card bg-neutral-100 p-3">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span className="text-small font-medium">
                   {install.item} <span className="font-normal text-neutral-700">from {install.source}</span>
@@ -140,7 +140,7 @@ export function InstalledView({ onSessionExpired }: { onSessionExpired: () => vo
                 </Button>
               </div>
               {removing?.install.id === install.id && (
-                <div className="flex flex-col gap-2 rounded-lg bg-background p-2">
+                <div className="flex flex-col gap-2 rounded-control bg-background p-2">
                   <p className="text-caption">Removing deletes what this install wrote.</p>
                   {status.edited.map((file) => (
                     <label key={fileKey(file)} className="flex items-center gap-2 text-small">

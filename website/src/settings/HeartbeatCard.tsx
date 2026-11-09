@@ -34,12 +34,12 @@ export function HeartbeatCard({ onSessionExpired }: { onSessionExpired: () => vo
       <CardHeader title="Heartbeat" className="mb-3" description="A periodic check-in that messages you only when something needs attention." />
 
       {!row ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Heartbeat is off.</p>
+        <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Heartbeat is off.</p>
       ) : (
         <SummaryRows headers={headers} row={row} />
       )}
 
-      <details className="rounded-2xl bg-neutral-100 p-4">
+      <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Configure heartbeat</summary>
         <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">

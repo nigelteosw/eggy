@@ -147,7 +147,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
             onSessionExpired={onSessionExpired}
           />
         )}
-        <details className="rounded-2xl bg-neutral-100 p-4">
+        <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Add MCP server</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
@@ -170,7 +170,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                     <Input placeholder="oauth_client_secret_env (optional)" value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} className={FIELD} />
                     <p className="text-caption leading-relaxed text-neutral-700 sm:col-span-2">
                       Leave both empty for dynamic registration. Otherwise use callback{" "}
-                      <code className="rounded bg-background px-1 py-0.5 text-[0.9em]">
+                      <code className="rounded-mark bg-background px-1 py-0.5 text-[0.9em]">
                         {typeof window === "undefined" ? "" : window.location.origin}/auth/mcp/{name || "<name>"}/callback
                       </code>
                       , then name the environment variable holding the secret.

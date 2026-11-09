@@ -143,7 +143,7 @@ function NavRow({
       disabled={disabled}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
+        "flex h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
         active ? "bg-background font-medium shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
       )}
     >
@@ -443,7 +443,7 @@ export function ThreadSidebar({
           onClick={onCollapse}
           aria-label="Collapse sidebar"
           title="Collapse sidebar"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-800 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [-webkit-app-region:no-drag]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-800 transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 [-webkit-app-region:no-drag]"
         >
           <PanelIcon />
         </button>
@@ -466,7 +466,7 @@ export function ThreadSidebar({
               <div
                 role="menu"
                 aria-label="Extensions"
-                className="mt-1 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
+                className="mt-1 overflow-hidden rounded-card bg-card py-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
               >
                 {extensions.map((extension) => (
                   <button
@@ -490,18 +490,18 @@ export function ThreadSidebar({
       </nav>
 
       {error && (
-        <p className="mx-3 mb-2 rounded-xl bg-destructive/10 px-2.5 py-1.5 text-caption text-destructive" role="alert">
+        <p className="mx-3 mb-2 rounded-control bg-destructive/10 px-2.5 py-1.5 text-caption text-destructive" role="alert">
           {error}
         </p>
       )}
 
       {undoable && (
-        <div role="status" className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-card py-1 pl-3 pr-1 text-caption shadow-subtle">
+        <div role="status" className="mx-3 mb-2 flex items-center gap-2 rounded-control bg-card py-1 pl-3 pr-1 text-caption shadow-subtle">
           <span className="min-w-0 flex-1 truncate">Deleted “{undoable.title || "New chat"}”</span>
           <button
             type="button"
             onClick={undoDelete}
-            className="flex h-11 shrink-0 items-center rounded-lg px-3 font-semibold text-foreground underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-11 shrink-0 items-center rounded-control px-3 font-semibold text-foreground underline-offset-4 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             Undo
           </button>
@@ -510,7 +510,7 @@ export function ThreadSidebar({
 
       <div className="scrollbar-slim flex-1 overflow-y-auto px-2 pb-3">
         {threads.length > 0 && (
-          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-xl bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-within:ring-2 focus-within:ring-ring/40">
+          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0" />
             <input
               type="search"
@@ -546,7 +546,7 @@ export function ThreadSidebar({
                         if (event.key === "Enter") commitRename(thread.id);
                         if (event.key === "Escape") setRenamingId(null);
                       }}
-                      className="h-11 w-full rounded-2xl bg-background px-3 text-small outline-none ring-2 ring-ring/40"
+                      className="h-11 w-full rounded-card bg-background px-3 text-small outline-none ring-2 ring-ring/40"
                     />
                   );
                 }
@@ -557,7 +557,7 @@ export function ThreadSidebar({
                       onClick={() => pickThread(thread.id)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex h-9 w-full items-center rounded-xl pl-2.5 pr-9 text-left text-small transition-colors",
+                        "flex h-9 w-full items-center rounded-control pl-2.5 pr-9 text-left text-small transition-colors",
                         active ? "bg-background font-medium shadow-subtle" : "font-normal text-foreground/80 hover:bg-neutral-200/60",
                       )}
                     >
@@ -574,7 +574,7 @@ export function ThreadSidebar({
                         setMenuFor((current) => (current === thread.id ? null : thread.id));
                       }}
                       className={cn(
-                        "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
+                        "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-control text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
                         menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
                       )}
                     >
@@ -588,7 +588,7 @@ export function ThreadSidebar({
                     {menuFor === thread.id && (
                       <div
                         onClick={(event) => event.stopPropagation()}
-                        className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-2xl bg-card py-1 shadow-lift"
+                        className="absolute right-1 top-[calc(100%-0.25rem)] z-10 w-36 overflow-hidden rounded-card bg-card py-1 shadow-lift"
                       >
                         <button
                           type="button"

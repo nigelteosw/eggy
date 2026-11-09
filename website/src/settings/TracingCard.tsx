@@ -51,12 +51,12 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
       <CardHeader title="Tracing" className="mb-3" description="Choose what the Traces dashboard records and how long it is retained." />
 
       {!row ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Tracing is off.</p>
+        <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Tracing is off.</p>
       ) : (
         <SummaryRows headers={headers} row={row} />
       )}
 
-      <details className="rounded-2xl bg-neutral-100 p-4">
+      <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Configure tracing</summary>
         <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-4">
           <Switch checked={enabled} onCheckedChange={setEnabled} label={enabled ? "Recording turns" : "Not recording turns"} />

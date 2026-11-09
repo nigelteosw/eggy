@@ -68,13 +68,13 @@ export function WebLoginLinkPage({
     <div className="app-canvas relative flex min-h-screen items-center justify-center overflow-hidden px-4">
       <div className="relative w-full max-w-sm animate-fade-in-up">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-100 text-display">🥚</div>
+          <div className="flex h-14 w-14 items-center justify-center rounded-card bg-accent-100 text-display">🥚</div>
           <div>
             <h1 className="text-display font-semibold tracking-tight">Sign in from Telegram</h1>
             <p className="mt-1 text-small text-neutral-700">This link was requested with /web in a Telegram chat.</p>
           </div>
         </div>
-        <div className="flex flex-col gap-4 rounded-3xl bg-neutral-100 p-6 shadow-lift">
+        <div className="flex flex-col gap-4 rounded-card bg-neutral-100 p-6 shadow-lift">
           {status === "missing" && (
             <ErrorBanner>This link is incomplete. Send /web to Eggy in Telegram again and open the new link.</ErrorBanner>
           )}
@@ -90,7 +90,7 @@ export function WebLoginLinkPage({
                   This browser is currently signed in as <strong>{currentUsername}</strong>.
                 </p>
               )}
-              <Button type="button" onClick={proceed} disabled={status === "pending"} className="h-12 w-full rounded-xl text-body font-semibold">
+              <Button type="button" onClick={proceed} disabled={status === "pending"} className="h-12 w-full rounded-control text-body font-semibold">
                 {status === "pending" ? "Signing in…" : "Continue"}
               </Button>
               <p className="text-caption text-neutral-700">The link works once and expires five minutes after it was sent.</p>

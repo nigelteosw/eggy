@@ -125,7 +125,7 @@ export function ConfigPage({
             <button
               type="button"
               onClick={() => setOpened(false)}
-              className="flex h-11 min-w-0 items-center gap-1 rounded-xl px-2 text-small font-medium text-foreground transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="flex h-11 min-w-0 items-center gap-1 rounded-control px-2 text-small font-medium text-foreground transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <ChevronDownIcon className="h-4 w-4 rotate-90" />
               Settings
@@ -140,7 +140,7 @@ export function ConfigPage({
               onClick={onClose}
               aria-label="Close settings"
               title="Close"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               <CloseIcon />
             </button>
@@ -153,7 +153,7 @@ export function ConfigPage({
             <p className="px-1 pb-2 text-small text-neutral-700" title={group.note}>
               {group.heading}
             </p>
-            <div className="flex flex-col overflow-hidden rounded-2xl bg-neutral-100">
+            <div className="flex flex-col overflow-hidden rounded-card bg-neutral-100">
               {SECTIONS.filter((candidate) => candidate.group === group.id).map((candidate) => (
                 <button
                   key={candidate.id}
@@ -176,7 +176,7 @@ export function ConfigPage({
 
       <div className="hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex">
         <div className="shrink-0 px-3 pb-2 pt-3">
-          <label className="flex h-9 items-center gap-2 rounded-lg border border-neutral-200 bg-background px-2.5 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
+          <label className="flex h-9 items-center gap-2 rounded-control border border-neutral-200 bg-background px-2.5 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-4 w-4 shrink-0" />
             <input
               type="search"
@@ -205,7 +205,7 @@ export function ConfigPage({
                     aria-current={candidate.id === active ? "page" : undefined}
                     onClick={() => setActive(candidate.id)}
                     className={cn(
-                      "mb-0.5 flex min-h-[36px] w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-small text-foreground transition-colors",
+                      "mb-0.5 flex min-h-[36px] w-full items-center gap-3 rounded-control px-3 py-1.5 text-left text-small text-foreground transition-colors",
                       candidate.id === active ? "bg-neutral-200/70 font-medium" : "font-normal hover:bg-neutral-200/40",
                     )}
                   >

@@ -40,7 +40,7 @@ function ModelMenu({
         onClick={() => (open ? close() : setOpen(true))}
         title="Which model runs the next turn, and how hard it thinks"
         className={cn(
-          "flex h-9 min-w-0 items-center gap-1.5 rounded-xl px-2 text-caption transition-colors hover:bg-neutral-200 disabled:opacity-60",
+          "flex h-9 min-w-0 items-center gap-1.5 rounded-control px-2 text-caption transition-colors hover:bg-neutral-200 disabled:opacity-60",
           open && "bg-neutral-200",
         )}
       >
@@ -50,7 +50,7 @@ function ModelMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-10" aria-hidden="true" onClick={close} />
-          <div role="menu" aria-label="Model" className="absolute bottom-full right-0 z-20 mb-2 w-64 rounded-2xl border border-border bg-background p-1.5 shadow-lift">
+          <div role="menu" aria-label="Model" className="absolute bottom-full right-0 z-20 mb-2 w-64 rounded-card border border-border bg-background p-1.5 shadow-lift">
             {agent.models.map((model) => (
               <button
                 key={model}
@@ -61,7 +61,7 @@ function ModelMenu({
                   close();
                   if (model !== agent.model) onModel(model);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
+                className="flex w-full items-center justify-between gap-3 rounded-control px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
               >
                 <span className="truncate">{model}</span>
                 {model === agent.model && <CheckIcon className="h-4 w-4 shrink-0 text-accent-700" />}
@@ -74,7 +74,7 @@ function ModelMenu({
                   type="button"
                   aria-expanded={effortsOpen}
                   onClick={() => setEffortsOpen((current) => !current)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
+                  className="flex w-full items-center justify-between gap-3 rounded-control px-3 py-2.5 text-left text-small transition-colors hover:bg-neutral-100"
                 >
                   <span>Effort</span>
                   <span className="flex items-center gap-1 text-muted-foreground">
@@ -93,7 +93,7 @@ function ModelMenu({
                         close();
                         if (effort !== agent.effort) onEffort(effort);
                       }}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2 pl-6 pr-3 text-left text-small text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
+                      className="flex w-full items-center justify-between gap-3 rounded-control py-2 pl-6 pr-3 text-left text-small text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground"
                     >
                       <span>{titleCase(effort)}</span>
                       {effort === agent.effort && <CheckIcon className="h-4 w-4 shrink-0 text-accent-700" />}
@@ -212,16 +212,16 @@ export function Composer({
     <form onSubmit={submit} className="composer-dock shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 sm:px-8 sm:pb-7">
       <div className="mx-auto w-full max-w-4xl">
         {note && (
-          <p className="mb-2 rounded-xl bg-destructive/10 px-3 py-2 text-caption text-destructive" role="alert">
+          <p className="mb-2 rounded-control bg-destructive/10 px-3 py-2 text-caption text-destructive" role="alert">
             {note}
           </p>
         )}
         {/* The box holds only what is typed and the send control, so it stays a
             slim single line until the text needs more room. */}
-        <div className="rounded-3xl bg-neutral-100 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/30">
+        <div className="rounded-card bg-neutral-100 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/30">
           {quote && (
             <div className="px-3 pt-3">
-              <div className="relative inline-flex max-w-[16rem] items-start rounded-2xl bg-background px-3 py-2.5 pr-8 shadow-sm">
+              <div className="relative inline-flex max-w-[16rem] items-start rounded-card bg-background px-3 py-2.5 pr-8 shadow-sm">
                 <span aria-hidden="true" className="mr-2.5 mt-0.5 w-0.5 shrink-0 self-stretch rounded-full bg-muted-foreground/50" />
                 <p className="line-clamp-6 whitespace-pre-line break-words text-caption leading-5 text-foreground/85">{quote.text}</p>
                 <button
@@ -263,7 +263,7 @@ export function Composer({
                 title="Stop this reply"
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-foreground transition-colors hover:bg-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
-                <span aria-hidden="true" className="h-3.5 w-3.5 rounded-sm bg-foreground" />
+                <span aria-hidden="true" className="h-3.5 w-3.5 rounded-mark bg-foreground" />
               </button>
             ) : (
               <button

@@ -30,7 +30,7 @@ export function RestartBar({ onSessionExpired }: { onSessionExpired: () => void 
         type="button"
         onClick={restart}
         disabled={restarting}
-        className="min-h-9 rounded-xl bg-primary px-3.5 text-small font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="min-h-9 rounded-control bg-primary px-3.5 text-small font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
       >
         {restarting ? "Restarting…" : "Restart now"}
       </button>

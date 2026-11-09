@@ -119,7 +119,7 @@ function SourceBadge({ trace }: { trace: TraceSummary }) {
   const prompted = trace.kind === "owner";
   return (
     <span
-      className={`whitespace-nowrap rounded-md px-2 py-0.5 text-caption font-semibold uppercase tracking-wide ${
+      className={`whitespace-nowrap rounded-control px-2 py-0.5 text-caption font-semibold uppercase tracking-wide ${
         prompted ? "bg-accent-100 text-accent-700" : "bg-neutral-200 text-neutral-700"
       }`}
     >
@@ -169,7 +169,7 @@ function Prompt({ request }: { request: string }) {
       </div>
       <div className="flex flex-col gap-2.5">
         {prompt.messages?.map((message, index) => (
-          <div key={index} className="rounded-xl bg-neutral-100 p-3.5">
+          <div key={index} className="rounded-card bg-neutral-100 p-3.5">
             <div className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-[0.1em] text-neutral-700">
               <span>{message.role ?? "message"}</span>
               {message.name && <span className="font-normal normal-case text-foreground/70">{message.name}</span>}
@@ -285,7 +285,7 @@ function WaterfallBar({ item, window }: { item: Placed; window: number }) {
   return (
     <div className="relative h-5 flex-1">
       <div
-        className={`absolute top-0.5 h-4 rounded-md ${barColor(item.span)}`}
+        className={`absolute top-0.5 h-4 rounded-control ${barColor(item.span)}`}
         style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
         title={`${item.span.name}: ${label} at +${formatDuration(item.offset)}`}
       />
@@ -396,7 +396,7 @@ export function Waterfall({ trace, spans }: { trace: TraceSummary; spans: TraceS
   if (!spans.length) return <p className="py-6 text-small text-neutral-700">This turn recorded no steps.</p>;
   return (
     <div>
-      <div className="overflow-hidden rounded-2xl bg-neutral-100">
+      <div className="overflow-hidden rounded-card bg-neutral-100">
         <div className="trace-step trace-axis text-caption text-neutral-700">
           <span>Step</span>
           <span className="relative h-4">
@@ -687,7 +687,7 @@ export function TraceBrowser({
                 setGroupKey(item.key);
                 setTraceId(null);
               }}
-              className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
+              className={`w-full rounded-control px-3 py-2.5 text-left transition-colors ${group?.key === item.key ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
               <span className="block truncate text-small font-medium">{conversationLabel(item, titles)}</span>
               <span className="mt-0.5 flex items-center gap-1.5 text-caption tabular-nums text-neutral-700">
@@ -722,7 +722,7 @@ export function TraceBrowser({
                 setGroupKey(group.key);
                 setTraceId(trace.id);
               }}
-              className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${selected?.id === trace.id ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
+              className={`w-full rounded-control px-3 py-2.5 text-left transition-colors ${selected?.id === trace.id ? "bg-neutral-200" : "hover:bg-neutral-200/60"}`}
             >
               <span className="line-clamp-2 break-words text-small leading-5">{trace.input || "Unprompted turn"}</span>
               <span className="mt-1 flex items-center gap-1.5 text-caption tabular-nums text-neutral-700">
@@ -831,7 +831,7 @@ export function TracesPage({ onSessionExpired, onOpenSidebar }: { onSessionExpir
         className="shrink-0 px-5 py-4 sm:px-6"
         description={<span className="text-caption tabular-nums">{count(traces.length, "recent turn", "recent turns")}</span>}
         action={
-          <Button variant="ghost" onClick={reload} disabled={loading} className="shrink-0 rounded-xl hover:bg-neutral-200">
+          <Button variant="ghost" onClick={reload} disabled={loading} className="shrink-0 rounded-control hover:bg-neutral-200">
             {loading ? "Loading…" : "Refresh"}
           </Button>
         }

@@ -16,6 +16,17 @@ export default {
       title: ["18px", { lineHeight: "24px" }],
       display: ["24px", { lineHeight: "30px" }],
     },
+    // Three radii from the review -- 10 px controls, 16 px cards and dialogs,
+    // full for pills -- and mark, 4 px, for glyph-sized things such as inline
+    // code and legend swatches, which a 10 px corner would turn into circles.
+    // Replaced rather than extended; tests/radius.test.ts holds the set.
+    borderRadius: {
+      none: "0px",
+      mark: "4px",
+      control: "10px",
+      card: "16px",
+      full: "9999px",
+    },
     extend: {
       fontFamily: {
         // Geist everywhere: panel, sign-in and docs share one face.
@@ -69,14 +80,6 @@ export default {
           ask: "hsl(var(--eg-ask))",
           "ask-ink": "hsl(var(--eg-ask-ink))",
         },
-      },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-        xl: "calc(var(--radius) + 2px)",
-        "2xl": "calc(var(--radius) + 4px)",
-        "3xl": "calc(var(--radius) + 6px)",
       },
       boxShadow: {
         subtle: "0 1px 2px 0 rgb(43 38 32 / 0.04), 0 1px 3px 0 rgb(43 38 32 / 0.06)",

@@ -145,20 +145,20 @@ export function SetupPage() {
           <p className="mt-2 text-small text-neutral-700">Settings are written to config.yaml. Credential values stay in your deployment environment.</p>
         </header>
 
-        {!authorized && !error && <p className="rounded-2xl bg-neutral-100 p-3.5 text-small text-neutral-700">Authorizing this setup link…</p>}
+        {!authorized && !error && <p className="rounded-card bg-neutral-100 p-3.5 text-small text-neutral-700">Authorizing this setup link…</p>}
         {sections.map((section) => (
           <section key={section.title} className="flex flex-col gap-3">
             <CardHeader
               title={section.title}
               description={section.description}
             />
-            <div className="grid gap-3 rounded-2xl bg-neutral-100 p-4 sm:grid-cols-2">
+            <div className="grid gap-3 rounded-card bg-neutral-100 p-4 sm:grid-cols-2">
               {section.presets && (
                 <div className="sm:col-span-2">
                   <Label htmlFor="provider-preset">Provider</Label>
                   <select
                     id="provider-preset"
-                    className={`mt-2 h-11 w-full rounded-xl bg-background px-3 text-field ${FIELD}`}
+                    className={`mt-2 h-11 w-full rounded-control bg-background px-3 text-field ${FIELD}`}
                     defaultValue=""
                     disabled={completed}
                     onChange={(event) => {
@@ -218,7 +218,7 @@ export function SetupPage() {
         {validation && (
           <section className="flex flex-col gap-3">
             <CardHeader title="Deployment variables" />
-            <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4 text-small">
+            <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-4 text-small">
               {Object.entries(validation.variables).map(([name, present]) => (
                 <p key={name} className={present ? "text-neutral-700" : "text-eg-red-ink"}>
                   <span className="font-mono">{name}</span>: {present ? "present" : "missing"}
@@ -232,9 +232,9 @@ export function SetupPage() {
         )}
         {error && <ErrorBanner>{error}</ErrorBanner>}
         {completed ? (
-          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
+          <p className="rounded-card bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">Configuration saved. Waiting for Eggy to start…</p>
         ) : (
-          <div><Button type="submit" disabled={!authorized || busy} className="rounded-xl">{busy ? "Checking…" : "Validate and start"}</Button></div>
+          <div><Button type="submit" disabled={!authorized || busy} className="rounded-control">{busy ? "Checking…" : "Validate and start"}</Button></div>
         )}
       </form>
     </main>

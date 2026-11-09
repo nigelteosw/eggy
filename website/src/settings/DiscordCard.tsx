@@ -69,7 +69,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
 
       {view && <SummaryRows headers={["State", "Application ID", "Bot token"]} row={describeDiscord(view)} />}
 
-      <details className="rounded-2xl bg-neutral-100 p-4">
+      <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Configure Discord</summary>
         <form
           onSubmit={(event) => {

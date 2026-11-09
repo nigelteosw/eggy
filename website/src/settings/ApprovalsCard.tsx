@@ -78,7 +78,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
           }
         />
         {rows.length === 0 ? (
-          <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
+          <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
             Nothing is waiting on you.
           </p>
         ) : (
@@ -105,7 +105,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                     type="button"
                     disabled={deciding === row[ID] || row[STATE] === "expired"}
                     onClick={() => decide(row, true)}
-                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50"
+                    className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50"
                   >
                     Approve
                   </button>
@@ -113,7 +113,7 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
                     type="button"
                     disabled={deciding === row[ID]}
                     onClick={() => decide(row, false)}
-                    className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
+                    className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
                   >
                     Decline
                   </button>

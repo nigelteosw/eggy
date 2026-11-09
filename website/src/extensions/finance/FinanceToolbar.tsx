@@ -18,7 +18,7 @@ function ToolButton({ label, active, expanded, badge, onClick, children }: { lab
       title={label}
       onClick={onClick}
       className={cn(
-        "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
+        "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-neutral-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
         active ? "bg-neutral-200 text-foreground" : "text-neutral-700",
       )}
     >
@@ -90,7 +90,7 @@ export function FinanceToolbar({
           <SlidersIcon className="h-[18px] w-[18px]" />
         </ToolButton>
         {menu === "filter" && (
-          <div className="absolute right-0 top-full z-20 mt-2 flex w-[min(15rem,calc(100vw-2.5rem))] flex-col gap-3 rounded-2xl border border-neutral-200 bg-card p-3 shadow-lg">
+          <div className="absolute right-0 top-full z-20 mt-2 flex w-[min(15rem,calc(100vw-2.5rem))] flex-col gap-3 rounded-card border border-neutral-200 bg-card p-3 shadow-lg">
             <label className={`flex flex-col gap-1.5 ${FIELD_LABEL}`}>
               Kind
               <Select value={view.kind} onChange={(event) => onChange({ kind: event.target.value })} aria-label="Kind">
@@ -122,7 +122,7 @@ export function FinanceToolbar({
           <ArrowsUpDownIcon className="h-[18px] w-[18px]" />
         </ToolButton>
         {menu === "sort" && (
-          <div role="menu" aria-label="Sort by" className="absolute right-0 top-full z-20 mt-2 w-44 rounded-2xl border border-neutral-200 bg-card p-1.5 shadow-lg">
+          <div role="menu" aria-label="Sort by" className="absolute right-0 top-full z-20 mt-2 w-44 rounded-card border border-neutral-200 bg-card p-1.5 shadow-lg">
             {SORT_KEYS.map((key) => {
               const active = view.sort === key;
               return (
@@ -136,7 +136,7 @@ export function FinanceToolbar({
                     onChange({ sort: next.sort, order: next.order });
                     setMenu(null);
                   }}
-                  className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-small transition-colors hover:bg-neutral-100"
+                  className="flex min-h-11 w-full items-center justify-between rounded-control px-3 py-2 text-left text-small transition-colors hover:bg-neutral-100"
                 >
                   <span>{SORTS[key].label}</span>
                   {active && <span className="text-caption text-neutral-700">{view.order === "asc" ? "↑" : "↓"}</span>}

@@ -15,10 +15,10 @@ theme tokens, Home, phone layout and most polish have landed.
 
 **Theme**
 
-- [ ] Three radii (10 px controls, 16 px cards and dialogs, full for pills).
-      *Done:* the type scale -- caption, small, body, title, display, and a
-      16 px field size -- with Geist everywhere and a test banning other
-      sizes. *Still open:* one serif for voice moments only.
+- [ ] One serif for voice moments only (home greeting, empty states, the
+      sign-in line). *Done:* the type scale and the radii, each a replaced
+      Tailwind scale with a test banning anything outside it, and Geist
+      everywhere.
 - [ ] Merge the red families and the remaining raw `amber/emerald` literals
       (marketplace `InstallReview`/`InstalledView`, finance) into `--tomato`,
       `--chive`, `--yolk-soft`.

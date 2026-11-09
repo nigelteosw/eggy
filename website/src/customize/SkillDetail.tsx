@@ -167,7 +167,7 @@ export function SkillDetail({
               value={draft.body}
               onChange={(event) => setDraft({ ...draft, body: event.target.value })}
               rows={14}
-              className="scrollbar-slim w-full rounded-xl bg-background p-3 font-mono text-small leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="scrollbar-slim w-full rounded-control bg-background p-3 font-mono text-small leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             />
           </label>
           <Switch checked={!draft.disabled} onCheckedChange={(on) => setDraft({ ...draft, disabled: !on })} label="Available to Eggy" />
@@ -197,7 +197,7 @@ export function SkillDetail({
       {backLink}
 
       <header className="flex flex-wrap items-center gap-4">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-neutral-100 text-neutral-700">
           <FileCodeIcon className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
@@ -215,19 +215,19 @@ export function SkillDetail({
             aria-label="More actions"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-700 hover:bg-neutral-100 hover:text-foreground"
+            className="flex h-9 w-9 items-center justify-center rounded-control text-neutral-700 hover:bg-neutral-100 hover:text-foreground"
           >
             <span aria-hidden="true" className="text-title leading-none">⋮</span>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-xl bg-background p-1 shadow-lg ring-1 ring-neutral-200">
+            <div className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-control bg-background p-1 shadow-lg ring-1 ring-neutral-200">
               <button
                 type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   setConfirmingDelete(true);
                 }}
-                className="flex min-h-9 w-full items-center rounded-lg px-3 text-left text-small text-destructive hover:bg-neutral-100"
+                className="flex min-h-9 w-full items-center rounded-control px-3 text-left text-small text-destructive hover:bg-neutral-100"
               >
                 Delete skill
               </button>
@@ -237,9 +237,9 @@ export function SkillDetail({
       </header>
 
       {confirmingDelete && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-neutral-100 p-3 text-small">
+        <div className="flex flex-wrap items-center gap-2 rounded-card bg-neutral-100 p-3 text-small">
           Delete {name} for everyone? This cannot be undone.
-          <button type="button" disabled={saving} onClick={() => void remove()} className="min-h-9 rounded-lg bg-destructive px-3 font-medium text-destructive-foreground">
+          <button type="button" disabled={saving} onClick={() => void remove()} className="min-h-9 rounded-control bg-destructive px-3 font-medium text-destructive-foreground">
             Delete
           </button>
           <button type="button" onClick={() => setConfirmingDelete(false)} className={SECONDARY_BUTTON}>
@@ -289,9 +289,9 @@ export function SkillDetail({
           )}
 
           {tab === "contents" && (
-            <div className="grid min-h-[320px] overflow-hidden rounded-2xl ring-1 ring-neutral-200 sm:grid-cols-[200px_1fr]">
+            <div className="grid min-h-[320px] overflow-hidden rounded-card ring-1 ring-neutral-200 sm:grid-cols-[200px_1fr]">
               <ul className="border-b border-neutral-200 bg-neutral-100 p-2 sm:border-b-0 sm:border-r">
-                <li className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 font-mono text-small">
+                <li className="flex items-center gap-2 rounded-control bg-background px-3 py-2 font-mono text-small">
                   <FileCodeIcon className="h-4 w-4 text-neutral-700" />
                   SKILL.md
                 </li>
@@ -299,14 +299,14 @@ export function SkillDetail({
               <div className="flex min-w-0 flex-col">
                 <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-2">
                   <span className="font-mono text-caption text-neutral-700">/SKILL.md</span>
-                  <div role="group" aria-label="View" className="flex rounded-lg bg-neutral-100 p-0.5 text-caption">
+                  <div role="group" aria-label="View" className="flex rounded-control bg-neutral-100 p-0.5 text-caption">
                     {(["preview", "source"] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"
                         aria-pressed={view === mode}
                         onClick={() => setView(mode)}
-                        className={cn("rounded-md px-2.5 py-1 capitalize", view === mode ? "bg-background text-foreground shadow-sm" : "text-neutral-700")}
+                        className={cn("rounded-control px-2.5 py-1 capitalize", view === mode ? "bg-background text-foreground shadow-sm" : "text-neutral-700")}
                       >
                         {mode}
                       </button>

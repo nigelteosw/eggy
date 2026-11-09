@@ -43,7 +43,7 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
           <p className="text-small text-neutral-700">Your conversations stay on this deployment.</p>
         </div>
 
-        <div className="rounded-3xl bg-card p-6 shadow-lift">
+        <div className="rounded-card bg-card p-6 shadow-lift">
           {loginKind === "unavailable" ? (
             <ErrorBanner>
               Eggy is in safe mode and cannot identify anyone right now. Repair config.yaml on the host, then sign in.
@@ -77,7 +77,7 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
                 />
               </div>
               {error && <ErrorBanner>{error}</ErrorBanner>}
-              <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-xl text-body font-semibold">
+              <Button type="submit" disabled={submitting} className="mt-1 h-12 w-full rounded-control text-body font-semibold">
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
             </form>

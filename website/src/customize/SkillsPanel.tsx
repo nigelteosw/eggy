@@ -73,18 +73,18 @@ export function SkillsPanel({
             <button
               type="button"
               onClick={() => onOpen(row.name)}
-              className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="flex min-w-0 flex-1 items-start gap-3 rounded-control text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-700">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-neutral-100 text-neutral-700">
                 <FileCodeIcon className="h-4 w-4" />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex flex-wrap items-center gap-2">
                   <span className="truncate font-mono text-small text-foreground">{row.name}</span>
                   {row.invalid ? (
-                    <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-caption text-destructive">Invalid</span>
+                    <span className="rounded-control bg-destructive/10 px-1.5 py-0.5 text-caption text-destructive">Invalid</span>
                   ) : row.disabled ? (
-                    <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">Disabled</span>
+                    <span className="rounded-control bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">Disabled</span>
                   ) : null}
                 </span>
                 <span className="line-clamp-2 text-small leading-5 text-neutral-700">{row.invalid ? `Could not load: ${row.invalid}` : row.description}</span>

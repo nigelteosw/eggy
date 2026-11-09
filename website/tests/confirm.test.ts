@@ -26,6 +26,6 @@ test("the confirm sheet anchors to the bottom edge on a phone", () => {
     createElement(ConfirmDialog, { title: "Restart Eggy?", confirmLabel: "Restart", onAnswer: () => {} }),
   );
   expect(html).toContain("items-end");
-  expect(html).toContain("rounded-t-3xl");
+  expect(html).toContain("rounded-t-card");
   expect(html).not.toContain("bg-destructive");
 });

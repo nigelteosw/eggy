@@ -65,7 +65,7 @@ function Field({ label, children, className }: { label: string; children: ReactN
 // and Received are the everyday ones, so they lead.
 function KindPicker({ value, onChange }: { value: Kind; onChange: (kind: Kind) => void }) {
   return (
-    <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-1 rounded-2xl bg-background p-1 sm:grid-cols-4">
+    <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-1 rounded-card bg-background p-1 sm:grid-cols-4">
       {KINDS.map((kind) => (
         <button
           key={kind}
@@ -74,7 +74,7 @@ function KindPicker({ value, onChange }: { value: Kind; onChange: (kind: Kind) =
           aria-checked={kind === value}
           onClick={() => onChange(kind)}
           className={cn(
-            "min-h-10 rounded-xl px-3 text-small font-medium transition-colors",
+            "min-h-10 rounded-control px-3 text-small font-medium transition-colors",
             kind === value ? "bg-neutral-200 text-foreground" : "text-neutral-700 hover:text-foreground",
           )}
         >
@@ -154,7 +154,7 @@ export function AddEntryForm({
   }
 
   return (
-    <details id="finance-add-entry" className="rounded-2xl bg-neutral-100 p-4" open={open} onToggle={(event) => onOpenChange?.(event.currentTarget.open)}>
+    <details id="finance-add-entry" className="rounded-card bg-neutral-100 p-4" open={open} onToggle={(event) => onOpenChange?.(event.currentTarget.open)}>
       <summary className="cursor-pointer text-small font-medium">Add an entry</summary>
       <form onSubmit={submit} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
@@ -320,7 +320,7 @@ export function FinanceReport({
   return (
     <>
       {empty ? (
-        <p className="rounded-2xl bg-neutral-100 px-5 py-8 text-center text-small leading-6 text-neutral-700">
+        <p className="rounded-card bg-neutral-100 px-5 py-8 text-center text-small leading-6 text-neutral-700">
           {`No money logged in ${monthLabel(summary.month)} yet. Tell Eggy what you spent or earned, or add an entry below.`}
         </p>
       ) : (
@@ -338,10 +338,10 @@ export function FinanceReport({
         <section className="flex flex-col gap-3">
           <CardHeader title="Entries" />
           {listControls}
-          {entries.length === 0 && <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">No entries match.</p>}
+          {entries.length === 0 && <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">No entries match.</p>}
           <ul className="flex flex-col gap-2">
             {entries.map((entry) => (
-              <li key={entry.id} className="flex flex-col gap-3 rounded-2xl bg-neutral-100 px-4 py-3">
+              <li key={entry.id} className="flex flex-col gap-3 rounded-card bg-neutral-100 px-4 py-3">
                 {editingId === entry.id ? (
                   <EntryEditor
                     entry={entry}
@@ -581,7 +581,7 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
                 onClick={onClose}
                 aria-label="Close Finance"
                 title="Close"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <CloseIcon />
               </button>

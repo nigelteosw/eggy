@@ -17,7 +17,7 @@ import { GitHubTokenField } from "./GitHubTokenField";
 // their own heading and are deliberately not mixed in here.
 
 const selectClass =
-  "h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
+  "h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export const APPROVAL_MODES: { value: string; label: string; hint: string }[] = [
   { value: "strict", label: "Strict", hint: "Every tool call asks you first." },
@@ -116,7 +116,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
               </select>
             </div>
           )}
-          <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
+          <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
             <Switch
               label="Show thinking"
               checked={selection.show_thinking !== false}
@@ -125,7 +125,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
             />
             <p className="text-caption text-neutral-700">Deliver the model&apos;s reasoning as a separate message before its reply.</p>
           </div>
-          <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
+          <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
             <Switch
               label="Heartbeat check-ins"
               checked={selection.heartbeat === true}
@@ -137,7 +137,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
           <fieldset className="flex flex-col gap-2">
             <legend className={FIELD_LABEL}>When Eggy asks</legend>
             {APPROVAL_MODES.map((mode) => (
-              <label key={mode.value} className="flex cursor-pointer items-start gap-3 rounded-2xl bg-neutral-100 p-3.5 text-small">
+              <label key={mode.value} className="flex cursor-pointer items-start gap-3 rounded-card bg-neutral-100 p-3.5 text-small">
                 <input
                   type="radio"
                   name="personal-approval-mode"

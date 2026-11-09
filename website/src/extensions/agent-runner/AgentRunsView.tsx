@@ -56,7 +56,7 @@ export function AgentRunRow({ run, onOpen }: { run: AgentRun; onOpen: (id: strin
       <button
         type="button"
         onClick={() => onOpen(run.id)}
-        className="flex w-full flex-col gap-2 rounded-2xl bg-neutral-100 px-4 py-3 text-left transition-colors hover:bg-neutral-200/60 sm:flex-row sm:items-center sm:gap-4"
+        className="flex w-full flex-col gap-2 rounded-card bg-neutral-100 px-4 py-3 text-left transition-colors hover:bg-neutral-200/60 sm:flex-row sm:items-center sm:gap-4"
       >
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2">
@@ -112,7 +112,7 @@ export function AgentRunsList({
         })}
       </div>
       {shown.length === 0 ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">{emptyRunsCopy(runs.length, filter)}</p>
+        <p className="rounded-card bg-neutral-100 px-4 py-3 text-small text-neutral-700">{emptyRunsCopy(runs.length, filter)}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {shown.map((run) => (
@@ -194,7 +194,7 @@ export function AgentRunDetailView({
           <Badge tone={runTone(run.state)}>{stateLabel(run.state)}</Badge>
         </div>
         {run.brief && (
-          <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
+          <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
             <h4 className="text-caption font-medium text-neutral-700">Task</h4>
             <p className="whitespace-pre-wrap break-words text-small text-foreground">{run.brief}</p>
           </div>
@@ -207,14 +207,14 @@ export function AgentRunDetailView({
         </dl>
         {run.branch && (
           <p className="text-caption text-neutral-700">
-            Working branch <code className="rounded bg-neutral-200/60 px-1 py-0.5">{run.branch}</code>
+            Working branch <code className="rounded-mark bg-neutral-200/60 px-1 py-0.5">{run.branch}</code>
           </p>
         )}
       </header>
 
       {isWaiting(run.state) && (
         <form
-          className="flex flex-col gap-2 rounded-2xl bg-amber-950/30 p-4"
+          className="flex flex-col gap-2 rounded-card bg-amber-950/30 p-4"
           onSubmit={(event) => {
             event.preventDefault();
             onAnswer(answer);
@@ -233,7 +233,7 @@ export function AgentRunDetailView({
       )}
 
       {run.pr_url && (
-        <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
+        <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-small font-medium text-foreground">{run.draft ? "Draft pull request" : "Pull request"}</h4>
             {run.draft && <Badge>Draft</Badge>}
@@ -246,7 +246,7 @@ export function AgentRunDetailView({
       )}
 
       {isStopped(run.state) && (
-        <div className="flex flex-col gap-1 rounded-2xl bg-neutral-100 p-4">
+        <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
           <h4 className="text-small font-medium text-foreground">Why it stopped</h4>
           <p className="text-small text-neutral-700">{run.failure || "No reason was recorded for this run."}</p>
           {run.stage && <p className="text-caption text-neutral-700">Stopped at: {stageLabel(run.stage)}</p>}
@@ -254,7 +254,7 @@ export function AgentRunDetailView({
       )}
 
       {showProgress && (
-        <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
+        <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-4">
           <h4 className="text-small font-medium text-foreground">Progress</h4>
           <ol className="flex flex-wrap gap-x-5 gap-y-1.5">
             {publishProgress(run.stage ?? "").map((checkpoint) => (
@@ -267,7 +267,7 @@ export function AgentRunDetailView({
         </div>
       )}
 
-      <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
+      <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="text-small font-medium text-foreground">What happened</h4>
           {modelCalls > 0 && (
@@ -295,7 +295,7 @@ export function AgentRunDetailView({
       </div>
 
       {run.output && (
-        <details className="rounded-2xl bg-neutral-100 p-4">
+        <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium text-foreground">What the run produced</summary>
           <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap text-caption text-neutral-700">{run.output}</pre>
         </details>

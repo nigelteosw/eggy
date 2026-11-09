@@ -85,7 +85,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
           setDetail(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+        className="min-h-[14rem] w-full whitespace-pre rounded-card bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button

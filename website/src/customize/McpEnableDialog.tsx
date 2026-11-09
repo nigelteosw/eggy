@@ -99,7 +99,7 @@ export function McpEnableDialog({
   }
 
   return (
-    <div role="dialog" aria-label={`Review ${server}`} className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
+    <div role="dialog" aria-label={`Review ${server}`} className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4">
       <h3 className="text-small font-medium">Review {server}</h3>
       {phase.kind === "loading" && <p className="text-caption text-neutral-700">Connecting to read the server's tools...</p>}
       {phase.kind === "restart" && (

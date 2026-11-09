@@ -88,7 +88,7 @@ export function SoulCard({ onSessionExpired }: { onSessionExpired: () => void })
           setStatus(null);
         }}
         disabled={loading}
-        className="min-h-[14rem] w-full whitespace-pre-wrap rounded-2xl bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+        className="min-h-[14rem] w-full whitespace-pre-wrap rounded-card bg-neutral-100 px-4 py-3.5 font-mono text-small leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
       />
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={() => save(soul)} disabled={loading || saving} className={PRIMARY_BUTTON}>

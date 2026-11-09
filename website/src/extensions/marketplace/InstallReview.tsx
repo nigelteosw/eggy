@@ -126,7 +126,7 @@ export function InstallReview({
           </p>
 
           {plan.conflicts.length > 0 && (
-            <div className="flex flex-col gap-2 rounded-xl bg-neutral-100 p-3">
+            <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-3">
               <p className="text-caption font-medium">These names are taken or not valid in Eggy. Rename them to install.</p>
               {plan.conflicts.map((upstream) => (
                 <div key={upstream} className="flex items-center gap-2">
@@ -152,7 +152,7 @@ export function InstallReview({
           <div className="flex flex-col gap-2">
             <h3 className="text-small font-medium">Skills ({plan.skills.length})</h3>
             {plan.skills.map((skill) => (
-              <details key={skill.name} className="rounded-xl bg-neutral-100 p-3">
+              <details key={skill.name} className="rounded-card bg-neutral-100 p-3">
                 <summary className="cursor-pointer text-small">
                   <span className="font-medium">{skill.name}</span>
                   {skill.upstream_name !== skill.name && <span className="text-neutral-700"> (from {skill.upstream_name})</span>}

@@ -43,7 +43,7 @@ export function SettingsDialog({
         aria-modal="true"
         aria-label="Settings"
         onClick={(event) => event.stopPropagation()}
-        className="relative flex h-dvh w-full max-w-[1000px] flex-col overflow-hidden bg-background sm:h-[min(88dvh,50rem)] sm:rounded-2xl sm:shadow-lift lg:max-w-[1200px] lg:h-[min(90dvh,60rem)] 2xl:max-w-[1400px] 2xl:h-[min(90dvh,68rem)]"
+        className="relative flex h-dvh w-full max-w-[1000px] flex-col overflow-hidden bg-background sm:h-[min(88dvh,50rem)] sm:rounded-card sm:shadow-lift lg:max-w-[1200px] lg:h-[min(90dvh,60rem)] 2xl:max-w-[1400px] 2xl:h-[min(90dvh,68rem)]"
       >
         <div className="absolute right-2 top-2 z-10 hidden sm:block">
           <button
@@ -51,7 +51,7 @@ export function SettingsDialog({
             onClick={onClose}
             aria-label="Close settings"
             title="Close"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-background/80 text-neutral-700 backdrop-blur transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-10 w-10 items-center justify-center rounded-control bg-background/80 text-neutral-700 backdrop-blur transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <CloseIcon />
           </button>

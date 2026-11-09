@@ -83,7 +83,7 @@ function ImageModelPicker({
   onChange: (alias: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-4">
+    <div className="flex flex-col gap-2 rounded-card bg-neutral-100 p-4">
       <p className="text-small font-medium">Image model</p>
       <p className="text-caption text-neutral-700">
         When you ask for a picture, whichever model you are chatting with draws it with this one. Pick an OpenRouter
@@ -343,7 +343,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         />
 
         {browsable.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
+          <div className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4">
             <p className="text-small font-medium">Browse a provider</p>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1fr_auto]">
               <Select
@@ -378,7 +378,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                 {/* Capped height rather than paging: OpenRouter returns several
                     hundred entries, and a scrolling list keeps the filter box
                     and the form it fills both on screen. */}
-                <ul className="scrollbar-slim max-h-64 overflow-y-auto rounded-xl bg-background">
+                <ul className="scrollbar-slim max-h-64 overflow-y-auto rounded-control bg-background">
                   {matches.map((row) => (
                     <li key={row[0]} className="shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
                       <button
@@ -414,7 +414,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </div>
         )}
 
-        <details ref={form} className="rounded-2xl bg-neutral-100 p-4">
+        <details ref={form} className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
@@ -495,7 +495,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
           </form>
         </details>
         {restartRequired && (
-          <p className="rounded-2xl bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">
+          <p className="rounded-card bg-accent-100 px-3.5 py-2.5 text-small text-accent-900" role="status">
             Restart Eggy before using these model changes in chat.
           </p>
         )}

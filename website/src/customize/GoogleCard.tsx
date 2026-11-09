@@ -55,10 +55,10 @@ export function GoogleIdentity({
   }
   const mismatch = expected !== "" && connected !== expected && connected !== "unverified";
   return (
-    <div className={`rounded-2xl px-[18px] py-3.5 text-small ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
+    <div className={`rounded-card px-[18px] py-3.5 text-small ${mismatch ? "bg-eg-red-tint" : "bg-accent-100"}`}>
       <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-eg-red-ink" : "text-accent-900"}`}>
         Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
-        <span className="rounded-md bg-background px-2 py-0.5 text-caption text-neutral-700">Shared with all Eggy users</span>
+        <span className="rounded-control bg-background px-2 py-0.5 text-caption text-neutral-700">Shared with all Eggy users</span>
       </p>
       {mismatch && (
         <p className="mt-1.5 text-eg-red-ink" role="alert">
@@ -171,7 +171,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
             connectUrl={field(result, "connect_url")}
           />
         )}
-        <details className="rounded-2xl bg-neutral-100 p-4">
+        <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Configure Google Workspace</summary>
           <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
             <Input
@@ -181,7 +181,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
               required
               className={FIELD}
             />
-            <fieldset className="flex flex-col gap-2 rounded-2xl bg-background p-3.5">
+            <fieldset className="flex flex-col gap-2 rounded-card bg-background p-3.5">
               <legend className="px-0.5 pb-2.5 text-small font-medium">OAuth client type</legend>
               {(
                 [
@@ -210,7 +210,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                 </p>
               )}
             </fieldset>
-            <fieldset className="rounded-2xl bg-background p-3.5">
+            <fieldset className="rounded-card bg-background p-3.5">
               <legend className="px-0.5 pb-2.5 text-small font-medium">Products</legend>
               <div className="flex flex-wrap gap-1.5">
                 {PRODUCTS.map((product) => {
@@ -242,7 +242,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                   onChange={(e) => setClientSecretEnv(e.target.value)}
                   className={FIELD}
                 />
-                <div className="flex flex-col gap-3 rounded-2xl bg-background p-3.5">
+                <div className="flex flex-col gap-3 rounded-card bg-background p-3.5">
                   <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
                   <p className="text-caption text-neutral-700">
                     New write actions are gated automatically. Turn this off to choose action by action.

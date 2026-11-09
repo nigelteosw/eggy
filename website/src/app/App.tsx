@@ -333,7 +333,7 @@ export function App() {
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="flex h-11 w-11 items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             aria-label="Open sidebar"
             title="Open sidebar"
           >
@@ -351,7 +351,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="flex h-11 w-11 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               aria-label="Open sidebar"
               title="Open sidebar"
             >

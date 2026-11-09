@@ -21,14 +21,14 @@ export function DataTable({
 }) {
   if (!rows || rows.length === 0) {
     return (
-      <div className={cn("rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700", className)}>
+      <div className={cn("rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700", className)}>
         {empty}
       </div>
     );
   }
 
   return (
-    <div className={cn("rounded-2xl bg-neutral-100", className)}>
+    <div className={cn("rounded-card bg-neutral-100", className)}>
       {/* Wide screens keep the grid. A phone cannot show four columns without
           sideways scrolling, so below the breakpoint each row becomes a card
           whose values carry their column's label. */}

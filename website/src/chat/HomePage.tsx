@@ -34,7 +34,7 @@ const watchText = (result: CommandResult) => result.fields?.find((field) => fiel
 
 const HEADER_BUTTON = "text-caption font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
 const TRASH_BUTTON =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-700 transition-colors hover:bg-eg-red-tint hover:text-eg-red-ink disabled:pointer-events-none disabled:opacity-50";
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-eg-red-tint hover:text-eg-red-ink disabled:pointer-events-none disabled:opacity-50";
 
 export function HomePage({
   onSessionExpired,
@@ -156,10 +156,10 @@ export function HomePage({
       <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
         <PageHeader title="Home" onOpenSidebar={onOpenSidebar} description={status} />
 
-        {error && <p className="rounded-xl bg-destructive/10 px-3 py-2 text-small text-destructive" role="alert">{error}</p>}
+        {error && <p className="rounded-control bg-destructive/10 px-3 py-2 text-small text-destructive" role="alert">{error}</p>}
 
         {!checklistDone && loaded && (
-          <section aria-label="Getting started" className="flex flex-col gap-2 rounded-2xl bg-neutral-100 p-5">
+          <section aria-label="Getting started" className="flex flex-col gap-2 rounded-card bg-neutral-100 p-5">
             <h2 className="text-small font-semibold">Getting started</h2>
             <ul className="flex flex-col gap-1">
               <ChecklistRow done={checklist.chatted} label="Ask Eggy something" action="Start a chat" onAction={onNewChat} />
@@ -236,7 +236,7 @@ export function HomePage({
           ) : watch === null ? (
             <p className="text-small text-neutral-700">Loading…</p>
           ) : watch.length === 0 ? (
-            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-small text-neutral-700">
+            <p className="rounded-card bg-neutral-100 px-4 py-5 text-small text-neutral-700">
               Nothing yet. Tell Eggy what to keep an eye on, and it will check on it between your conversations.
             </p>
           ) : (
@@ -269,7 +269,7 @@ export function HomePage({
           {schedules === null ? (
             <p className="text-small text-neutral-700">Loading…</p>
           ) : upcoming.length === 0 ? (
-            <p className="rounded-2xl bg-neutral-100 px-4 py-5 text-small text-neutral-700">Nothing is scheduled.</p>
+            <p className="rounded-card bg-neutral-100 px-4 py-5 text-small text-neutral-700">Nothing is scheduled.</p>
           ) : (
             <ul className="flex flex-col">
               {upcoming.map((row) => (

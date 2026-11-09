@@ -72,7 +72,7 @@ export function DiscoverView({ onSessionExpired, onInstalled }: { onSessionExpir
       {sources.length === 0 && <p className="text-caption text-neutral-700">No sources yet. Add one in Sources.</p>}
       <ul className="flex flex-col gap-2">
         {items.map((item) => (
-          <li key={item.name} className="flex items-center justify-between gap-3 rounded-xl bg-neutral-100 p-3">
+          <li key={item.name} className="flex items-center justify-between gap-3 rounded-card bg-neutral-100 p-3">
             <span className="min-w-0">
               <span className="block text-small font-medium">{item.name}</span>
               <span className="block text-caption text-neutral-700">{item.unsupported ? `Cannot install: ${item.unsupported}` : item.description}</span>

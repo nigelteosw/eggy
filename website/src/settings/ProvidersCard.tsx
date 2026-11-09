@@ -38,7 +38,7 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
       <CardHeader title="Providers" description="Model endpoints Eggy can talk to." />
       <div className="flex flex-col gap-3">
         <DataTable headers={result?.table_headers} rows={result?.table_rows} empty="No providers configured yet." />
-        <details className="rounded-2xl bg-neutral-100 p-4">
+        <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Add provider</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />

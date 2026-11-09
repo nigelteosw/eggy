@@ -65,7 +65,7 @@ function Notice({
   return (
     <div
       role={message.tone === "error" ? "alert" : "status"}
-      className={`flex items-start justify-between gap-3 rounded-2xl px-4 py-3 text-small ${TONE_CLASS[message.tone]}`}
+      className={`flex items-start justify-between gap-3 rounded-card px-4 py-3 text-small ${TONE_CLASS[message.tone]}`}
     >
       <span>{message.text}</span>
       {onDismiss && (
@@ -108,7 +108,7 @@ export function AgentRunStartForm({
   );
   if (startable.length === 0) {
     return (
-      <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">
+      <p className="rounded-card bg-neutral-100 px-4 py-3 text-small text-neutral-700">
         No repository is ready. Add one under Repositories, restart Eggy if it says so, then
         turn it on for your account.
       </p>
@@ -116,7 +116,7 @@ export function AgentRunStartForm({
   }
   return (
     <form
-      className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
+      className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4"
       onSubmit={(event) => {
         event.preventDefault();
         onStart();
@@ -139,7 +139,7 @@ export function AgentRunStartForm({
       <label className="flex flex-col gap-1.5 text-caption text-neutral-700">
         What should change
         <textarea
-          className={`${FIELD} min-h-24 rounded-xl px-3 py-2 text-small`}
+          className={`${FIELD} min-h-24 rounded-control px-3 py-2 text-small`}
           value={task}
           onChange={(event) => onTaskChange(event.target.value)}
           aria-label="Task"
@@ -181,7 +181,7 @@ export function AddRepositoryForm({
 }) {
   return (
     <form
-      className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
+      className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4"
       onSubmit={(event) => {
         event.preventDefault();
         onAdd();
@@ -261,7 +261,7 @@ function RepositoryCard({
   const parsed = parseChecks(checks);
   const waiting = repo.pending || repo.removed;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
+    <div className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-small font-medium text-foreground">{repo.name}</span>
         {repo.enabled && !waiting && <Badge tone="good">On</Badge>}
@@ -280,13 +280,13 @@ function RepositoryCard({
         onCheckedChange={onToggle}
         label="Allow runs on this repository for my account"
       />
-      <details className="group rounded-xl bg-neutral-200/30 px-3 py-2">
+      <details className="group rounded-control bg-neutral-200/30 px-3 py-2">
         <summary className="cursor-pointer text-small text-neutral-700">
           Checks ({parsed.length}) · the only commands a run may run
         </summary>
         <div className="mt-3 flex flex-col gap-2">
           <textarea
-            className={`${FIELD} min-h-20 rounded-xl px-3 py-2 font-mono text-caption`}
+            className={`${FIELD} min-h-20 rounded-control px-3 py-2 font-mono text-caption`}
             value={checks}
             onChange={(event) => setChecks(event.target.value)}
             aria-label={`Checks for ${repo.name}`}
@@ -533,7 +533,7 @@ export function AgentRunnerPage({
         {waiting.length > 0 && (
           <div
             role="status"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-950/30 px-4 py-3 text-small"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-card bg-amber-950/30 px-4 py-3 text-small"
           >
             <span>
               {waiting.length === 1
@@ -560,7 +560,7 @@ export function AgentRunnerPage({
         {notice && <Notice message={{ tone: "info", text: notice }} />}
 
         <div className="flex flex-wrap items-center gap-3">
-          <div role="tablist" aria-label="Agent Runner" className="flex gap-1 rounded-xl bg-neutral-100 p-1">
+          <div role="tablist" aria-label="Agent Runner" className="flex gap-1 rounded-control bg-neutral-100 p-1">
             {TABS.map((item) => (
               <button
                 key={item.id}
@@ -571,7 +571,7 @@ export function AgentRunnerPage({
                 aria-controls="agent-runner-panel"
                 onClick={() => setTab(item.id)}
                 className={cn(
-                  "min-h-9 rounded-lg px-3.5 text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                  "min-h-9 rounded-control px-3.5 text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                   tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                 )}
               >
@@ -644,7 +644,7 @@ export function AgentRunnerPage({
                   />
                 )}
                 {repos !== null && repos.length === 0 && !adding && (
-                  <p className="rounded-2xl bg-neutral-100 px-4 py-3 text-small text-neutral-700">
+                  <p className="rounded-card bg-neutral-100 px-4 py-3 text-small text-neutral-700">
                     No repositories yet. Add one to let Eggy work on it.
                   </p>
                 )}

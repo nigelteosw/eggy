@@ -68,21 +68,21 @@ export function ToolsCard({ onSessionExpired }: { onSessionExpired: () => void }
           placeholder="Filter by name, source, or description"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="rounded-xl border-0 bg-neutral-100"
+          className="rounded-control border-0 bg-neutral-100"
         />
         {visible.length === 0 ? (
-          <p className="rounded-xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
+          <p className="rounded-control bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
             {filter ? `No tool matches "${filter}".` : "No tools are registered."}
           </p>
         ) : (
-          <ul className="flex flex-col divide-y divide-neutral-200 overflow-hidden rounded-xl border border-neutral-200">
+          <ul className="flex flex-col divide-y divide-neutral-200 overflow-hidden rounded-control border border-neutral-200">
             {visible.map((row) => (
               <ToolRow key={`${row[SOURCE]}:${row[NAME]}`} name={row[NAME]} source={row[SOURCE]} description={row[DESCRIPTION]} />
             ))}
           </ul>
         )}
         <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">
-          The list is read-only. Kernel tools are compiled in; <code className="rounded bg-neutral-100 px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
+          The list is read-only. Kernel tools are compiled in; <code className="rounded-mark bg-neutral-100 px-1 py-0.5 text-[0.9em]">mcp</code>{" "}
           tools come from the servers above and appear or disappear as those connect, reload, or are logged out of.
         </p>
         {error && (
@@ -117,7 +117,7 @@ function ToolRow({ name, source, description }: { name: string; source: string; 
     <li className="flex flex-col gap-1.5 px-4 py-3">
       <div className="flex items-center gap-2">
         <code className="text-small font-medium text-foreground">{name}</code>
-        <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">{sourceLabel(source)}</span>
+        <span className="rounded-control bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">{sourceLabel(source)}</span>
       </div>
       <p className="text-small leading-5 text-neutral-700">{firstSentence(description)}</p>
       {description.trim() !== firstSentence(description) && (

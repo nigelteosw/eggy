@@ -79,7 +79,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
         }
       />
       {rows.length === 0 ? (
-        <p className="rounded-2xl bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Nothing is scheduled.</p>
+        <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Nothing is scheduled.</p>
       ) : (
         <div className="flex flex-col">
           {rows.map((row) => (
@@ -106,7 +106,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
                   type="button"
                   disabled={cancelling === row[ID]}
                   onClick={() => handleCancel(row)}
-                  className="min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
+                  className="min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50"
                 >
                   {cancelling === row[ID] ? "Cancelling…" : "Cancel"}
                 </button>

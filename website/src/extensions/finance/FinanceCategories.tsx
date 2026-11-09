@@ -38,7 +38,7 @@ export function CategoriesPanel({
 }) {
   if (categories.length === 0) return null;
   return (
-    <details className="rounded-2xl bg-neutral-100 p-4">
+    <details className="rounded-card bg-neutral-100 p-4">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-small font-medium">
         Categories
         <span className="text-caption tabular-nums text-neutral-700">{categories.length}</span>
@@ -82,7 +82,7 @@ function CategoryRow({
   }
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl bg-background px-4 py-3">
+    <li className="flex flex-col gap-3 rounded-card bg-background px-4 py-3">
       <div className="flex items-center gap-3">
         <CategoryDot color={category.color} className="h-3 w-3" />
         <span className="min-w-0 flex-1 truncate text-small font-medium">{category.name}</span>

@@ -27,7 +27,7 @@ export function GitHubTokenView({
     .map(([name, push]) => `${name}: ${push ? "push access" : "no push access"}`)
     .join(", ");
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4">
+    <section className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4">
       <h3 className="text-small font-medium text-foreground">GitHub token for Agent Runner</h3>
       <p className={FIELD_LABEL}>
         A fine-grained token with Contents and Pull requests read and write, for the repositories you allow. Only you see it.

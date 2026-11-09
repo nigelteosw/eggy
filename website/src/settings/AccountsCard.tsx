@@ -36,14 +36,14 @@ import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON } from "../components/ui/for
 // no roles.
 
 const ghostButtonClass =
-  "min-h-10 whitespace-nowrap rounded-xl px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-control px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-200 disabled:pointer-events-none disabled:opacity-50";
 const destructiveButtonClass =
-  "min-h-10 whitespace-nowrap rounded-xl bg-eg-red-tint px-4 text-small font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-10 whitespace-nowrap rounded-control bg-eg-red-tint px-4 text-small font-semibold text-eg-red-ink transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50";
 const textActionClass =
-  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
+  "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-foreground transition-colors hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50";
 const destructiveTextActionClass =
-  "min-h-8 whitespace-nowrap rounded-lg px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
-const panelClass = "rounded-2xl bg-neutral-100 p-4";
+  "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-eg-red-ink transition-colors hover:bg-eg-red-tint disabled:pointer-events-none disabled:opacity-50";
+const panelClass = "rounded-card bg-neutral-100 p-4";
 
 export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
@@ -195,7 +195,7 @@ export function TelegramLinkControl({ account, available, onError }: { account: 
   }
   if (pairing) {
     return (
-      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-small text-accent-900">
+      <div className="flex w-full flex-col gap-2 rounded-card bg-accent-100 p-3 text-small text-accent-900">
         <p className="font-medium">Finish in Telegram</p>
         <ol className="list-decimal pl-5">
           <li>Open the link below on the device where you use Telegram.</li>
@@ -258,14 +258,14 @@ export function DiscordLinkControl({ account, available, onError }: { account: A
   }
   if (link) {
     return (
-      <div className="flex w-full flex-col gap-2 rounded-2xl bg-accent-100 p-3 text-small text-accent-900">
+      <div className="flex w-full flex-col gap-2 rounded-card bg-accent-100 p-3 text-small text-accent-900">
         <p className="font-medium">Finish in Discord</p>
         <ol className="list-decimal pl-5">
           <li>Open a direct message with the Eggy bot.</li>
           <li>Send it the command below, exactly as shown.</li>
           <li>Come back here — your row updates when it&apos;s done.</li>
         </ol>
-        <code className="break-all rounded-lg bg-background px-2 py-1 text-caption">{link.command}</code>
+        <code className="break-all rounded-control bg-background px-2 py-1 text-caption">{link.command}</code>
         <div className="flex flex-wrap items-center gap-2">
           <CopyButton text={link.command} label="Copy command" />
           {link.dm_url && (
@@ -301,7 +301,7 @@ function Avatar({ id, self }: { id: string; self: boolean }) {
     <span
       aria-hidden
       className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-small font-semibold",
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-small font-semibold",
         self ? "bg-accent-100 text-accent-900" : "bg-neutral-100 text-neutral-700",
       )}
     >
@@ -457,7 +457,7 @@ export function PasswordForm({ account, saving, onSubmit, onCancel }: { account:
 // the one credential control the environment-managed account has here.
 export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account: string; self: boolean; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
+    <div className="flex flex-col gap-3 rounded-card bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Revoke sessions for ${account}`}>
       <p className="text-small text-eg-red-ink">
         Revoke every session of <strong>{account}</strong>? {self ? "You" : "They"} will be signed out everywhere and any unused
         Telegram sign-in link stops working. The password does not change.
@@ -476,7 +476,7 @@ export function RevokeConfirm({ account, self, onConfirm, onCancel }: { account:
 
 function RemoveConfirm({ account, onConfirm, onCancel }: { account: string; onConfirm: () => void; onCancel: () => void }) {
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
+    <div className="flex flex-col gap-3 rounded-card bg-eg-red-tint p-3.5" role="alertdialog" aria-label={`Remove ${account}`}>
       <p className="text-small text-eg-red-ink">
         Remove <strong>{account}</strong>? They are signed out immediately and can no longer sign in. Their private
         conversations and memory stay in the database, and this username is never reissued.
@@ -641,7 +641,7 @@ export function ConvertForm({
           id="convert-migration-owner"
           value={migrationOwner}
           onChange={(e) => setMigrationOwner(e.target.value)}
-          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+          className="h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
@@ -656,7 +656,7 @@ export function ConvertForm({
           id="convert-password-account"
           value={passwordAccount}
           onChange={(e) => setPasswordAccount(e.target.value)}
-          className="h-[42px] rounded-xl border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+          className="h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
@@ -767,7 +767,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           {error}
         </ErrorBanner>
       )}
-      {notice && <p className="rounded-xl bg-neutral-100 px-3 py-2 text-small">{notice}</p>}
+      {notice && <p className="rounded-control bg-neutral-100 px-3 py-2 text-small">{notice}</p>}
 
       {view && !view.account_mode ? (
         <ConvertForm
@@ -900,7 +900,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
         </>
       )}
 
-      <details className="rounded-2xl bg-neutral-100 p-4">
+      <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Telegram</summary>
         <div className="mt-3 flex flex-col gap-3">
           <p className="text-caption text-neutral-700">
@@ -932,7 +932,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
         </p>
       )}
 
-      <details className="rounded-2xl bg-neutral-100 p-4">
+      <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Expected Google account</summary>
         <form
           onSubmit={(event) => {

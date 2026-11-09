@@ -85,7 +85,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
             <PageHeader title="Customize" onOpenSidebar={onOpenSidebar} description="Skills and connectors shared by everyone on this Eggy." className="pb-1" />
 
             <div className="flex flex-wrap items-center gap-3">
-              <div role="tablist" aria-label="Customize" className="flex gap-1 rounded-xl bg-neutral-100 p-1">
+              <div role="tablist" aria-label="Customize" className="flex gap-1 rounded-control bg-neutral-100 p-1">
                 {tabsFor(features).map((item) => (
                   <button
                     key={item.id}
@@ -96,7 +96,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                     aria-controls="customize-panel"
                     onClick={() => go({ tab: item.id, skill: null }, false)}
                     className={cn(
-                      "min-h-11 rounded-lg px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      "min-h-11 rounded-control px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       route.tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                     )}
                   >
@@ -107,7 +107,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
 
               {route.tab === "skills" && (
                 <div className="ml-auto flex items-center gap-2">
-                  <label className="flex h-10 w-full max-w-[260px] items-center gap-2 rounded-xl bg-neutral-100 px-3 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
+                  <label className="flex h-10 w-full max-w-[260px] items-center gap-2 rounded-control bg-neutral-100 px-3 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
                     <SearchIcon className="h-4 w-4 shrink-0" />
                     <Input
                       type="search"

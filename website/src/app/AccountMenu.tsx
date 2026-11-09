@@ -53,7 +53,7 @@ export function AccountMenu({
         <div
           role="menu"
           aria-label="Account"
-          className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-2xl bg-card py-1.5 shadow-lift"
+          className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-card bg-card py-1.5 shadow-lift"
         >
           <p className="truncate px-3.5 pb-1.5 pt-1 text-caption text-muted-foreground" title={name}>
             {name}
@@ -75,11 +75,11 @@ export function AccountMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex h-12 w-full items-center gap-2.5 rounded-2xl px-2.5 text-left transition-colors hover:bg-neutral-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="flex h-12 w-full items-center gap-2.5 rounded-card px-2.5 text-left transition-colors hover:bg-neutral-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       >
         <span
           aria-hidden="true"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-100 text-caption font-semibold text-accent-700"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent-100 text-caption font-semibold text-accent-700"
         >
           {name.charAt(0).toUpperCase()}
         </span>
@@ -114,14 +114,14 @@ function ThemeSwitch({ theme, onChange }: { theme: Theme; onChange: (theme: Them
     }
   }
   return (
-    <div role="group" aria-label="Theme" className="mx-2.5 my-1 flex rounded-xl bg-neutral-100 p-0.5">
+    <div role="group" aria-label="Theme" className="mx-2.5 my-1 flex rounded-control bg-neutral-100 p-0.5">
       {THEME_CHOICES.map((choice) => (
         <button
           key={choice.value}
           type="button"
           aria-pressed={theme === choice.value}
           onClick={() => choose(choice.value)}
-          className={`flex h-9 flex-1 items-center justify-center rounded-lg text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${
+          className={`flex h-9 flex-1 items-center justify-center rounded-control text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 ${
             theme === choice.value ? "bg-card text-foreground shadow-subtle" : "text-neutral-700 hover:text-foreground"
           }`}
         >

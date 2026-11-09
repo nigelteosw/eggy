@@ -28,7 +28,7 @@ export function PageHeader({
             onClick={onOpenSidebar}
             aria-label="Open sidebar"
             title="Open sidebar"
-            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
           >
             <MenuIcon />
           </button>

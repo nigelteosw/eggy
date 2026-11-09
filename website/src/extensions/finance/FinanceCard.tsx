@@ -57,7 +57,7 @@ export function FinanceSettingsView({
           event.preventDefault();
           onSave();
         }}
-        className="flex flex-col gap-3 rounded-2xl bg-neutral-100 p-4"
+        className="flex flex-col gap-3 rounded-card bg-neutral-100 p-4"
       >
         <Switch checked={enabled} onCheckedChange={onEnabledChange} label="Enable finance" />
         <label className="flex max-w-xs flex-col gap-1.5 text-caption text-neutral-700">
@@ -78,7 +78,7 @@ export function FinanceSettingsView({
         </div>
       </form>
       {needsRestart && (
-        <p className="rounded-2xl bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
+        <p className="rounded-card bg-neutral-100 px-3.5 py-2.5 text-small text-neutral-700" role="status">
           Restart to apply: finance is {running ? "on" : "off"} now and will be {savedEnabled ? "on" : "off"} after a restart.
         </p>
       )}

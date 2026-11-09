@@ -32,7 +32,7 @@
     --input: 40 29% 77%;
     --ring: 33 15% 15%;
 
-    --radius: 0.625rem;
+
 
     --surface: 40 100% 98%;
 
@@ -96,7 +96,7 @@
     --input: 0 0% 29%;
     --ring: 0 0% 93%;
 
-    --radius: 0.625rem;
+
 
     --surface: 0 0% 12%;
 
@@ -195,7 +195,7 @@
   }
 
   .surface-panel {
-    @apply rounded-lg border border-border bg-card;
+    @apply rounded-control border border-border bg-card;
   }
 
   .section-eyebrow {
@@ -203,7 +203,7 @@
   }
 
   .code-panel {
-    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-neutral-100 p-3.5 font-mono text-caption leading-relaxed text-neutral-800;
+    @apply scrollbar-slim overflow-auto whitespace-pre-wrap break-words rounded-card bg-neutral-100 p-3.5 font-mono text-caption leading-relaxed text-neutral-800;
   }
 
   details > summary {
@@ -284,7 +284,7 @@
     @apply min-w-0 p-1;
   }
   .trace-inspector {
-    @apply min-w-0 rounded-2xl bg-card p-5 sm:p-7;
+    @apply min-w-0 rounded-card bg-card p-5 sm:p-7;
     container-type: inline-size;
   }
   .trace-step {

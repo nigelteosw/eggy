@@ -88,7 +88,7 @@ func TestGatedToolDoesNotCallTheServerWithoutApproval(t *testing.T) {
 	if len(pending) != 1 || pending[0].Action != ApprovalToolCall {
 		t.Fatalf("expected one pending tool.call approval, got %+v", pending)
 	}
-	if !strings.Contains(pending[0].Summary, "mail__send_message") || !strings.Contains(pending[0].Summary, "someone@example.com") {
+	if !strings.Contains(pending[0].Summary, "send_message from mail") || !strings.Contains(pending[0].Summary, "someone@example.com") {
 		t.Fatalf("summary does not show the owner what they are approving: %q", pending[0].Summary)
 	}
 }

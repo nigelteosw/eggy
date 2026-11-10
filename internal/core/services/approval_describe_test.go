@@ -105,3 +105,16 @@ func TestScheduleSentenceSaysWhatAndWhen(t *testing.T) {
 		t.Fatalf("list has a sentence: %q", got)
 	}
 }
+
+// An MCP tool has no sentence of its own, so the card builds one: the tool and
+// its server by name, then short arguments quoted, never the raw JSON.
+func TestApprovalSummaryForAToolWithoutASentenceReadsAsOne(t *testing.T) {
+	got := approvalSummary(gatedCall{Tool: "github__create_issue", Arguments: json.RawMessage(`{"title":"Fix the\n login","repo":"a/b","labels":["bug"],"draft":true,"x":1}`)})
+	want := `Use create_issue from github, with draft true, labels (see details), repo "a/b", title "Fix the login", and 1 more.`
+	if got != want {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+	if got := approvalSummary(gatedCall{Tool: "github__list", Arguments: json.RawMessage(`{}`)}); got != "Use list from github, with no arguments." {
+		t.Fatalf("got %q", got)
+	}
+}

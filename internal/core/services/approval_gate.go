@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -305,14 +307,51 @@ func (t *approvalGatedTool) summary(call gatedCall) string {
 	return approvalSummary(call)
 }
 
-// approvalSummary is the argument-only card, for a tool with no sentence of its
-// own.
+// approvalSummary is the card for a tool with no sentence of its own -- an MCP
+// tool, whose catalog Eggy cannot word for it. It still reads as a sentence:
+// the tool and its server by name, then the arguments a person can check at a
+// glance (short values, quoted). The full arguments stay behind Details.
 func approvalSummary(call gatedCall) string {
-	arguments := string(call.Arguments)
-	if arguments == "{}" {
-		return fmt.Sprintf("Call %s with no arguments", call.Tool)
+	what := "Use " + call.Tool
+	if server, tool, remote := strings.Cut(call.Tool, "__"); remote {
+		what = "Use " + tool + " from " + server
 	}
-	return fmt.Sprintf("Call %s with %s", call.Tool, truncateResult(arguments, 500))
+	var arguments map[string]json.RawMessage
+	if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
+		return what + "."
+	}
+	if len(arguments) == 0 {
+		return what + ", with no arguments."
+	}
+	keys := slices.Sorted(maps.Keys(arguments))
+	const shown = 4
+	parts := make([]string, 0, shown+1)
+	for _, key := range keys[:min(len(keys), shown)] {
+		parts = append(parts, key+" "+argumentPreview(arguments[key]))
+	}
+	if len(keys) > shown {
+		parts = append(parts, fmt.Sprintf("and %d more", len(keys)-shown))
+	}
+	return truncateResult(what+", with "+strings.Join(parts, ", ")+".", 500)
+}
+
+// argumentPreview is one argument as a person reads it: a string quoted and
+// bounded, a number or boolean as written, and anything nested as a mark that
+// there is more under Details.
+func argumentPreview(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		text = strings.Join(strings.Fields(text), " ")
+		if utf8.RuneCountInString(text) > 60 {
+			text = string([]rune(text)[:60]) + "…"
+		}
+		return strconv.Quote(text)
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return "(see details)"
+	}
+	return trimmed
 }
 
 func truncateResult(value string, limit int) string {

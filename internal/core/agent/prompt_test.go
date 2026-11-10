@@ -217,3 +217,14 @@ func TestSoulPolicyTravelsWithTheMemoryTool(t *testing.T) {
 		t.Fatalf("soul header=%s", soul)
 	}
 }
+
+// A turn with the settings tool is told to know itself through it rather than
+// from memory; a turn without it hears nothing about it.
+func TestRuntimePolicyPointsSelfQuestionsAtSettings(t *testing.T) {
+	if policy := renderRuntimePolicy([]string{"settings"}); !strings.Contains(policy, "call settings show") {
+		t.Fatalf("policy=%s", policy)
+	}
+	if policy := renderRuntimePolicy(nil); strings.Contains(policy, "settings show") {
+		t.Fatalf("policy names settings without the tool: %s", policy)
+	}
+}

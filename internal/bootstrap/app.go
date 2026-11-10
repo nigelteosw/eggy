@@ -499,9 +499,10 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		WebLoginLink:     app.webLoginLinkMinter(database, options.ConfigPath),
 		Now:              options.Now,
 	})
-	// /model's agent-facing half, registered here because it is a view onto
-	// the command service above rather than a collaborator of its own.
-	if err := gate(app.commands.ModelTool()); err != nil {
+	// settings is the agent-facing half of /model, /mode and /heartbeat,
+	// registered here because it is a view onto the command service above
+	// rather than a collaborator of its own.
+	if err := gate(app.commands.SettingsTool()); err != nil {
 		return nil, err
 	}
 	// generate_image exists only once an image model is chosen, and draws

@@ -25,6 +25,7 @@ Each tool declares its own effect, which is what
 | `skill_read` | read | Load one [skill's](/eggy/use/skills/) full instructions by exact name |
 | `heartbeat_respond` | internal | A beat's own answer: notify or stay silent, when to look again, and its watch-list annotation. Offered only on heartbeat turns |
 | `schedule` | mixed | `list` reads; `create` and `cancel` write |
+| `settings` | mixed | Eggy's own settings. `show` reads every one, what is connected, and where the rest are changed; your model, effort and thinking change unasked; when Eggy asks, your check-ins, the shared check-in schedule and adding a model ask |
 
 `memory`, `heartbeat_respond` and `finance` (when enabled) are the only tools
 classified *internal*: every action writes, but only into records you already
@@ -37,6 +38,16 @@ unprompted turn can reach the tool.
 
 `schedule` is classified per action, so listing what is due runs freely while
 creating or cancelling asks.
+
+`settings` is how you change Eggy by asking it — "think harder", "show me your
+reasoning", "switch to sonnet", "check in on me every two hours" — and how it
+answers "what can you do?" from what is really configured rather than from
+memory. Each change goes through the same path as `/model`, `/mode`,
+`/heartbeat` and the panel. Two limits are deliberate: it can make Eggy ask
+more or less, but never turn asking off (only you can, with `/mode auto` or in
+Settings), and turning your check-ins on asks you first, because whether Eggy
+may message you unprompted is yours to decide. Connectors, channels, providers
+and people are changed in the panel; `show` says where.
 
 ## With `finance` enabled
 

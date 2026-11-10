@@ -16,6 +16,8 @@ export const NEXT_RUN = 4;
 // The exact next run, in RFC 3339, so the row can say "in 2 hours" and keep the
 // moment on hover.
 export const NEXT_RUN_AT = 5;
+// When, in words -- "Every weekday at 9:00" -- the sentence Telegram uses.
+export const WHEN = 6;
 
 /**
  * Schedules are created by asking Eggy, not by filling in a form: "every
@@ -94,7 +96,9 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
                     {row[KIND]}
                   </span>
                 </span>
-                <span className="mt-1 block break-words text-caption leading-relaxed text-neutral-700">{row[EXPRESSION]}</span>
+                <span title={row[EXPRESSION]} className="mt-1 block break-words text-caption leading-relaxed text-neutral-700">
+                  {row[WHEN] || row[EXPRESSION]}
+                </span>
               </span>
               <span className="flex flex-wrap items-center gap-1.5">
                 {row[NEXT_RUN] && (

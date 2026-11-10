@@ -46,6 +46,7 @@ test("Home greets the reader by the hour and by name", () => {
   expect(greeting(14)).toBe("Good afternoon.");
   expect(greeting(21, " ")).toBe("Good evening.");
   expect(greeting(2, "Sam")).toBe("Good evening, Sam.");
+  expect(greeting(19, "42")).toBe("Good evening.");
   const html = renderToStaticMarkup(createElement(PageHeader, { title: greeting(9, "Sam"), voice: true }));
   expect(html).toContain("font-voice");
 });

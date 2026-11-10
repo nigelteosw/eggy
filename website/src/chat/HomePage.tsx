@@ -33,7 +33,7 @@ type Checklist = { chatted: boolean; watching: boolean; checkins: boolean };
 
 const watchText = (result: CommandResult) => result.fields?.find((field) => field.label === "watch")?.value ?? "";
 
-const HEADER_BUTTON = "text-caption font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
+const HEADER_BUTTON = "inline-flex min-w-11 items-center justify-center text-caption font-medium text-neutral-700 underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50";
 const TRASH_BUTTON =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-tomato-soft hover:text-tomato disabled:pointer-events-none disabled:opacity-50";
 

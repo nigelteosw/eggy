@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { SessionExpiredError, getAccounts, type AccountsView } from "../lib/api";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
-import { SharedLabel } from "../components/ui/shared-label";
 import { TelegramEnableControl } from "../settings/AccountsCard";
 import { errorMessage } from "../lib/utils";
 
@@ -27,11 +26,7 @@ export function TelegramCard({ onSessionExpired }: { onSessionExpired: () => voi
   return (
     <div className="flex flex-col gap-3">
       <CardHeader
-        title={
-          <span className="flex flex-wrap items-center gap-2">
-            Telegram <SharedLabel />
-          </span>
-        }
+        title="Telegram"
         description="Talk to Eggy from Telegram. Once it's on, each person links their own Telegram from Settings → People with a single-use link; nobody can link on someone else's behalf."
       />
       <div className="rounded-card bg-neutral-100 p-4">

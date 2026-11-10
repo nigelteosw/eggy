@@ -222,7 +222,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                       aria-checked={active}
                       onClick={() => toggleProduct(product)}
                       className={cn(
-                        "min-h-[34px] rounded-full px-3.5 text-small font-medium transition-colors",
+                        "min-h-[34px] rounded-full px-3.5 text-small font-medium transition-colors [@media(pointer:coarse)]:min-h-11",
                         active ? "bg-primary text-primary-foreground" : "bg-neutral-100 text-foreground hover:bg-neutral-200",
                       )}
                     >

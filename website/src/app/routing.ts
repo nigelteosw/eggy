@@ -1,7 +1,7 @@
 // Finance is not a view: it is an extension that fills the work area from the rail.
 export type View = "home" | "chat" | "scheduled" | "customize" | "traces" | "settings";
 
-const VIEW_PATHS: Record<View, string> = {
+export const VIEW_PATHS: Record<View, string> = {
   home: "/home",
   chat: "/",
   scheduled: "/scheduled",

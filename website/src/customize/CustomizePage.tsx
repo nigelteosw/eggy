@@ -33,7 +33,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "skills", label: "Skills" },
   { id: "extensions", label: "Extensions" },
 ];
-const TAB_IDS: Tab[] = ["channels", "connectors", "skills", "extensions", "plugins"];
+export const TAB_IDS: Tab[] = ["channels", "connectors", "skills", "extensions", "plugins"];
 
 // Plugins is offered only when the marketplace runs, so it costs nothing and
 // shows nothing otherwise.

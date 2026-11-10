@@ -1,8 +1,11 @@
+import { auditPages } from "./audit-pages";
+
 // Checks the panel at a phone width in headless Chrome and fails on any of the
 // three rules a phone screen must keep: no sideways page scroll, no hit area
 // under 44 px, and no editable field under 16 px (iOS zooms on focus below it).
-// It needs a running panel (bun run dev, or a built binary) and Chrome, so it
-// is a script rather than part of bun test.
+// Every screen is measured in both themes. It needs a running panel and Chrome;
+// tests/mobile-audit.test.ts runs it under bun test when EGGY_AUDIT_URL names
+// one, and checks on every run that the page list covers every screen.
 //
 // With EGGY_AUDIT_USER and EGGY_AUDIT_PASSWORD set it signs in first, so the
 // pages behind the session are measured too.
@@ -56,8 +59,11 @@ const MEASURE = `(() => {
   const label = (el) => el.tagName.toLowerCase() + (el.getAttribute('aria-label') ? '[' + el.getAttribute('aria-label') + ']' : '') + (el.textContent ? ' "' + el.textContent.trim().slice(0, 40) + '"' : '');
   const visible = (el) => rect(el).width > 0 && rect(el).height > 0;
   const wide = [...document.querySelectorAll('body *')].filter((el) => visible(el) && rect(el).right > viewport + 1).map((el) => 'overflows: ' + label(el));
+  // A checkbox or radio is hit through the label around it, which is what a
+  // switch's visually hidden input relies on, so the label is what is measured.
+  const target = (el) => (el.matches('input') && el.closest('label')) || el;
   const small = [...document.querySelectorAll('button, a[href], [role="button"], input[type="checkbox"], input[type="radio"]')]
-    .filter((el) => visible(el) && (rect(el).width < 44 || rect(el).height < 44))
+    .filter((el) => { const hit = target(el); return visible(hit) && (rect(hit).width < 44 || rect(hit).height < 44); })
     .map((el) => 'hit area under 44px: ' + label(el) + ' ' + Math.round(rect(el).width) + 'x' + Math.round(rect(el).height));
   const fields = [...document.querySelectorAll('input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, select')]
     .filter((el) => visible(el) && parseFloat(getComputedStyle(el).fontSize) < 16)
@@ -72,8 +78,7 @@ await send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceSca
 await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
 
 const origin = url.replace(/\/$/, "");
-// Each page the phone reaches from the rail, plus the settings popup.
-const pages = ["/", "/scheduled", "/customize", "/traces", "/settings"];
+const pages = auditPages();
 
 async function evaluate(expression: string): Promise<unknown> {
   return send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
@@ -102,14 +107,17 @@ if (user && password) {
 }
 
 const problems: string[] = [];
-for (const page of pages) {
-  await send("Page.navigate", { url: origin + page });
-  await Bun.sleep(2500);
-  const result = (await evaluate(MEASURE)) as { result?: { result?: { value?: string } } };
-  // The reply nests the evaluated value one level down: message.result.result.value.
-  const measured = result.result?.result?.value;
-  const found: string[] = JSON.parse(measured ?? '{"problems":["the page could not be measured"]}').problems;
-  for (const problem of found) problems.push(page + ": " + problem);
+for (const theme of ["light", "dark"]) {
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: theme }] });
+  for (const page of pages) {
+    await send("Page.navigate", { url: origin + page });
+    await Bun.sleep(2500);
+    const result = (await evaluate(MEASURE)) as { result?: { result?: { value?: string } } };
+    // The reply nests the evaluated value one level down: message.result.result.value.
+    const measured = result.result?.result?.value;
+    const found: string[] = JSON.parse(measured ?? '{"problems":["the page could not be measured"]}').problems;
+    for (const problem of found) problems.push(`${page} (${theme}): ${problem}`);
+  }
 }
 ws.close();
 chrome.kill();
@@ -119,4 +127,4 @@ if (problems.length > 0) {
   for (const problem of problems.slice(0, 80)) console.error(`  ${problem}`);
   process.exit(1);
 }
-console.log(`No phone problems at ${width}px on ${origin} across ${pages.length} pages`);
+console.log(`No phone problems at ${width}px on ${origin} across ${pages.length} pages in both themes`);

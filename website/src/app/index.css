@@ -145,12 +145,15 @@
 
   /* A finger needs about 44 px to hit a control reliably. Only touch-first
      devices get this, so desktop density is unchanged. */
+  /* A finger needs 44 px. This wins over a component's own min-height
+     utility (min-h-10 on a form button), so no control can opt out of it by
+     accident; desktop density is untouched. */
   @media (pointer: coarse) {
     button,
     [role="menuitem"],
     [role="radio"],
     [role="tab"] {
-      min-height: 2.75rem;
+      min-height: 2.75rem !important;
     }
   }
 

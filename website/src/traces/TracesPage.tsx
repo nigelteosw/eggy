@@ -104,7 +104,7 @@ const SOURCE_LABEL: Record<string, string> = {
   telegram: "Telegram",
   web: "Web",
   scheduled: "Scheduled",
-  heartbeat: "Heartbeat",
+  heartbeat: "Check-in",
 };
 
 function sourceOf(trace: TraceSummary): string {

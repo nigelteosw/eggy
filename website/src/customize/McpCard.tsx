@@ -1,7 +1,8 @@
+import { Field } from "../components/ui/field";
 import { SaveBar } from "../components/ui/save-bar";
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, MCPServerInput, SessionExpiredError, listMCPServers, removeMCPServer, setMCPServer } from "../lib/api";
-import { cn, errorMessage } from "../lib/utils";
+import { errorMessage } from "../lib/utils";
 import { Button } from "../components/ui/button";
 import { DataTable } from "../components/ui/data-table";
 import { Input } from "../components/ui/input";
@@ -151,24 +152,40 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
         <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Add MCP server</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
-            <Input placeholder="url (https://...)" value={url} onChange={(e) => setUrl(e.target.value)} required className={FIELD} />
+            <Field label="Name" configKey="name">
+              <Input placeholder="github" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
+            </Field>
+            <Field label="Server address" configKey="url">
+              <Input placeholder="https://example.com/mcp" value={url} onChange={(e) => setUrl(e.target.value)} required className={FIELD} />
+            </Field>
             <details className="sm:col-span-2">
               <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <Select value={transport} onChange={(e) => setTransport(e.target.value)} aria-label="Transport" className="bg-background">
-                  <option value="streamable-http">streamable-http</option>
-                </Select>
-                <Select value={auth} onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])} aria-label="Authentication" className="bg-background">
-                  <option value="oauth">oauth</option>
-                  <option value="bearer-env">bearer-env</option>
-                  <option value="none">none</option>
-                </Select>
-                {auth === "bearer-env" && <Input placeholder="bearer_token_env" value={bearerTokenEnv} onChange={(e) => setBearerTokenEnv(e.target.value)} required className={cn(FIELD, "sm:col-span-2")} />}
+                <Field label="Transport" configKey="transport">
+                  <Select value={transport} onChange={(e) => setTransport(e.target.value)} className="bg-background">
+                    <option value="streamable-http">Streamable HTTP</option>
+                  </Select>
+                </Field>
+                <Field label="Sign-in" configKey="auth">
+                  <Select value={auth} onChange={(e) => setAuth(e.target.value as MCPServerInput["auth"])} className="bg-background">
+                    <option value="oauth">OAuth — authorize in the browser</option>
+                    <option value="bearer-env">A token from an environment variable</option>
+                    <option value="none">None</option>
+                  </Select>
+                </Field>
+                {auth === "bearer-env" && (
+                  <Field label="Token, read from the environment variable" configKey="bearer_token_env" className="sm:col-span-2">
+                    <Input placeholder="GITHUB_MCP_TOKEN" value={bearerTokenEnv} onChange={(e) => setBearerTokenEnv(e.target.value)} required className={FIELD} />
+                  </Field>
+                )}
                 {auth === "oauth" && (
                   <>
-                    <Input placeholder="oauth_client_id (optional)" value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className={FIELD} />
-                    <Input placeholder="oauth_client_secret_env (optional)" value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} className={FIELD} />
+                    <Field label="OAuth client ID (optional)" configKey="oauth_client_id">
+                      <Input value={oauthClientId} onChange={(e) => setOauthClientId(e.target.value)} className={FIELD} />
+                    </Field>
+                    <Field label="Client secret, read from the environment variable (optional)" configKey="oauth_client_secret_env">
+                      <Input value={oauthClientSecretEnv} onChange={(e) => setOauthClientSecretEnv(e.target.value)} className={FIELD} />
+                    </Field>
                     <p className="text-caption leading-relaxed text-neutral-700 sm:col-span-2">
                       Leave both empty for dynamic registration. Otherwise use callback{" "}
                       <code className="rounded-mark bg-background px-1 py-0.5 text-[0.9em]">

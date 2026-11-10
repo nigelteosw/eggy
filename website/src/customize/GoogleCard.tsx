@@ -1,3 +1,5 @@
+import { SharedLabel } from "../components/ui/shared-label";
+import { Field } from "../components/ui/field";
 import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useState } from "react";
 import { useConfigSection } from "../settings/useConfigSection";
@@ -59,7 +61,7 @@ export function GoogleIdentity({
     <div className={`rounded-card px-[18px] py-3.5 text-small ${mismatch ? "bg-tomato-soft" : "bg-accent-100"}`}>
       <p className={`flex flex-wrap items-center gap-2.5 ${mismatch ? "text-tomato" : "text-accent-900"}`}>
         Connected as <strong>{connected === "unverified" ? "an unverified account" : connected}</strong>
-        <span className="rounded-control bg-background px-2 py-0.5 text-caption text-neutral-700">Shared with all Eggy users</span>
+        <SharedLabel className="bg-background" />
       </p>
       {mismatch && (
         <p className="mt-1.5 text-tomato" role="alert">
@@ -175,13 +177,9 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
         <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Configure Google Workspace</summary>
           <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">
-            <Input
-              placeholder="client_id (xxxx.apps.googleusercontent.com)"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              required
-              className={FIELD}
-            />
+            <Field label="OAuth client ID" configKey="google.client_id">
+              <Input placeholder="xxxx.apps.googleusercontent.com" value={clientId} onChange={(e) => setClientId(e.target.value)} required className={FIELD} />
+            </Field>
             <fieldset className="flex flex-col gap-2 rounded-card bg-background p-3.5">
               <legend className="px-0.5 pb-2.5 text-small font-medium">OAuth client type</legend>
               {(
@@ -237,12 +235,9 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
             <details>
               <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 flex flex-col gap-3">
-                <Input
-                  placeholder="client_secret_env"
-                  value={clientSecretEnv}
-                  onChange={(e) => setClientSecretEnv(e.target.value)}
-                  className={FIELD}
-                />
+                <Field label="Client secret, read from the environment variable" configKey="google.client_secret_env">
+                  <Input placeholder="GOOGLE_CLIENT_SECRET" value={clientSecretEnv} onChange={(e) => setClientSecretEnv(e.target.value)} className={FIELD} />
+                </Field>
                 <div className="flex flex-col gap-3 rounded-card bg-background p-3.5">
                   <Switch checked={useDefaults} onCheckedChange={chooseDefaults} label="Ask before anything that writes" />
                   <p className="text-caption text-neutral-700">

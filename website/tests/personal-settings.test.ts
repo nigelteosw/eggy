@@ -39,11 +39,11 @@ test("the settings page opens on my settings and lists every group in the mobile
   expect(html).toContain("Only you");
 });
 
-test("the personal settings card explains its scope and offers the four personal controls", async () => {
+test("the personal settings card explains its scope and offers the personal controls", async () => {
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ models: ["shared-default", "other"], model: "shared-default", efforts: ["low", "high"], effort: "high", show_thinking: true, approval_mode: "normal" }), { status: 200 })) as typeof fetch;
   const html = renderToStaticMarkup(createElement(PersonalSettingsCard, { onSessionExpired: () => {} }));
-  expect(html).toContain("Model and approvals");
+  expect(html).toContain("Your model and when Eggy asks");
   expect(html).toContain("yours alone");
   expect(html).not.toContain("api_key");
   expect(html).not.toContain("Provider");

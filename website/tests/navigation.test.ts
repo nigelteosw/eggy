@@ -51,7 +51,7 @@ test("settings navigation groups configuration by user intent", () => {
   const labels = [...nav.matchAll(/<span class="min-w-0 flex-1">([^<]+)<\/span>/g)].map((match) => match[1]);
 
   expect(labels).toEqual([
-    "Model &amp; approvals",
+    "Model &amp; when Eggy asks",
     "Check-ins",
     "Pending approvals",
     "People",

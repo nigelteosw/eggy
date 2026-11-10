@@ -1,3 +1,4 @@
+import { Field } from "../components/ui/field";
 import { SaveBar } from "../components/ui/save-bar";
 import { useState } from "react";
 import { useConfigSection } from "./useConfigSection";
@@ -42,13 +43,21 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
         <details className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">Add provider</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <Input placeholder="name" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
-            <Input placeholder="adapter" value={adapter} onChange={(e) => setAdapter(e.target.value)} required className={FIELD} />
+            <Field label="Name" configKey="providers.<name>">
+              <Input placeholder="deepseek" value={name} onChange={(e) => setName(e.target.value)} required className={FIELD} />
+            </Field>
+            <Field label="Wire format" configKey="adapter">
+              <Input placeholder="openai_compatible" value={adapter} onChange={(e) => setAdapter(e.target.value)} required className={FIELD} />
+            </Field>
             <details className="sm:col-span-2">
               <summary className="cursor-pointer text-small text-neutral-700">Advanced options</summary>
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <Input placeholder="base_url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required className={FIELD} />
-                <Input placeholder="api_key_env" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required className={FIELD} />
+                <Field label="Address" configKey="base_url">
+                  <Input placeholder="https://api.deepseek.com" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} required className={FIELD} />
+                </Field>
+                <Field label="API key, read from the environment variable" configKey="api_key_env">
+                  <Input placeholder="DEEPSEEK_API_KEY" value={apiKeyEnv} onChange={(e) => setApiKeyEnv(e.target.value)} required className={FIELD} />
+                </Field>
                 <Switch
                   className="sm:col-span-2"
                   checked={discoverModels}

@@ -20,9 +20,9 @@ const selectClass =
   "h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export const APPROVAL_MODES: { value: string; label: string; hint: string }[] = [
-  { value: "strict", label: "Strict", hint: "Every tool call asks you first." },
-  { value: "normal", label: "Normal", hint: "Only actions that write or reach outside ask; reads run." },
-  { value: "auto", label: "Auto", hint: "Nothing asks. Your choice alone; it is never the default." },
+  { value: "normal", label: "Before changes", hint: "I ask before I change or send anything. Looking things up doesn't need asking." },
+  { value: "strict", label: "Every time", hint: "I ask before every tool I use, including looking things up." },
+  { value: "auto", label: "Never", hint: "I don't ask. I change and send things for you right away." },
 ];
 
 export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: () => void }) {
@@ -66,7 +66,7 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
       await setApprovalMode(mode);
       setSelection(await getAgent());
     } catch (err) {
-      fail(err, "Could not change the approval mode");
+      fail(err, "Could not change when Eggy asks");
     } finally {
       setBusy(false);
     }
@@ -75,8 +75,8 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
   return (
     <div className="flex flex-col gap-5">
       <CardHeader
-        title="Model and approvals"
-        description="These are yours alone. Nobody else's choices change them, and yours change nobody else's. The same settings answer /model and /mode in Telegram."
+        title="Your model and when Eggy asks"
+        description="These are yours alone; nobody else's choices change them. They're the same settings /model and /mode change in Telegram."
       />
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {selection && (

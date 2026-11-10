@@ -1,3 +1,4 @@
+import { Field } from "../components/ui/field";
 import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../components/ui/confirm";
@@ -418,9 +419,12 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
         <details ref={form} className="rounded-card bg-neutral-100 p-4">
           <summary className="cursor-pointer text-small font-medium">{editingAlias ? `Edit ${editingAlias}` : "Add model alias"}</summary>
           <form onSubmit={handleSubmit} className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            <Input placeholder="alias" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
+            <Field label="Alias — the name people pick" configKey="models.<alias>">
+              <Input placeholder="deepseek-pro" value={alias} onChange={(e) => setAlias(e.target.value)} readOnly={editingAlias !== null} required className={FIELD} />
+            </Field>
+            <Field label="Provider" configKey="provider">
             <Input
-              placeholder="provider"
+              placeholder="deepseek"
               value={provider}
               onChange={(e) => {
                 setProvider(e.target.value);
@@ -430,8 +434,10 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               required
               className={FIELD}
             />
+            </Field>
+            <Field label="Model, as the provider names it" configKey="model" className="sm:col-span-2">
             <Input
-              placeholder="model"
+              placeholder="deepseek-chat"
               value={model}
               onChange={(e) => {
                 setModel(e.target.value);
@@ -439,8 +445,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               }}
               onBlur={lookupEfforts}
               required
-              className={cn(FIELD, "sm:col-span-2 font-mono")}
+              className={cn(FIELD, "font-mono")}
             />
+            </Field>
             {catalogEfforts !== null && (
               <p className="text-caption text-neutral-700 sm:col-span-2" role="status">
                 {catalogEfforts ? `Reasoning efforts: ${catalogEfforts}` : "No reasoning efforts"} (from {provider.trim()})
@@ -456,13 +463,14 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                   Override reasoning efforts
                 </Button>
               ) : (
-                <Input
-                  placeholder="reasoning_efforts (comma-separated, optional)"
-                  aria-label="Reasoning efforts"
-                  value={reasoningEfforts}
-                  onChange={(e) => setReasoningEfforts(e.target.value)}
-                  className={cn(FIELD, "mt-3")}
-                />
+                <Field label="Reasoning efforts, comma-separated (optional)" configKey="reasoning_efforts" className="mt-3">
+                  <Input
+                    placeholder="low,medium,high"
+                    value={reasoningEfforts}
+                    onChange={(e) => setReasoningEfforts(e.target.value)}
+                    className={FIELD}
+                  />
+                </Field>
               )}
               {routable && (
                 <>

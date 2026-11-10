@@ -74,8 +74,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
         className="mb-3"
         description={
           <>
-            Everything Eggy will do on a timer, soonest first. Ask it in chat to create one; cancel it here. The heartbeat
-            is a separate mechanism and does not appear in this list.
+            Everything Eggy will do on a timer, soonest first. Ask in chat to create one; cancel it here.
           </>
         }
       />

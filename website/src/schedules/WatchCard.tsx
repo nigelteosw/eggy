@@ -65,7 +65,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
         className="mb-3"
         description={
           <>
-            What the heartbeat checks each time it wakes. One thing to look at per line — an item that wants a time of
+            What Eggy looks at on each check-in. One thing to look at per line — an item that wants a time of
             its own is a schedule, not a watch entry. Eggy edits this too, noting what it has already told you so a
             later check-in does not repeat itself. An empty list means every beat is skipped.
           </>
@@ -100,7 +100,7 @@ export function WatchCard({ onSessionExpired }: { onSessionExpired: () => void }
       </div>
       {saved && !detail && (
         <p className="mt-3 text-caption leading-relaxed text-neutral-700" role="status">
-          Saved. The next heartbeat reads it — no restart needed.
+          Saved. The next check-in reads it — no restart needed.
         </p>
       )}
       {detail && (

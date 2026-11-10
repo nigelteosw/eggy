@@ -195,7 +195,7 @@ test("a single-owner deployment is offered conversion from the panel, not a file
 test("the google card shows the verified identity against the expected one and says it is shared", () => {
   const ok = renderToStaticMarkup(createElement(GoogleIdentity, { connected: "eggy@example.com", expected: "eggy@example.com" }));
   expect(ok).toContain("eggy@example.com");
-  expect(ok).toContain("Shared with all Eggy users");
+  expect(ok).toContain("Shared with everyone");
   expect(ok).not.toContain("not Eggy");
   const mismatch = renderToStaticMarkup(createElement(GoogleIdentity, { connected: "nigel@example.com", expected: "eggy@example.com" }));
   expect(mismatch).toContain("not Eggy");

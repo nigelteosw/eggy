@@ -8,54 +8,6 @@ Triaged against the checkout on 2026-11-09, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
-## UI/UX — what is left of the Eggshell overhaul (M)
-
-Review: `docs/superpowers/specs/2026-10-28-ui-ux-review.md`. Bugs, trust,
-theme tokens, Home, phone layout and most polish have landed.
-
-**Theme**
-
-- [ ] One serif for voice moments only (home greeting, empty states, the
-      sign-in line). *Done:* the type scale and the radii, each a replaced
-      Tailwind scale with a test banning anything outside it, and Geist
-      everywhere.
-
-**Structure**
-
-- [ ] Check-ins: move the personal heartbeat toggle off My settings, and use
-      time pickers for the cadence.
-- [ ] Group integrations by job: Channels (Telegram, Discord), Connectors
-      (Google, MCP), Skills, Extensions; Settings → Connections goes away.
-
-**Phone**
-
-- [ ] Menu and page title on one header row on non-chat pages.
-- [ ] Sticky bottom action bar for dirty forms.
-- [ ] Copy and a long-press menu on messages.
-- [ ] Overflow audit as a test across every screen at 390 px in both themes:
-      no sideways scroll, no hit area under 44 px, no field under 16 px.
-
-**Words**
-
-- [ ] Apply the review's vocabulary table: *When Eggy asks*, *Check-ins*,
-      Channels vs Connectors, Extensions vs Plugins.
-- [ ] Eggy speaks in first person in chat and Telegram; panel labels in second.
-- [ ] Shared settings sections: short titles with one "Shared with everyone"
-      label; field labels in words with the YAML key as hint.
-- [ ] Settings search reaches card titles and field labels.
-- [ ] Telegram's `/schedule` uses the panel's plain-language times.
-- [ ] MCP approvals still show raw arguments as the sentence.
-
-**Telegram**
-
-- [ ] One grammar for model effort and thinking (`/model effort` vs
-      `/model settings effort`); `/help` a short list, syntax under topics.
-- [ ] Expandable blockquotes for shown thinking.
-
-Deletion budget: net production lines should fall (arbitrary type sizes,
-status-colour classes, the extra Restart card and Log out buttons, the settings
-modal frame). No new config keys, tables, tools or loops.
-
 ## Marketplace — remaining follow-ups (S–M)
 
 Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
@@ -162,8 +114,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Delivery order
 
 1. Voice and inbound attachments, then outbound documents.
-2. UI theme and structure, as the review orders it.
-3. Measurement, then the typed config contract.
+2. Measurement, then the typed config contract.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet race build`; `make smoke` when Docker is available.

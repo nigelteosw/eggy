@@ -5,6 +5,7 @@ import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
 import { DiscordCard } from "./DiscordCard";
 import { HeartbeatCard } from "./HeartbeatCard";
+import { CheckinsToggleCard } from "./CheckinsToggleCard";
 import { WatchCard } from "../schedules/WatchCard";
 import { SoulCard } from "./SoulCard";
 import { ToolsCard } from "./ToolsCard";
@@ -69,8 +70,8 @@ export const SCOPE_LABEL: Record<GroupId, string> = {
 };
 
 export const SECTIONS: Section[] = [
-  { id: "personal", group: "personal", label: "Model & approvals", title: "My settings", description: "Applies to your Telegram and web sessions. Your model, reasoning effort, thinking visibility and approval mode are yours alone.", terms: ["Model", "Reasoning effort", "Show thinking", "Thinking", "Heartbeat check-ins", "When Eggy asks", "Approval mode", "GitHub token", "Theme", "Light", "Dark", "Match system"], icon: <CpuIcon /> },
-  { id: "automation", group: "personal", label: "Check-ins", title: "Check-ins", description: "Whether Eggy checks in on you, what it keeps an eye on, and how often. Schedules are on the Scheduled page.", terms: ["Heartbeat", "Watch list", "Interval", "Active from", "Active hours", "Instruction"], icon: <ClockIcon /> },
+  { id: "personal", group: "personal", label: "Model & approvals", title: "My settings", description: "Applies to your Telegram and web sessions. Your model, reasoning effort, thinking visibility and approval mode are yours alone.", terms: ["Model", "Reasoning effort", "Show thinking", "Thinking", "When Eggy asks", "Approval mode", "GitHub token", "Theme", "Light", "Dark", "Match system"], icon: <CpuIcon /> },
+  { id: "automation", group: "personal", label: "Check-ins", title: "Check-ins", description: "Whether Eggy checks in on you, what it keeps an eye on, and how often. Schedules are on the Scheduled page.", terms: ["Heartbeat", "Check in on me", "Your check-ins", "Watch list", "How often I check", "How often", "Interval", "Only between certain hours", "Active from", "Active hours", "Instruction"], icon: <ClockIcon /> },
   { id: "permissions", group: "personal", label: "Pending approvals", title: "Pending approvals", description: "Actions waiting on you.", terms: ["Waiting on you", "Approve", "Decline", "Approval"], icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", terms: ["Accounts", "Username", "Name", "Password", "Telegram user ID", "Email", "Environment login", "Migration", "Current password"], icon: <UsersIcon /> },
   { id: "models", group: "shared", label: "Models", title: "Models", description: "Providers, API keys, and the aliases that route to them, used by every person.", terms: ["Providers", "API key", "Base URL", "Adapter", "Model alias", "OpenRouter", "Reasoning efforts", "Model catalog"], icon: <CpuIcon /> },
@@ -259,6 +260,7 @@ export function ConfigPage({
           {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>
+              <CheckinsToggleCard onSessionExpired={onSessionExpired} />
               <WatchCard onSessionExpired={onSessionExpired} />
               <HeartbeatCard onSessionExpired={onSessionExpired} />
             </>

@@ -4,7 +4,7 @@ import { isTheme } from "../lib/theme";
 import { LoginPage } from "../auth/LoginPage";
 import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "../auth/WebLoginLinkPage";
 import { ChatPage } from "../chat/ChatPage";
-import { ConfigPage } from "../settings/ConfigPage";
+import { ConfigPage, type SectionId } from "../settings/ConfigPage";
 import { TracesPage } from "../traces/TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { runningExtensions } from "../extensions";
@@ -104,7 +104,11 @@ export function App() {
     setView(next);
   }
 
-  function openSettings() {
+  // Settings opens on My settings, or on the section a link elsewhere names.
+  // The key remounts the page, so a second link to another section lands there.
+  const [settingsSection, setSettingsSection] = useState<{ id: SectionId; key: number }>({ id: "personal", key: 0 });
+  function openSettings(section: SectionId = "personal") {
+    setSettingsSection((current) => ({ id: section, key: current.key + 1 }));
     goTo("settings");
   }
 
@@ -313,7 +317,7 @@ export function App() {
           onNavigate={goTo}
           features={features ?? []}
           onOpenExtension={openExtension}
-          onOpenSettings={openSettings}
+          onOpenSettings={() => openSettings()}
           account={account}
           onLogout={signOut}
           theme={theme}
@@ -421,6 +425,8 @@ export function App() {
         ) : view === "settings" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <ConfigPage
+              key={settingsSection.key}
+              initialSection={settingsSection.id}
               theme={theme}
               onThemeChange={setTheme}
               onSessionExpired={onSessionExpired}

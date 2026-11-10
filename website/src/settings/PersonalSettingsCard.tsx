@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setAgentHeartbeat, setAgentThinking, setApprovalMode, type AgentSelection } from "../lib/api";
+import { SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setAgentThinking, setApprovalMode, type AgentSelection } from "../lib/api";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { Label } from "../components/ui/label";
@@ -124,15 +124,6 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
               onCheckedChange={(checked) => apply(() => setAgentThinking(checked))}
             />
             <p className="text-caption text-neutral-700">Deliver the model&apos;s reasoning as a separate message before its reply.</p>
-          </div>
-          <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">
-            <Switch
-              label="Heartbeat check-ins"
-              checked={selection.heartbeat === true}
-              disabled={busy}
-              onCheckedChange={(checked) => apply(() => setAgentHeartbeat(checked))}
-            />
-            <p className="text-caption text-neutral-700">Let Eggy check your watch list and message you on Telegram when something needs you. Off until you turn it on.</p>
           </div>
           <fieldset className="flex flex-col gap-2">
             <legend className={FIELD_LABEL}>When Eggy asks</legend>

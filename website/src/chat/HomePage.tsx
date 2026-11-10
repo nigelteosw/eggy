@@ -50,7 +50,7 @@ export function HomePage({
   name?: string;
   onSessionExpired: () => void;
   onNavigate: (view: "scheduled" | "chat") => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (section: "automation") => void;
   onNewChat: () => void;
 }) {
   // The watch list is kept as the document it is, so an edit made here can be
@@ -168,7 +168,7 @@ export function HomePage({
             <ul className="flex flex-col gap-1">
               <ChecklistRow done={checklist.chatted} label="Ask Eggy something" action="Start a chat" onAction={onNewChat} />
               <ChecklistRow done={checklist.watching} label="Add something to keep an eye on" action="Add one" onAction={() => editWatch(true)} />
-              <ChecklistRow done={checklist.checkins} label="Turn on check-ins, so Eggy can tell you when something needs you" action="Open settings" onAction={onOpenSettings} />
+              <ChecklistRow done={checklist.checkins} label="Turn on check-ins, so Eggy can tell you when something needs you" action="Open check-ins" onAction={() => onOpenSettings("automation")} />
             </ul>
           </section>
         )}

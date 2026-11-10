@@ -37,8 +37,10 @@ test("technical model and connection fields use advanced disclosure", () => {
 });
 
 test("automation and diagnostics expose configuration on demand", () => {
-  expect(render(HeartbeatCard)).toContain("Configure heartbeat");
-  expect(render(HeartbeatCard)).toContain("Advanced options");
+  // Check-ins' cadence is a short form of pickers, not a disclosure, and it
+  // says once that it is shared.
+  expect(render(HeartbeatCard)).toContain("How often I check");
+  expect(render(HeartbeatCard)).toContain("Shared with everyone");
   expect(render(TracingCard)).toContain("Configure tracing");
   expect(render(TracingCard)).toContain("Advanced options");
   expect(render(AdvancedCard)).toContain("Edit config.yaml");

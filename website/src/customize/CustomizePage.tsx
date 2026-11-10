@@ -9,22 +9,35 @@ import { Input } from "../components/ui/input";
 import { PRIMARY_BUTTON } from "../components/ui/form";
 import { SearchIcon } from "../components/ui/icons";
 import { PluginsTab } from "../extensions/marketplace/PluginsTab";
+import { FinanceCard } from "../extensions/finance/FinanceCard";
+import { MarketplaceCard } from "../extensions/marketplace/MarketplaceCard";
+import { AgentRunnerCard } from "../extensions/agent-runner/AgentRunnerCard";
+import { SharedLabel } from "../components/ui/shared-label";
+import { TelegramCard } from "./TelegramCard";
+import { DiscordCard } from "./DiscordCard";
 import { pluginsEnabled } from "../extensions/marketplace/marketplace";
 
 // The page's address holds where the owner is, so refresh, a shared link and
 // browser back all land in the same place. `skill` is "new" for the create form,
 // a skill name for its detail page, or absent for the list.
-type Tab = "skills" | "connectors" | "plugins";
+// Grouped by what a person is doing: where they talk to Eggy (Channels), what
+// Eggy can reach (Connectors), procedures it follows (Skills), and optional
+// features (Extensions). Plugins -- marketplace installs -- only while the
+// marketplace runs.
+type Tab = "channels" | "connectors" | "skills" | "extensions" | "plugins";
 type Route = { tab: Tab; skill: string | null };
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "skills", label: "Skills" },
+  { id: "channels", label: "Channels" },
   { id: "connectors", label: "Connectors" },
+  { id: "skills", label: "Skills" },
+  { id: "extensions", label: "Extensions" },
 ];
+const TAB_IDS: Tab[] = ["channels", "connectors", "skills", "extensions", "plugins"];
 
 // Plugins is offered only when the marketplace runs, so it costs nothing and
 // shows nothing otherwise.
-function tabsFor(features: string[]): { id: Tab; label: string }[] {
+export function tabsFor(features: string[]): { id: Tab; label: string }[] {
   return pluginsEnabled(features) ? [...TABS, { id: "plugins", label: "Plugins" }] : TABS;
 }
 
@@ -32,7 +45,7 @@ function readRoute(): Route {
   if (typeof window === "undefined") return { tab: "skills", skill: null };
   const params = new URLSearchParams(window.location.search);
   const tab = params.get("tab");
-  return { tab: tab === "connectors" || tab === "plugins" ? tab : "skills", skill: params.get("skill") };
+  return { tab: TAB_IDS.includes(tab as Tab) ? (tab as Tab) : "skills", skill: params.get("skill") };
 }
 
 function routeUrl(route: Route): string {
@@ -82,10 +95,19 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
           />
         ) : (
           <>
-            <PageHeader title="Customize" onOpenSidebar={onOpenSidebar} description="Skills and connectors shared by everyone on this Eggy." className="pb-1" />
+            <PageHeader
+              title="Customize"
+              onOpenSidebar={onOpenSidebar}
+              description={
+                <span className="flex flex-wrap items-center gap-2">
+                  Where you talk to Eggy, what it can reach, and what it knows how to do. <SharedLabel />
+                </span>
+              }
+              className="pb-1"
+            />
 
             <div className="flex flex-wrap items-center gap-3">
-              <div role="tablist" aria-label="Customize" className="flex gap-1 rounded-control bg-neutral-100 p-1">
+              <div role="tablist" aria-label="Customize" className="scrollbar-none -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-control bg-neutral-100 p-1">
                 {tabsFor(features).map((item) => (
                   <button
                     key={item.id}
@@ -96,7 +118,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                     aria-controls="customize-panel"
                     onClick={() => go({ tab: item.id, skill: null }, false)}
                     className={cn(
-                      "min-h-11 rounded-control px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                      "min-h-11 shrink-0 rounded-control px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                       route.tab === item.id ? "bg-background font-medium text-foreground shadow-sm" : "text-neutral-700 hover:text-foreground",
                     )}
                   >
@@ -130,10 +152,23 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                 <SkillsPanel query={query} onOpen={(name) => go({ tab: "skills", skill: name })} onSessionExpired={onSessionExpired} />
               )}
               {route.tab === "plugins" && pluginsEnabled(features) && <PluginsTab onSessionExpired={onSessionExpired} />}
+              {route.tab === "channels" && (
+                <>
+                  <TelegramCard onSessionExpired={onSessionExpired} />
+                  <DiscordCard onSessionExpired={onSessionExpired} />
+                </>
+              )}
               {route.tab === "connectors" && (
                 <>
-                  <McpCard onSessionExpired={onSessionExpired} />
                   <GoogleCard onSessionExpired={onSessionExpired} />
+                  <McpCard onSessionExpired={onSessionExpired} />
+                </>
+              )}
+              {route.tab === "extensions" && (
+                <>
+                  <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
+                  <AgentRunnerCard onSessionExpired={onSessionExpired} running={features.includes("agent_runner")} />
+                  <MarketplaceCard onSessionExpired={onSessionExpired} running={features.includes("marketplace")} />
                 </>
               )}
             </div>

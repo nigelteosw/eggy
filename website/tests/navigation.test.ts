@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AccountMenu } from "../src/app/AccountMenu";
-import { ConfigPage } from "../src/settings/ConfigPage";
+import { tabsFor } from "../src/customize/CustomizePage";
+import { FinanceCard } from "../src/extensions/finance/FinanceCard";
+import { ConfigPage, SECTIONS } from "../src/settings/ConfigPage";
 import { runningExtensions } from "../src/extensions";
 import { ThreadSidebar, groupThreads } from "../src/chat/ThreadSidebar";
 import type { Thread } from "../src/lib/api";
@@ -54,8 +56,7 @@ test("settings navigation groups configuration by user intent", () => {
     "Pending approvals",
     "People",
     "Models",
-    "Connections",
-    "Capabilities",
+    "Tools",
     "Soul",
     "Advanced",
   ]);
@@ -164,20 +165,18 @@ test("an empty group is not shown", () => {
   expect(groups.map((group) => group.label)).toEqual(["Today"]);
 });
 
-test("finance settings live under Capabilities, where its running state is shown", () => {
-  const render = (features: string[]) =>
-    renderToStaticMarkup(
-      createElement(ConfigPage, {
-        theme: "dark",
-        onThemeChange: () => {},
-        onSessionExpired: () => {},
-        features,
-        initialSection: "capabilities",
-      }),
-    );
+// Integrations are grouped by what a person is doing, on one page; Settings
+// no longer has a Connections or Capabilities section.
+test("Customize groups integrations as channels, connectors, skills and extensions", () => {
+  expect(tabsFor([]).map((tab) => tab.label)).toEqual(["Channels", "Connectors", "Skills", "Extensions"]);
+  expect(tabsFor(["marketplace"]).map((tab) => tab.label)).toEqual(["Channels", "Connectors", "Skills", "Extensions", "Plugins"]);
+  for (const id of ["connections", "capabilities"]) expect(SECTIONS.some((section) => section.id === id)).toBe(false);
+});
 
-  // The page also carries the Agent Runner card, so the finance status is read
-  // from its own labelled element rather than from the whole page.
+test("finance's card, under Customize → Extensions, shows its running state", () => {
+  const render = (features: string[]) =>
+    renderToStaticMarkup(createElement(FinanceCard, { onSessionExpired: () => {}, running: features.includes("finance") }));
+
   const financeStatus = (html: string) => html.match(/aria-label="Finance extension status"[^>]*>([^<]*)</)?.[1];
 
   const disabled = render([]);

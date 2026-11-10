@@ -7,6 +7,7 @@ import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../components/ui/form";
 import { SummaryRows } from "../components/ui/summary-rows";
+import { SharedLabel } from "../components/ui/shared-label";
 import { errorMessage } from "../lib/utils";
 
 // The Discord card is where the bot is added: the token is pasted here and
@@ -65,7 +66,15 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
 
   return (
     <div className="mb-2">
-      <CardHeader title="Discord" className="mb-3" description="Talk to Eggy in a private Discord DM. Add the bot here; each person links their own Discord from Accounts." />
+      <CardHeader
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            Discord <SharedLabel />
+          </span>
+        }
+        className="mb-3"
+        description="Talk to Eggy in a private Discord DM. Add the bot here; each person links their own Discord from Settings → People."
+      />
 
       {view && <SummaryRows headers={["State", "Application ID", "Bot token"]} row={describeDiscord(view)} />}
 

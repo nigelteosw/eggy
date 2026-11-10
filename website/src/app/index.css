@@ -395,4 +395,14 @@
   .scrollbar-slim::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* A row that scrolls sideways on a narrow screen, such as a tab strip,
+     without a bar under it. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

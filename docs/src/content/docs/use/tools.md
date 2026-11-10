@@ -6,7 +6,7 @@ eyebrow: Use Eggy
 
 Eggy's tool surface is deliberately small, and most of it is conditional: **a
 capability that is not configured costs nothing** — no schema on any model call,
-no store, no goroutine. The panel's **Settings → Capabilities** page lists the
+no store, no goroutine. The panel's **Settings → Tools** page lists the
 tools your instance actually has, in the order the model sees them, and reads
 live from the registry the agent loop runs on.
 

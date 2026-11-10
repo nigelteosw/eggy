@@ -430,7 +430,6 @@ export function App() {
               theme={theme}
               onThemeChange={setTheme}
               onSessionExpired={onSessionExpired}
-              features={features ?? []}
               onOpenSidebar={() => setSidebarOpen(true)}
             />
           </div>

@@ -23,7 +23,7 @@ import {
 } from "../src/lib/api";
 import { LoginPage } from "../src/auth/LoginPage";
 import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordForm, RevokeConfirm, TelegramLinkControl, inviteText } from "../src/settings/AccountsCard";
-import { DiscordCard, describeDiscord } from "../src/settings/DiscordCard";
+import { DiscordCard, describeDiscord } from "../src/customize/DiscordCard";
 import { GoogleIdentity } from "../src/customize/GoogleCard";
 import { ConfigPage } from "../src/settings/ConfigPage";
 import { AccountMenu } from "../src/app/AccountMenu";

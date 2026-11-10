@@ -3,16 +3,12 @@ import type { Theme } from "../lib/api";
 import { cn } from "../lib/utils";
 import { ProvidersCard } from "./ProvidersCard";
 import { ModelsCard } from "./ModelsCard";
-import { DiscordCard } from "./DiscordCard";
 import { HeartbeatCard } from "./HeartbeatCard";
 import { CheckinsToggleCard } from "./CheckinsToggleCard";
 import { WatchCard } from "../schedules/WatchCard";
 import { SoulCard } from "./SoulCard";
 import { ToolsCard } from "./ToolsCard";
 import { TracingCard } from "./TracingCard";
-import { FinanceCard } from "../extensions/finance/FinanceCard";
-import { MarketplaceCard } from "../extensions/marketplace/MarketplaceCard";
-import { AgentRunnerCard } from "../extensions/agent-runner/AgentRunnerCard";
 import { ApprovalsCard } from "./ApprovalsCard";
 import { AppearanceCard } from "./AppearanceCard";
 import { AdvancedCard } from "./AdvancedCard";
@@ -26,13 +22,12 @@ import {
   ChevronDownIcon,
   HeartIcon,
   MenuIcon,
-  PlugIcon,
   SearchIcon,
   UsersIcon,
   WrenchIcon,
 } from "../components/ui/icons";
 
-export type SectionId = "personal" | "automation" | "permissions" | "accounts" | "models" | "connections" | "capabilities" | "soul" | "advanced";
+export type SectionId = "personal" | "automation" | "permissions" | "accounts" | "models" | "tools" | "soul" | "advanced";
 
 // Settings fall into three areas with different owners. "My settings" is
 // the signed-in person's own runtime state and documents; "People" is the
@@ -75,8 +70,7 @@ export const SECTIONS: Section[] = [
   { id: "permissions", group: "personal", label: "Pending approvals", title: "Pending approvals", description: "Actions waiting on you.", terms: ["Waiting on you", "Approve", "Decline", "Approval"], icon: <CheckShieldIcon /> },
   { id: "accounts", group: "people", label: "People", title: "People", description: "Who can use this Eggy, how each signs in, and which Google account Eggy itself is.", terms: ["Accounts", "Username", "Name", "Password", "Telegram user ID", "Email", "Environment login", "Migration", "Current password"], icon: <UsersIcon /> },
   { id: "models", group: "shared", label: "Models", title: "Models", description: "Providers, API keys, and the aliases that route to them, used by every person.", terms: ["Providers", "API key", "Base URL", "Adapter", "Model alias", "OpenRouter", "Reasoning efforts", "Model catalog"], icon: <CpuIcon /> },
-  { id: "connections", group: "shared", label: "Connections", title: "Connections", description: "Chat bots. Skills, MCP servers and Google are on the Customize page.", terms: ["Discord", "Discord bot token", "Chat bots", "Channels"], icon: <PlugIcon /> },
-  { id: "capabilities", group: "shared", label: "Capabilities", title: "Capabilities", description: "What Eggy can use during anyone's turn.", terms: ["Tools", "Built in", "Finance", "Default currency", "Marketplace", "Agent Runner", "Coding model", "Repositories"], icon: <WrenchIcon /> },
+  { id: "tools", group: "shared", label: "Tools", title: "Tools", description: "What Eggy can use during anyone's turn. Channels, connectors and extensions are on the Customize page.", terms: ["Tools", "Built in"], icon: <WrenchIcon /> },
   { id: "soul", group: "shared", label: "Soul", title: "Soul", description: "Who Eggy is and how it sounds, for everyone.", terms: ["Personality", "SOUL.md", "Voice"], icon: <HeartIcon /> },
   { id: "advanced", group: "shared", label: "Advanced", title: "Advanced", description: "Tracing and the raw configuration file.", terms: ["Tracing", "config.yaml", "Raw configuration"], icon: <FileCodeIcon /> },
 ];
@@ -94,16 +88,12 @@ export function ConfigPage({
   theme,
   onThemeChange,
   onSessionExpired,
-  features = [],
   initialSection = "personal",
   onOpenSidebar,
 }: {
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
   onSessionExpired: () => void;
-  // The optional capabilities this process started with. Finance's settings
-  // card reads whether it is running, so it can say a restart is pending.
-  features?: string[];
   initialSection?: SectionId;
   // Opens the rail from the phone's header row, as every work-area page does.
   onOpenSidebar?: () => void;
@@ -244,19 +234,7 @@ export function ConfigPage({
               <ModelsCard onSessionExpired={onSessionExpired} />
             </>
           )}
-          {active === "connections" && (
-            <>
-              <DiscordCard onSessionExpired={onSessionExpired} />
-            </>
-          )}
-          {active === "capabilities" && (
-            <>
-              <ToolsCard onSessionExpired={onSessionExpired} />
-              <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
-              <MarketplaceCard onSessionExpired={onSessionExpired} running={features.includes("marketplace")} />
-              <AgentRunnerCard onSessionExpired={onSessionExpired} running={features.includes("agent_runner")} />
-            </>
-          )}
+          {active === "tools" && <ToolsCard onSessionExpired={onSessionExpired} />}
           {active === "soul" && <SoulCard onSessionExpired={onSessionExpired} />}
           {active === "automation" && (
             <>

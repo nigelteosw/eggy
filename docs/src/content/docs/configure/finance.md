@@ -10,7 +10,7 @@ Without this section there is no finance tool, no Finance entry under Extensions
 
 ## Turn it on
 
-In the panel, open **Settings → Capabilities**, switch on **Enable finance**, pick a default currency, and save. Then restart Eggy: finance is built once at startup, so a change applies on the next restart. The card says **Restart to apply** while the saved setting and the running one differ.
+In the panel, open **Customize → Extensions**, switch on **Enable finance**, pick a default currency, and save. Then restart Eggy: finance is built once at startup, so a change applies on the next restart. The card says **Restart to apply** while the saved setting and the running one differ.
 
 Or in `config.yaml`:
 

@@ -21,7 +21,7 @@ test("a search finds a section by a card title or field label inside it", () => 
   expect(sectionMatches(find("automation"), "watch list")).toBe(true);
   expect(sectionMatches(find("automation"), "active from")).toBe(true);
   expect(sectionMatches(find("models"), "api key")).toBe(true);
-  expect(sectionMatches(find("connections"), "bot token")).toBe(true);
+  expect(sectionMatches(find("tools"), "built in")).toBe(true);
   expect(sectionMatches(find("personal"), "match system")).toBe(true);
   expect(sectionMatches(find("soul"), "watch list")).toBe(false);
 });

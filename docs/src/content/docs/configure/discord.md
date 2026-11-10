@@ -6,7 +6,7 @@ eyebrow: Configure
 
 Eggy can talk to each account in a private Discord direct message. The bot is
 added from the web panel, not from the deployment environment: paste its token
-under **Settings → Connections → Discord**, restart, and each person links
+under **Customize → Channels → Discord**, restart, and each person links
 their own Discord from **Settings → Accounts**.
 
 What Discord gives you is the same personal Eggy you have on Telegram and in
@@ -33,7 +33,7 @@ along with Telegram groups.
 
 ## Set up the bot
 
-1. Open **Settings → Connections → Discord**.
+1. Open **Customize → Channels → Discord**.
 2. Paste the bot token, optionally the application ID (it only powers the
    "Open Discord" shortcut), turn Discord on, and save. The token is stored
    encrypted in Eggy's database and is never written to `config.yaml` or

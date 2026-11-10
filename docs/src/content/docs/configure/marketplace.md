@@ -10,7 +10,7 @@ Eggy reads existing catalogs. It does not publish one.
 
 ## Turn it on
 
-The marketplace is off by default. Turn it on in **Settings → Marketplace**, or in `config.yaml`; the sources can then be edited in **Customize → Plugins → Sources**:
+The marketplace is off by default. Turn it on in **Customize → Extensions**, or in `config.yaml`; the sources can then be edited in **Customize → Plugins → Sources**:
 
 ```yaml
 marketplace:

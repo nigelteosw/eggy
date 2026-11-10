@@ -97,7 +97,7 @@ Browsers accept Eggy's `Secure` session cookie on `localhost` over plain
 
 ## Connect Google Workspace (optional)
 
-Under **Settings → Connections → Google Workspace**, set the client ID, the
+Under **Customize → Connectors → Google Workspace**, set the client ID, the
 client type, the secret's variable name, and the products; save and restart.
 Press **Connect Google** (Web client) or run `/google login` in chat (Desktop
 client) and, on the consent screen, sign in **as Eggy's own

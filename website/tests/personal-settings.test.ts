@@ -20,7 +20,7 @@ test("settings are grouped into my settings, people, and shared deployment, with
   expect(personal).toEqual(["personal", "automation", "permissions"]);
   const shared = SECTIONS.filter((section) => section.group === "shared").map((section) => section.id);
   expect(shared).toContain("models");
-  expect(shared).toContain("connections");
+  expect(shared).toContain("tools");
   expect(shared).toContain("advanced");
   // Shared controls are labelled as shared once, beside a short title.
   for (const section of SECTIONS.filter((section) => section.group === "shared")) {

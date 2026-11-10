@@ -10,7 +10,7 @@ Without this section there is no runner, no Agent Runner page, no `/code` comman
 
 ## Turn it on
 
-In the panel, open the **Agent Runner** card in Settings, switch on **Enable Agent Runner**, choose a coding model, and save. The card says **Restart to apply** while the saved setting and the running one differ.
+In the panel, open the **Agent Runner** card under **Customize → Extensions**, switch on **Enable Agent Runner**, choose a coding model, and save. The card says **Restart to apply** while the saved setting and the running one differ.
 
 Or in `config.yaml`:
 

@@ -51,7 +51,7 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
     setBusy(true);
     try {
       await setTelegramEnabled(!enabled);
-      onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then each person links their own Telegram from their row above.");
+      onChanged(enabled ? "Telegram disabled. Restart Eggy to apply." : "Telegram enabled. Restart Eggy to apply, then each person links their own Telegram from Settings → People.");
     } catch (err) {
       onError(errorMessage(err, "Could not change Telegram enablement"));
     } finally {
@@ -900,37 +900,10 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
         </>
       )}
 
-      <details className="rounded-card bg-neutral-100 p-4">
-        <summary className="cursor-pointer text-small font-medium">Telegram</summary>
-        <div className="mt-3 flex flex-col gap-3">
-          <p className="text-caption text-neutral-700">
-            With Telegram enabled, each person links their own Telegram from their row above: a single-use link,
-            opened in Telegram, binds that sender to their account. Nobody can link on someone else&apos;s behalf.
-          </p>
-          {view && (
-            <TelegramEnableControl
-              enabled={view.telegram_enabled}
-              onChanged={(message) => {
-                setNotice(message);
-                load();
-              }}
-              onError={setError}
-            />
-          )}
-          {view?.telegram_enabled && !view.telegram_pairing_available && (
-            <p className="text-caption text-neutral-700">
-              Pairing is unavailable until Eggy can discover the bot username. Check Telegram credentials and restart.
-            </p>
-          )}
-        </div>
-      </details>
-
-      {view?.discord_enabled && (
-        <p className="text-caption text-neutral-700">
-          Discord is enabled: each person links their own Discord from their row above by sending the bot a single-use
-          command in a DM. The bot itself is set up under Settings → Connections.
-        </p>
-      )}
+      <p className="text-caption text-neutral-700">
+        Telegram and Discord are switched on under Customize → Channels; each person then links their own from their row
+        above.
+      </p>
 
       <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Expected Google account</summary>
@@ -942,7 +915,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           className="mt-3 flex flex-col gap-3"
         >
           <p className="text-caption text-neutral-700">
-            Eggy&apos;s own Google Workspace user. Only this account can be connected under Connections; anyone
+            Eggy&apos;s own Google Workspace user. Only this account can be connected under Customize → Connectors; anyone
             accidentally authorizing their personal account is refused.
           </p>
           <div className="flex flex-col gap-1.5">

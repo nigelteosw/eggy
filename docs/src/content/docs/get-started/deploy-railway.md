@@ -75,7 +75,7 @@ show a one-time setup URL — open it, fill in your account ID, the model, and
 **Validate and start**. The page then shows the username/password form; sign
 in with `EGGY_UI_USER_EMAIL` and `EGGY_UI_PASSWORD`.
 
-Then, under **Settings → Connections → Google Workspace**, set the client
+Then, under **Customize → Connectors → Google Workspace**, set the client
 ID, client type **Web application**, `client_secret_env: GOOGLE_CLIENT_SECRET`,
 and the products; save and **Restart Eggy**. Press **Connect Google** on the
 same card, and on Google's consent screen sign in **as Eggy's Workspace user**

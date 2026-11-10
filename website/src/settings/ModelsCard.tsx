@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConfirm } from "../components/ui/confirm";
 import { useConfigSection } from "./useConfigSection";
@@ -492,6 +493,7 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
               <Button type="submit" disabled={saving}>{saving ? "Saving..." : editingAlias ? "Update model" : "Save model"}</Button>
               {editingAlias && <Button type="button" variant="ghost" onClick={resetForm}>Cancel</Button>}
             </div>
+            <SaveBar label="Add model" />
           </form>
         </details>
         {restartRequired && (

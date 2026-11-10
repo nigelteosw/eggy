@@ -1,3 +1,4 @@
+import { SaveBar } from "../../components/ui/save-bar";
 import { useState } from "react";
 import { useConfigSection } from "../../settings/useConfigSection";
 import { CardHeader } from "../../components/ui/card-header";
@@ -43,6 +44,7 @@ export function MarketplaceCard({ onSessionExpired, running }: { onSessionExpire
             {saving ? "Saving..." : "Save"}
           </button>
         </div>
+        <SaveBar label="Save marketplace" />
       </form>
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>

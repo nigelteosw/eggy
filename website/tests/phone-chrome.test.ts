@@ -24,3 +24,14 @@ test("the save bar shows only while a form has changes, and only below md", () =
   expect(html).toContain("md:hidden");
   expect(html).toContain("env(safe-area-inset-bottom)");
 });
+
+// An extension's page carries the menu button in its own heading row too, so
+// no page on a phone opens with a bar holding only the menu.
+test("an extension page puts the phone menu beside its title and close control", async () => {
+  const { FinancePage } = await import("../src/extensions/finance/FinancePage");
+  const html = renderToStaticMarkup(createElement(FinancePage, { onSessionExpired: () => {}, onClose: () => {}, onOpenSidebar: () => {} }));
+  const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+  expect(header).toContain('aria-label="Open sidebar"');
+  expect(header).toContain("Finance");
+  expect(header).toContain('aria-label="Close Finance"');
+});

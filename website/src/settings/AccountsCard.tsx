@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useCallback, useEffect, useState } from "react";
 import {
   AccountInput,
@@ -448,6 +449,7 @@ export function PasswordForm({ account, saving, onSubmit, onCancel }: { account:
           Cancel
         </button>
       </div>
+      <SaveBar label="Save" />
     </form>
   );
 }
@@ -554,6 +556,7 @@ function AccountForm({
           </button>
         )}
       </div>
+      <SaveBar label="Save" />
     </form>
   );
 }
@@ -673,6 +676,7 @@ export function ConvertForm({
       <button type="submit" disabled={saving} className={PRIMARY_BUTTON}>
         {saving ? "Converting..." : "Convert to accounts"}
       </button>
+      <SaveBar label="Save" />
     </form>
   );
 }
@@ -925,6 +929,7 @@ export function AccountsCard({ onSessionExpired }: { onSessionExpired: () => voi
           <button type="submit" disabled={saving} className={cn(PRIMARY_BUTTON, "self-start")}>
             {saving ? "Saving..." : "Save expected account"}
           </button>
+          <SaveBar label="Save expected account" />
         </form>
       </details>
     </div>

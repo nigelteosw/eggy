@@ -1,3 +1,5 @@
+import { SaveBar } from "../../components/ui/save-bar";
+import { PageHeader } from "../../components/ui/page-header";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useConfirm } from "../../components/ui/confirm";
 import {
@@ -189,6 +191,7 @@ export function AddEntryForm({
             {busy ? "Saving..." : "Add entry"}
           </button>
         </div>
+        <SaveBar label="Save" />
       </form>
       <CategoryList categories={categories} />
     </details>
@@ -276,6 +279,7 @@ function EntryEditor({
         </button>
       </div>
       <CategoryList categories={categories} />
+      <SaveBar label="Save entry" />
     </form>
   );
 }
@@ -447,7 +451,7 @@ function initialView(): EntryView {
 
 // onClose is set when the page is opened as an extension window, which returns
 // to the view underneath. The page draws its own heading, the way Scheduled does.
-export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: () => void; onClose?: () => void }) {
+export function FinancePage({ onSessionExpired, onClose, onOpenSidebar }: { onSessionExpired: () => void; onClose?: () => void; onOpenSidebar?: () => void }) {
   // An empty month asks the server for the owner's current one; after the
   const [confirm, confirmDialog] = useConfirm();
   // first answer the switcher steps from the month it reports.
@@ -573,20 +577,23 @@ export function FinancePage({ onSessionExpired, onClose }: { onSessionExpired: (
       {confirmDialog}
       <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-4 pb-11 pt-8 sm:px-7 sm:pt-10">
         <header className="flex flex-col gap-3 pb-1">
-          <div className="flex items-center justify-between gap-3">
-            <h1 className="text-title font-semibold tracking-tight">Finance</h1>
-            {onClose && (
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close Finance"
-                title="Close"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              >
-                <CloseIcon />
-              </button>
-            )}
-          </div>
+          <PageHeader
+            title="Finance"
+            onOpenSidebar={onOpenSidebar}
+            action={
+              onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close Finance"
+                  title="Close"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  <CloseIcon />
+                </button>
+              )
+            }
+          />
           {summary && (
             <div className="flex items-center gap-1 self-start">
               <button type="button" aria-label="Previous month" onClick={() => setMonth(shiftMonth(summary.month, -1))} className={SECONDARY_BUTTON}>

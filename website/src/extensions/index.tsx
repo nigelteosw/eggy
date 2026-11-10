@@ -14,7 +14,8 @@ export type ExtensionDef = {
   feature: string;
   // onClose returns to the view underneath; a panel draws its own heading and
   // the close control, the way the other pages do.
-  Panel: (props: { onSessionExpired: () => void; onClose: () => void }) => ReactNode;
+  // onOpenSidebar puts the phone's menu button in the panel's own heading row.
+  Panel: (props: { onSessionExpired: () => void; onClose: () => void; onOpenSidebar?: () => void }) => ReactNode;
 };
 
 export const EXTENSIONS: ExtensionDef[] = [
@@ -23,14 +24,14 @@ export const EXTENSIONS: ExtensionDef[] = [
     label: "Finance",
     icon: <WalletIcon className="h-4 w-4" />,
     feature: "finance",
-    Panel: ({ onSessionExpired, onClose }) => <FinancePage onClose={onClose} onSessionExpired={onSessionExpired} />,
+    Panel: ({ onSessionExpired, onClose, onOpenSidebar }) => <FinancePage onClose={onClose} onOpenSidebar={onOpenSidebar} onSessionExpired={onSessionExpired} />,
   },
   {
     id: "agent_runner",
     label: "Agent Runner",
     icon: <FileCodeIcon className="h-4 w-4" />,
     feature: "agent_runner",
-    Panel: ({ onSessionExpired, onClose }) => <AgentRunnerPage onClose={onClose} onSessionExpired={onSessionExpired} />,
+    Panel: ({ onSessionExpired, onClose, onOpenSidebar }) => <AgentRunnerPage onClose={onClose} onOpenSidebar={onOpenSidebar} onSessionExpired={onSessionExpired} />,
   },
 ];
 

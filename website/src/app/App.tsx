@@ -14,7 +14,7 @@ import { SetupPage } from "../auth/SetupPage";
 import { HomePage } from "../chat/HomePage";
 import { RestartBar } from "./RestartBar";
 import { ThreadSidebar } from "../chat/ThreadSidebar";
-import { MenuIcon, PanelIcon } from "../components/ui/icons";
+import { PanelIcon } from "../components/ui/icons";
 import { useStoredFlag } from "../components/ui/sidebar";
 import { pathForView, viewForPath, type View } from "./routing";
 import { isEdgeSwipe, useVisibleHeight } from "../lib/viewport";
@@ -345,27 +345,12 @@ export function App() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {restartPending && <RestartBar onSessionExpired={onSessionExpired} />}
-        {/* Only an extension gets the top bar: its panel draws no heading of its
-            own. Every other page puts the menu button in its heading. */}
-        {!sidebarOpen && activeExtensionDef && (
-          <div className="flex h-14 shrink-0 items-center px-2 md:hidden">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              aria-label="Open sidebar"
-              title="Open sidebar"
-            >
-              <MenuIcon />
-            </button>
-          </div>
-        )}
         <div className="flex min-h-0 min-w-0 flex-1">
         {activeExtensionDef ? (
           // An extension takes the whole work area beside the rail. It draws its
           // own heading and close control, so there is no shared top bar.
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <activeExtensionDef.Panel onSessionExpired={onSessionExpired} onClose={() => setActiveExtension(null)} />
+            <activeExtensionDef.Panel onSessionExpired={onSessionExpired} onClose={() => setActiveExtension(null)} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
         ) : view === "home" ? (
           <div className="min-h-0 min-w-0 flex-1">

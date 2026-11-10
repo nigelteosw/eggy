@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useCallback, useEffect, useState } from "react";
 import { CommandResult, MCPServerInput, SessionExpiredError, listMCPServers, removeMCPServer, setMCPServer } from "../lib/api";
 import { cn, errorMessage } from "../lib/utils";
@@ -183,6 +184,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
             <Button type="submit" disabled={saving} className="sm:col-span-2">
               {saving ? "Saving..." : "Save server"}
             </Button>
+            <SaveBar label="Add server" />
           </form>
         </details>
         <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">

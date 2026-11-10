@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useState } from "react";
 import { RequestError, SessionExpiredError, deleteAgentPAT, getAgentPAT, setAgentPAT, type AgentPAT } from "../lib/api";
 import { ErrorBanner } from "../components/ui/error-banner";
@@ -69,6 +70,7 @@ export function GitHubTokenView({
             </button>
           )}
         </div>
+        <SaveBar label="Save token" />
       </form>
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </section>

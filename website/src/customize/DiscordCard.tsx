@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useCallback, useEffect, useState } from "react";
 import { SessionExpiredError, clearDiscordToken, getDiscord, setDiscord, type DiscordView } from "../lib/api";
 import { Input } from "../components/ui/input";
@@ -124,6 +125,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
               </button>
             )}
           </div>
+          <SaveBar label="Save Discord" />
         </form>
       </details>
 

@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useState } from "react";
 import { useConfigSection } from "../settings/useConfigSection";
 import type { CommandResult } from "../lib/api";
@@ -285,6 +286,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                 {saving ? "Saving..." : "Save Google Workspace"}
               </Button>
             </div>
+            <SaveBar label="Save Google" />
           </form>
         </details>
         <p className="mx-0.5 text-caption leading-relaxed text-neutral-700">

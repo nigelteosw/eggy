@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import { Input } from "../components/ui/input";
@@ -106,6 +107,7 @@ export function TracingCard({ onSessionExpired }: { onSessionExpired: () => void
               Restore defaults
             </button>
           </div>
+          <SaveBar label="Save tracing" />
         </form>
       </details>
 

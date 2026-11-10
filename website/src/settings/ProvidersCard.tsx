@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useState } from "react";
 import { useConfigSection } from "./useConfigSection";
 import { Button } from "../components/ui/button";
@@ -59,6 +60,7 @@ export function ProvidersCard({ onSessionExpired }: { onSessionExpired: () => vo
             <Button type="submit" disabled={saving} className="sm:col-span-2">
               {saving ? "Saving..." : "Save provider"}
             </Button>
+            <SaveBar label="Add provider" />
           </form>
         </details>
         {result?.detail && <p className="mx-0.5 text-small text-neutral-700">{result.detail}</p>}

@@ -1,3 +1,4 @@
+import { SaveBar } from "../components/ui/save-bar";
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -183,6 +184,7 @@ export function SkillDetail({
               Cancel
             </button>
           </div>
+          <SaveBar label="Save skill" />
         </form>
       </section>
     );

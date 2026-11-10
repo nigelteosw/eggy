@@ -1,3 +1,5 @@
+import { SaveBar } from "../../components/ui/save-bar";
+import { PageHeader } from "../../components/ui/page-header";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "../../lib/utils";
 import {
@@ -19,7 +21,6 @@ import {
   type AgentRunStep,
   type AgentStatus,
 } from "../../lib/api";
-import { CardHeader } from "../../components/ui/card-header";
 import { CloseIcon } from "../../components/ui/icons";
 import { FIELD, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../../components/ui/form";
 import { Input } from "../../components/ui/input";
@@ -156,6 +157,7 @@ export function AgentRunStartForm({
           {busy ? "Starting..." : "Start run"}
         </button>
       </div>
+      <SaveBar label="Save" />
     </form>
   );
 }
@@ -235,6 +237,7 @@ export function AddRepositoryForm({
           Cancel
         </button>
       </div>
+      <SaveBar label="Save" />
     </form>
   );
 }
@@ -363,9 +366,11 @@ const RECENT_RUNS = 3;
 
 export function AgentRunnerPage({
   onClose,
+  onOpenSidebar,
   onSessionExpired,
 }: {
   onClose: () => void;
+  onOpenSidebar?: () => void;
   onSessionExpired: () => void;
 }) {
   const [status, setStatus] = useState<AgentStatus | null>(null);
@@ -515,20 +520,22 @@ export function AgentRunnerPage({
     // fixed height, and without overflow here the content is clipped, not scrolled.
     <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
-        <div className="flex items-start justify-between gap-3">
-          <CardHeader
-            title="Agent Runner"
-            description="Eggy changes a repository you allow, runs its checks, and opens a pull request for a person to review."
-          />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className={SECONDARY_BUTTON}
-          >
-            <CloseIcon className="h-4 w-4" />
-          </button>
-        </div>
+        <PageHeader
+          title="Agent Runner"
+          onOpenSidebar={onOpenSidebar}
+          description="Eggy changes a repository you allow, runs its checks, and opens a pull request for a person to review."
+          action={
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground"
+            >
+              <CloseIcon />
+            </button>
+          }
+        />
 
         {waiting.length > 0 && (
           <div

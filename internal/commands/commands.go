@@ -110,9 +110,8 @@ type Options struct {
 // ModelAliases rather than supplied, so it stays a field of its own.
 type CommandService struct {
 	Options
-	// aliasSet is ModelAliases as a lookup, so /model can tell a subcommand
-	// from an alias that happens to share its name without a linear scan on
-	// every invocation.
+	// aliasSet is ModelAliases as a lookup, so the model tool can tell a
+	// loaded alias from one only written to config without a linear scan.
 	aliasSet map[string]struct{}
 }
 
@@ -213,7 +212,7 @@ func (s *CommandService) restartCommand() (string, bool, error) {
 
 // RestartMessage is the one wording for a restart that was accepted, so chat
 // and the panel cannot describe the same event two different ways.
-const RestartMessage = "Restarting. Config is reloaded from disk; anything running finishes first, and Eggy is back in a few seconds."
+const RestartMessage = "Restarting. Config is reloaded from disk; anything running finishes first, and I'm back in a few seconds."
 
 // Restart rebuilds the daemon so a config.yaml edited from the panel or by
 // /mcp takes effect, reporting what to tell the owner and whether it is

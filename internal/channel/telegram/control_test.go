@@ -17,7 +17,7 @@ type menuFake struct{ calls []string }
 
 func (m *menuFake) Control(_ context.Context, action string) (ports.ControlPanel, error) {
 	m.calls = append(m.calls, action)
-	return ports.ControlPanel{Text: "Settings", Options: []ports.ControlOption{{Label: "Thinking on", Action: "set:/model settings thinking on"}}}, nil
+	return ports.ControlPanel{Text: "Settings", Options: []ports.ControlOption{{Label: "Thinking on", Action: "set:/model thinking on"}}}, nil
 }
 
 func TestFailedReplacementKeepsVisibleMenuUsable(t *testing.T) {
@@ -98,7 +98,7 @@ func TestControlCallbacksAreOwnedBoundedAndConsumedAfterDispatch(t *testing.T) {
 	if err := control.Callback(alice, original, "12", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(menu.calls) != 2 || menu.calls[1] != "set:/model settings thinking on" {
+	if len(menu.calls) != 2 || menu.calls[1] != "set:/model thinking on" {
 		t.Fatalf("calls=%v", menu.calls)
 	}
 	if err := control.Callback(alice, original, "12", ""); err != nil {

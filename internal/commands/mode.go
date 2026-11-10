@@ -40,13 +40,22 @@ func (s *CommandService) modeCommand(ctx context.Context, argument string) (stri
 }
 
 // ModeMessage is the one wording for a mode's meaning, so Telegram and the web
-// panel cannot describe the same setting two different ways.
+// panel cannot describe the same setting two different ways. The names are the
+// panel's: Every time, Before changes, Never.
 func ModeMessage(mode ports.ApprovalMode) string {
-	label := map[ports.ApprovalMode]string{ports.ModeStrict: "Strict", ports.ModeAuto: "Auto"}[mode]
-	if label == "" {
-		label = "Normal"
+	return "When I ask: " + ModeLabel(mode) + ". " + mode.Describe()
+}
+
+// ModeLabel is a mode's name in the owner's words, as the panel shows it.
+func ModeLabel(mode ports.ApprovalMode) string {
+	switch mode {
+	case ports.ModeStrict:
+		return "Every time"
+	case ports.ModeAuto:
+		return "Never"
+	default:
+		return "Before changes"
 	}
-	return label + " mode. " + mode.Describe()
 }
 
 // ModeReport is what a bare /mode says: the mode and the way out of it.

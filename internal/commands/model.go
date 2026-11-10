@@ -41,41 +41,41 @@ func (s *CommandService) model(ctx context.Context, args []string) (string, bool
 		}
 		return fmt.Sprintf("**Active model:** %s\n**Effort:** %s\n**Available:** %s\nSettings: /model effort, /model thinking", selected, effort, strings.Join(s.ModelAliases, ", ")), true, nil
 	}
-	// A multiword settings form is unambiguous even if "settings" is an alias.
-	if args[0] == "settings" && len(args) > 1 {
-		return s.modelSetting(ctx, args[1:])
-	}
-	// A subcommand only wins when no configured alias answers to that name, so
-	// adding these words cannot make an existing alias unselectable.
-	if _, taken := s.aliasSet[args[0]]; !taken {
-		switch args[0] {
-		case "effort", "thinking", "settings":
-			return s.modelSetting(ctx, args)
-		case "providers":
-			if len(args) != 1 {
-				return "Usage: /model providers", true, nil
-			}
-			return s.modelProviders(), true, nil
-		case "available":
-			return s.modelAvailable(ctx, args[1:]), true, nil
-		case "add":
-			return s.modelAdd(args[1:]), true, nil
+	// The subcommand words are reserved as alias names (config refuses to
+	// write one), so /model effort is always the setting -- one grammar.
+	switch args[0] {
+	case "effort", "thinking":
+		return s.modelSetting(ctx, args)
+	case "providers":
+		if len(args) != 1 {
+			return "Usage: /model providers", true, nil
 		}
+		return s.modelProviders(), true, nil
+	case "available":
+		return s.modelAvailable(ctx, args[1:]), true, nil
+	case "add":
+		return s.modelAdd(args[1:]), true, nil
 	}
 	if len(args) != 1 {
 		return modelUsage, true, nil
 	}
-	alias := args[0]
+	return s.selectAlias(ctx, args[0]), true, nil
+}
+
+// selectAlias makes alias the account's model; "default" clears the choice.
+// The settings menu's model buttons call it directly, so an alias that
+// predates the reserved words and shares one is still one tap away.
+func (s *CommandService) selectAlias(ctx context.Context, alias string) string {
 	if alias == "default" {
 		alias = ""
 	}
 	if err := s.AgentRuntime.SelectModel(ctx, alias); err != nil {
-		return fmt.Sprintf("Could not select model: %v\n\nAvailable: %s", err, strings.Join(s.ModelAliases, ", ")), true, nil
+		return fmt.Sprintf("Could not select model: %v\n\nAvailable: %s", err, strings.Join(s.ModelAliases, ", "))
 	}
 	if alias == "" {
 		alias = s.DefaultModel
 	}
-	return "Model set to " + alias + ".", true, nil
+	return "Model set to " + alias + "."
 }
 
 // modelSetting delegates validation and persistence to the same runtime as web.
@@ -123,7 +123,7 @@ func (s *CommandService) modelSetting(ctx context.Context, args []string) (strin
 		effort = "default (provider decides)"
 	}
 	choices := append([]string{"default"}, s.AgentRuntime.ReasoningEfforts(selected)...)
-	return fmt.Sprintf("Effort for %s: %s.\nChoices: %s\nUse /model settings effort <value>.", selected, effort, strings.Join(choices, ", ")), true, nil
+	return fmt.Sprintf("Effort for %s: %s.\nChoices: %s\nUse /model effort <value>.", selected, effort, strings.Join(choices, ", ")), true, nil
 }
 
 // modelProviders names the providers a catalog can be asked for. It reports

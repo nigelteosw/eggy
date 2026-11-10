@@ -75,29 +75,31 @@ func TestModelSettingsUseRuntimeValidationAndAccountState(t *testing.T) {
 	}
 }
 
+// An alias that predates the reserved words and shares one stays selectable
+// from the settings menu, while the typed words mean the settings.
 func TestModelSettingAliasesRemainSelectable(t *testing.T) {
 	database, err := sqlitestore.Open(filepath.Join(t.TempDir(), "eggy.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	runtime := services.NewAgentRuntime(database.State(), "effort", []string{"effort", "thinking", "settings"}, map[string][]string{"effort": {"high"}, "thinking": {"high"}, "settings": {"high"}})
+	runtime := services.NewAgentRuntime(database.State(), "plain", []string{"plain", "effort", "thinking"}, map[string][]string{"plain": {"high"}, "effort": {"high"}, "thinking": {"high"}})
 	service := New(Options{AgentRuntime: runtime, ModelAliases: runtime.Aliases()})
 	ctx := ports.WithPrincipal(t.Context(), ports.Principal{AccountID: "alice"})
-	for _, alias := range runtime.Aliases() {
-		if _, _, err := service.Execute(ctx, "/model "+alias); err != nil {
+	for _, alias := range []string{"effort", "thinking"} {
+		if _, err := service.Control(ctx, "set:/model "+alias); err != nil {
 			t.Fatal(err)
 		}
 		if selected, _ := runtime.SelectedModel(ctx); selected != alias {
-			t.Fatalf("alias %s shadowed by settings", alias)
+			t.Fatalf("alias %s not selectable from the menu, selected %s", alias, selected)
 		}
-		service.Execute(ctx, "/model settings effort high")
+		service.Execute(ctx, "/model effort high")
 		if effort, _ := runtime.ReasoningEffort(ctx); effort != "high" {
-			t.Fatalf("explicit effort unavailable for alias %s", alias)
+			t.Fatalf("/model effort did not set effort on alias %s", alias)
 		}
-		service.Execute(ctx, "/model settings thinking off")
+		service.Execute(ctx, "/model thinking off")
 		if show, _ := runtime.ShowThinking(ctx); show {
-			t.Fatalf("explicit thinking unavailable for alias %s", alias)
+			t.Fatalf("/model thinking did not set thinking on alias %s", alias)
 		}
 	}
 }

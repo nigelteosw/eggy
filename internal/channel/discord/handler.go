@@ -212,12 +212,12 @@ func (h *Handler) handleUnlinked(ctx context.Context, in Inbound, text string) e
 		if err := h.link(ctx, token, in.AuthorID); err != nil {
 			return h.notice(ctx, in.ChannelID, "That linking token is invalid or expired. Create a new one in the Eggy web panel.")
 		}
-		return h.notice(ctx, in.ChannelID, "Linked. You can talk to Eggy here now.")
+		return h.notice(ctx, in.ChannelID, "Linked. You can talk to me here now.")
 	}
 	if !h.shouldDeny(in.AuthorID) {
 		return nil
 	}
-	return h.notice(ctx, in.ChannelID, "This Eggy doesn't know you. If you have an account, link this Discord from the web panel.")
+	return h.notice(ctx, in.ChannelID, "I don't know you yet. If you have an account, link this Discord from the web panel.")
 }
 
 // notice sends a deterministic reply. A failed notice is logged, not

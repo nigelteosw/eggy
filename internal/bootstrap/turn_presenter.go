@@ -103,7 +103,7 @@ var toolProgressLabels = map[string]string{
 	"repository_list":     "Looking at repositories",
 	"workspace_open":      "Opening a workspace",
 	"workspace_close":     "Closing a workspace",
-	"status":              "Checking Eggy's status",
+	"status":              "Checking how I'm running",
 	// The web chat draws its image placeholder on this exact label.
 	"generate_image": "Drawing an image",
 }

@@ -234,7 +234,7 @@ func (t modelTool) add(ctx context.Context, input modelToolInput) (json.RawMessa
 	if !restarting {
 		return json.Marshal(map[string]string{"result": added + " It becomes selectable after a restart, which did not happen: " + restart})
 	}
-	return json.Marshal(map[string]string{"result": added + " Eggy is restarting to load it; once it is back, ask to switch to " + alias + "."})
+	return json.Marshal(map[string]string{"result": added + " I'm restarting to load it; once I'm back, ask to switch to " + alias + "."})
 }
 
 func (t modelTool) selectAlias(ctx context.Context, alias string) (json.RawMessage, error) {

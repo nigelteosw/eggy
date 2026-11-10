@@ -70,9 +70,9 @@ Eggy's Telegram command surface is intentionally small.
 
 | Command | Behavior |
 | --- | --- |
-| `/menu` | Open Status, My settings, Help, and Open web panel buttons |
-| `/settings` | Open your personal model, effort, thinking, approval mode, and heartbeat controls |
-| `/help [model\|mcp\|google\|mode]` | Show grouped commands or detailed topic help |
+| `/menu` | Open Status, Your settings, Help, and Open web panel buttons |
+| `/settings` | Open your personal model, effort, thinking, check-ins and *When Eggy asks* controls |
+| `/help [model\|mode\|checkins\|admin\|mcp\|google]` | Show the everyday commands, or the syntax for one topic |
 | `/status` | Show your model, what is waiting for you, and what needs attention |
 | `/stop` | Cancel the turn currently running in this conversation |
 | `/clear` | Clear recent conversation history without deleting durable memory |
@@ -80,7 +80,6 @@ Eggy's Telegram command surface is intentionally small.
 | `/model [alias]` | Show or select a configured alias; `default` restores the configured default |
 | `/model effort [value\|default]` | Show or set your reasoning effort for the active model |
 | `/model thinking [on\|off]` | Show or set delivery of provider-supplied reasoning |
-| `/model settings effort\|thinking …` | Use the unambiguous settings form when an alias is named `effort`, `thinking`, or `settings` |
 | `/model providers` | Name every provider and say which can be browsed |
 | `/model available <provider> [filter]` | List what a provider actually serves |
 | `/model add <alias> <provider> <model> [efforts]` | Write a new alias into `config.yaml` |
@@ -88,7 +87,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/code` | Run a coding task on an allowed repository; listed in the menu only while the coding extension runs |
-| `/mode` | Show or set how much Eggy asks before tool calls: strict, normal or auto |
+| `/mode` | Show or set *When Eggy asks*: strict (every time), normal (before changes) or auto (never) |
 | `/heartbeat [on\|off]` | Show or switch your own check-ins; off until you turn it on |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 
@@ -176,9 +175,10 @@ serves, instead of from an ID copied out of a vendor's web page:
 /model thinking off
 ```
 
-A subcommand only wins when no configured alias answers to that name, so adding
-these words cannot make an existing alias unselectable. Use `/model settings
-effort …` or `/model settings thinking …` when an alias has a settings name.
+`effort`, `thinking`, `providers`, `available`, `add` and `default` are
+`/model`'s own words, so a new alias may not take one of those names. An older
+alias that already has one stays selectable from the `/settings` buttons and the
+web panel.
 `/model add` deliberately
 does not select the new alias: the running daemon still holds the old catalog, so
 selecting it would fail on an alias you can already see in `config.yaml`.

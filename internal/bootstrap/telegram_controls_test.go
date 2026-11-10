@@ -53,7 +53,7 @@ func TestTelegramMenuAndSettingsDispatchWithoutModelCalls(t *testing.T) {
 	if err := app.HandleEvent(t.Context(), event); err != nil {
 		t.Fatal(err)
 	}
-	for i, label := range []string{"My settings", "Thinking: on", "Off"} {
+	for i, label := range []string{"Your settings", "Show thinking · On", "Off"} {
 		data := buttons[label]
 		if data == "" {
 			t.Fatalf("missing %q in %v", label, buttons)

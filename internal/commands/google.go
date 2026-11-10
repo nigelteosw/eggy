@@ -169,7 +169,7 @@ func (s *CommandService) googleSet(args []string) (string, bool, error) {
 	}
 	if err := config.SetGoogle(s.ConfigPath, input); err != nil {
 		if errors.Is(err, config.ErrGoogleIdentityRequired) {
-			return "Not saved: name Eggy's own Workspace address, the only account its Google connection may belong to. Add expected_email=eggy@yourdomain to the same command.", true, nil
+			return "Not saved: name my own Workspace address, the only account my Google connection may belong to. Add expected_email=eggy@yourdomain to the same command.", true, nil
 		}
 		return fmt.Sprintf("Could not save Google configuration: %v", err), true, nil
 	}

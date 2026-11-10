@@ -247,7 +247,15 @@ type ModelAliasInput struct {
 
 // SetModelAlias adds or replaces one alias. Passing no reasoning efforts
 // writes an alias without a reasoning-effort option.
+// ReservedModelAliases are the words /model reads as its own subcommands, so an
+// alias with one of these names could not be selected by typing it. A new alias
+// may not take one; an existing one stays selectable from the web panel.
+var ReservedModelAliases = []string{"default", "effort", "thinking", "providers", "available", "add"}
+
 func SetModelAlias(path string, input ModelAliasInput) error {
+	if slices.Contains(ReservedModelAliases, input.Alias) {
+		return fmt.Errorf("%q is a /model command word; choose another alias", input.Alias)
+	}
 	return mutate(path, func(cfg *Config) error {
 		if cfg.ModelAliases == nil {
 			cfg.ModelAliases = map[string]ModelAliasConfig{}

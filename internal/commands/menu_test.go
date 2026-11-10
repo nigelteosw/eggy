@@ -31,7 +31,7 @@ func TestMenuSettingsUseAccountRuntime(t *testing.T) {
 	if err != nil || len(panel.Options) != 5 {
 		t.Fatalf("panel=%+v err=%v", panel, err)
 	}
-	if _, err := svc.Control(alice, "set:/model settings thinking on"); err != nil {
+	if _, err := svc.Control(alice, "set:/model thinking on"); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := runtime.ShowThinking(alice)

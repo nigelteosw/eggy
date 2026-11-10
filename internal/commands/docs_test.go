@@ -75,10 +75,12 @@ func TestEveryAdvertisedCommandDispatches(t *testing.T) {
 func TestTopicHelpHasSyntaxExampleAndNextStep(t *testing.T) {
 	service := New(Options{})
 	topics := map[string][]string{
-		"model":  {"/model providers", "/model available", "/model add", "/model effort", "/model thinking", "personal", "shared"},
-		"mcp":    {"/mcp add", "/mcp login", "shared", "unavailable"},
-		"google": {"/google set", "/google login", "expected_email", "shared", "unavailable"},
-		"mode":   {"/mode", "strict", "normal", "auto", "personal", "memory", "MCP"},
+		"model":    {"/model providers", "/model available", "/model add", "/model effort", "/model thinking", "personal", "shared"},
+		"mcp":      {"/mcp add", "/mcp login", "shared", "unavailable"},
+		"google":   {"/google set", "/google login", "expected_email", "shared", "unavailable"},
+		"mode":     {"/mode", "strict", "normal", "auto", "Before changes", "personal", "memory", "MCP"},
+		"checkins": {"/heartbeat on", "personal", "watch list", "Settings → Check-ins"},
+		"admin":    {"/mcp", "/google", "/restart", "everyone"},
 	}
 	for topic, fragments := range topics {
 		output := run(t, service, "/help "+topic)
@@ -88,10 +90,14 @@ func TestTopicHelpHasSyntaxExampleAndNextStep(t *testing.T) {
 			}
 		}
 	}
-	for _, fragment := range []string{"Conversation", "Personal settings", "Shared administration", "durable memory", "current conversation", "/help model"} {
+	for _, fragment := range []string{"/menu", "/stop", "/clear", "durable memory", "current conversation", "/help model", "/help admin"} {
 		if output := run(t, service, "/help"); !strings.Contains(output, fragment) {
 			t.Errorf("overview lacks %q: %s", fragment, output)
 		}
+	}
+	// The overview is a short list; the syntax lives under the topics.
+	if output := run(t, service, "/help"); strings.Count(output, "\n") > 12 || strings.Contains(output, "[") {
+		t.Errorf("overview is not short: %s", output)
 	}
 	if output := run(t, service, "/not-a-command"); len(output) > 100 || !strings.Contains(output, "/help") {
 		t.Fatalf("unknown command reply=%s", output)

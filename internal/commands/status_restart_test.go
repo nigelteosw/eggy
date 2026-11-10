@@ -40,7 +40,7 @@ func TestControlTapReportsOneLineAboveTheMenu(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, rest, _ := strings.Cut(panel.Text, "\n")
-	if !strings.HasPrefix(first, "✓ ") || strings.Count(panel.Text, "**My settings**") != 1 {
+	if !strings.HasPrefix(first, "✓ ") || strings.Count(panel.Text, "**Your settings**") != 1 {
 		t.Fatalf("tap result is not one line above a single menu: %q", panel.Text)
 	}
 	if strings.Count(rest, "\n") > 40 {

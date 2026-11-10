@@ -3,6 +3,8 @@ package commands
 import (
 	"slices"
 	"strings"
+
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // One list supplies both the phone's autocomplete and the grouped overview.
@@ -27,8 +29,10 @@ var telegramCommands = []struct {
 	{"restart", "Reload shared config for everyone", "Shared administration", true},
 }
 
-const helpUsage = "Usage: /help [model|mcp|google|mode]"
-const modelUsage = "Usage:\n/model [alias|default]\n/model effort [value|default]\n/model thinking [on|off]\n/model settings effort|thinking [value]\n/model providers\n/model available <provider> [filter]\n" + modelAddUsage
+const soulDescription = "Show Eggy's soul and how to change it"
+
+const helpUsage = "Usage: /help [model|mode|checkins|admin|mcp|google]"
+const modelUsage = "Usage:\n/model [alias|default]\n/model effort [value|default]\n/model thinking [on|off]\n/model providers\n/model available <provider> [filter]\n" + modelAddUsage
 const modeUsage = "Usage: /mode [strict|normal|auto]"
 
 // CommandNames is every command Telegram accepts when typed, including /code
@@ -48,22 +52,21 @@ func CommandNames(code bool) map[string]bool {
 // work when typed, and /help lists them.
 var menuCommands = []string{"menu", "stop", "clear", "web", "settings", "help"}
 
-// HelpText is the short overview. Shared administration is one line here,
-// because a person who is not running Eggy's configuration does not need it
-// listed beside their own commands.
+// HelpText is the short overview: what a person does most, in my voice, with
+// the syntax for everything else one /help <topic> away.
 func HelpText() string {
-	var lines []string
-	for _, group := range []string{"Conversation", "Personal settings"} {
-		lines = append(lines, "**"+group+"**")
-		for _, command := range telegramCommands {
-			if command.Group == group {
-				lines = append(lines, "/"+command.Name+" — "+command.Description)
-			}
-		}
-		lines = append(lines, "")
-	}
-	lines = append(lines, "**Shared administration**", "/mcp, /google and /restart change things for everyone.", "")
-	return strings.Join(lines, "\n") + "Details: /help model, /help mcp, /help google, /help mode"
+	return strings.Join([]string{
+		"Just talk to me -- that's most of it. A few commands help:",
+		"",
+		"/menu -- my controls, as buttons",
+		"/stop -- stop what I'm doing in the current conversation",
+		"/clear -- forget recent messages; I keep durable memory",
+		"/web -- a one-tap sign-in link to the web panel",
+		"/settings -- your model, check-ins and when I ask",
+		"/status -- how I'm running",
+		"",
+		"More: /help model, /help mode, /help checkins, /help admin",
+	}, "\n")
 }
 
 func (s *CommandService) help(args []string) string {
@@ -76,7 +79,7 @@ func (s *CommandService) help(args []string) string {
 	var text string
 	switch args[0] {
 	case "model":
-		text = modelUsage + "\n\nModel, effort and thinking are personal. Adding models changes the shared catalog. Thinking shows provider-supplied reasoning; it does not enable reasoning. Aliases win over effort/thinking; use /model settings effort or /model settings thinking to disambiguate.\nExample: /model available openrouter sonnet\nNext: /model add <alias> <provider> <model>, then /restart and /model <alias>."
+		text = modelUsage + "\n\nModel, effort and thinking are personal. Adding models changes the shared catalog. Thinking shows provider-supplied reasoning; it does not enable reasoning.\nExample: /model available openrouter sonnet\nNext: /model add <alias> <provider> <model>, then /restart and /model <alias>."
 		if s.AgentRuntime == nil {
 			text += "\nModel selection is unavailable until a model is configured."
 		}
@@ -94,7 +97,17 @@ func (s *CommandService) help(args []string) string {
 			text += "\nRuntime status/login/logout are unavailable until Google is configured and running."
 		}
 	case "mode":
-		text = modeUsage + "\n\nThis is personal; other accounts keep their own mode.\n" + ModeMessage("strict") + "\n" + ModeMessage("normal") + "\n" + ModeMessage("auto") + "\nYour private memory never asks, and an MCP server follows its own approval policy.\nExample: /mode normal\nNext: /mode to check your setting; /web to review pending approvals."
+		text = modeUsage + "\n\nWhen I ask is personal; other accounts keep their own.\n/mode strict -- " + ModeLabel("strict") + ". " + ports.ModeStrict.Describe() + "\n/mode normal -- " + ModeLabel("normal") + ". " + ports.ModeNormal.Describe() + "\n/mode auto -- " + ModeLabel("auto") + ". " + ports.ModeAuto.Describe() + "\nYour private memory never asks, and an MCP server follows its own approval policy.\nExample: /mode normal\nNext: /mode to check your setting; /web to review pending approvals."
+	case "checkins", "heartbeat":
+		text = heartbeatUsage + "\n\nCheck-ins are personal and off until you turn them on. When they're on, I look at your watch list on the deployment's cadence and message you only when something needs you. How often I check, and between which hours, is shared and set in the web panel (Settings → Check-ins).\nExample: /heartbeat on\nNext: tell me what you're waiting on, and I'll add it to your watch list."
+	case "admin":
+		lines := []string{"These change things for everyone who uses me:", ""}
+		for _, command := range telegramCommands {
+			if command.Group == "Shared administration" {
+				lines = append(lines, "/"+command.Name+" -- "+command.Description)
+			}
+		}
+		text = strings.Join(lines, "\n") + "\n/soul -- " + soulDescription + "\n\nExample: /help mcp\nNext: /help mcp or /help google for their syntax."
 	default:
 		return helpUsage
 	}

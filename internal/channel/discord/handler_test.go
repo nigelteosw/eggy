@@ -148,7 +148,7 @@ func TestUnknownHumanGetsOneRateLimitedDenialAndNoAgentWork(t *testing.T) {
 	if len(out.events) != 0 {
 		t.Fatalf("events=%v, want none", out.events)
 	}
-	if len(transport.sent) != 1 || !strings.Contains(transport.sent[0], "doesn't know you") {
+	if len(transport.sent) != 1 || !strings.Contains(transport.sent[0], "don't know you") {
 		t.Fatalf("sent=%v, want one denial", transport.sent)
 	}
 	if strings.Contains(strings.Join(transport.sent, ""), "let me in") {

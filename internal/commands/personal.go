@@ -25,7 +25,7 @@ func (s *CommandService) soulCommand(ctx context.Context) (string, bool, error) 
 	if err != nil {
 		return "", true, err
 	}
-	return "Eggy's soul (SOUL.md, shared by everyone who uses Eggy):\n\n" + strings.TrimSpace(agentContext.Soul) +
+	return "Here's my soul -- SOUL.md, shared by everyone who uses me:\n\n" + strings.TrimSpace(agentContext.Soul) +
 		"\n\nTo change it, tell me how you'd like me to behave, or edit it in the web panel (/web).", true, nil
 }
 
@@ -34,7 +34,7 @@ func (s *CommandService) soulCommand(ctx context.Context) (string, bool, error) 
 // tap should never change a setting its sender did not name.
 func (s *CommandService) heartbeatCommand(ctx context.Context, args []string) (string, bool, error) {
 	if s.AgentRuntime == nil {
-		return "Heartbeat is unavailable.", true, nil
+		return "Check-ins are unavailable.", true, nil
 	}
 	if len(args) > 1 {
 		return heartbeatUsage, true, nil
@@ -71,7 +71,7 @@ func (s *CommandService) heartbeatCommand(ctx context.Context, args []string) (s
 // deployment's.
 func (s *CommandService) heartbeatOnMessage() string {
 	if s.HeartbeatCadence == "" {
-		return "Heartbeat is on for you, but this deployment has no heartbeat interval set, so nothing runs until one is set in the web panel (Settings → Check-ins)."
+		return "Check-ins are on for you, but nobody has set how often I check yet, so nothing runs until someone sets it in the web panel (Settings → Check-ins)."
 	}
-	return "Heartbeat is on. Eggy checks your watch list " + s.HeartbeatCadence + " and messages you only when something needs you. Mention anything you're waiting on and it goes on the list."
+	return "Check-ins are on. I'll look at your watch list " + s.HeartbeatCadence + " and message you only when something needs you. Tell me anything you're waiting on and I'll add it to the list."
 }

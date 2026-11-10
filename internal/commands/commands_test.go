@@ -141,7 +141,7 @@ func TestModeCommandReportsAndSets(t *testing.T) {
 	if err != nil || !handled {
 		t.Fatalf("handled=%v err=%v", handled, err)
 	}
-	if !strings.HasPrefix(output, "Normal mode.") || len(gate.saved) != 0 {
+	if !strings.HasPrefix(output, "When I ask: Before changes.") || len(gate.saved) != 0 {
 		t.Fatalf("a bare /mode changed something: output=%q saved=%v", output, gate.saved)
 	}
 
@@ -149,7 +149,7 @@ func TestModeCommandReportsAndSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.mode != ports.ModeStrict || !strings.HasPrefix(output, "Strict mode.") {
+	if gate.mode != ports.ModeStrict || !strings.HasPrefix(output, "When I ask: Every time.") {
 		t.Fatalf("mode=%q output=%q", gate.mode, output)
 	}
 
@@ -221,7 +221,7 @@ func TestStatusReportsTheApprovalMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Normal mode") {
+	if !strings.Contains(output, "Before changes") {
 		t.Fatalf("status did not name the mode: %q", output)
 	}
 	gate.mode = ports.ModeAuto
@@ -229,7 +229,7 @@ func TestStatusReportsTheApprovalMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Auto mode") || !strings.Contains(output, "/mode normal") {
+	if !strings.Contains(output, "Never") || !strings.Contains(output, "/mode normal") {
 		t.Fatalf("status did not report the bypass or the way out: %q", output)
 	}
 }
@@ -336,18 +336,15 @@ func TestModelAddWritesAnAliasAndAsksForARestart(t *testing.T) {
 	}
 }
 
-// The subcommands are words an owner could plausibly have used as an alias.
-// An existing alias must keep winning, or adding these names would quietly
-// make somebody's model unselectable.
-func TestModelSubcommandNeverShadowsAConfiguredAlias(t *testing.T) {
-	models := &fakeModels{selected: "fast"}
-	service := New(Options{
-		AgentRuntime: models, DefaultModel: "fast", ModelAliases: []string{"fast", "available"},
-		ModelDiscovery: &fakeDiscovery{providers: []string{"openrouter"}},
-	})
-	output, _, err := service.Execute(context.Background(), "/model available")
-	if err != nil || models.selected != "available" {
-		t.Fatalf("output=%q selected=%q err=%v", output, models.selected, err)
+// /model has one grammar: its subcommand words are never aliases, so a new
+// alias may not take one, and /model effort always means the setting.
+func TestModelSubcommandWordsAreReserved(t *testing.T) {
+	service, _ := modelBrowseService(t, &fakeDiscovery{providers: []string{"openrouter"}}, []string{"fast"})
+	for _, word := range []string{"effort", "thinking", "add", "default"} {
+		output, _, err := service.Execute(context.Background(), "/model add "+word+" openrouter some/model")
+		if err != nil || !strings.Contains(output, "Could not add "+word) {
+			t.Fatalf("%s: output=%q err=%v", word, output, err)
+		}
 	}
 }
 
@@ -443,7 +440,7 @@ func TestHeartbeatCommandSwitchesThePersonalHeartbeat(t *testing.T) {
 		t.Fatalf("bad argument reply=%q", reply)
 	}
 	unconfigured := New(Options{AgentRuntime: models})
-	if reply, _, _ := unconfigured.Execute(ctx, "/heartbeat on"); !strings.Contains(reply, "no heartbeat") {
+	if reply, _, _ := unconfigured.Execute(ctx, "/heartbeat on"); !strings.Contains(reply, "how often I check") {
 		t.Fatalf("unconfigured reply=%q", reply)
 	}
 }

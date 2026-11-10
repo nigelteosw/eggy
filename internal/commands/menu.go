@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -33,13 +34,13 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 	}
 	switch action {
 	case "menu":
-		panel.Text = "**Eggy menu**\nChat normally, or choose a control below."
+		panel.Text = "**Menu**\nJust talk to me, or pick a control below."
 		add("Status", "status")
-		add("My settings", "settings")
+		add("Your settings", "settings")
 		add("Help", "help")
 		add("Open web panel", "web")
 	case "settings":
-		panel.Text = "**My settings**\nThese settings apply only to your account, across Telegram and the web."
+		panel.Text = "**Your settings**\nThese are yours alone, in Telegram and on the web."
 		if s.AgentRuntime != nil {
 			alias, err := s.AgentRuntime.SelectedModel(ctx)
 			if err != nil {
@@ -60,17 +61,17 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 			if err != nil {
 				return panel, err
 			}
-			add("Model: "+alias, "models")
-			add("Reasoning effort: "+effort, "effort")
-			add("Thinking: "+onOff(thinking), "thinking")
-			add("Heartbeat: "+onOff(heartbeat), "heartbeat")
+			add("Model · "+alias, "models")
+			add("Reasoning effort · "+effort, "effort")
+			add("Show thinking · "+onOff(thinking), "thinking")
+			add("Check-ins · "+onOff(heartbeat), "heartbeat")
 		}
 		if s.Approvals != nil {
 			mode, err := s.Approvals.Mode(ctx)
 			if err != nil {
 				return panel, err
 			}
-			add("Approval mode: "+string(mode), "mode")
+			add("When I ask · "+ModeLabel(mode), "mode")
 		}
 		add("Back to menu", "menu")
 	case "models":
@@ -95,24 +96,24 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 		add("Use default model", "set:/model default")
 		add("Back to settings", "settings")
 	case "effort":
-		if err := report("/model settings effort"); err != nil {
+		if err := report("/model effort"); err != nil {
 			return panel, err
 		}
-		add("Default", "set:/model settings effort default")
+		add("Default", "set:/model effort default")
 		if s.AgentRuntime != nil {
 			alias, err := s.AgentRuntime.SelectedModel(ctx)
 			if err != nil {
 				return panel, err
 			}
 			for _, effort := range s.AgentRuntime.ReasoningEfforts(alias) {
-				add(effort, "set:/model settings effort "+effort)
+				add(effort, "set:/model effort "+effort)
 			}
 		}
 		add("Back to settings", "settings")
 	case "thinking", "heartbeat":
 		command := "/heartbeat"
 		if action == "thinking" {
-			command = "/model settings thinking"
+			command = "/model thinking"
 		}
 		if err := report(command); err != nil {
 			return panel, err
@@ -124,14 +125,14 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 		if err := report("/mode"); err != nil {
 			return panel, err
 		}
-		add("Normal — ask before writes", "set:/mode normal")
-		add("Strict — ask before every tool", "set:/mode strict")
-		add("Auto — no tool approvals", "confirm-auto")
+		add("Before changes", "set:/mode normal")
+		add("Every time", "set:/mode strict")
+		add("Never", "confirm-auto")
 		add("Back to settings", "settings")
 	case "confirm-auto":
-		panel.Text = "**Enable auto mode?**\nTool calls that change things will run without asking you. This applies only to your account."
-		add("Enable auto mode", "enable-auto")
-		add("Keep current mode", "mode")
+		panel.Text = "**Never ask?**\nI'll change and send things for you without asking first. This applies only to your account."
+		add("Never ask", "enable-auto")
+		add("Keep asking", "mode")
 	case "status", "help", "web":
 		if err := report("/" + action); err != nil {
 			return panel, err
@@ -148,8 +149,11 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 		if !ok {
 			return panel, errors.New("unknown personal control")
 		}
-		text, _, err := s.Execute(ctx, command)
-		if err != nil {
+		var text string
+		var err error
+		if alias, isModel := strings.CutPrefix(command, "/model "); isModel && slices.Contains(s.ModelAliases, alias) && s.AgentRuntime != nil {
+			text = s.selectAlias(ctx, alias)
+		} else if text, _, err = s.Execute(ctx, command); err != nil {
 			return panel, err
 		}
 		panel, err = s.Control(ctx, "settings")
@@ -165,14 +169,14 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 
 func onOff(value bool) string {
 	if value {
-		return "on"
+		return "On"
 	}
-	return "off"
+	return "Off"
 }
 
 func (s *CommandService) personalControlCommand(ctx context.Context, command string) bool {
 	switch command {
-	case "/mode normal", "/mode strict", "/heartbeat on", "/heartbeat off", "/model settings thinking on", "/model settings thinking off", "/model settings effort default", "/model default":
+	case "/mode normal", "/mode strict", "/heartbeat on", "/heartbeat off", "/model thinking on", "/model thinking off", "/model effort default", "/model default":
 		return true
 	}
 	for _, alias := range s.ModelAliases {
@@ -184,7 +188,7 @@ func (s *CommandService) personalControlCommand(ctx context.Context, command str
 		alias, err := s.AgentRuntime.SelectedModel(ctx)
 		if err == nil {
 			for _, effort := range s.AgentRuntime.ReasoningEfforts(alias) {
-				if command == "/model settings effort "+effort {
+				if command == "/model effort "+effort {
 					return true
 				}
 			}

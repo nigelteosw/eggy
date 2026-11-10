@@ -115,7 +115,7 @@ func (s *CommandService) mcpLogin(ctx context.Context, args []string) (string, b
 			"Authorize " + name + " here:",
 			authorizationURL,
 			"",
-			"If the browser lands on a page from Eggy, you are done. If it cannot reach Eggy, copy the address bar and run:",
+			"If the browser lands on a page from me, you are done. If it cannot reach me, copy the address bar and run:",
 			"/mcp login " + name + " <paste the whole URL>",
 		}, "\n"), true, nil
 	}

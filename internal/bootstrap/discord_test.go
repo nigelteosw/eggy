@@ -219,7 +219,7 @@ func TestDiscordUnlinkBlocksDeliveryForWorkInFlight(t *testing.T) {
 	app.discord.intake(app.logger)(context.Background(), discord.Inbound{MessageID: "9", ChannelID: "dm-nigel", AuthorID: "9001", Content: "still me"})
 	drain(t, app)
 	sends := transport.sends()
-	if len(sends) != 2 || !strings.Contains(sends[1], "doesn't know you") {
+	if len(sends) != 2 || !strings.Contains(sends[1], "don't know you") {
 		t.Fatalf("sends=%v", sends)
 	}
 }

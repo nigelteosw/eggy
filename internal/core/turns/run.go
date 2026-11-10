@@ -240,7 +240,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 			return err
 		}
 		if showThinking {
-			if err := s.Channel.Deliver(ctx, "Thinking:\n"+result.ReasoningContent); err != nil {
+			if err := s.Channel.Deliver(ctx, ports.ThinkingPrefix+result.ReasoningContent); err != nil {
 				return err
 			}
 		}

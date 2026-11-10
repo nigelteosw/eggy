@@ -26,8 +26,15 @@ import (
 // channelutil, which does exactly that once so callers don't repeat it.
 type Channel interface {
 	Deliver(ctx context.Context, text string) error
+	// A message that starts with ThinkingPrefix is the model's shown
+	// reasoning, not its reply; a surface may draw it folded away.
 	DeliverApproval(ctx context.Context, approval approvals.Approval) error
 }
+
+// ThinkingPrefix opens a delivered message that carries the model's reasoning
+// rather than its reply. Telegram folds it into an expandable quote and the web
+// chat into the activity disclosure above the reply.
+const ThinkingPrefix = "Thinking:\n"
 
 // TrackableChannel is a Channel whose messages can be revised after the
 // fact: DeliverTrackable returns a handle for the message it sent, and

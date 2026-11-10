@@ -3,6 +3,8 @@ package telegram
 import (
 	"regexp"
 	"strings"
+
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 var (
@@ -34,6 +36,12 @@ func FormatHTML(text string) string { return toTelegramHTML(text) }
 // render as one bullet per row (first cell bold, remaining cells joined
 // after an em dash) rather than a monospace dump of the raw table syntax.
 func toTelegramHTML(text string) string {
+	// Shown thinking is folded away: a label and an expandable quote the reader
+	// opens with a tap, rather than a wall of reasoning above every reply. The
+	// reasoning is plain text; Markdown inside it is the model's scratch work.
+	if body, ok := strings.CutPrefix(text, ports.ThinkingPrefix); ok {
+		return "<b>Thinking</b>\n<blockquote expandable>" + escapeHTML(strings.TrimSpace(body)) + "</blockquote>"
+	}
 	var placeholders []string
 	placeholder := func(html string) string {
 		placeholders = append(placeholders, html)

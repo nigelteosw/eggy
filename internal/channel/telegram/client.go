@@ -422,6 +422,10 @@ func splitMessage(text string) []string {
 	}
 	var chunks []string
 	reopen := ""
+	// Long thinking is split like anything else, but every part keeps the
+	// prefix so each renders as its own folded quote, and no fence is closed
+	// inside it: the quote is plain text.
+	thinking := strings.HasPrefix(text, ports.ThinkingPrefix)
 	for {
 		budget := maxMessageLength - len([]rune(reopen))
 		if len(runes) <= budget {
@@ -436,7 +440,9 @@ func splitMessage(text string) []string {
 		}
 		chunk := reopen + string(runes[:cut])
 		reopen = ""
-		if opener := openFence(chunk); opener != "" {
+		if thinking {
+			reopen = ports.ThinkingPrefix
+		} else if opener := openFence(chunk); opener != "" {
 			chunk += fenceClose
 			reopen = opener + "\n"
 		}

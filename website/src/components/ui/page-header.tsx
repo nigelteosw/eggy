@@ -12,8 +12,11 @@ export function PageHeader({
   action,
   onOpenSidebar,
   className,
+  voice = false,
 }: {
   title: string;
+  // A title Eggy says rather than a label -- Home's greeting -- in the voice serif.
+  voice?: boolean;
   description?: ReactNode;
   action?: ReactNode;
   onOpenSidebar?: () => void;
@@ -33,7 +36,7 @@ export function PageHeader({
             <MenuIcon />
           </button>
         )}
-        <h1 className="min-w-0 flex-1 truncate text-title font-semibold tracking-tight">{title}</h1>
+        <h1 className={cn("min-w-0 flex-1 truncate tracking-tight", voice ? "font-voice text-display font-normal" : "text-title font-semibold")}>{title}</h1>
         {action}
       </div>
       {description && <p className="max-w-2xl text-small leading-6 text-neutral-700">{description}</p>}

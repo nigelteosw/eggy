@@ -39,7 +39,7 @@ export function LoginPage({ login: loginKind, onLoggedIn }: { login: Login; onLo
       <div className="flex w-full max-w-sm animate-fade-in-up flex-col gap-7">
         <EggyBrand className="justify-center" />
         <div className="flex flex-col gap-1.5 text-center">
-          <h1 className="text-display font-semibold tracking-tight">Sign in to Eggy</h1>
+          <h1 className="font-voice text-display font-normal tracking-tight">Good to see you.</h1>
           <p className="text-small text-neutral-700">Your conversations stay on this deployment.</p>
         </div>
 

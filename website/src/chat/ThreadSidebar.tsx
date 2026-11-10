@@ -523,7 +523,7 @@ export function ThreadSidebar({
           </label>
         )}
         {threads.length === 0 ? (
-          <p className="px-2 py-6 text-center text-caption text-muted-foreground">No chats yet.</p>
+          <p className="px-2 py-6 text-center font-voice text-small text-muted-foreground">No chats yet.</p>
         ) : matching.length === 0 ? (
           <p className="px-2 py-6 text-center text-caption text-muted-foreground">No chats match “{chatQuery.trim()}”.</p>
         ) : (

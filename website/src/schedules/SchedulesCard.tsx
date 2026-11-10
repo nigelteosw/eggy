@@ -5,6 +5,7 @@ import { CommandResult, SessionExpiredError, cancelSchedule, listSchedules } fro
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { errorMessage } from "../lib/utils";
+import { EmptyNote } from "../components/ui/voice";
 
 // Column positions in the rows /api/schedules returns.
 export const ID = 0;
@@ -79,7 +80,7 @@ export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => vo
         }
       />
       {rows.length === 0 ? (
-        <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">Nothing is scheduled.</p>
+        <EmptyNote className="text-center">Nothing is scheduled.</EmptyNote>
       ) : (
         <div className="flex flex-col">
           {rows.map((row) => (

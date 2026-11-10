@@ -4,6 +4,7 @@ import { cn, errorMessage } from "../lib/utils";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { Switch } from "../components/ui/switch";
 import { FileCodeIcon } from "../components/ui/icons";
+import { EmptyNote } from "../components/ui/voice";
 
 // The owner's skills, grouped under "Yours" like the other lists in the rail.
 // Clicking a row opens its detail page; the switch turns it on or off in place.
@@ -57,7 +58,7 @@ export function SkillsPanel({
   if (error) return <ErrorBanner>{error}</ErrorBanner>;
   if (rows === null) return <p className="text-small text-neutral-700">Loading skills…</p>;
   if (rows.length === 0) {
-    return <p className="text-small text-neutral-700">No skills yet. Add one to teach Eggy a procedure it can follow.</p>;
+    return <EmptyNote>No skills yet. Add one to teach Eggy a procedure it can follow.</EmptyNote>;
   }
   if (visible.length === 0) return <p className="text-small text-neutral-700">No skills match “{query.trim()}”.</p>;
 

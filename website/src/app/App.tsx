@@ -366,6 +366,7 @@ export function App() {
         ) : view === "home" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <HomePage
+              name={account?.name || account?.username}
               onOpenSidebar={() => setSidebarOpen(true)}
               onSessionExpired={onSessionExpired}
               onNavigate={(next) => goTo(next)}

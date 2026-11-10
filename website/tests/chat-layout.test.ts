@@ -14,7 +14,7 @@ test("an empty conversation uses one direct title and instruction", () => {
   );
 
   expect(html).toContain("Deploy the daemon");
-  expect(html).toContain("Start by asking a question or describing a task.");
+  expect(html).toContain("What can I do for you?");
   expect(html).not.toContain("Conversation");
   expect(html).not.toContain("🥚");
 });

@@ -827,7 +827,7 @@ export function ChatPage({
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
             <div className="py-16 text-center">
-              <p className="text-small text-muted-foreground">Start by asking a question or describing a task.</p>
+              <p className="font-voice text-title text-neutral-700">What can I do for you?</p>
             </div>
           )}
           {messages.map((message, index) => {

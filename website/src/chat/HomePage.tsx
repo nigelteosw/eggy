@@ -1,3 +1,4 @@
+import { EmptyNote, greeting } from "../components/ui/voice";
 import { PageHeader } from "../components/ui/page-header";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -42,8 +43,11 @@ export function HomePage({
   onOpenSettings,
   onNewChat,
   onOpenSidebar,
+  name,
 }: {
   onOpenSidebar?: () => void;
+  // The signed-in person's name, for the greeting.
+  name?: string;
   onSessionExpired: () => void;
   onNavigate: (view: "scheduled" | "chat") => void;
   onOpenSettings: () => void;
@@ -154,7 +158,7 @@ export function HomePage({
   return (
     <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
       <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
-        <PageHeader title="Home" onOpenSidebar={onOpenSidebar} description={status} />
+        <PageHeader title={greeting(new Date().getHours(), name)} voice onOpenSidebar={onOpenSidebar} description={status} />
 
         {error && <p className="rounded-control bg-tomato-soft px-3 py-2 text-small text-tomato" role="alert">{error}</p>}
 
@@ -236,9 +240,7 @@ export function HomePage({
           ) : watch === null ? (
             <p className="text-small text-neutral-700">Loading…</p>
           ) : watch.length === 0 ? (
-            <p className="rounded-card bg-neutral-100 px-4 py-5 text-small text-neutral-700">
-              Nothing yet. Tell Eggy what to keep an eye on, and it will check on it between your conversations.
-            </p>
+            <EmptyNote>Nothing yet. Tell me what to keep an eye on, and I'll check on it between your conversations.</EmptyNote>
           ) : (
             <ul className="flex flex-col">
               {watch.slice(0, 5).map((item) => (
@@ -269,7 +271,7 @@ export function HomePage({
           {schedules === null ? (
             <p className="text-small text-neutral-700">Loading…</p>
           ) : upcoming.length === 0 ? (
-            <p className="rounded-card bg-neutral-100 px-4 py-5 text-small text-neutral-700">Nothing is scheduled.</p>
+            <EmptyNote>Nothing is scheduled.</EmptyNote>
           ) : (
             <ul className="flex flex-col">
               {upcoming.map((row) => (

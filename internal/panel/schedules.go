@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/core/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -50,9 +51,17 @@ func newScheduleListHandler(schedules ScheduleDirectory) http.HandlerFunc {
 			if schedule.Execution == ports.ScheduleExecutionMessage {
 				kind += " reminder"
 			}
+			// When, in words, rides last: "Every weekday at 9:00", the
+			// sentence the schedule tool's replies use, so Telegram and this
+			// page describe one schedule the same way. A one-time schedule's
+			// when is its next run.
+			when := formatScheduleTime(schedule.NextRun)
+			if schedule.Kind == ports.ScheduleRecurring {
+				when = services.DescribeCron(schedule.Expression)
+			}
 			rows = append(rows, []string{
 				schedule.ID, kind, schedule.Instruction, schedule.Expression, formatScheduleTime(schedule.NextRun),
-				schedule.NextRun.UTC().Format(time.RFC3339),
+				schedule.NextRun.UTC().Format(time.RFC3339), when,
 			})
 		}
 		writeWebResult(w, webResult{State: webSuccess, TableHeaders: headers, TableRows: rows})

@@ -263,8 +263,9 @@ func TestCreatedSchedulesReportThemselvesInOneReadableLine(t *testing.T) {
 		t.Fatalf("the summary displaced the record it describes: %s", raw)
 	}
 
-	// A recurring schedule says what makes it recurring, since a wrong cron
-	// expression is the mistake the owner is being given a chance to catch.
+	// A recurring schedule says when it recurs, in the words the Scheduled page
+	// uses, since a wrong cron expression is the mistake the owner is being
+	// given a chance to catch.
 	raw, err = tool.Execute(ctx, json.RawMessage(`{"action":"create","cron":"0 9 * * 1","instruction":"weekly review"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +273,7 @@ func TestCreatedSchedulesReportThemselvesInOneReadableLine(t *testing.T) {
 	if err := json.Unmarshal(raw, &created); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Agent run", "0 9 * * 1", "Mon 10 Aug 2026", "9:00 AM"} {
+	for _, want := range []string{"Agent run every Monday at 9:00", "Mon 10 Aug 2026", "9:00 AM"} {
 		if !strings.Contains(created.Summary, want) {
 			t.Fatalf("summary=%q missing %q", created.Summary, want)
 		}

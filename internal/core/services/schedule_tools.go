@@ -104,7 +104,9 @@ func (t scheduleTool) DescribeCall(raw json.RawMessage) string {
 	case "create":
 		when := "at " + quoteForCard(input.At)
 		if strings.TrimSpace(input.Cron) != "" {
-			when = "on the cron schedule " + quoteForCard(input.Cron)
+			// Words first, the expression after, so the card says what a person
+			// approves and still shows exactly what the model wrote.
+			when = lowerFirst(DescribeCron(input.Cron)) + " (" + quoteForCard(input.Cron) + ")"
 		}
 		if strings.TrimSpace(input.Kind) == "reminder" {
 			return fmt.Sprintf("Schedule a reminder %s, delivered word for word, %s.", quoteForCard(input.Instruction), when)
@@ -114,6 +116,14 @@ func (t scheduleTool) DescribeCall(raw json.RawMessage) string {
 		return fmt.Sprintf("Cancel the schedule %s, so it never runs again.", quoteForCard(input.ID))
 	}
 	return ""
+}
+
+// lowerFirst lowers a sentence's first letter, to set it inside another one.
+func lowerFirst(text string) string {
+	if text == "" {
+		return text
+	}
+	return strings.ToLower(text[:1]) + text[1:]
 }
 
 // quoteForCard quotes a model-written value for the approval card and bounds
@@ -191,12 +201,24 @@ func (t scheduleTool) list(ctx context.Context) (json.RawMessage, error) {
 	// Sorted by next run so the answer reads as a timeline rather than in
 	// whatever order the store happened to walk its directory.
 	slices.SortFunc(schedules, func(a, b ports.Schedule) int { return a.NextRun.Compare(b.NextRun) })
-	if schedules == nil {
-		schedules = []ports.Schedule{}
+	// Each recurring entry carries its expression in words beside the
+	// expression, so the reply the model writes from it reads "every weekday at
+	// 9:00" rather than a cron line -- the words the Scheduled page uses.
+	type listed struct {
+		ports.Schedule
+		When string `json:"when,omitempty"`
+	}
+	entries := make([]listed, 0, len(schedules))
+	for _, schedule := range schedules {
+		entry := listed{Schedule: schedule}
+		if schedule.Kind == ports.ScheduleRecurring {
+			entry.When = DescribeCron(schedule.Expression)
+		}
+		entries = append(entries, entry)
 	}
 	return json.Marshal(struct {
-		Schedules []ports.Schedule `json:"schedules"`
-	}{Schedules: schedules})
+		Schedules []listed `json:"schedules"`
+	}{Schedules: entries})
 }
 
 // cancel treats removing a schedule that is already gone as success: the
@@ -267,7 +289,7 @@ func scheduleSummary(schedule ports.Schedule, location *time.Location, now time.
 	// order the web panel uses, so a reply and the Scheduled page agree.
 	when := relativeWhen(schedule.NextRun, now) + " (" + schedule.NextRun.In(location).Format("Mon 2 Jan 2006, 3:04 PM MST") + ")"
 	if schedule.Kind == ports.ScheduleRecurring {
-		return fmt.Sprintf("%s recurring on `%s`, next %s. Cancel with id %s.", what, schedule.Expression, when, schedule.ID)
+		return fmt.Sprintf("%s %s, next %s. Cancel with id %s.", what, lowerFirst(DescribeCron(schedule.Expression)), when, schedule.ID)
 	}
 	return fmt.Sprintf("%s set for %s. Cancel with id %s.", what, when, schedule.ID)
 }

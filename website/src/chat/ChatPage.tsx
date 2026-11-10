@@ -159,6 +159,7 @@ function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCop
           Reply
         </button>
         <button type="button" onClick={onCopy} className="flex min-h-12 items-center gap-3 rounded-card px-4 text-left text-small font-medium transition-colors hover:bg-neutral-100">
+          <CopyIcon className="h-4 w-4" />
           Copy
         </button>
         <button type="button" onClick={onClose} className="min-h-12 rounded-card px-4 text-small font-medium text-neutral-700 transition-colors hover:bg-neutral-100">
@@ -918,6 +919,7 @@ export function ChatPage({
         onSessionExpired={onSessionExpired}
         quote={quote}
         onClearQuote={() => setQuote(null)}
+        draftKey={threadId ?? "new"}
       />
     </div>
   );

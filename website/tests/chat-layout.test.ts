@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChatPage } from "../src/chat/ChatPage";
-import { Composer } from "../src/chat/Composer";
+import { Composer, fieldHeight } from "../src/chat/Composer";
 
 test("an empty conversation uses one direct title and instruction", () => {
   const html = renderToStaticMarkup(
@@ -19,7 +19,7 @@ test("an empty conversation uses one direct title and instruction", () => {
   expect(html).not.toContain("🥚");
 });
 
-test("the composer puts file upload left, run settings right, and respects the phone safe area", () => {
+test("the composer is one box with the send control inside, and respects the phone safe area", () => {
   const html = renderToStaticMarkup(
     createElement(Composer, {
       onSend: () => {},
@@ -34,5 +34,16 @@ test("the composer puts file upload left, run settings right, and respects the p
   expect(html).not.toContain("Run settings");
   expect(html).toContain("safe-area-inset-bottom");
   expect(html).toContain('aria-label="Send message"');
-  expect(html).toContain("h-11 w-11");
+  // 36 px to the eye, 44 px under a finger.
+  expect(html).toContain("[@media(pointer:coarse)]:h-11");
+  expect(html).toContain('aria-label="Message"');
+  expect(html).not.toContain("Ask Eggy anything");
+});
+
+test("the message box grows with its text up to a bound, smaller when the keyboard is up", () => {
+  expect(fieldHeight(40, 800)).toBe(40);
+  expect(fieldHeight(1000, 800)).toBe(240);
+  // A phone with the keyboard open shows ~350 px: the box stops at 40% of it.
+  expect(fieldHeight(1000, 350)).toBe(140);
+  expect(fieldHeight(1000, 100)).toBe(96);
 });

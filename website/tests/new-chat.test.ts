@@ -39,5 +39,5 @@ test("a new chat draft can render before a server thread exists", () => {
     }),
   );
 
-  expect(html).toContain('placeholder="Ask Eggy anything..."');
+  expect(html).toContain('placeholder="Message Eggy"');
 });

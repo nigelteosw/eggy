@@ -46,7 +46,7 @@ test("reply waits for a settled selection and stays hidden throughout dragging",
       button.dispatchEvent(new window.Event("pointerup", { bubbles: true }));
       button.click();
     });
-    expect(container.querySelector("textarea")?.placeholder).toBe("Reply to the quoted text...");
+    expect(container.querySelector("textarea")?.placeholder).toBe("Reply to the quote");
     expect(reply()).toBeUndefined();
   } finally {
     await act(async () => root.unmount());

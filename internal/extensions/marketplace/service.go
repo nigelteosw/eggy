@@ -31,6 +31,13 @@ type MCPConfig interface {
 	Get(name string) (url string, enabled, exists bool, err error)
 	SetEnabled(name string, enabled bool) error
 	Remove(name string) error
+	// Retarget points an existing entry at a new URL and leaves it disabled and
+	// awaiting review, keeping the owner's tuning (OAuth client, timeouts,
+	// filters).
+	Retarget(name, url string) error
+	// Snapshot captures the whole entry, or its absence, and returns how to put
+	// it back exactly.
+	Snapshot(name string) (restore func() error, err error)
 }
 
 // Fetcher is the GitHub adapter. It is an interface only so the service can be
@@ -182,11 +189,11 @@ func (s *Service) Items(ctx context.Context, source string) ([]Item, error) {
 // Plan builds the review for an item at its source's current ref. Nothing is
 // written.
 func (s *Service) Plan(ctx context.Context, req PlanRequest) (Plan, error) {
-	replacing, err := s.ownedTargets(ctx, req.InstallID)
+	scope, err := s.updateScope(ctx, req.InstallID)
 	if err != nil {
 		return Plan{}, err
 	}
-	return s.planAt(ctx, req, "", replacing)
+	return s.planAt(ctx, req, "", scope)
 }
 
 // Install writes one reviewed item. Duplicate installs are refused before any
@@ -208,7 +215,7 @@ func (s *Service) Install(ctx context.Context, req ApproveRequest) (ports.Market
 		}
 	}
 
-	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, nil)
+	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, updateScope{})
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
 	}
@@ -290,11 +297,11 @@ func (s *Service) Check(ctx context.Context, id string) (InstallStatus, Plan, er
 	if err != nil {
 		return InstallStatus{}, Plan{}, err
 	}
-	owned, err := s.ownedTargets(ctx, id)
+	scope, err := s.updateScope(ctx, id)
 	if err != nil {
 		return InstallStatus{}, Plan{}, err
 	}
-	plan, err := s.planAt(ctx, PlanRequest{Source: install.SourceName, Item: install.Item, InstallID: id}, "", owned)
+	plan, err := s.planAt(ctx, PlanRequest{Source: install.SourceName, Item: install.Item, InstallID: id}, "", scope)
 	if errors.Is(err, errItemNotFound) {
 		return InstallStatus{Install: install, Status: "removed_upstream", Edited: edited}, Plan{}, nil
 	}
@@ -322,8 +329,13 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	// cannot write another item's content under this install.
 	req.InstallID = id
 	req.Source, req.Item = install.SourceName, install.Item
-	owned := ownedKeys(install)
-	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, owned)
+	states, err := s.fileStates(ctx, install)
+	if err != nil {
+		return ports.MarketplaceInstall{}, err
+	}
+	scope := scopeOf(install, states)
+	owned := scope.owned
+	plan, err := s.planAt(ctx, req.PlanRequest, req.SHA, scope)
 	if err != nil {
 		return ports.MarketplaceInstall{}, err
 	}
@@ -332,10 +344,6 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 	}
 	if len(plan.Conflicts) > 0 {
 		return ports.MarketplaceInstall{}, ConflictError{Conflicts: plan.Conflicts}
-	}
-	states, err := s.fileStates(ctx, install)
-	if err != nil {
-		return ports.MarketplaceInstall{}, err
 	}
 	replace := toSet(replaceEdited)
 	recorded := map[string]ports.MarketplaceFile{}
@@ -352,24 +360,23 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 
 	planned := map[string]bool{}
 	var files []ports.MarketplaceFile
+	// What the owner deleted and upstream still offers is withheld from the plan
+	// while its name is free. An existing tombstone is kept; a fresh deletion
+	// becomes one, so no later update brings it back, and it owns nothing.
+	for _, key := range plan.Withheld {
+		planned[key] = true
+		f := recorded[key]
+		if states[key].tombstone {
+			files = append(files, f)
+		} else {
+			files = append(files, tombstone(f.Kind, f.Target))
+		}
+	}
 	for _, skill := range plan.Skills {
 		key := fileKey(kindSkill, skill.Name)
 		planned[key] = true
-		state := states[key]
 		switch {
-		case state.tombstone:
-			// Deleted by the owner earlier. The marker is kept while the name is
-			// free; once anything else holds the name, it is not this install's.
-			if state.missing {
-				files = append(files, recorded[key])
-			}
-			continue
-		case owned[key] && state.missing:
-			// The owner deleted it by hand. A tombstone records that, so no later
-			// update brings it back, and it owns nothing.
-			files = append(files, tombstone(kindSkill, skill.Name))
-			continue
-		case owned[key] && state.edited && !replace[skill.Name]:
+		case owned[key] && states[key].edited && !replace[skill.Name]:
 			files = append(files, recorded[key])
 			continue
 		}
@@ -414,12 +421,6 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 		key := fileKey(kindMCP, server.Name)
 		planned[key] = true
 		state := states[key]
-		if state.tombstone {
-			if state.missing {
-				files = append(files, recorded[key])
-			}
-			continue
-		}
 		switch {
 		case !owned[key]:
 			if err := s.snapshotMCP(&undo, server.Name); err != nil {
@@ -428,11 +429,6 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 			if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
 				return fail(err)
 			}
-		case state.missing:
-			// The owner removed the server. A tombstone keeps later updates from
-			// bringing it back, and owns nothing.
-			files = append(files, tombstone(kindMCP, server.Name))
-			continue
 		case state.edited:
 			// The owner enabled or changed it: their trust decision stands.
 			files = append(files, recorded[key])
@@ -441,10 +437,9 @@ func (s *Service) Update(ctx context.Context, id string, req ApproveRequest, rep
 			if err := s.snapshotMCP(&undo, server.Name); err != nil {
 				return fail(err)
 			}
-			if err := s.opts.MCP.Remove(server.Name); err != nil {
-				return fail(err)
-			}
-			if err := s.opts.MCP.Add(server.Name, server.URL); err != nil {
+			// A new URL is a new server to trust, so it goes back to review; the
+			// owner's tuning of the entry is kept.
+			if err := s.opts.MCP.Retarget(server.Name, server.URL); err != nil {
 				return fail(err)
 			}
 		}
@@ -608,7 +603,7 @@ func (s *Service) findSource(name string) (Source, error) {
 
 // planAt builds a plan for one item at sha, or at the source's current ref when
 // sha is empty. replacing holds the names this install already owns.
-func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, replacing map[string]bool) (Plan, error) {
+func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, scope updateScope) (Plan, error) {
 	src, err := s.findSource(req.Source)
 	if err != nil {
 		return Plan{}, err
@@ -677,7 +672,8 @@ func (s *Service) planAt(ctx context.Context, req PlanRequest, sha string, repla
 			}
 			return exists
 		},
-		Replacing: replacing,
+		Replacing: scope.owned,
+		Withheld:  scope.withheld,
 	}
 	plan, err := buildPlan(in, tree)
 	if mcpErr != nil {
@@ -715,17 +711,38 @@ func tombstone(kind, target string) ports.MarketplaceFile {
 	return ports.MarketplaceFile{Kind: kind, Target: target, ContentHash: tombstoneHash}
 }
 
-// ownedTargets returns what an install owns, keyed by fileKey, or nil when there
-// is no install.
-func (s *Service) ownedTargets(ctx context.Context, id string) (map[string]bool, error) {
+// updateScope is what an update plan is built against: the names the install
+// owns, which are not conflicts, and the ones the owner deleted, which the
+// update leaves out. Both are keyed by fileKey; a fresh install has neither.
+type updateScope struct {
+	owned, withheld map[string]bool
+}
+
+func (s *Service) updateScope(ctx context.Context, id string) (updateScope, error) {
 	if id == "" {
-		return nil, nil
+		return updateScope{}, nil
 	}
 	install, err := s.opts.Store.GetInstall(ctx, id)
 	if err != nil {
-		return nil, err
+		return updateScope{}, err
 	}
-	return ownedKeys(install), nil
+	states, err := s.fileStates(ctx, install)
+	if err != nil {
+		return updateScope{}, err
+	}
+	return scopeOf(install, states), nil
+}
+
+func scopeOf(install ports.MarketplaceInstall, states map[string]fileState) updateScope {
+	withheld := map[string]bool{}
+	for key, state := range states {
+		// Only a name that is still free: a tombstoned name someone else now holds
+		// stays a conflict, so the update cannot overwrite it.
+		if state.missing {
+			withheld[key] = true
+		}
+	}
+	return updateScope{owned: ownedKeys(install), withheld: withheld}
 }
 
 // fileState is how one written thing compares with what was written. A missing
@@ -909,33 +926,14 @@ func (s *Service) snapshotSkill(ctx context.Context, j *journal, name string) er
 	return nil
 }
 
-// snapshotMCP records how to restore an MCP entry. A restored entry comes back
-// disabled: its require_approval list is not known here, and enabling a server
-// without it would widen trust, so the owner re-enables it in Connectors.
+// snapshotMCP records how to restore an MCP entry to exactly what it is now,
+// tuning and trust decisions included, or to its absence.
 func (s *Service) snapshotMCP(j *journal, name string) error {
-	url, _, exists, err := s.opts.MCP.Get(name)
+	restore, err := s.opts.MCP.Snapshot(name)
 	if err != nil {
 		return err
 	}
-	if !exists {
-		j.add(func(context.Context) error {
-			if _, _, still, err := s.opts.MCP.Get(name); err != nil || !still {
-				return err
-			}
-			return s.opts.MCP.Remove(name)
-		})
-		return nil
-	}
-	j.add(func(context.Context) error {
-		if _, _, still, err := s.opts.MCP.Get(name); err != nil {
-			return err
-		} else if still {
-			if err := s.opts.MCP.Remove(name); err != nil {
-				return err
-			}
-		}
-		return s.opts.MCP.Add(name, url)
-	})
+	j.add(func(context.Context) error { return restore() })
 	return nil
 }
 

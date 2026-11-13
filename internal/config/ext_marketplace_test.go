@@ -126,3 +126,72 @@ func TestSetMarketplaceEnabledKeepsSources(t *testing.T) {
 		t.Fatalf("marketplace = %+v, want enabled with its source kept", cfg.Marketplace)
 	}
 }
+
+// A moved catalog server keeps the owner's tuning and goes back to review.
+func TestRetargetMCPServerKeepsTuning(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mutate(path, func(cfg *Config) error {
+		s := cfg.MCP.Servers["deploy-tools-api"]
+		s.OAuthClientID, s.ReviewRequired = "client-123", false
+		s.ToolFilter.Include = []string{"read"}
+		cfg.MCP.Servers["deploy-tools-api"] = s
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RetargetMCPServer(path, "deploy-tools-api", "https://moved.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.MCP.Servers["deploy-tools-api"]
+	if s.URL != "https://moved.example.com/mcp" || s.OAuthClientID != "client-123" || !slices.Equal(s.ToolFilter.Include, []string{"read"}) || s.Enabled || !s.ReviewRequired {
+		t.Fatalf("server = %+v, want the new URL, tuning kept, disabled and awaiting review", s)
+	}
+	if err := RetargetMCPServer(path, "missing", "https://x.example.com/mcp"); err == nil {
+		t.Fatal("retargeted a server that is not configured")
+	}
+}
+
+// Restore puts an entry back exactly, or removes one that did not exist.
+func TestRestoreMCPServerIsExact(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := AddMCPServerDisabled(path, "deploy-tools-api", "https://mcp.example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := GetMCPServersConfig(path)
+	saved := before["deploy-tools-api"]
+	saved.OAuthClientID = "client-123"
+	if err := RestoreMCPServer(path, "deploy-tools-api", saved, true); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := GetMCPServersConfig(path)
+	if got := after["deploy-tools-api"]; got.OAuthClientID != "client-123" || got.URL != saved.URL {
+		t.Fatalf("restored = %+v", got)
+	}
+	if err := RestoreMCPServer(path, "deploy-tools-api", MCPServerConfig{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := GetMCPServersConfig(path); len(after) != len(before)-1 {
+		t.Fatal("restoring an absence left the entry in place")
+	}
+}
+
+// A refused write is told apart from a failed one, so the panel shows only
+// the refusal's message.
+func TestRefusalSeparatesInvalidFromFailed(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	err := SetMarketplaceSources(path, []MarketplaceSource{{Name: "Bad Name", Kind: "skills_repo", Repo: "o/r"}})
+	if msg, ok := Refusal(err); !ok || msg == "" {
+		t.Fatalf("invalid source: refusal = %q, %v (err %v)", msg, ok, err)
+	}
+	err = SetMarketplaceSources(filepath.Join(t.TempDir(), "missing.yaml"), nil)
+	if _, ok := Refusal(err); ok || err == nil {
+		t.Fatalf("missing file: err = %v, want a failure that is not a refusal", err)
+	}
+}

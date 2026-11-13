@@ -93,7 +93,7 @@ func discordSetRoute(configPath string, webConfig WebUIConfig) http.HandlerFunc 
 			return
 		}
 		if err := config.SetDiscord(configPath, input.Enabled, input.ApplicationID); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		title := "Discord enabled."

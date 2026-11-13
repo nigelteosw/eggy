@@ -8,23 +8,6 @@ Triaged against the checkout on 2026-11-09, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
-## Marketplace — remaining follow-ups (S–M)
-
-Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
-
-- [ ] Rollback restores an MCP entry with URL only (`snapshotMCP`); its OAuth
-      client, timeouts and filters are lost. Snapshot the whole entry.
-- [ ] A disabled catalog MCP server's tuning is lost when an upstream URL
-      change re-adds it.
-- [ ] An update review lists a skill the owner deleted as planned content,
-      though the update will not write it (the record keeps a tombstone).
-- [ ] A skill left at `.old-*` after a failed restore reappears on the next List.
-- [ ] Config write errors still reach the browser verbatim in a few routes
-      (shared pattern with `internal/panel/mcp.go`).
-- [ ] Tests: session/CSRF guards for the marketplace routes, component tests for
-      the review screens, and OAuth login on a disabled server completing
-      without a reconnect.
-
 ## P2 — Voice and inbound attachments everywhere (M)
 
 Telegram passes images and PDFs and refuses voice and other media with a

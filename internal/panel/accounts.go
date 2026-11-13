@@ -231,7 +231,7 @@ func accountEditRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.EditAccount(configPath, id, config.AccountInput{Name: input.Name, TelegramUserID: input.TelegramUserID}); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Account updated.", Detail: "Access changed now."})
@@ -254,7 +254,7 @@ func accountRemoveRoute(configPath string, webConfig WebUIConfig) http.HandlerFu
 			return
 		}
 		if err := config.RemoveAccount(configPath, id); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		if webConfig.ChatHub != nil {
@@ -462,7 +462,7 @@ func telegramEnabledRoute(configPath string, webConfig WebUIConfig) http.Handler
 			}
 		}
 		if err := config.SetTelegramEnabled(configPath, input.Enabled); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		title := "Telegram enabled."
@@ -492,7 +492,7 @@ func expectedEmailSetRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.SetExpectedGoogleEmail(configPath, input.Email); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Expected Google account saved.", Detail: "Restart Eggy to apply. Only this account can be connected as Eggy."})
@@ -525,7 +525,7 @@ func accountsConvertRoute(configPath string, webConfig WebUIConfig) http.Handler
 			convert.Accounts = append(convert.Accounts, config.AccountInput{ID: account.ID, TelegramUserID: account.TelegramUserID})
 		}
 		if err := config.ConvertToAccounts(configPath, convert); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		if webConfig.Auth != nil {

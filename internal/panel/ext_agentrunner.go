@@ -394,7 +394,7 @@ func agentChecksSet(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.SetRepositoryChecks(configPath, r.PathValue("name"), body.Checks); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Saved checks."})
@@ -430,7 +430,7 @@ func agentRepoAdd(configPath string, restarter commands.Restarter, getenv func(s
 		}
 		repo := config.RepositoryConfig{Name: body.Name, CloneURL: body.CloneURL, BaseBranch: body.BaseBranch}
 		if err := config.AddRepository(configPath, repo); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, restartAfterRepositoryChange("Added "+body.Name+".", restarter, configPath, getenv))
@@ -443,7 +443,7 @@ func agentRepoRemove(configPath string, restarter commands.Restarter, getenv fun
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if err := config.RemoveRepository(configPath, name); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, restartAfterRepositoryChange("Removed "+name+".", restarter, configPath, getenv))

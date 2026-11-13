@@ -113,6 +113,8 @@ func (f *fakeSkills) Delete(_ context.Context, name string) error {
 type fakeServer struct {
 	url     string
 	enabled bool
+	tuning  string // stands for everything else on the entry: OAuth client, timeouts, filters
+	review  bool
 }
 
 type fakeMCP struct {
@@ -149,6 +151,28 @@ func (m *fakeMCP) SetEnabled(name string, enabled bool) error {
 func (m *fakeMCP) Remove(name string) error {
 	delete(m.servers, name)
 	return nil
+}
+
+func (m *fakeMCP) Retarget(name, url string) error {
+	s, ok := m.servers[name]
+	if !ok {
+		return errors.New("not configured")
+	}
+	s.url, s.enabled, s.review = url, false, true
+	m.servers[name] = s
+	return nil
+}
+
+func (m *fakeMCP) Snapshot(name string) (func() error, error) {
+	s, existed := m.servers[name]
+	return func() error {
+		if existed {
+			m.servers[name] = s
+		} else {
+			delete(m.servers, name)
+		}
+		return nil
+	}, nil
 }
 
 type fakeInstalls struct {

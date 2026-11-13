@@ -65,6 +65,7 @@ type PlanInput struct {
 	SkillExists func(name string) bool
 	MCPExists   func(name string) bool
 	Replacing   map[string]bool // "skill/<name>" and "mcp_server/<name>" this install already owns (update)
+	Withheld    map[string]bool // keys the owner deleted from this install; an update leaves them out
 }
 
 // PlannedSkill is one skill the install would write.
@@ -90,6 +91,7 @@ type Plan struct {
 	MCP                     []PlannedMCP
 	Skipped                 []Skipped
 	Conflicts               []string // upstream names that need a rename
+	Withheld                []string // "kind/name" upstream still offers but the owner deleted, so the update leaves out
 	IndexBytes              int      // bytes the skills add to the index
 	Digest                  string   // hex sha256 of the canonical plan
 }
@@ -118,6 +120,7 @@ func buildPlan(in PlanInput, tree Tree) (Plan, error) {
 	sort.Slice(plan.MCP, func(i, j int) bool { return plan.MCP[i].Name < plan.MCP[j].Name })
 	sort.Slice(plan.Skipped, func(i, j int) bool { return plan.Skipped[i].Path < plan.Skipped[j].Path })
 	sort.Strings(plan.Conflicts)
+	sort.Strings(plan.Withheld)
 	for _, skill := range plan.Skills {
 		plan.IndexBytes += len(skill.Name) + 2 + len(skill.Description) + 1
 	}
@@ -128,6 +131,10 @@ func buildPlan(in PlanInput, tree Tree) (Plan, error) {
 	plan.Digest = digest
 	return plan, nil
 }
+
+// withheldReason is what the review shows for something the owner deleted from
+// an install: the update will not bring it back.
+const withheldReason = "you deleted this; updates leave it out"
 
 // planPluginComponents records what a plugin brings that Eggy does not install,
 // and the remote MCP servers it declares.
@@ -219,6 +226,9 @@ func planMCP(plan *Plan, in PlanInput, tree Tree, file string, fromManifest bool
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "only https servers are supported"})
 			case plannedMCP(plan, name):
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "server is declared more than once"})
+			case in.Withheld["mcp_server/"+name]:
+				plan.Withheld = append(plan.Withheld, "mcp_server/"+name)
+				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: withheldReason})
 			case in.MCPExists != nil && in.MCPExists(name) && !in.Replacing["mcp_server/"+name]:
 				plan.Skipped = append(plan.Skipped, Skipped{Path: skipPath, Reason: "a server with this name is already configured"})
 			default:
@@ -295,6 +305,12 @@ func planSkill(plan *Plan, in PlanInput, tree Tree, dir string, seen map[string]
 	}
 	if !skillNamePattern.MatchString(name) || seen[name] {
 		plan.Conflicts = append(plan.Conflicts, upstream)
+		return
+	}
+	if in.Withheld["skill/"+name] {
+		seen[name] = true
+		plan.Withheld = append(plan.Withheld, "skill/"+name)
+		plan.Skipped = append(plan.Skipped, Skipped{Path: skillFile, Reason: withheldReason})
 		return
 	}
 	if in.SkillExists != nil && in.SkillExists(name) && !in.Replacing["skill/"+name] {
@@ -452,6 +468,7 @@ type digestDoc struct {
 	Item       string        `json:"item"`
 	Skills     []digestSkill `json:"skills"`
 	MCP        []digestMCP   `json:"mcp"`
+	Withheld   []string      `json:"withheld,omitempty"`
 }
 
 type digestSkill struct {
@@ -477,6 +494,7 @@ func planDigest(plan Plan) (string, error) {
 	for _, m := range plan.MCP {
 		doc.MCP = append(doc.MCP, digestMCP{Name: m.Name, URL: m.URL})
 	}
+	doc.Withheld = plan.Withheld
 	raw, err := json.Marshal(doc)
 	if err != nil {
 		return "", err

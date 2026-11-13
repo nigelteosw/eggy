@@ -144,8 +144,8 @@ func TestAgentRunnerRoutesMountOnlyWithService(t *testing.T) {
 	}
 	// A check whose config file cannot be written is refused, not silently kept.
 	rec := do(t, mux, http.MethodPost, "/api/config/repositories/eggy/checks", `{"checks":[["go","test"]]}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("checks status = %d, want 400 for a missing config", rec.Code)
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "config.yaml") {
+		t.Fatalf("checks = %d %s, want 500 without the file path for a missing config", rec.Code, rec.Body)
 	}
 }
 

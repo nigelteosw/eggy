@@ -299,3 +299,85 @@ func TestATombstoneNeverTouchesALaterSkillOfTheSameName(t *testing.T) {
 		t.Fatalf("pdf = %+v, want the owner's skill untouched", got)
 	}
 }
+
+// updateTo moves the team source to commit with tree and returns an approved
+// update request for inst, as the review would have built it.
+func (h harness) updateTo(t *testing.T, instID, commit string, tree Tree) (ApproveRequest, Plan) {
+	t.Helper()
+	h.fetch.refs["o/team@main"] = commit
+	h.fetch.trees["o/team@"+commit] = tree
+	req := ApproveRequest{PlanRequest: PlanRequest{Source: "team", Item: "deploy-tools", InstallID: instID}}
+	plan, err := h.svc.Plan(h.ctx, req.PlanRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.SHA, req.Digest = plan.CatalogSHA, plan.Digest
+	return req, plan
+}
+
+// A catalog server the owner tuned but left disabled keeps that tuning when
+// upstream moves its URL, and goes back to review.
+func TestUpdateRetargetsAMovedServerKeepingItsTuning(t *testing.T) {
+	h := newHarness(t)
+	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := h.mcp.servers["deploy-tools-api"]
+	s.tuning = "oauth client + timeouts"
+	h.mcp.servers["deploy-tools-api"] = s
+	tree := deployRepo("Fill forms.")
+	tree.Files["plugins/deploy/.mcp.json"] = []byte(`{"mcpServers":{"api":{"url":"https://moved.example.com/mcp"}}}`)
+	req, _ := h.updateTo(t, inst.ID, sha2Commit, tree)
+	if _, err := h.svc.Update(h.ctx, inst.ID, req, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := h.mcp.servers["deploy-tools-api"]
+	if got.url != "https://moved.example.com/mcp" || got.tuning != "oauth client + timeouts" || got.enabled || !got.review {
+		t.Fatalf("server = %+v, want the new URL, the tuning kept, disabled and awaiting review", got)
+	}
+}
+
+// Rollback puts an MCP entry back whole, not as a fresh URL-only entry.
+func TestRollbackRestoresTheWholeMCPEntry(t *testing.T) {
+	h := newHarness(t)
+	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := h.mcp.servers["deploy-tools-api"]
+	s.tuning = "oauth client + timeouts"
+	h.mcp.servers["deploy-tools-api"] = s
+	h.installs.deleteErr = errors.New("database unavailable")
+	if err := h.svc.Remove(h.ctx, inst.ID, nil); err == nil {
+		t.Fatal("remove succeeded with a failing record delete")
+	}
+	if got := h.mcp.servers["deploy-tools-api"]; got != s {
+		t.Fatalf("server after rollback = %+v, want %+v", got, s)
+	}
+}
+
+// The review of an update does not list a skill the owner deleted as content
+// it will write; it lists it as skipped, and the update agrees.
+func TestUpdateReviewLeavesOutADeletedSkill(t *testing.T) {
+	h := newHarness(t)
+	inst, err := h.svc.Install(h.ctx, h.approve(t, deployReq()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(h.skills.skills, "pdf")
+	for i, commit := range []string{sha2Commit, shaExt} {
+		req, plan := h.updateTo(t, inst.ID, commit, deployRepo("Fill forms v"+string(rune('2'+i))+"."))
+		for _, skill := range plan.Skills {
+			if skill.Name == "pdf" {
+				t.Fatalf("update %d review lists the deleted skill as planned", i+1)
+			}
+		}
+		if len(plan.Withheld) != 1 || plan.Withheld[0] != "skill/pdf" {
+			t.Fatalf("update %d withheld = %v, want skill/pdf", i+1, plan.Withheld)
+		}
+		if _, err := h.svc.Update(h.ctx, inst.ID, req, nil); err != nil {
+			t.Fatalf("update %d: %v", i+1, err)
+		}
+	}
+}

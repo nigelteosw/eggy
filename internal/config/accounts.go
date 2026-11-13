@@ -367,7 +367,7 @@ var ErrGoogleIdentityRequired = errors.New("google.expected_email is required wh
 func SetExpectedGoogleEmail(path, email string) error {
 	normalized, err := expectedGoogleEmail(email)
 	if err != nil {
-		return err
+		return RefusedError{err}
 	}
 	return mutate(path, func(cfg *Config) error {
 		cfg.Google.ExpectedEmail = normalized

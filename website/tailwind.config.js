@@ -35,7 +35,7 @@ export default {
         // Eggy's voice, for the greeting, the sign-in line and empty states
         // only (components/ui/voice.tsx). Never in a control.
         voice: ["Fraunces", "ui-serif", "Georgia", "serif"],
-        mono: ["'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
+        mono: ["'JetBrains Mono'", "'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",

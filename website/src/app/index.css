@@ -123,8 +123,18 @@
     @apply border-border;
   }
 
+  /* Opened from the home screen, the panel has no browser chrome around it,
+     so two browser habits would show: the whole page rubber-banding past its
+     edges, and a grey flash over whatever was tapped. Neither is drawn by an
+     app, and inner scroll areas keep their own scrolling. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
+    -webkit-tap-highlight-color: transparent;
     font-family:
       Geist,
       ui-sans-serif,

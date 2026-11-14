@@ -3,7 +3,6 @@ package panel
 import (
 	"context"
 	"encoding/json"
-	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"net/http"
 	"strings"
@@ -26,6 +25,8 @@ type AgentSwitch interface {
 	SetHeartbeat(ctx context.Context, on bool) error
 	Theme(ctx context.Context) (string, error)
 	SetTheme(ctx context.Context, theme string) error
+	Look(ctx context.Context) (ports.LookView, error)
+	SetLook(ctx context.Context, change ports.LookChange) error
 }
 
 // agentSelection is what the composer renders: every alias it may offer, the
@@ -43,6 +44,9 @@ type agentSelection struct {
 	Approval     string   `json:"approval_mode,omitempty"`
 	// Theme is the account's own palette, or "" to follow the deployment default.
 	Theme string `json:"theme"`
+	// Look is the account's own look and fonts, with the colour overrides it
+	// resolves to, which the panel paints over its stylesheet.
+	Look ports.LookView `json:"look"`
 	// ApprovalSummaries says what each mode does, from the same source as
 	// Telegram's /mode reply, so the web choice and the chat reply agree.
 	ApprovalSummaries map[string]string `json:"approval_summaries,omitempty"`
@@ -150,9 +154,9 @@ func newAgentHeartbeatHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.H
 	}
 }
 
-// newAgentThemeHandler stores the calling account's panel palette. The name is
-// checked here, against the same three the deployment default accepts, so a
-// stored value is always one the stylesheet defines.
+// newAgentThemeHandler stores the calling account's panel palette. The runtime
+// checks the name, the same check the settings tool meets, so a stored value
+// is always one the stylesheet defines.
 func newAgentThemeHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if agent == nil {
@@ -166,12 +170,34 @@ func newAgentThemeHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.Handl
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		theme := strings.TrimSpace(input.Theme)
-		if theme != "" && theme != config.ThemeSystem && theme != config.ThemeLight && theme != config.ThemeDark {
-			writeWebError(w, http.StatusBadRequest, "theme must be system, light or dark")
+		if err := agent.SetTheme(r.Context(), input.Theme); err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if err := agent.SetTheme(r.Context(), theme); err != nil {
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
+// newAgentLookHandler changes the calling account's look and fonts from the
+// Appearance card. It is the panel's half of the settings tool's set_theme and
+// reaches the same runtime check; a field left out keeps what is stored.
+func newAgentLookHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		var input struct {
+			Look     *string `json:"look"`
+			TextFont *string `json:"text_font"`
+			CodeFont *string `json:"code_font"`
+		}
+		if err := decodeAuthBody(r, &input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		change := ports.LookChange{Look: input.Look, TextFont: input.TextFont, CodeFont: input.CodeFont}
+		if err := agent.SetLook(r.Context(), change); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -232,7 +258,11 @@ func readAgentSelection(ctx context.Context, agent AgentSwitch) (agentSelection,
 	if err != nil {
 		return agentSelection{}, err
 	}
-	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show, Heartbeat: heartbeat, Theme: theme}, nil
+	look, err := agent.Look(ctx)
+	if err != nil {
+		return agentSelection{}, err
+	}
+	return agentSelection{Models: models, Model: model, Efforts: efforts, Effort: effort, ShowThinking: show, Heartbeat: heartbeat, Theme: theme, Look: look}, nil
 }
 
 func writeJSON(w http.ResponseWriter, body any) {

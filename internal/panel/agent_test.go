@@ -36,10 +36,20 @@ func (f *fakeAgentSwitch) SetHeartbeat(_ context.Context, on bool) error {
 
 func (f *fakeAgentSwitch) Theme(context.Context) (string, error) { return f.theme, nil }
 
+// SetTheme refuses what the runtime refuses, which is where the check lives.
 func (f *fakeAgentSwitch) SetTheme(_ context.Context, theme string) error {
+	if theme != "" && theme != "system" && theme != "light" && theme != "dark" {
+		return errors.New("theme must be system, light or dark")
+	}
 	f.theme = theme
 	return nil
 }
+
+func (f *fakeAgentSwitch) Look(context.Context) (ports.LookView, error) {
+	return ports.LookView{Look: "eggshell", TextFont: "Geist", CodeFont: "JetBrains Mono"}, nil
+}
+
+func (f *fakeAgentSwitch) SetLook(context.Context, ports.LookChange) error { return nil }
 
 func (f *fakeAgentSwitch) ShowThinking(context.Context) (bool, error) { return !f.hideThinking, nil }
 
@@ -259,6 +269,12 @@ func (s *scopedAgentSwitch) SetTheme(ctx context.Context, theme string) error {
 	return nil
 }
 
+func (s *scopedAgentSwitch) Look(context.Context) (ports.LookView, error) {
+	return ports.LookView{Look: "eggshell"}, nil
+}
+
+func (s *scopedAgentSwitch) SetLook(context.Context, ports.LookChange) error { return nil }
+
 func (s *scopedAgentSwitch) Heartbeat(ctx context.Context) (bool, error) {
 	p, err := ports.PrincipalFromContext(ctx)
 	if err != nil {
@@ -358,8 +374,8 @@ func TestPersonalAgentRoutesActOnlyAsTheSessionAccount(t *testing.T) {
 	}
 }
 
-// The panel stores the account's own palette and refuses a name the stylesheet
-// does not define, so a bad value never reaches the account's state.
+// The panel stores the account's own palette and reports the runtime's refusal
+// of a name the stylesheet does not define.
 func TestAgentThemeStoresTheAccountsChoiceAndRefusesUnknownNames(t *testing.T) {
 	agent := &fakeAgentSwitch{aliases: []string{"deepseek-pro"}, model: "deepseek-pro"}
 	handler := newAgentThemeHandler(agent, nil)

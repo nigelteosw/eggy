@@ -21,6 +21,31 @@ func (f *fakeTurns) Stop(context.Context) bool {
 type fakeModels struct {
 	selected  string
 	heartbeat bool
+	theme     string
+	look      ports.LookChange
+}
+
+func (f *fakeModels) Theme(context.Context) (string, error) { return f.theme, nil }
+func (f *fakeModels) SetTheme(_ context.Context, theme string) error {
+	f.theme = theme
+	return nil
+}
+func (f *fakeModels) Look(context.Context) (ports.LookView, error) {
+	view := ports.LookView{Look: "eggshell", TextFont: "Geist", CodeFont: "JetBrains Mono"}
+	if f.look.Look != nil {
+		view.Look = *f.look.Look
+	}
+	if f.look.Custom != nil {
+		view.Look, view.Overrides, view.HasCustom = "custom", *f.look.Custom, true
+	}
+	if f.look.TextFont != nil {
+		view.TextFont = *f.look.TextFont
+	}
+	return view, nil
+}
+func (f *fakeModels) SetLook(_ context.Context, change ports.LookChange) error {
+	f.look = change
+	return nil
 }
 
 func (*fakeModels) ReasoningEfforts(string) []string                    { return nil }

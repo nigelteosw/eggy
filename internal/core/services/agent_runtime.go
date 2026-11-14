@@ -135,11 +135,26 @@ func (r *AgentRuntime) Theme(ctx context.Context) (string, error) {
 	return state.Agent.Theme, nil
 }
 
-// SetTheme stores the acting account's panel palette. The panel validates the
-// name before it gets here; an empty value clears the choice so the account
-// follows the deployment default again.
+// SetTheme stores the acting account's panel palette: system, light or dark.
+// An empty value clears the choice so the account follows the deployment
+// default again. The panel and the settings tool both reach it, so the name is
+// checked here, once.
 func (r *AgentRuntime) SetTheme(ctx context.Context, theme string) error {
+	theme = strings.TrimSpace(theme)
+	if err := CheckTheme(theme); err != nil {
+		return err
+	}
 	return r.update(ctx, func(state *ports.State) { state.Agent.Theme = theme })
+}
+
+// CheckTheme refuses a palette name other than system, light or dark; empty
+// means "follow the deployment default". The settings tool calls it before
+// writing anything, so one refused field never leaves half a request applied.
+func CheckTheme(theme string) error {
+	if theme = strings.TrimSpace(theme); theme != "" && !slices.Contains(themeModes, theme) {
+		return errors.New("theme must be system, light or dark")
+	}
+	return nil
 }
 
 // Heartbeat reports whether the acting account has switched its periodic

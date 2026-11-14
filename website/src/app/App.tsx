@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { applyTheme, checkSession, clearSession, getAgent, getMode, logout, writes, type Account, type Login, type Mode, type Theme } from "../lib/api";
+import { applyLook, applyTheme, checkSession, clearLook, clearSession, getAgent, getMode, logout, writes, type Account, type Login, type Mode, type Theme } from "../lib/api";
 import { isTheme } from "../lib/theme";
 import { LoginPage } from "../auth/LoginPage";
 import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "../auth/WebLoginLinkPage";
@@ -175,7 +175,12 @@ export function App() {
             setRestartPending(session.restartPending === true);
             setStatus("authenticated");
           })
-          .catch(() => setStatus("unauthenticated"));
+          .catch(() => {
+            // Nobody is signed in, so no one's look applies: the cached one
+            // belonged to whoever used this browser last.
+            clearLook();
+            setStatus("unauthenticated");
+          });
       });
   }, []);
 
@@ -186,9 +191,11 @@ export function App() {
     if (status !== "authenticated") return;
     getAgent()
       .then((selection) => {
-        if (!isTheme(selection.theme)) return;
-        setTheme(selection.theme);
-        applyTheme(selection.theme);
+        if (isTheme(selection.theme)) {
+          setTheme(selection.theme);
+          applyTheme(selection.theme);
+        }
+        if (selection.look) applyLook(selection.look);
       })
       .catch(() => {});
   }, [status]);
@@ -198,6 +205,7 @@ export function App() {
   // the cached session. The next sign-in on this tab starts from nothing.
   function endSession() {
     clearSession();
+    clearLook();
     setAccount(undefined);
     setFeatures(null);
     setActiveThreadId(null);

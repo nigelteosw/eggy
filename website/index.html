@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <!-- Paints the last chosen palette before the app loads, so a dark-mode
+    <!-- Paints the last chosen palette and look before the app loads, so a dark-mode
          owner never sees a light frame first. Its key and values match
          src/lib/theme.ts; the app takes over as soon as the server answers. -->
     <script>
@@ -12,6 +12,12 @@
           var stored = window.localStorage.getItem("eggy.theme");
           var dark = stored === "dark" || ((stored === null || stored === "system") && window.matchMedia("(prefers-color-scheme: dark)").matches);
           if (dark) document.documentElement.classList.add("dark");
+          // The account's look, as src/lib/theme.ts caches it: colour tokens
+          // for each palette, already checked by the server. Fonts load once
+          // the app runs; until then the fallback face shows.
+          var look = JSON.parse(window.localStorage.getItem("eggy.look") || "{}");
+          var tokens = (dark ? look.dark : look.light) || {};
+          for (var name in tokens) document.documentElement.style.setProperty("--" + name, tokens[name]);
         } catch (error) {
           // Storage refused: the app paints from the server's answer instead.
         }

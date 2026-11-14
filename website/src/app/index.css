@@ -60,6 +60,10 @@
     --chive: 107 30% 33%;
     --yolk-soft: 43 87% 88%;
     --yolk-ink: 40 100% 18%;
+
+    /* The two faces, as properties so a look can swap them. */
+    --font-sans: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", "SF Mono", Consolas, Menlo, monospace;
     color-scheme: light;
   }
 
@@ -136,14 +140,7 @@
   body {
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;
-    font-family:
-      Geist,
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      sans-serif;
+    font-family: var(--font-sans);
     text-rendering: optimizeLegibility;
   }
 

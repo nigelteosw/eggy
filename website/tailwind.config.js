@@ -30,12 +30,14 @@ export default {
     extend: {
       fontFamily: {
         // Geist everywhere: panel, sign-in and docs share one face.
-        sans: ["Geist", "ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+        // Geist unless the account's look picks another face; the stack
+        // lives in index.css so a look can swap it.
+        sans: ["var(--font-sans)"],
         brand: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
         // Eggy's voice, for the greeting, the sign-in line and empty states
         // only (components/ui/voice.tsx). Never in a control.
         voice: ["Fraunces", "ui-serif", "Georgia", "serif"],
-        mono: ["'JetBrains Mono'", "'SFMono-Regular'", "'SF Mono'", "Consolas", "Menlo", "monospace"],
+        mono: ["var(--font-mono)"],
       },
       colors: {
         border: "hsl(var(--border))",

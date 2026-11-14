@@ -17,11 +17,12 @@ import (
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/core/services"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 var settingsToolSchema = json.RawMessage(`{"type":"object","properties":{` +
-	`"action":{"type":"string","enum":["show","list_models","search_models","add_model","select_model","set_effort","set_thinking","set_mode","set_checkins","set_checkin_schedule"]},` +
+	`"action":{"type":"string","enum":["show","list_models","search_models","add_model","select_model","set_effort","set_thinking","set_mode","set_checkins","set_checkin_schedule","show_theme","set_theme"]},` +
 	`"query":{"type":"string","description":"search_models: words from the model's name, such as \"gemini flash image\"."},` +
 	`"model":{"type":"string","description":"add_model: the exact OpenRouter model ID that search_models returned."},` +
 	`"alias":{"type":"string","description":"add_model: a short name for the new model, lowercase letters, digits and dashes. select_model: the alias to switch to, or \"default\"."},` +
@@ -31,7 +32,13 @@ var settingsToolSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"mode":{"type":"string","enum":["strict","normal"],"description":"set_mode: strict asks before every tool, normal before anything that changes or sends."},` +
 	`"interval":{"type":"string","description":"set_checkin_schedule: how often, such as \"2h\" or \"30m\", or \"off\". Omit to keep it."},` +
 	`"active_hours":{"type":"string","description":"set_checkin_schedule: \"08:00-22:00\" in the deployment's timezone, or \"always\". Omit to keep it."},` +
-	`"instruction":{"type":"string","description":"set_checkin_schedule: what to look for on each check-in. Omit to keep it."}},` +
+	`"instruction":{"type":"string","description":"set_checkin_schedule: what to look for on each check-in. Omit to keep it."},` +
+	`"scheme":{"type":"string","enum":["system","light","dark"],"description":"set_theme: light or dark mode, or follow the device."},` +
+	`"look":{"type":"string","enum":["eggshell","cast-iron","custom"],"description":"set_theme: a built-in look, or custom to go back to the stored custom one."},` +
+	`"light":{"type":"object","additionalProperties":{"type":"string"},"description":"set_theme: a custom look's light-mode colours, token name to \"H S% L%\". Replaces the stored custom look and selects it."},` +
+	`"dark":{"type":"object","additionalProperties":{"type":"string"},"description":"set_theme: as light, for dark mode."},` +
+	`"text_font":{"type":"string","description":"set_theme: one of the text fonts show_theme lists."},` +
+	`"code_font":{"type":"string","description":"set_theme: one of the code fonts show_theme lists."}},` +
 	`"required":["action"],"additionalProperties":false}`)
 
 // modelSearchLimit bounds one search. OpenRouter lists several hundred models
@@ -55,7 +62,9 @@ func (t settingsTool) Definition() ports.ToolDefinition {
 			"set_effort: how hard the active model reasons. set_thinking: whether this person sees the model's reasoning. " +
 			"set_mode: when you ask before using a tool, strict or normal; only the person can choose never asking, themselves, with /mode auto or in Settings. " +
 			"set_checkins: whether you check in on this person, only when they ask for it. " +
-			"set_checkin_schedule: how often check-ins run, between which hours, and what they look for -- shared by everyone; Eggy restarts to apply it.",
+			"set_checkin_schedule: how often check-ins run, between which hours, and what they look for -- shared by everyone; Eggy restarts to apply it. " +
+			"show_theme: this person's web panel look -- light or dark mode, look, fonts, and every colour token with its default -- read it before designing a custom look. " +
+			"set_theme: change any of those for this person only; light and dark colours make a custom look, refused if text would be hard to read.",
 		Schema: settingsToolSchema,
 		// The personal settings write only the calling account's own
 		// choices, which /model and the panel show and undo -- the same
@@ -70,17 +79,23 @@ func (t settingsTool) Definition() ports.ToolDefinition {
 }
 
 type settingsToolInput struct {
-	Action      string  `json:"action"`
-	Query       string  `json:"query"`
-	Model       string  `json:"model"`
-	Alias       string  `json:"alias"`
-	Provider    string  `json:"provider"`
-	Effort      string  `json:"effort"`
-	On          *bool   `json:"on"`
-	Mode        string  `json:"mode"`
-	Interval    *string `json:"interval"`
-	ActiveHours *string `json:"active_hours"`
-	Instruction *string `json:"instruction"`
+	Action      string            `json:"action"`
+	Query       string            `json:"query"`
+	Model       string            `json:"model"`
+	Alias       string            `json:"alias"`
+	Provider    string            `json:"provider"`
+	Effort      string            `json:"effort"`
+	On          *bool             `json:"on"`
+	Mode        string            `json:"mode"`
+	Interval    *string           `json:"interval"`
+	ActiveHours *string           `json:"active_hours"`
+	Instruction *string           `json:"instruction"`
+	Scheme      *string           `json:"scheme"`
+	Look        *string           `json:"look"`
+	Light       map[string]string `json:"light"`
+	Dark        map[string]string `json:"dark"`
+	TextFont    *string           `json:"text_font"`
+	CodeFont    *string           `json:"code_font"`
 }
 
 // DescribeCall puts each asking action on the approval card in words.
@@ -162,6 +177,10 @@ func (t settingsTool) Execute(ctx context.Context, raw json.RawMessage) (json.Ra
 		return t.setCheckins(ctx, input.On)
 	case "set_checkin_schedule":
 		return t.setCheckinSchedule(input)
+	case "show_theme":
+		return t.showTheme(ctx)
+	case "set_theme":
+		return t.setTheme(ctx, input)
 	default:
 		return nil, fmt.Errorf("unknown action %q", input.Action)
 	}
@@ -537,6 +556,67 @@ func (t settingsTool) setEffort(ctx context.Context, effort string) (json.RawMes
 		effort = "the provider's default"
 	}
 	return result("Effort set to " + effort + ", from the next message on.")
+}
+
+// themeView is everything a turn needs to design a look: what is chosen, what
+// may be chosen, and the default palettes a custom look is laid over.
+type themeView struct {
+	Scheme   string                 `json:"scheme"`
+	Look     ports.LookView         `json:"look"`
+	Defaults ports.PaletteOverrides `json:"default_palettes"`
+	Note     string                 `json:"note"`
+}
+
+func (t settingsTool) showTheme(ctx context.Context) (json.RawMessage, error) {
+	scheme, err := t.s.AgentRuntime.Theme(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if scheme == "" {
+		scheme = "deployment default"
+	}
+	look, err := t.s.AgentRuntime.Look(ctx)
+	if err != nil {
+		return nil, err
+	}
+	light, dark := services.DefaultPalettes()
+	return json.Marshal(themeView{
+		Scheme: scheme, Look: look, Defaults: ports.PaletteOverrides{Light: light, Dark: dark},
+		Note: "A custom look names only the tokens it changes, per mode; the rest keep the default. Keep related tokens together: primary with accent-600, a surface with the neutral step it matches. Text pairs must stay at 4.5:1 or set_theme refuses with the pair that failed.",
+	})
+}
+
+func (t settingsTool) setTheme(ctx context.Context, input settingsToolInput) (json.RawMessage, error) {
+	change := ports.LookChange{Look: input.Look, TextFont: input.TextFont, CodeFont: input.CodeFont}
+	if input.Light != nil || input.Dark != nil {
+		change.Custom = &ports.PaletteOverrides{Light: input.Light, Dark: input.Dark}
+	}
+	if input.Scheme == nil && change == (ports.LookChange{}) {
+		return nil, errors.New("set_theme needs scheme, look, light, dark, text_font or code_font")
+	}
+	// Every field is checked before anything is stored, so one refused field
+	// does not leave half the request applied: the scheme here, the look by
+	// SetLook, which checks all of its fields before it writes.
+	if input.Scheme != nil {
+		if err := services.CheckTheme(*input.Scheme); err != nil {
+			return nil, err
+		}
+	}
+	if change != (ports.LookChange{}) {
+		if err := t.s.AgentRuntime.SetLook(ctx, change); err != nil {
+			return nil, err
+		}
+	}
+	if input.Scheme != nil {
+		if err := t.s.AgentRuntime.SetTheme(ctx, *input.Scheme); err != nil {
+			return nil, err
+		}
+	}
+	look, err := t.s.AgentRuntime.Look(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return result(fmt.Sprintf("Look set: %s, %s text, %s code. It applies the next time the panel loads; Settings → Model & when Eggy asks → Appearance undoes it.", look.Look, look.TextFont, look.CodeFont))
 }
 
 func (t settingsTool) setThinking(ctx context.Context, on *bool) (json.RawMessage, error) {

@@ -1,4 +1,4 @@
-import { THEME_CACHE_KEY, isTheme, resolveTheme, type Theme } from "./theme";
+import { DEFAULT_CODE_FONT, DEFAULT_TEXT_FONT, LOOK_CACHE_KEY, THEME_CACHE_KEY, fontHref, isTheme, lookProperties, paintedLook, resolveTheme, type LookView, type PaintedLook, type Theme } from "./theme";
 
 export type ResultField = { label: string; value: string };
 
@@ -102,7 +102,7 @@ export function checkSession(): Promise<Session> {
 // load -- and is serving only the repair surface. Asked before anything else,
 // because in safe mode every other route is absent or reporting the failure.
 export type Mode = "normal" | "safe" | "setup";
-export type { Theme } from "./theme";
+export type { LookView, Theme } from "./theme";
 // Login is whether a way in exists: the username/password form, or nothing
 // -- a safe mode that could not establish who anyone is.
 export type Login = "password" | "unavailable";
@@ -389,11 +389,77 @@ export function setAgentTheme(theme: Theme): Promise<AgentSelection> {
 // long as the panel is open. The choice is also cached in this browser so the
 // next page load paints in the right palette before the app has loaded.
 let appliedTheme: Theme = "system";
+// The look starts from this browser's cache, the same one the first-paint
+// script in index.html painted from, so the app carries on with what is
+// already on screen until the server's answer replaces it.
+let appliedLook: PaintedLook = cachedLook();
 let systemWatch: MediaQueryList | null = null;
+
+function cachedLook(): PaintedLook {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(LOOK_CACHE_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? (parsed as PaintedLook) : {};
+  } catch {
+    return {};
+  }
+}
 
 function paint(theme: Theme): void {
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.classList.toggle("dark", resolveTheme(theme, prefersDark) === "dark");
+  const palette = resolveTheme(theme, prefersDark);
+  const root = document.documentElement;
+  root.classList.toggle("dark", palette === "dark");
+  // The look's properties sit inline on the root, over the stylesheet. Every
+  // inline custom property is cleared first -- including any the first-paint
+  // script set -- so a token the new palette leaves alone goes back to the
+  // stylesheet's value rather than keeping the other palette's.
+  for (const name of Array.from(root.style)) {
+    if (name.startsWith("--")) root.style.removeProperty(name);
+  }
+  for (const [name, value] of Object.entries(lookProperties(appliedLook, palette))) root.style.setProperty(name, value);
+}
+
+function loadFont(family: string | undefined, preloaded: string): void {
+  if (!family || family === preloaded) return;
+  const id = `eggy-font-${family.replace(/\W+/g, "-").toLowerCase()}`;
+  if (document.getElementById(id)) return;
+  const link = document.createElement("link");
+  link.id = id;
+  link.rel = "stylesheet";
+  link.href = fontHref(family);
+  document.head.appendChild(link);
+}
+
+// applyLook paints the account's look in whichever palette is showing, and
+// keeps it in this browser for the next first paint.
+export function applyLook(view: LookView): void {
+  appliedLook = paintedLook(view);
+  loadFont(appliedLook.text_font, DEFAULT_TEXT_FONT);
+  loadFont(appliedLook.code_font, DEFAULT_CODE_FONT);
+  paint(appliedTheme);
+  try {
+    window.localStorage.setItem(LOOK_CACHE_KEY, JSON.stringify(appliedLook));
+  } catch {
+    // As for the theme: only the first-paint shortcut is lost.
+  }
+}
+
+// clearLook returns the panel to the stylesheet's own look, for a browser
+// whose person has signed out: the next person should not see the last one's.
+export function clearLook(): void {
+  appliedLook = {};
+  paint(appliedTheme);
+  try {
+    window.localStorage.removeItem(LOOK_CACHE_KEY);
+  } catch {
+    // Nothing cached to remove.
+  }
+}
+
+// The look and fonts are the signed-in person's own, like the palette. A
+// field left out keeps what is stored.
+export function setAgentLook(change: { look?: string; text_font?: string; code_font?: string }): Promise<AgentSelection> {
+  return request<AgentSelection>("/api/agent/look", { method: "POST", body: JSON.stringify(change) });
 }
 
 export function applyTheme(theme: Theme): void {
@@ -529,6 +595,8 @@ export type AgentSelection = {
   approval_mode?: string;
   // The account's own palette; empty means it follows the deployment default.
   theme?: string;
+  // The account's own look and fonts, with the colours they resolve to.
+  look?: LookView;
   // What each mode does, in the words the chat reply uses, keyed by mode name.
   approval_summaries?: Record<string, string>;
 };

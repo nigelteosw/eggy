@@ -66,25 +66,16 @@ JavaScript mods are not here: they are declined in `AGENTS.md` (subagent
 delegation, a desktop app, runtime-loaded plugins). A mod an agent writes
 would run in the session the owner approves from, so it could press Approve.
 
-### P2 — Themes as data, chosen by asking (M)
+### Later — Mods: sandboxed JavaScript panels (L)
 
-Herdr lets people re-skin it by asking their agent. Eggy's version changes
-design values only, never code.
+Layer 2 of `docs/superpowers/specs/2026-11-13-themes-and-mods-design.md`;
+themes (layer 1) have landed. Deferred until themes have demonstrated use. A
+`mods.enabled` extension: agent-written bundles drawing home cards or pages in
+a sandboxed frame with no session, no network and read-only data, turned on
+by the person after a preview. First step is the browser escape tests.
 
-- A theme is a validated set of CSS tokens (the `--*` variables in
-  `website/src/app/index.css`), a font picked from a short fixed list, radius
-  and tracking. No JavaScript, no URLs, so nothing can load remote files or act
-  in the session.
-- Per account, like `/model`. One more `settings` action (`set_theme`),
-  ungated by the same test as `select_model`: it changes only what the calling
-  account sees. A picker with a reset on the personal settings card.
-- Eggshell and the Herdr palette committed in `463f7ac` become built-in themes;
-  dark mode stops being one fixed palette.
-- Contrast is checked on save with the same rule `tests/contrast.test.ts`
-  holds, so a theme cannot make text unreadable.
-
-Deletion budget: ~150–250 production lines (Go and web), 0 config keys, 0
-tools, 1 per-account record, 0 loops.
+Deletion budget: ~600–900 production lines, 1 config key, 1 extension-gated
+tool, 2 tables, 0 loops.
 
 ### P2 — "Needs you" includes waiting coding runs (S)
 
@@ -157,7 +148,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Delivery order
 
 1. Voice and inbound attachments, then outbound documents.
-2. "Needs you" includes waiting coding runs; then themes as data.
+2. "Needs you" includes waiting coding runs.
 3. Measurement, then the typed config contract.
 4. Package boundaries, whenever the code nearby is being touched anyway.
 

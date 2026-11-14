@@ -77,6 +77,43 @@ type AgentRuntimeState struct {
 	// deployment's appearance default. It is per person, so one account's
 	// choice never changes another's screen.
 	Theme string `json:"theme,omitempty"`
+	// Look is this account's own panel look: a built-in name, or "custom"
+	// for CustomLook. Empty means the default look. Fonts are separate so
+	// any look can take any of the offered faces; empty means the default.
+	Look       string            `json:"look,omitempty"`
+	CustomLook *PaletteOverrides `json:"custom_look,omitempty"`
+	TextFont   string            `json:"text_font,omitempty"`
+	CodeFont   string            `json:"code_font,omitempty"`
+}
+
+// PaletteOverrides are colour tokens laid over the panel's default palette,
+// per mode, keyed by token name without its leading dashes ("primary") with an
+// "H S% L%" value. A mode left out keeps the default palette.
+type PaletteOverrides struct {
+	Light map[string]string `json:"light,omitempty"`
+	Dark  map[string]string `json:"dark,omitempty"`
+}
+
+// LookView is an account's look as the panel paints it and the settings tool
+// reports it: the chosen names, and the overrides the chosen look resolves to.
+type LookView struct {
+	Look      string           `json:"look"`
+	TextFont  string           `json:"text_font"`
+	CodeFont  string           `json:"code_font"`
+	Overrides PaletteOverrides `json:"overrides"`
+	HasCustom bool             `json:"has_custom"`
+	Looks     []string         `json:"looks"`
+	TextFonts []string         `json:"text_fonts"`
+	CodeFonts []string         `json:"code_fonts"`
+}
+
+// LookChange is one write to an account's look. A nil field keeps what is
+// stored; Custom replaces the stored custom look whole and selects it.
+type LookChange struct {
+	Look     *string
+	Custom   *PaletteOverrides
+	TextFont *string
+	CodeFont *string
 }
 
 type StateStore interface {

@@ -127,6 +127,7 @@ func TestSettingsToolGatesSharedWritesAndConsent(t *testing.T) {
 	rule := services.RuleFor(service.SettingsTool().Definition())
 	for action, gated := range map[string]bool{
 		"show": false, "list_models": false, "search_models": false, "select_model": false, "set_effort": false, "set_thinking": false,
+		"show_theme": false, "set_theme": false,
 		"add_model": true, "set_mode": true, "set_checkins": true, "set_checkin_schedule": true,
 	} {
 		if got := rule.Gated(json.RawMessage(`{"action":"` + action + `"}`)); got != gated {
@@ -218,5 +219,42 @@ func TestSettingsToolCheckinScheduleKeepsWhatItWasNotTold(t *testing.T) {
 	}
 	if _, err := settingsCall(t, service.SettingsTool(), `{"action":"set_checkin_schedule","interval":"soon"}`); err == nil {
 		t.Fatal("a non-duration interval was accepted")
+	}
+}
+
+// A look is the person's own view of the panel, so the agent sets it unasked,
+// through the same runtime the Appearance card uses.
+func TestSettingsToolSetsThisPersonsLook(t *testing.T) {
+	service, _ := modelBrowseService(t, openRouterCatalog(), []string{"fast"})
+	models := service.AgentRuntime.(*fakeModels)
+	output, err := settingsCall(t, service.SettingsTool(), `{"action":"set_theme","scheme":"dark","dark":{"primary":"150 60% 45%"},"text_font":"Inter"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if models.theme != "dark" || models.look.Custom == nil || models.look.Custom.Dark["primary"] != "150 60% 45%" || *models.look.TextFont != "Inter" {
+		t.Fatalf("theme=%q look=%+v", models.theme, models.look)
+	}
+	if !strings.Contains(output, "custom, Inter text") {
+		t.Fatalf("output=%s", output)
+	}
+	shown, err := settingsCall(t, service.SettingsTool(), `{"action":"show_theme"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"scheme":"dark"`, `"default_palettes"`, `"yolk-ink":"40 100% 18%"`} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("show_theme missing %q: %s", want, shown)
+		}
+	}
+	if _, err := settingsCall(t, service.SettingsTool(), `{"action":"set_theme"}`); err == nil {
+		t.Fatal("an empty set_theme should be refused")
+	}
+	// A bad scheme refuses the whole request before the look is written.
+	models.look = ports.LookChange{}
+	if _, err := settingsCall(t, service.SettingsTool(), `{"action":"set_theme","scheme":"sepia","look":"cast-iron"}`); err == nil {
+		t.Fatal("a bad scheme should be refused")
+	}
+	if models.look.Look != nil {
+		t.Fatalf("a refused request stored the look: %+v", models.look)
 	}
 }

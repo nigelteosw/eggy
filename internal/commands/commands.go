@@ -39,6 +39,10 @@ type AgentSettings interface {
 	SetShowThinking(context.Context, bool) error
 	Heartbeat(context.Context) (bool, error)
 	SetHeartbeat(context.Context, bool) error
+	Theme(context.Context) (string, error)
+	SetTheme(context.Context, string) error
+	Look(context.Context) (ports.LookView, error)
+	SetLook(context.Context, ports.LookChange) error
 }
 
 // ApprovalGate is the runtime switch behind /mode. Reading and writing go

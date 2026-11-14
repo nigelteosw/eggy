@@ -166,7 +166,7 @@ func (driveTool) DescribeCall(raw json.RawMessage) string {
 		}
 		return fmt.Sprintf("Move the Drive file %s to the trash.", describeValue(input.FileID))
 	case "share":
-		who := input.Email
+		var who string
 		switch {
 		case input.Type == "anyone":
 			who = "anyone with the link"

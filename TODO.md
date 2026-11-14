@@ -4,7 +4,7 @@ Unfinished work only; delete items when they land. Durable rules and settled
 decisions live in `AGENTS.md`; current behavior belongs in `README.md` and the
 docs site.
 
-Triaged against the checkout on 2026-11-09, from source inspection rather than
+Triaged against the checkout on 2026-11-14, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
@@ -61,10 +61,28 @@ changes.
 ## From the 2026-11-13 horizon scan
 
 What Herdr, OpenClaw, Hermes Agent and the small "\*Claw" agents do that fits
-Eggy's rules. Herdr's agent-to-agent orchestration, its desktop app and its
-JavaScript mods are not here: they are declined in `AGENTS.md` (subagent
-delegation, a desktop app, runtime-loaded plugins). A mod an agent writes
-would run in the session the owner approves from, so it could press Approve.
+Eggy. Herdr's agent-to-agent orchestration and its desktop app are not items
+yet: `AGENTS.md` lists them under *Previously declined — open to revisiting*,
+with what a design must answer. A mod an agent writes must not run in the
+session the owner approves from, or it could press Approve.
+
+### P2 — Themes: finish what landed in `b0d8397` (S)
+
+Looks and fonts are built (Eggshell, Cast iron, a custom look by asking).
+What is left is evidence, not code:
+
+- Ask a real model for a custom look in chat and check it renders in both
+  modes. Only Go tests have exercised that path; the panel cannot create one,
+  so nothing has painted a custom look yet.
+- Re-run the screenshots and `bun run audit:mobile` against the final build;
+  the last run predates the review fixes (first-paint tokens, sign-out).
+- Watch whether `show_theme`'s default palettes (~3 KB) are enough for the
+  model to design a coherent look, or whether it keeps tripping the contrast
+  check. If it does, a short "start from" hint per built-in beats a bigger
+  schema.
+
+Deletion budget: ~0 production lines unless the contrast check proves too
+hard to meet.
 
 ### Later — Mods: sandboxed JavaScript panels (L)
 
@@ -99,7 +117,7 @@ so the split stays folders, not repositories. Two places hide what they hold:
   lines of mixed services) into `internal/core/approvals` (70 lines today),
   so the safety mechanism has its own folder. Check the `repo` one-way import
   rule still holds.
-- Rename `internal/web` (Tavily search) to `internal/search/tavily`. Three
+- Rename `internal/web/tavily` (Tavily search) to `internal/search/tavily`. Three
   unrelated "web" names (`internal/web`, `internal/panel/webui`, `website/`)
   is one too many.
 
@@ -140,6 +158,10 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Documentation (S)
 
 - Document the trusted-code execution boundary in the architecture guide.
+- Appearance is out of date on the docs site. `use/web-chat.md` and
+  `configure/configuration.md` describe one theme in `config.yaml`; it is
+  per person now, with looks, fonts and a custom look made by asking Eggy.
+  Keep the `appearance` section as the deployment's starting mode only.
 - Tested MCP recipes for browser automation, sandboxed code execution, and
   image generation, each behind `require_approval` where it acts.
 - Verify deployment state before carrying forward old Railway chores;
@@ -148,7 +170,8 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Delivery order
 
 1. Voice and inbound attachments, then outbound documents.
-2. "Needs you" includes waiting coding runs.
+2. Themes evidence and the Appearance docs, then "Needs you" includes waiting
+   coding runs.
 3. Measurement, then the typed config contract.
 4. Package boundaries, whenever the code nearby is being touched anyway.
 

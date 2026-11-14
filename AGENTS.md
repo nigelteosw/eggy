@@ -2,32 +2,40 @@
 
 Eggy is a Go 1.26 ports-and-adapters modular monolith.
 
-This file holds the rules that outlive any one change: boundaries, safety
-invariants, decisions already argued, and capabilities deliberately declined.
+This file holds what outlives any one change: design defaults, boundaries, and
+safety invariants. Defaults and invariants are not the same strength. Design
+defaults are how
+Eggy is usually built, and a change may depart from one by saying why in the
+change itself. Safety invariants are not defaults: relaxing one is a decision to
+accept a named risk, argued on its own. Past design arguments live in
+`docs/decisions/README.md`.
 `TODO.md` holds unfinished work only. If something here stops being true, change
 it here — do not restate it in `TODO.md`.
 
-## Design rules
+## Design defaults
 
 - **A capability that is not configured costs nothing at runtime** — no tool
   schema, no goroutine, no store, no HTTP route, no prompt bytes.
 - **One way to do a job.** A second implementation of something that already
   exists is a defect, not a feature.
-- **The footprint ladder.** Before a capability becomes a core tool, try, in
-  order: extend existing code; a command plus a skill; a tool gated off when
-  unconfigured; an MCP server. Core tool is last, because every core tool ships
-  its schema on every API call for every owner, including ones who will never
-  use it.
-- **Every feature proposal states its deletion budget**: production lines,
-  config keys, tools, durable records, background loops. A refactor that nets
-  larger is a refactor that failed.
-- **Three durable forms, and only three**: YAML for startup config, Markdown for
-  owner-facing documents, SQLite for everything machine-managed. A fourth needs
-  an argument, not a use case.
+- **Cheapest place first.** Before a capability becomes a core tool, consider
+  extending existing code, a command plus a skill, a tool gated off when
+  unconfigured, or an MCP server. A core tool ships its schema on every API call
+  for every owner, so a new one says why it earns that.
+- **Say what a feature costs.** A proposal notes roughly what it adds —
+  production lines, config keys, tools, durable records, background loops — so
+  the cost is visible when deciding. It informs the decision; it is not a gate.
+- **Durable forms.** By default: YAML for startup config, Markdown for
+  owner-facing documents, SQLite for everything machine-managed. Another form is
+  fine where it clearly fits better; say why.
 - **One runtime administration authority.** Every config write goes through
   `internal/config` under one file lock with the same validation; Telegram and
-  the web panel are views onto it, never second implementations of it.
-- Production remains a single `eggyd` process and one replica.
+  the web panel are views onto it, never second implementations of it. A future
+  desktop app is a third view, not a third authority.
+- Production runs as one `eggyd` server process and one replica today. Clients
+  beyond the browser and Telegram — a desktop app is planned — talk to that
+  server through the panel's API. A second server process or replica is a design
+  change to argue, not a ban.
 
 ## Boundaries
 
@@ -45,7 +53,7 @@ it here — do not restate it in `TODO.md`.
 - Never reintroduce repository mutation or shipping through a generic tool or Telegram selection. The agent runner's push and pull request are the one exception, and they run only from a mandate created at a trusted ingress (see the safety invariants). Any other protected mutation must use an independent approval check.
 - Any protected mutation keeps one `approvals.Action`, one executor, and one payload-bound approval per operation; consolidating tools is fine, consolidating their approvals is not. `services.ApprovalToolCall` is the mechanism's one registered action: a tool named under an MCP server's `require_approval` is wrapped by `services.NewApprovalGatedTool` at the provider boundary in bootstrap, and `services.ApprovalToolExecutor` authorizes and runs it. A server without `require_approval` is still trusted wholesale at configuration time, which is the default. Every native tool is wrapped by `services.NewApprovalGatedToolIf` at registration in `registerGated`, reads included — the mode is durable runtime state that changes without a restart, so which tools carry a gate cannot depend on what it was at boot. What a wrapped call actually does is decided per call by the mode and by `services.RuleFor`, which reads the tool's own `ports.ToolEffect`. The rule is a filter on one mechanism, never a second one: an ungated call runs inline exactly as it would unwrapped. **A tool declares its own effect**, in the file whoever adds an action is already editing; the zero value means it writes, so forgetting to classify costs a prompt rather than an unguarded mutation. `ports.ReadOnlyTool()` and `ports.InternalTool()` are the only two claims that let a call through in `normal`, and `strict` still gates both. `InternalTool()` exists for three tools, each of whose writes land only in records the calling account owns, can read, and can correct itself, and nowhere else. `memory`: its writes land in USER.md and MEMORY.md, documents the owner already reads in the prompt and can edit directly. `heartbeat_respond`, turn-scoped to the heartbeat: it writes WATCH.md, which the owner also reads and edits directly. `finance`: its entries land in the calling account's own finance records, which no other account can see and which that account reads and edits in its own Finance window. Asking per remembered fact or per logged coffee is the training-to-tap-approve failure the gate exists to avoid, for a write nobody outside Eggy can observe. Nothing that reaches outside Eggy may claim it — "small blast radius" is not the test, "only the owner can observe it" is. `finance` is not turn-scoped, but an unprompted turn still cannot reach it: those turns run on the explicit allowlist in `turns.ReadOnlyTools()`, which does not name it, and a bootstrap test pins that. `memory` also rewrites SOUL.md, whole, when the owner asks for a change in how Eggy behaves, and that write is the one recorded exception to the test: SOUL.md is shared, so other accounts observe it. It keeps the claim because every account already holds the capability to edit SOUL.md directly in the panel, the policy has the agent announce the change rather than curate it silently, and no unprompted turn can reach the tool. Nothing else extends the exception. The `settings` tool is the agent's view of `/model`, `/mode`, `/heartbeat` and the shared check-in schedule, calling the same runtime and `internal/config` helpers, and `settings show` is how a turn answers questions about Eggy itself. Its `select_model`, `set_effort`, `set_thinking` and `set_theme` actions are ungated by the same test: they write only the calling account's own choices, which `/model` or the panel's Appearance card shows and undoes. A look is data, never code: colour tokens the stylesheet already defines and a font from a fixed list, checked once in `services.AgentRuntime.SetLook` for every caller, with no CSS text, selector or URL, so it can recolour the panel and do nothing else. `set_mode` and `set_checkins` ask, because how much a person is asked and whether Eggy may message them unprompted are theirs to decide on a card; `set_mode` refuses `auto` outright, since a tool call is exactly the "on the owner's behalf" the `/mode` rule below forbids. `add_model` and `set_checkin_schedule` write the shared config.yaml and restart Eggy, so they ask. Connectors, channels, providers, people and anything that widens what Eggy can reach stay panel-only. MCP is the deliberate exception and leaves `Effect` alone: a remote catalog cannot be classified from here, so an MCP server stays governed by its own `require_approval` and `normal` does not second-guess it — `strict` still gates it. For Google, `google.Mutations()` sits beside the switch statements with `google.Reads()` as its complement, and `google.Actions()` is derived from the two rather than written a third time: an action left out of both is missing from `Actions()`, so the bootstrap test comparing it against the tool schemas fails and whoever added it must say which kind it is before it can ship. `google.require_approval` narrows or widens that through `google.Reclassified`, never through a second gate.
 - A tool that belongs to one kind of turn declares `TurnScoped` on its definition, and the full catalog an owner turn runs on leaves it out; only an allowlist that names it offers it. `heartbeat_respond` is the one user. An owner turn must not pay a schema it can only fail on.
-- A feature extension lives in `internal/extensions/<name>/`, which is for nothing else; it is not an adapter. One `<name>.enabled` config key gates all of it: bootstrap constructs it only when enabled and otherwise passes nil, so a disabled extension has no tool schema, no route, no goroutine and no prompt bytes. Its records go through a narrow port in `internal/ports` into SQLite, the table added `IF NOT EXISTS` with the other schemas — additive, so no `MachineStateVersion` bump and a rollback stays possible. The service is the one write path, and the extension's tool and the panel are both thin callers of it. The panel declares its own small interface for that service and never imports the extension; it mounts the routes only when the interface is non-nil, and lists the capability in `/api/session`'s `features`, which is what the SPA reads to draw its sidebar entry. `/api/mode` is unauthenticated and must not carry it. There is no shared extension interface, because a lifecycle interface whose only caller is bootstrap is forbidden below. The first is `finance`; a second extension that needs something the first did not is the moment to argue for shared structure, not before. An extension's files in the shared packages (`ports`, `config`, `storage/sqlite`, `panel`, `bootstrap`, `commands`) are named `ext_<name>.go`, and its web panel code lives under `website/src/extensions/<name>/`, so the core code and the extension code can be told apart by filename and folder.
+- A feature extension lives in `internal/extensions/<name>/`, which is for nothing else; it is not an adapter. One `<name>.enabled` config key gates all of it: bootstrap constructs it only when enabled and otherwise passes nil, so a disabled extension has no tool schema, no route, no goroutine and no prompt bytes. Its records go through a narrow port in `internal/ports` into SQLite, the table added `IF NOT EXISTS` with the other schemas — additive, so no `MachineStateVersion` bump and a rollback stays possible. The service is the one write path, and the extension's tool and the panel are both thin callers of it. The panel declares its own small interface for that service and never imports the extension; it mounts the routes only when the interface is non-nil, and lists the capability in `/api/session`'s `features`, which is what the SPA reads to draw its sidebar entry. `/api/mode` is unauthenticated and must not carry it. There is no shared extension interface, because a lifecycle interface whose only caller is bootstrap needs the argument asked for below. The first is `finance`; a second extension that needs something the first did not is the moment to argue for shared structure, not before. An extension's files in the shared packages (`ports`, `config`, `storage/sqlite`, `panel`, `bootstrap`, `commands`) are named `ext_<name>.go`, and its web panel code lives under `website/src/extensions/<name>/`, so the core code and the extension code can be told apart by filename and folder.
 - Restarting is a request, not an exit. `App.Restart` makes `App.Run` return `bootstrap.ErrRestart`, and `cmd/eggyd`'s supervisor loop — the same one safe mode uses — builds a fresh App from the current `config.yaml`. Run must keep draining in-flight turns rather than cancelling them, because the turn that asked for the restart still owes its reply; and `commands.Restart` must keep loading the config before signalling, so a bad file is refused instead of landing the owner in safe mode. `/restart` and `POST /api/restart` both go through that one function; a second restart path that skipped the pre-flight would be a way to break Eggy the other surface refuses.
 - `/mode` (`state.ApprovalMode`) is the one setting deciding how much the owner is asked: `strict` gates every tool call, `normal` gates what writes, `auto` gates nothing. `normal` is the default and the rung that has to be right -- gating everything trains the owner to approve without reading, and gating nothing is a bypass. `auto` is a deliberate, durable bypass named by `/status`; it must never become the default, and nothing may select it on the owner's behalf. `approvals.mode` in config decides only where a fresh deployment starts: a stored choice always wins, or `/mode` would be undone by the next restart. The retired `state.ApprovalAutoMode` boolean is read once to carry an existing bypass into `auto` and never written again. The agent runner's coding tools never reach this gate, because they are not in the owner's registry: a coding run is authorized by its mandate, which no `/mode` changes. `/mode` still governs the owner-facing `agent_runner` tool like any other tool.
 
@@ -96,18 +104,22 @@ should only ever add a new package under
 ## Workflow
 
 - Add or change behavior test-first and run the focused test before the full suite.
-- Prefer the standard library and small interfaces. Do not introduce a web framework, ORM, DI framework, agent framework, native plugin runtime, or database.
+- Prefer the standard library and small interfaces; see *Think twice before introducing*.
 - While iterating, run only the packages you touched (`go test ./internal/<pkg>/...`). Run `make fmt vet race build` once before committing a change, not after every step of a plan: `race` runs every test, so `test` adds nothing to it locally (CI still runs both). Run `make smoke` when Docker is available; report an unavailable Docker daemon as an environment blocker, not a passing smoke test.
 - Preserve `/data/eggy.db` compatibility or introduce an explicit migration and raise `sqlite.MachineStateVersion`. Machine-managed records -- runtime state, approvals, schedules, sealed OAuth grants -- live only there; a boot import moves a pre-consolidation home and archives its `state.json`, `cron/`, and `auth.json` rather than deleting them.
 
-## Do not introduce
+## Think twice before introducing
 
-- a runtime-loaded native plugin system;
-- a DI, agent, web, or ORM framework;
+Each of these needs a short argument in the change that introduces it: what it
+removes or makes possible that the standard library and the current code do not.
+
+- a runtime-loaded plugin system — and any plugin or mod that runs code stays
+  out of the owner's session and the approval surface (see the safety
+  invariants);
+- a DI, agent, web, or ORM framework, or a second database;
 - build tags for ordinary feature selection;
 - package splits that export internals only to satisfy directory boundaries;
-- generic feature/module lifecycle interfaces whose only caller is bootstrap;
-- a second way to do a job that already has one.
+- generic feature/module lifecycle interfaces whose only caller is bootstrap.
 
 ## Safety invariants
 
@@ -195,19 +207,10 @@ should only ever add a new package under
   re-registers its client when discovery finds a different issuer; the
   2026-07-28 MCP spec makes both mandatory for clients.
 
-## Decided — do not re-propose
+## Security decisions
 
-**The two OAuth flows stay separate.** Unifying `internal/google/oauth.go`
-and `internal/mcp/oauth.go` behind one parameterized adapter was considered
-and rejected. Shared: state and verifier generation, the pending window check,
-the exchange, token persistence — 50-60 lines. Not shared, and structural, all on
-the MCP side: protected-resource discovery, authorization-server metadata with
-trailing-slash tolerance and synthesized fallback endpoints, RFC 7591 dynamic
-registration, a `resource` parameter threaded through every call, per-server
-keying, and conformance to the MCP SDK's `auth.OAuthHandler`. Google has fixed
-endpoints and one loopback constant. One adapter would carry all of that past a
-provider that never uses it, adding branches to delete ~50 lines. Revisit only if
-a *third* provider appears on the MCP side of the split.
+Argued once and kept for the same reason as the safety invariants: each closes a
+way for a credential, an identity or an install to go somewhere it should not.
 
 **Google's authorization and token endpoints stay unexported in
 `internal/google`.** They are `var` rather than `const` only so tests can
@@ -221,14 +224,6 @@ convention: nothing in `internal/config` or `internal/bootstrap` can reach them.
 Google's endpoints are fixed for every owner, so there is no legitimate caller to
 serve. This is the counterpart to MCP, where endpoints *are* discovered per
 server because they genuinely vary.
-
-**`GoogleRuntime` and `MCPRuntime` stay separate.** Four lines each; collapsing
-them needs a server key Google ignores or a named-grant registry. Machinery to
-delete eight lines.
-
-**`parseOAuthRedirect` stays in `internal/commands`.** Its header calls itself
-homeless, but both callers *are* the command surface, and moving it would have
-two extension packages import a third.
 
 **Accounts are ownership, not roles.** A deployment names its people in
 `accounts:`; each signs in with a private username and password (hashes,
@@ -268,67 +263,6 @@ opposite directions of trust, and one "auth" package owning both is a security
 god-object. Telegram's webhook-secret and owner-allowlist checks are the only
 things that may later join `session`.
 
-**Tool registration stays inline in `NewApp`.** Extracting a `buildToolRegistry`
-helper was tried and rejected: it needs eleven collaborators, so it trades a long
-function for an eleven-parameter one and hides the coupling instead of removing
-it. It becomes worth revisiting only if what a turn's tool set is assembled from
-gets smaller.
-
-**Adding a model backend is usually config, not code.** `openai_compatible` is
-OpenAI's Chat Completions wire format — `/chat/completions`, `tools` /
-`tool_calls`, `reasoning_effort`, `usage.cached_tokens` — so OpenAI itself,
-DeepSeek, OpenRouter, and Groq are all reachable by adding a `providers` entry
-with the right `base_url` and `api_key_env`. Writing an `openai` adapter that
-duplicates `openaicompat` is the wrong turn, and a test pins that. A new adapter
-is earned by a genuinely different wire format: Anthropic's Messages API, with
-its top-level system prompt, content blocks, and required `max_tokens`, is the
-real example.
-
-**Config field count is not a cleanup target.** The fields are not redundant:
-~20 are MCP server options (transport, auth, OAuth client, timeouts, failure
-policy, tool filters), 7 are Google, and the rest are server, runner, and
-repository settings that each do something. None is a second way to do a job.
-Cutting the count means removing a capability or removing knobs from MCP — and
-MCP's knobs are what let capability arrive as configuration instead of code,
-which is the property the whole design is built on.
-
-**Production line-count targets are retired.** A `≤ 12,500 production lines`
-target counted the tree rather than what a turn costs to run, and it moved away:
-successive cleanup passes each netted slightly larger, because moving code where
-it belongs costs naming and comments. It was not reachable without deleting a
-capability, which is a product decision to argue on its own merits rather than
-smuggle in as a line-count exercise. Deleting genuinely dead code still counts;
-shrinking to hit a number does not.
-
-**`enabled` flags stay on MCP servers and Google.** The rule "an empty section is
-the off switch" does not hold when the section carries state that is expensive to
-recreate. An MCP server entry holds a URL, auth mode, OAuth client id, timeouts,
-and tool filters; Google holds a client id and product list. `enabled: false`
-turns the capability off while keeping all of it, which deleting the section does
-not. The MCP manager also reads `Enabled` at runtime to gate reconnection, so the
-field is load-bearing rather than declarative. Removing it would break every
-existing config (`KnownFields(true)` rejects the now-unknown key) and cost
-migration code to fix.
-
-**The unknown-key message is already a repair.** `KnownFields(true)` reports the
-line, the key, and the section type: `line 34: field enabld not found in type
-config.GoogleConfig`. Adding a "did you mean" suggestion needs edit distance over
-yaml tags plus mapping a type name in an error string back to a `reflect.Type` —
-real machinery for a message that already names the file position and the exact
-key.
-
-**`config.example.yaml` stays a starter, not a reference.** Asserting it
-documents every field would force the advanced MCP options, tool filters, and
-failure policy into a file whose job is to get someone running. Field reference
-belongs on the docs site. `TestLoadConfigAcceptsExample` already pins that the
-example parses and produces the expected values, which is the property worth
-holding.
-
-**`knownGoogleProducts` stays duplicated in `internal/config`.** The boundary
-rule forces it: config may not import an extension package. If a third copy appears,
-invert it — let the adapter validate its own product names and have config check
-only the shape.
-
 **Marketplaces are read, reviewed, and never automatic.** Eggy installs skills and
 remote MCP servers from Claude Code marketplaces and SKILL.md repositories on
 GitHub through one path: the owner reads a plan at one commit SHA, and the
@@ -348,50 +282,25 @@ later stays off until it is reviewed: `require_approval` alone names only the to
 it protects, and would let a new one run unasked. Such a server carries
 `review_required` until that review, and every other enable path refuses it.
 
-## Declined capabilities — do not re-propose
+## Previously declined — open to revisiting
 
-Each is something a comparable project (OpenClaw, Hermes Agent) has and Eggy will
-not build. Recorded with the reason so re-reading their READMEs does not restart
-the argument.
+Comparable projects (OpenClaw, Hermes Agent, Herdr) have each of these, and Eggy
+declined them while it was one server for a few people. They are open again.
+Whatever lands keeps the safety invariants; for each, the line below is what a
+design must answer. The original reasoning is in `docs/decisions/README.md`.
 
-**Channel breadth.** Both front 10-20+ messaging platforms. Eggy's people are
-reachable on Telegram and on the web. A tenth channel does not let anyone do
-anything an existing one does not — it multiplies adapters, webhook
-authentication, deduplication ledgers, and approval-delivery paths for zero new
-capability. `ports.Channel` stays the extension point if that ever changes;
-adding a channel should remain an extension package plus one line of bootstrap, and
-that property is worth more than any particular channel.
-
-**Multi-agent routing.** OpenClaw routes to several agents per workspace
-because it serves groups. Eggy has one agent, one loop, and one scheduler for
-everyone it serves; what changed with accounts (below) is who owns a record,
-not how many agents there are.
-
-**Subagent delegation (`delegate_task`).** Hermes spawns isolated subagents with
-spawn-depth and concurrency bounds, an orchestrator/leaf role split, and an
-async-completion queue re-entering the parent conversation. That is an agent
-framework, which "Do not introduce" forbids by name, and it needs a second loop,
-which the boundary rules forbid by name. It is also the single largest net-new-
-code item either reference has. If parallelism is ever needed, the answer is a
-scheduled turn, not a child loop.
-
-**Runtime-loaded plugins.** Both discover plugins from directories and entry
-points at runtime. Go's build model makes it worse than it is for Python or Node.
-Compile-time wiring in `internal/bootstrap` plus MCP for out-of-tree capability
-covers the same ground.
-
-**A TUI, a desktop app, or companion nodes.** Each is a whole client to maintain.
-Eggy's surfaces are a phone the owner already has and a browser, and production
-stays a single `eggyd` process.
-
-**Pluggable memory providers.** Hermes plugs several in behind an ABC — and its
-own policy now refuses new in-tree ones, because the maintenance burden is what a
-provider interface actually buys. Eggy has three durable forms on purpose — YAML
-for startup config, Markdown for owner-facing documents, SQLite for everything
-machine-managed. A memory provider port would be a second way to do a job that
-SQLite and Markdown already do.
-
-**Profiles / multi-instance isolation.** Eggy has one home, one process, one
-replica; `EGGY_CONFIG` already relocates it for tests and local runs. Several
-people share that one instance as accounts (below) rather than each running
-their own.
+- **A desktop app** (planned), or a TUI or companion nodes. A client of the one
+  `eggyd`: it signs in like the web panel with a verified session, never holds
+  provider, Google or GitHub credentials, and raises approvals into the same
+  payload-bound flow.
+- **Subagent delegation and multi-agent routing.** A child turn inherits the
+  parent's principal and `/mode`, can never create or widen a mandate, approval
+  or account, and a child of an unprompted turn stays read-only.
+- **Runtime plugins and mods.** Code a plugin runs never holds the owner's
+  session or reaches the approval surface;
+  `docs/superpowers/specs/2026-11-13-themes-and-mods-design.md` is one design.
+- **More channels.** Each keeps sender verification mapped to an account,
+  private conversations only, update deduplication, and no way for a generic
+  selection to satisfy an approval.
+- **Pluggable memory providers, profiles, multi-instance isolation.** Open; the
+  durable-forms default applies.

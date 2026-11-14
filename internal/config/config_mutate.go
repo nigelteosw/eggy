@@ -152,6 +152,25 @@ func writeYAMLDocument(path string, document *yaml.Node) error {
 // apply may return an error to refuse the write, which is how a setter
 // rejects input it can check before validation sees it, or errNoConfigChange
 // to say there was nothing to do.
+// RefusedError is a config write refused because of what was asked: the change
+// or the config it would produce is invalid. Its message is written for the
+// owner and safe to show. Any other error from a write (reading, locking,
+// writing the file) is an internal failure, whose detail belongs in the log.
+type RefusedError struct{ Err error }
+
+func (e RefusedError) Error() string { return e.Err.Error() }
+
+func (e RefusedError) Unwrap() error { return e.Err }
+
+// Refusal returns the owner-facing message when err is a refusal.
+func Refusal(err error) (string, bool) {
+	var refused RefusedError
+	if errors.As(err, &refused) {
+		return refused.Error(), true
+	}
+	return "", false
+}
+
 func mutate(path string, apply func(cfg *Config) error) error {
 	return filelock.With(path, func() error {
 		cfg, err := LoadDocument(path)
@@ -162,10 +181,10 @@ func mutate(path string, apply func(cfg *Config) error) error {
 			if errors.Is(err, errNoConfigChange) {
 				return nil
 			}
-			return err
+			return RefusedError{err}
 		}
 		if err := cfg.Validate(); err != nil {
-			return err
+			return RefusedError{err}
 		}
 		return writeConfigUnlocked(path, cfg)
 	})
@@ -773,6 +792,41 @@ func AddMCPServerDisabled(path, name, url string) error {
 		}
 		cfg.MCP.Servers[name] = MCPServerConfig{URL: url, Transport: "streamable-http", Auth: "oauth", ReviewRequired: true}
 		return cfg.applyDefaults()
+	})
+}
+
+// RetargetMCPServer points a catalog server at a new URL in one locked write.
+// A new URL is a new server to trust, so it is disabled and marked for review
+// again; the owner's tuning of the entry (OAuth client, timeouts, filters) is
+// kept, since re-adding it would lose all of that.
+func RetargetMCPServer(path, name, url string) error {
+	return mutate(path, func(cfg *Config) error {
+		server, ok := cfg.MCP.Servers[name]
+		if !ok {
+			return fmt.Errorf("MCP server %q is not configured", name)
+		}
+		server.URL = url
+		server.Enabled = false
+		server.ReviewRequired = true
+		cfg.MCP.Servers[name] = server
+		return cfg.applyDefaults()
+	})
+}
+
+// RestoreMCPServer puts one MCP entry back exactly as a snapshot held it, or
+// removes it when the snapshot recorded its absence. It is the marketplace's
+// rollback, so nothing about the entry is re-derived.
+func RestoreMCPServer(path, name string, server MCPServerConfig, existed bool) error {
+	return mutate(path, func(cfg *Config) error {
+		if !existed {
+			delete(cfg.MCP.Servers, name)
+			return nil
+		}
+		if cfg.MCP.Servers == nil {
+			cfg.MCP.Servers = map[string]MCPServerConfig{}
+		}
+		cfg.MCP.Servers[name] = server
+		return nil
 	})
 }
 

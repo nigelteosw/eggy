@@ -89,7 +89,7 @@ func telegramUnlinkRoute(configPath string, store IdentityLinkStore) http.Handle
 			return
 		}
 		if err := config.UnlinkTelegramAccount(configPath, current.account.ID); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		if store != nil {
@@ -137,7 +137,7 @@ func discordUnlinkRoute(configPath string, store IdentityLinkStore) http.Handler
 			return
 		}
 		if err := config.UnlinkDiscordAccount(configPath, current.account.ID); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		if store != nil {

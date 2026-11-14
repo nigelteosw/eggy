@@ -78,7 +78,7 @@ func TestMCPApprovalRefusesUnknownServer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPut, "/api/config/mcp/missing/approval", strings.NewReader(`{"enabled":true,"require_approval":["read"]}`))
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status %d, want 400 for an unreadable config", rec.Code)
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "config.yaml") {
+		t.Fatalf("status %d %s, want 500 without the file path for an unreadable config", rec.Code, rec.Body)
 	}
 }

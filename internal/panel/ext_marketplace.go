@@ -205,7 +205,7 @@ func marketplaceSourcesSetRoute(configPath string) http.HandlerFunc {
 		}
 		// Sources only: enabled is left to the locked write, never read here.
 		if err := config.SetMarketplaceSources(configPath, sources); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeJSON(w, map[string]any{"saved": true})

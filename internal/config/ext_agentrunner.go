@@ -100,10 +100,10 @@ var repositoryNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}
 // The change applies after a restart, like every repository change.
 func AddRepository(path string, repo RepositoryConfig) error {
 	if !repositoryNamePattern.MatchString(repo.Name) {
-		return fmt.Errorf("repository name %q must be letters, digits, dots, dashes or underscores", repo.Name)
+		return RefusedError{fmt.Errorf("repository name %q must be letters, digits, dots, dashes or underscores", repo.Name)}
 	}
 	if !strings.HasPrefix(repo.CloneURL, "https://github.com/") || strings.Contains(strings.TrimPrefix(repo.CloneURL, "https://"), "@") {
-		return errors.New("clone_url must be an https://github.com/ URL without credentials")
+		return RefusedError{errors.New("clone_url must be an https://github.com/ URL without credentials")}
 	}
 	if repo.BaseBranch == "" {
 		repo.BaseBranch = "main"

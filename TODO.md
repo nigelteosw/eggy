@@ -8,23 +8,6 @@ Triaged against the checkout on 2026-11-09, from source inspection rather than
 production measurements. S/M/L are relative effort, not delivery promises; line
 budgets are estimates to refine before implementation.
 
-## Marketplace — remaining follow-ups (S–M)
-
-Source: `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
-
-- [ ] Rollback restores an MCP entry with URL only (`snapshotMCP`); its OAuth
-      client, timeouts and filters are lost. Snapshot the whole entry.
-- [ ] A disabled catalog MCP server's tuning is lost when an upstream URL
-      change re-adds it.
-- [ ] An update review lists a skill the owner deleted as planned content,
-      though the update will not write it (the record keeps a tombstone).
-- [ ] A skill left at `.old-*` after a failed restore reappears on the next List.
-- [ ] Config write errors still reach the browser verbatim in a few routes
-      (shared pattern with `internal/panel/mcp.go`).
-- [ ] Tests: session/CSRF guards for the marketplace routes, component tests for
-      the review screens, and OAuth login on a disabled server completing
-      without a reconnect.
-
 ## P2 — Voice and inbound attachments everywhere (M)
 
 Telegram passes images and PDFs and refuses voice and other media with a
@@ -62,6 +45,10 @@ snapshot exist; what is missing is evidence.
 - Test prefix/schema byte stability with time held fixed.
 - Measure core and MCP schema bytes, skill-index bytes, cache-hit ratio, and
   latency by model; validate Claude cache hints against real routing.
+- Record the process footprint too: binary size, idle memory, and cold start
+  to a first reply. PicoClaw (Go, 10–20 MB RAM) and ZeroClaw (Rust, a single
+  binary of a few MB) compete on this; know where Eggy stands before anyone
+  claims it matters.
 - The adapter retries three times at 100/200 ms and ignores `Retry-After`; add
   bounded backoff only if traces justify it.
 
@@ -70,6 +57,62 @@ comparison shows improvement.
 
 Deletion budget: ~0 production lines for measurement; ~60 for justified retry
 changes.
+
+## From the 2026-11-13 horizon scan
+
+What Herdr, OpenClaw, Hermes Agent and the small "\*Claw" agents do that fits
+Eggy's rules. Herdr's agent-to-agent orchestration, its desktop app and its
+JavaScript mods are not here: they are declined in `AGENTS.md` (subagent
+delegation, a desktop app, runtime-loaded plugins). A mod an agent writes
+would run in the session the owner approves from, so it could press Approve.
+
+### P2 — Themes as data, chosen by asking (M)
+
+Herdr lets people re-skin it by asking their agent. Eggy's version changes
+design values only, never code.
+
+- A theme is a validated set of CSS tokens (the `--*` variables in
+  `website/src/app/index.css`), a font picked from a short fixed list, radius
+  and tracking. No JavaScript, no URLs, so nothing can load remote files or act
+  in the session.
+- Per account, like `/model`. One more `settings` action (`set_theme`),
+  ungated by the same test as `select_model`: it changes only what the calling
+  account sees. A picker with a reset on the personal settings card.
+- Eggshell and the Herdr palette committed in `463f7ac` become built-in themes;
+  dark mode stops being one fixed palette.
+- Contrast is checked on save with the same rule `tests/contrast.test.ts`
+  holds, so a theme cannot make text unreadable.
+
+Deletion budget: ~150–250 production lines (Go and web), 0 config keys, 0
+tools, 1 per-account record, 0 loops.
+
+### P2 — "Needs you" includes waiting coding runs (S)
+
+Herdr's best idea is one place that says which agents are blocked on you. The
+home page's "Needs you" section shows approvals only; a coding run in
+`waiting_for_user` is visible only on the agent runner page.
+
+- List waiting runs beside the approvals card, linking to the run. Only when
+  the agent runner is enabled, so a disabled extension still costs nothing.
+
+Deletion budget: ~40–80 web lines, 0 Go lines if the runs route already
+answers it, 0 config keys/tools/records/loops.
+
+### P3 — Package boundaries that read at a glance (S)
+
+Prompted by Herdr's one-repository-per-program layout. Eggy is one program,
+so the split stays folders, not repositories. Two places hide what they hold:
+
+- Move the approval gate (`ApprovalToolCall`, `NewApprovalGatedTool[If]`,
+  `RuleFor`, `ApprovalToolExecutor`) out of `internal/core/services` (~4k
+  lines of mixed services) into `internal/core/approvals` (70 lines today),
+  so the safety mechanism has its own folder. Check the `repo` one-way import
+  rule still holds.
+- Rename `internal/web` (Tavily search) to `internal/search/tavily`. Three
+  unrelated "web" names (`internal/web`, `internal/panel/webui`, `website/`)
+  is one too many.
+
+Behavior unchanged. Deletion budget: ~0 net lines, 0 config keys/tools/records/loops.
 
 ## P3 — One typed contract per panel config section (M)
 
@@ -97,7 +140,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 
 | Candidate | Evidence and next step | Deletion budget |
 | --- | --- | --- |
-| Agent-authored skills (M) | Store write/delete exist; the agent has only `skill_read`. Demonstrate reusable procedures first. Writes need approval, secret filtering and locking; the `InternalTool` exception does not apply. | ~80–150 net lines, 0 config keys/loops. |
+| Agent-authored skills (M) | Store write/delete exist; the agent has only `skill_read`. Demonstrate reusable procedures first; Hermes Agent's skill learning is the reference to read before designing. Writes need approval, secret filtering and locking; the `InternalTool` exception does not apply. | ~80–150 net lines, 0 config keys/loops. |
 | Recall beyond keywords (M) | Capture a real FTS5 miss first; try reformulation, then an LLM digest, before embeddings. | 0 until a failed case exists. |
 | Memory upkeep nudge (S) | A nudge at the end of an owner turn, not a scheduled pass. Show a missed durable fact first. | ~20–50 lines. |
 | Skills as `/name` shortcuts (S) | Needs a concrete repeated workflow. Grants no tool, lifts no approval. | ~40–80 lines. |
@@ -114,7 +157,9 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Delivery order
 
 1. Voice and inbound attachments, then outbound documents.
-2. Measurement, then the typed config contract.
+2. "Needs you" includes waiting coding runs; then themes as data.
+3. Measurement, then the typed config contract.
+4. Package boundaries, whenever the code nearby is being touched anyway.
 
 For behavior changes, run the focused regression first, then
 `make fmt vet race build`; `make smoke` when Docker is available.

@@ -67,6 +67,19 @@ func (m marketplaceMCP) Remove(name string) error {
 	return config.RemoveMCPServer(m.configPath, name)
 }
 
+func (m marketplaceMCP) Retarget(name, url string) error {
+	return config.RetargetMCPServer(m.configPath, name, url)
+}
+
+func (m marketplaceMCP) Snapshot(name string) (func() error, error) {
+	servers, err := config.GetMCPServersConfig(m.configPath)
+	if err != nil {
+		return nil, err
+	}
+	server, existed := servers[name]
+	return func() error { return config.RestoreMCPServer(m.configPath, name, server, existed) }, nil
+}
+
 // panelMarketplace adapts the marketplace service to the panel's own types and
 // error vocabulary. The panel never imports the extension.
 type panelMarketplace struct {

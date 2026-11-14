@@ -234,6 +234,25 @@ func leftoverSkillName(entry, prefix string) (string, bool) {
 	return skill, true
 }
 
+// movedAside lists the .old- copies of one skill that an interrupted or failed
+// replace left behind.
+func (s *Store) movedAside(name string) ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, entry := range entries {
+		if skill, ok := leftoverSkillName(entry.Name(), ".old-"); ok && skill == name {
+			out = append(out, filepath.Join(s.dir, entry.Name()))
+		}
+	}
+	return out, nil
+}
+
 func (s *Store) skillPresent(name string) bool {
 	if _, err := os.Lstat(filepath.Join(s.dir, name)); err == nil {
 		return true

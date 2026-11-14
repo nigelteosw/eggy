@@ -548,17 +548,28 @@ func (m *Manager) Logout(name string) error {
 	return m.Disconnect(name, StateLoginRequired, "login required")
 }
 
+// provider is a server's OAuth provider. Construction skips disabled servers,
+// so one disabled at boot gets its provider here, the way construction builds
+// it: the owner logs in to a catalog server before enabling it.
 func (m *Manager) provider(name string) (*oauthProvider, error) {
-	m.mu.RLock()
-	provider := m.oauth[name]
-	_, configured := m.runtimes[name]
-	m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime, configured := m.runtimes[name]
 	if !configured {
 		return nil, ErrServerNotFound
 	}
-	if provider == nil {
+	if provider := m.oauth[name]; provider != nil {
+		return provider, nil
+	}
+	if runtime.config.Auth != "oauth" {
 		return nil, errors.New("MCP server does not use OAuth")
 	}
+	if m.oauthStore == nil {
+		return nil, errors.New("OAuth storage is unavailable")
+	}
+	provider := newOAuthProvider(runtime.config, m.oauthStore, m.http)
+	m.oauth[name] = provider
+	m.handlers[name] = provider
 	return provider, nil
 }
 

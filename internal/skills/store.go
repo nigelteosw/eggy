@@ -534,6 +534,18 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 			}
 			removed = true
 		}
+		// A copy moved aside by a replace whose restore failed would be put
+		// back by the next List, bringing a deleted skill back to life.
+		leftovers, err := s.movedAside(name)
+		if err != nil {
+			return err
+		}
+		for _, old := range leftovers {
+			if err := os.RemoveAll(old); err != nil {
+				return err
+			}
+			removed = true
+		}
 		if !removed {
 			return fmt.Errorf("%w: %q", ports.ErrSkillNotFound, name)
 		}

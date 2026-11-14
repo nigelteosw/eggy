@@ -128,3 +128,25 @@ func TestListRestoresAMovedAsideSymlinkedDirectorySkill(t *testing.T) {
 		t.Fatal("a symlinked directory skill was not restored as a directory")
 	}
 }
+
+// A replace whose restore failed leaves the old copy under .old-. Deleting the
+// skill removes that copy too, so the next List does not bring it back.
+func TestDeleteRemovesAMovedAsideCopy(t *testing.T) {
+	dir := t.TempDir()
+	old := filepath.Join(dir, ".old-pdf-"+leftoverSuffix)
+	writeSkillDir(t, old)
+	store := Open(dir, 0)
+	if err := store.Delete(context.Background(), "pdf"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(old) {
+		t.Fatal("the moved-aside copy survived the delete")
+	}
+	got, err := store.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("list = %+v, want the deleted skill to stay deleted", got)
+	}
+}

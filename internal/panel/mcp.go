@@ -4,6 +4,7 @@
 package panel
 
 import (
+	"log/slog"
 	"maps"
 	"net/http"
 	"slices"
@@ -19,7 +20,8 @@ func webMCPListRoute(configPath string, ownerOf func(server string) string) http
 	return func(w http.ResponseWriter, _ *http.Request) {
 		servers, err := config.GetMCPServersConfig(configPath)
 		if err != nil {
-			writeWebError(w, http.StatusInternalServerError, err.Error())
+			slog.Warn("panel: could not read MCP servers", "error", err)
+			writeWebError(w, http.StatusInternalServerError, "could not read the MCP settings")
 			return
 		}
 		names := slices.Sorted(maps.Keys(servers))
@@ -70,7 +72,7 @@ func webMCPSetRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.SetMCPServer(configPath, input); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Saved MCP server " + name + ".", Detail: restartToApply})
@@ -105,9 +107,22 @@ func webMCPRemoveRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.RemoveMCPServer(configPath, name); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Removed MCP server " + name + ".", Detail: restartToApply})
 	}
+}
+
+// writeConfigWriteError shows the owner why a config write was refused, and only
+// that. Any other failure (reading, locking or writing config.yaml) can carry
+// file paths and system detail, so it goes to the log and the browser gets a
+// fixed message.
+func writeConfigWriteError(w http.ResponseWriter, err error) {
+	if msg, ok := config.Refusal(err); ok {
+		writeWebError(w, http.StatusBadRequest, msg)
+		return
+	}
+	slog.Warn("panel: config write failed", "error", err)
+	writeWebError(w, http.StatusInternalServerError, "could not save the settings; see the logs")
 }

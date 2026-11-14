@@ -65,7 +65,7 @@ func mcpApprovalRoute(configPath string) http.HandlerFunc {
 			return
 		}
 		if err := config.SetMCPServerApproval(configPath, r.PathValue("name"), body.Enabled, body.RequireApproval, body.Tools); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeJSON(w, map[string]any{"saved": true})

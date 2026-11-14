@@ -470,7 +470,7 @@ func webModelRemoveRoute(configPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		alias := r.PathValue("alias")
 		if err := config.RemoveModelAlias(configPath, alias); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
+			writeConfigWriteError(w, err)
 			return
 		}
 		writeWebResult(w, webResult{State: webSuccess, Title: "Removed model " + alias + ".", Detail: restartToApply})

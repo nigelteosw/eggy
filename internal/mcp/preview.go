@@ -43,21 +43,11 @@ func (m *Manager) Preview(ctx context.Context, name string) ([]ToolPreview, erro
 	if handler == nil {
 		switch cfg.Auth {
 		case "oauth":
-			// Construction skips disabled servers, so a server disabled at boot
-			// has no provider. Build one the way construction does.
-			if m.oauthStore == nil {
-				return nil, errors.New("OAuth storage is unavailable")
+			provider, err := m.provider(name)
+			if err != nil {
+				return nil, err
 			}
-			m.mu.Lock()
-			if existing := m.handlers[name]; existing != nil {
-				handler = existing
-			} else {
-				provider := newOAuthProvider(cfg, m.oauthStore, m.http)
-				m.oauth[name] = provider
-				m.handlers[name] = provider
-				handler = provider
-			}
-			m.mu.Unlock()
+			handler = provider
 		case "bearer-env":
 			handler = newBearerHandler(cfg.BearerToken)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -597,5 +598,42 @@ func TestConcurrentReconnectsCloseEverySessionTheyReplace(t *testing.T) {
 	}
 	if open != 1 {
 		t.Fatalf("%d of %d sessions left open, want only the installed one", open, len(made))
+	}
+}
+
+// A catalog server is added disabled, and the owner logs in to it before
+// reviewing its tools. The login completes and stores the grant, and nothing
+// tries to connect a server the owner has not enabled.
+func TestCompleteLoginOnADisabledServerDoesNotReconnect(t *testing.T) {
+	store, _ := OpenOAuthStore(newMemoryRecords(), testEncryptionKey())
+	client := &http.Client{Transport: &oauthRoundTripper{}}
+	connects := 0
+	connect := func(context.Context, ServerConfig, *http.Client, auth.OAuthHandler, *sdk.ClientOptions) (clientSession, error) {
+		connects++
+		return nil, errors.New("a disabled server must not be connected")
+	}
+	cfg := ServerConfig{Name: "railway", URL: "https://resource.example", RedirectURL: "https://eggy.example/auth/mcp/railway/callback", Auth: "oauth"}
+	manager, err := NewManager(context.Background(), []ServerConfig{cfg}, Options{Connect: connect, HTTPClient: client, OAuthStore: store, Now: time.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	authorizationURL, err := manager.BeginLogin(context.Background(), "railway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := url.Parse(authorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.CompleteLogin(context.Background(), "railway", "authorization-code", parsed.Query().Get("state"), ""); err != nil {
+		t.Fatalf("login on a disabled server reported failure: %v", err)
+	}
+	if connects != 0 {
+		t.Fatalf("connect called %d time(s) for a disabled server", connects)
+	}
+	tokenSource, err := newOAuthProvider(cfg, store, client).TokenSource(context.Background())
+	if err != nil || tokenSource == nil {
+		t.Fatalf("grant was not stored: %v", err)
 	}
 }

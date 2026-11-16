@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -241,21 +242,32 @@ func newThreadSendHandler(enqueue func(context.Context, events.Event) error, thr
 			return
 		}
 		var input struct {
-			Text  string        `json:"text"`
-			Quote *events.Quote `json:"quote"`
+			Text  string         `json:"text"`
+			Quote *events.Quote  `json:"quote"`
+			Files []uploadedFile `json:"files"`
 		}
-		if err := decodeJSONBody(w, r, &input); err != nil {
-			writeWebError(w, http.StatusBadRequest, "invalid request body")
+		// A message may carry files, so its body is bounded by what they may
+		// weigh once base64-encoded rather than by the panel's form limit.
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxSendBodyBytes)).Decode(&input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body, or the files are too large")
+			return
+		}
+		parts, err := readableParts(input.Files)
+		if err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if strings.TrimSpace(input.Text) == "" {
-			writeWebError(w, http.StatusBadRequest, "text is required")
-			return
+			if len(parts) == 0 {
+				writeWebError(w, http.StatusBadRequest, "text is required")
+				return
+			}
+			input.Text = defaultUploadPrompt(parts)
 		}
 		if input.Quote != nil && strings.TrimSpace(input.Quote.Text) == "" {
 			input.Quote = nil
 		}
-		payload, err := json.Marshal(events.Message{Text: input.Text, Quote: input.Quote})
+		payload, err := json.Marshal(events.Message{Text: input.Text, Parts: parts, Quote: input.Quote})
 		if err != nil {
 			writeWebError(w, http.StatusInternalServerError, "failed to encode message")
 			return
@@ -372,4 +384,72 @@ func newThreadStreamHandler(hub ChatStream, threads ThreadDirectory, revalidate 
 			}
 		}
 	}
+}
+
+// A web upload is held to what a Telegram download is: an image or a PDF, at
+// most 20 MB, whose bytes say what it is.
+const (
+	maxUploadBytes   = 20 << 20
+	maxUploadFiles   = 10
+	maxSendBodyBytes = 32 << 20
+)
+
+type uploadedFile struct {
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	Data      []byte `json:"data"`
+}
+
+// readableParts turns uploads into the content parts a model reads, refusing
+// the whole message if any file is not something Eggy can read. The browser's
+// declared type is a claim; the sniffed bytes must agree with it.
+func readableParts(files []uploadedFile) ([]ports.ContentPart, error) {
+	if len(files) > maxUploadFiles {
+		return nil, fmt.Errorf("send at most %d files at once", maxUploadFiles)
+	}
+	parts := make([]ports.ContentPart, 0, len(files))
+	for _, file := range files {
+		name := strings.TrimSpace(filepath.Base(file.Name))
+		if len(file.Data) == 0 {
+			return nil, fmt.Errorf("%s is empty", displayName(name))
+		}
+		if len(file.Data) > maxUploadBytes {
+			return nil, fmt.Errorf("%s is over the %d MB limit", displayName(name), maxUploadBytes>>20)
+		}
+		detected, kind, ok := ports.ReadableMediaType(http.DetectContentType(file.Data))
+		if !ok {
+			return nil, fmt.Errorf("%s isn't something I can read yet; send an image or a PDF", displayName(name))
+		}
+		if declared, _, known := ports.ReadableMediaType(file.MediaType); strings.TrimSpace(file.MediaType) != "" && (!known || declared != detected) {
+			return nil, fmt.Errorf("%s is not the kind of file its name says", displayName(name))
+		}
+		part := ports.ContentPart{Type: kind, MediaType: detected, Data: file.Data}
+		if kind == ports.ModalityFile {
+			part.Filename = name
+			if part.Filename == "" || part.Filename == "." {
+				part.Filename = "document.pdf"
+			}
+		}
+		parts = append(parts, part)
+	}
+	return parts, nil
+}
+
+func displayName(name string) string {
+	if name == "" || name == "." {
+		return "That file"
+	}
+	return name
+}
+
+// defaultUploadPrompt is what a message made only of files asks: the same
+// words a Telegram photo or document without a caption gets, which the
+// conversation record knows to drop as not the owner's own (turns.durableMessageText).
+func defaultUploadPrompt(parts []ports.ContentPart) string {
+	for _, part := range parts {
+		if part.Type == ports.ModalityFile {
+			return "Read this file."
+		}
+	}
+	return "Describe this image."
 }

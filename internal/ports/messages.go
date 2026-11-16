@@ -2,6 +2,7 @@ package ports
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 type Role string
@@ -89,5 +90,27 @@ func (p ContentPart) UploadName() string {
 		return "image.gif"
 	default:
 		return "image.png"
+	}
+}
+
+// ReadableMediaType maps a declared or sniffed media type onto the one
+// spelling Eggy sends and the modality it becomes. Anything else is not
+// something a model is asked to read. Every surface that takes a file from a
+// person -- a Telegram photo, a web upload -- holds the sniffed bytes to this
+// one list.
+func ReadableMediaType(mediaType string) (canonical string, kind Modality, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0])) {
+	case "image/jpeg", "image/jpg":
+		return "image/jpeg", ModalityImage, true
+	case "image/png":
+		return "image/png", ModalityImage, true
+	case "image/webp":
+		return "image/webp", ModalityImage, true
+	case "image/gif":
+		return "image/gif", ModalityImage, true
+	case "application/pdf":
+		return "application/pdf", ModalityFile, true
+	default:
+		return "", "", false
 	}
 }

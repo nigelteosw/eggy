@@ -170,6 +170,13 @@ export const ArrowUpIcon = (p: IconProps) => (
   </Icon>
 );
 
+// The send control on a keyboard, where Return is the gesture it stands for.
+export const ReturnIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M15.5 5v4.5a2 2 0 0 1-2 2h-9M8 8l-3.5 3.5L8 15" />
+  </Icon>
+);
+
 export const LogoutIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M8 17H4.5A1.5 1.5 0 0 1 3 15.5v-11A1.5 1.5 0 0 1 4.5 3H8" />

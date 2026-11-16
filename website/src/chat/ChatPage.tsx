@@ -4,9 +4,10 @@ import remarkGfm from "remark-gfm";
 import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getChatHistory, renameThread, sendChatMessage, stopChatTurn } from "../lib/api";
 import { Composer, Quote } from "./Composer";
 import { Button } from "../components/ui/button";
-import { ArrowDownIcon, CheckIcon, ChevronDownIcon, CopyIcon, LockIcon, MenuIcon, PlusIcon, ReplyIcon, RetryIcon } from "../components/ui/icons";
+import { ArrowDownIcon, CheckIcon, ChevronDownIcon, CopyIcon, LockIcon, MenuIcon, PaperclipIcon, PlusIcon, ReplyIcon, RetryIcon } from "../components/ui/icons";
 import { IconSwap } from "../components/ui/icon-swap";
 import { usesTouchKeyboard } from "../lib/composer";
+import { attachmentOf, encodeUpload, recordedText, splitAttachments, uploadPlaceholder } from "../lib/uploads";
 import { replyQuote } from "../lib/reply";
 import { timeAgo } from "../lib/time";
 import { cn, errorMessage } from "../lib/utils";
@@ -691,19 +692,24 @@ export function ChatPage({
     });
   }
 
-  async function handleSend(text: string, quote: Quote | null) {
+  async function handleSend(text: string, quote: Quote | null, files: File[] = []) {
     // Sending is the owner asking to see the reply, so it brings them to the end.
     atBottomRef.current = true;
     setAtBottom(true);
-    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: withQuote(quote, text), at: new Date().toISOString() }]);
+    // The bubble is what history will record, so the recorded one replaces it:
+    // the prompt the model reads, with a marker line per file.
+    const attachments = files.map(attachmentOf);
+    const prompt = withQuote(quote, text || (quote && attachments.length ? uploadPlaceholder(attachments) : text));
+    setPending((current) => [...current, { id: `local-${Date.now()}-${current.length}`, role: "user", text: recordedText(prompt, attachments), at: new Date().toISOString() }]);
     try {
+      const uploads = await Promise.all(files.map(encodeUpload));
       let target = threadRef.current;
       if (!target) {
         target = await createThread();
         threadRef.current = target;
         onThreadCreated?.(target);
       }
-      await sendChatMessage(target, text, quote ? { text: quote.text, own_message: quote.ownMessage } : null);
+      await sendChatMessage(target, text, quote ? { text: quote.text, own_message: quote.ownMessage } : null, uploads);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
@@ -715,9 +721,16 @@ export function ChatPage({
 
   // retry sends the owner's message behind a reply again, as a new turn. The
   // earlier exchange stays in the transcript, so a retry never rewrites history.
-  function retry(userIndex: number) {
+  // A message's files are not kept, so one sent with files and no words has
+  // nothing to send again; retryable says whether there is.
+  function retryText(userIndex: number) {
     const { quote: quoted, ownMessage, body } = splitQuote(messages[userIndex].text);
-    handleSend(body, quoted === null ? null : { text: quoted, ownMessage });
+    return { quote: quoted === null ? null : { text: quoted, ownMessage }, body: splitAttachments(body).body };
+  }
+
+  function retry(userIndex: number) {
+    const { quote: quoted, body } = retryText(userIndex);
+    handleSend(body, quoted);
   }
 
   async function handleStop() {
@@ -834,7 +847,8 @@ export function ChatPage({
           {messages.map((message, index) => {
             const isUser = message.role === "user";
             if (isUser) {
-              const { quote: quoted, body } = splitQuote(message.text);
+              const { quote: quoted, body: recorded } = splitQuote(message.text);
+              const { body, attachments } = splitAttachments(recorded);
               return (
                 <div key={message.id} data-message-id={message.id} data-role="user" className="group flex animate-fade-in-up flex-col items-end gap-1">
                   <div className="max-w-[88%] rounded-card bg-surface px-4 py-3 text-small text-foreground sm:max-w-[72%] sm:px-5">
@@ -844,7 +858,17 @@ export function ChatPage({
                         <p className="line-clamp-4 whitespace-pre-line break-words text-caption leading-5 text-foreground/75">{quoted}</p>
                       </div>
                     )}
-                    <MessageBody text={body} isUserBubble />
+                    {attachments.length > 0 && (
+                      <div className={cn("flex flex-wrap gap-1.5", body.trim() && "mb-2")}>
+                        {attachments.map((attachment, i) => (
+                          <span key={i} className="flex max-w-full items-center gap-1.5 rounded-control bg-black/5 px-2 py-1 text-caption text-foreground/80">
+                            <PaperclipIcon className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{attachment.kind === "image" ? "Image" : attachment.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {body.trim() && <MessageBody text={body} isUserBubble />}
                   </div>
                   <MessageFooter text={body} at={message.at} touch={touch} alwaysVisible={touch} />
                 </div>
@@ -861,7 +885,8 @@ export function ChatPage({
             const isLatest = index === lastAssistantIndex;
             // Retry re-sends the owner message before this reply, and only on the
             // latest reply once the turn has finished.
-            const retryFrom = isLatest && !typing ? previousUserIndex(index) : -1;
+            const previous = isLatest && !typing ? previousUserIndex(index) : -1;
+            const retryFrom = previous >= 0 && retryText(previous).body.trim() !== "" ? previous : -1;
             return (
               <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-small">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}

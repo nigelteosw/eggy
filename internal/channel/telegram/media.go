@@ -33,7 +33,7 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 	if declaredSize > maxFileBytes {
 		return ports.ContentPart{}, fmt.Errorf("Telegram file exceeds the %d MB limit", maxFileBytes>>20)
 	}
-	declaredType, _, ok := canonicalMediaType(declaredMediaType)
+	declaredType, _, ok := ports.ReadableMediaType(declaredMediaType)
 	if declaredMediaType != "" && !ok {
 		return ports.ContentPart{}, fmt.Errorf("unsupported Telegram file media type %q", declaredMediaType)
 	}
@@ -86,7 +86,7 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 	if int64(len(data)) > maxFileBytes {
 		return ports.ContentPart{}, fmt.Errorf("Telegram file exceeds the %d MB limit", maxFileBytes>>20)
 	}
-	detectedType, kind, ok := canonicalMediaType(http.DetectContentType(data))
+	detectedType, kind, ok := ports.ReadableMediaType(http.DetectContentType(data))
 	if !ok {
 		return ports.ContentPart{}, errors.New("Telegram file is not a supported image or PDF")
 	}
@@ -101,24 +101,4 @@ func (c *Client) DownloadFile(ctx context.Context, fileID string, declaredSize i
 		}
 	}
 	return part, nil
-}
-
-// canonicalMediaType maps a declared or sniffed media type onto the one
-// spelling Eggy sends and the modality it becomes. Anything else is not
-// something a model is asked to read.
-func canonicalMediaType(mediaType string) (canonical string, kind ports.Modality, ok bool) {
-	switch strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0])) {
-	case "image/jpeg", "image/jpg":
-		return "image/jpeg", ports.ModalityImage, true
-	case "image/png":
-		return "image/png", ports.ModalityImage, true
-	case "image/webp":
-		return "image/webp", ports.ModalityImage, true
-	case "image/gif":
-		return "image/gif", ports.ModalityImage, true
-	case "application/pdf":
-		return "application/pdf", ports.ModalityFile, true
-	default:
-		return "", "", false
-	}
 }

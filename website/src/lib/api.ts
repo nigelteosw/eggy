@@ -693,8 +693,15 @@ export function cancelSchedule(id: string): Promise<CommandResult> {
 // and whether it was Eggy's own message.
 export type ChatQuote = { text: string; own_message: boolean };
 
-export function sendChatMessage(threadId: string, text: string, quote: ChatQuote | null = null): Promise<CommandResult> {
-  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, { method: "POST", body: JSON.stringify({ text, quote }) });
+// A file sent with a message: its bytes as base64, which the server sniffs
+// and holds to the same list a Telegram upload is held to.
+export type ChatUpload = { name: string; media_type: string; data: string };
+
+export function sendChatMessage(threadId: string, text: string, quote: ChatQuote | null = null, files: ChatUpload[] = []): Promise<CommandResult> {
+  return request(`/api/chat/threads/${encodeURIComponent(threadId)}/send`, {
+    method: "POST",
+    body: JSON.stringify(files.length ? { text, quote, files } : { text, quote }),
+  });
 }
 
 export function stopChatTurn(threadId: string): Promise<CommandResult> {

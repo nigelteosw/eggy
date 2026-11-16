@@ -479,7 +479,7 @@ func (h *WebhookHandler) normalizeMessage(ctx context.Context, message *message)
 // and nothing when it declares something else. The download sniffs the
 // bytes and holds them to this answer.
 func documentMediaType(mediaType, fileName string) string {
-	if normalized, _, ok := canonicalMediaType(mediaType); ok {
+	if normalized, _, ok := ports.ReadableMediaType(mediaType); ok {
 		return normalized
 	}
 	if strings.TrimSpace(mediaType) != "" {

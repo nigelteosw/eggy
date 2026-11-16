@@ -545,3 +545,66 @@ func TestChatApproveRejectsMissingApprovalID(t *testing.T) {
 		t.Fatalf("status=%d", response.Code)
 	}
 }
+
+func TestThreadSendCarriesUploadedFilesAsVerifiedParts(t *testing.T) {
+	memory := newTestMemoryStore(t)
+	if _, err := memory.CreateThread(asOwner(), "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	var got events.Event
+	handler := newThreadSendHandler(func(_ context.Context, event events.Event) error { got = event; return nil }, memory)
+	send := func(body string) *httptest.ResponseRecorder {
+		got = events.Event{}
+		request := withPathValue(ownerRequest(http.MethodPost, "/api/chat/threads/thread-1/send", strings.NewReader(body)), "id", "thread-1")
+		response := httptest.NewRecorder()
+		handler(response, request)
+		return response
+	}
+	encode := func(data []byte) string {
+		raw, _ := json.Marshal(data)
+		return string(raw)
+	}
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	pdf := []byte("%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+
+	// A file alone is a message: the model is told what to do with it, as a
+	// Telegram photo without a caption is.
+	response := send(`{"files":[{"name":"chart.png","media_type":"image/png","data":` + encode(png) + `}]}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var message events.Message
+	if err := json.Unmarshal(got.Payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "Describe this image." || len(message.Parts) != 1 {
+		t.Fatalf("message=%#v", message)
+	}
+	if part := message.Parts[0]; part.Type != ports.ModalityImage || part.MediaType != "image/png" || part.Filename != "" {
+		t.Fatalf("part=%#v", part)
+	}
+
+	response = send(`{"text":"summarise","files":[{"name":"q3.pdf","media_type":"application/pdf","data":` + encode(pdf) + `}]}`)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	message = events.Message{}
+	if err := json.Unmarshal(got.Payload, &message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Text != "summarise" || len(message.Parts) != 1 || message.Parts[0].Type != ports.ModalityFile || message.Parts[0].Filename != "q3.pdf" {
+		t.Fatalf("message=%#v", message)
+	}
+
+	// The bytes decide what a file is. Something that is not an image or a
+	// PDF, or that claims to be what it is not, is refused before a turn.
+	for name, body := range map[string]string{
+		"unsupported": `{"files":[{"name":"notes.txt","media_type":"text/plain","data":` + encode([]byte("hello")) + `}]}`,
+		"mismatch":    `{"files":[{"name":"chart.png","media_type":"application/pdf","data":` + encode(png) + `}]}`,
+		"empty":       `{"text":"hi","files":[{"name":"blank.png","media_type":"image/png","data":""}]}`,
+	} {
+		if response := send(body); response.Code != http.StatusBadRequest || got.Type != "" {
+			t.Fatalf("%s: status=%d enqueued=%v", name, response.Code, got.Type != "")
+		}
+	}
+}

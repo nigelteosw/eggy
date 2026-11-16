@@ -58,7 +58,7 @@ func TestSetLookStoresAndSelectsACustomLook(t *testing.T) {
 	if err := runtime.SetLook(ctx, ports.LookChange{Look: ptr("cast-iron")}); err != nil {
 		t.Fatal(err)
 	}
-	if view, _ = runtime.Look(ctx); view.Look != "cast-iron" || view.Overrides.Dark["background"] != "19.3% 0 0" || !view.HasCustom {
+	if view, _ = runtime.Look(ctx); view.Look != "cast-iron" || view.Overrides.Dark["background"] != "18.5% 0.006 60" || !view.HasCustom {
 		t.Fatalf("view=%+v", view)
 	}
 	if err := runtime.SetLook(ctx, ports.LookChange{Look: ptr(LookCustom)}); err != nil {

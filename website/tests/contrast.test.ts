@@ -53,10 +53,10 @@ test("user markdown keeps every text treatment readable on the neutral bubble", 
   }
 });
 
-// Palette contrast is checked in Go (internal/core/services/look_test.go),
-// which pins its copy of both palettes to index.css and applies the same
-// rule to every look an account can choose, so the list of text pairs lives
-// in one place.
+// Palette contrast is checked in Go (internal/core/services/themes_test.go),
+// which reads every palette from internal/themes/themes.json -- the one file
+// colours are written in -- and applies the same rule to every theme an
+// account can choose, so the list of text pairs lives in one place.
 
 // The skill preview shipped bare `prose` and drew its bold labels in the
 // plugin's near-black slate on the dark ground. Any element that turns on

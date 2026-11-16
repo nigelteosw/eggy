@@ -5,6 +5,7 @@ import { LoginPage } from "../auth/LoginPage";
 import { WebLoginLinkPage, afterWebLoginLink, currentUsernameFor, takeWebLoginToken } from "../auth/WebLoginLinkPage";
 import { ChatPage } from "../chat/ChatPage";
 import { ConfigPage, type SectionId } from "../settings/ConfigPage";
+import { SettingsDialog } from "../settings/SettingsDialog";
 import { TracesPage } from "../traces/TracesPage";
 import { SafeModePage } from "./SafeModePage";
 import { runningExtensions } from "../extensions";
@@ -17,7 +18,7 @@ import { ThreadSidebar } from "../chat/ThreadSidebar";
 import { PanelIcon } from "../components/ui/icons";
 import { useStoredFlag } from "../components/ui/sidebar";
 import { pathForView, viewForPath, type View } from "./routing";
-import { isEdgeSwipe, useVisibleHeight } from "../lib/viewport";
+import { isEdgeSwipe, useVisibleHeight, useWide } from "../lib/viewport";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
@@ -98,9 +99,17 @@ export function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // On a wide screen Settings is a popup over the page the owner was on, so
+  // that page is remembered and stays drawn underneath; closing the popup
+  // returns to it. On a phone Settings is a page of its own.
+  const wide = useWide();
+  const [underView, setUnderView] = useState<View>(() => (view === "settings" ? "chat" : view));
+  const shownView: View = view === "settings" && wide ? underView : view;
+
   function navigate(next: View) {
     const path = pathForView(next);
     if (window.location.pathname !== path) window.history.pushState({}, "", path);
+    if (next === "settings" && view !== "settings") setUnderView(view);
     setView(next);
   }
 
@@ -293,14 +302,26 @@ export function App() {
           aria-hidden="true"
         />
       )}
-      {/* Closing the rail removes it from the flow at md and up rather than
-          sliding it behind the content, so the content reclaims the width.
-          Below md it stays an overlay. */}
+      {/* The rail slides in and out from the left. Below md it is an overlay
+          that translates. At md and up its grid column grows from 0fr to 1fr
+          while the rail inside translates from -100% to 0 on the same curve,
+          so the rail's right edge rides the column's edge: the page beside it
+          gives up and reclaims the width smoothly, and nothing overlaps. A
+          closed rail stays mounted (so it can animate) but inert, out of the
+          tab order and the accessibility tree. */}
       <div
-        className={`absolute inset-y-0 left-0 z-30 transition-transform duration-200 ease-out md:static md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0 shadow-lift md:shadow-none" : "-translate-x-full md:hidden"
+        {...({ inert: sidebarOpen ? undefined : "" } as Record<string, string | undefined>)}
+        className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:static md:grid md:translate-x-0 ${
+          sidebarOpen ? "translate-x-0 shadow-lift md:grid-cols-[1fr] md:shadow-none" : "-translate-x-full md:grid-cols-[0fr]"
         }`}
       >
+        {/* w-max keeps the rail its own width while min-w-0 lets the column
+            shrink under it, so -100% is the rail's width, not the column's. */}
+        <div
+          className={`w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
+            sidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
+          }`}
+        >
         <ThreadSidebar
           activeThreadId={activeThreadId}
           onSelect={(id) => {
@@ -321,7 +342,7 @@ export function App() {
           }}
           reloadKey={sidebarReloadKey}
           draftOpen={draftChatOpen}
-          view={view}
+          view={shownView}
           onNavigate={goTo}
           features={features ?? []}
           onOpenExtension={openExtension}
@@ -331,25 +352,31 @@ export function App() {
           theme={theme}
           onThemeChange={setTheme}
         />
+        </div>
       </div>
 
       {/* At md and up, the reopen control holds its own gutter, so no page has to
           leave room for it under its heading. On a phone that gutter would be
           empty width, so the control becomes a menu button in a top bar instead,
           and a chat's own header carries it. */}
-      {!sidebarOpen && (
-        <div className="hidden w-14 shrink-0 justify-center pt-1.5 md:flex">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="flex h-11 w-11 items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-            aria-label="Open sidebar"
-            title="Open sidebar"
-          >
-            <PanelIcon />
-          </button>
-        </div>
-      )}
+      {/* The reopen control's gutter widens as the rail closes and narrows as
+          it opens, on the rail's curve, so the page moves once, not twice. */}
+      <div
+        {...({ inert: sidebarOpen ? "" : undefined } as Record<string, string | undefined>)}
+        className={`hidden shrink-0 justify-center overflow-hidden pt-1.5 transition-[width,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:flex ${
+          sidebarOpen ? "w-0 opacity-0" : "w-14 opacity-100"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          aria-label="Open sidebar"
+          title="Open sidebar"
+        >
+          <PanelIcon />
+        </button>
+      </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {restartPending && <RestartBar onSessionExpired={onSessionExpired} />}
@@ -360,7 +387,7 @@ export function App() {
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <activeExtensionDef.Panel onSessionExpired={onSessionExpired} onClose={() => setActiveExtension(null)} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
-        ) : view === "home" ? (
+        ) : shownView === "home" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <HomePage
               name={account?.name || account?.username}
@@ -375,7 +402,7 @@ export function App() {
               }}
             />
           </div>
-        ) : view === "chat" ? (
+        ) : shownView === "chat" ? (
           activeThreadId || draftChatOpen ? (
             <div className="min-w-0 flex-1">
               <ChatPage
@@ -403,19 +430,19 @@ export function App() {
               <p className="text-small text-muted-foreground">Select a chat or start a new one.</p>
             </div>
           )
-        ) : view === "scheduled" ? (
+        ) : shownView === "scheduled" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <SchedulesPage onSessionExpired={onSessionExpired} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
-        ) : view === "customize" ? (
+        ) : shownView === "customize" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <CustomizePage onSessionExpired={onSessionExpired} features={features ?? []} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
-        ) : view === "traces" ? (
+        ) : shownView === "traces" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <TracesPage onSessionExpired={onSessionExpired} onOpenSidebar={() => setSidebarOpen(true)} />
           </div>
-        ) : view === "settings" ? (
+        ) : shownView === "settings" ? (
           <div className="min-h-0 min-w-0 flex-1">
             <ConfigPage
               key={settingsSection.key}
@@ -430,6 +457,17 @@ export function App() {
         </div>
       </div>
 
+      {view === "settings" && wide && (
+        <SettingsDialog
+          section={settingsSection.id}
+          sectionKey={settingsSection.key}
+          onClose={() => goTo(underView)}
+          theme={theme}
+          onThemeChange={setTheme}
+          restartPending={restartPending}
+          onSessionExpired={onSessionExpired}
+        />
+      )}
     </div>
   );
 }

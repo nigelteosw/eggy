@@ -31,3 +31,18 @@ export function useVisibleHeight(): number | undefined {
   }, []);
   return height;
 }
+
+// useWide reports whether the window is at Tailwind's md breakpoint or wider,
+// where a popup has room around it. It follows the window as it is resized.
+export function useWide(): boolean {
+  const query = "(min-width: 768px)";
+  const [wide, setWide] = useState(() => typeof window === "undefined" || window.matchMedia(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const update = () => setWide(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, []);
+  return wide;
+}

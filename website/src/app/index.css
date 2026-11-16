@@ -32,6 +32,17 @@
     --border-alpha: 0.1;
   }
 
+  /* Raised in the sidebar: the selected row and the search field sit one step
+     lighter than the rail -- the page colour by day, the next fill up by
+     night. The page colour in dark mode is darker than the rail, so using it
+     there sank the selected row instead of raising it. */
+  html {
+    --rail-raised: var(--background);
+  }
+  html.dark {
+    --rail-raised: var(--neutral-200);
+  }
+
   /* The shell radius: a round control's radius plus its gap to the edge,
      18 + 7 for the composer's 36 px buttons, 22 + 7 where touch makes them
      44 px. */

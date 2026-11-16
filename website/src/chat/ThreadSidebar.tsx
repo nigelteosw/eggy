@@ -144,7 +144,7 @@ function NavRow({
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-left text-small transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40",
-        active ? "bg-background font-medium shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
+        active ? "bg-[oklch(var(--rail-raised))] font-medium shadow-subtle" : "text-foreground/80 hover:bg-neutral-200/60",
       )}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{icon}</span>
@@ -427,7 +427,7 @@ export function ThreadSidebar({
 
   return (
     <div
-      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 md:w-[var(--sidebar-width)]"
+      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 shadow-[inset_-1px_0_0_var(--hairline)] md:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
       {confirmDialog}
@@ -510,7 +510,7 @@ export function ThreadSidebar({
 
       <div className="scrollbar-slim fade-y flex-1 overflow-y-auto px-2 pb-3">
         {threads.length > 0 && (
-          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline)] focus-within:ring-2 focus-within:ring-ring/40">
+          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-[oklch(var(--rail-raised))] px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline)] focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0" />
             <input
               type="search"
@@ -546,7 +546,7 @@ export function ThreadSidebar({
                         if (event.key === "Enter") commitRename(thread.id);
                         if (event.key === "Escape") setRenamingId(null);
                       }}
-                      className="h-11 w-full rounded-card bg-background px-3 text-small outline-none ring-2 ring-ring/40"
+                      className="h-11 w-full rounded-card bg-[oklch(var(--rail-raised))] px-3 text-small outline-none ring-2 ring-ring/40"
                     />
                   );
                 }
@@ -558,7 +558,7 @@ export function ThreadSidebar({
                       aria-current={active ? "true" : undefined}
                       className={cn(
                         "flex h-9 w-full items-center rounded-control pl-2.5 pr-9 text-left text-small transition-colors",
-                        active ? "bg-background font-medium shadow-subtle" : "font-normal text-foreground/80 hover:bg-neutral-200/60",
+                        active ? "bg-[oklch(var(--rail-raised))] font-medium shadow-subtle" : "font-normal text-foreground/80 hover:bg-neutral-200/60",
                       )}
                     >
                       <span className="truncate">{thread.title || "New chat"}</span>
@@ -574,7 +574,7 @@ export function ThreadSidebar({
                         setMenuFor((current) => (current === thread.id ? null : thread.id));
                       }}
                       className={cn(
-                        "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-control text-muted-foreground transition-opacity hover:bg-background/70 hover:text-foreground focus:opacity-100",
+                        "absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-control text-muted-foreground transition-opacity hover:bg-neutral-200 hover:text-foreground focus:opacity-100",
                         menuFor === thread.id || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
                       )}
                     >

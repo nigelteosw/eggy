@@ -185,7 +185,7 @@ func TestSavedThemesAreSharedAndOwnedByTheirSaver(t *testing.T) {
 	alice := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "alice"})
 	bob := ports.WithPrincipal(context.Background(), ports.Principal{AccountID: "bob"})
 
-	if _, err := runtime.SaveTheme(alice, "Mint", ""); err == nil || !strings.Contains(err.Error(), "no custom look") {
+	if _, err := runtime.SaveTheme(alice, "Mint", ""); err == nil || !strings.Contains(err.Error(), "no custom theme") {
 		t.Fatalf("save without a custom look: %v", err)
 	}
 	custom := ports.PaletteOverrides{Dark: map[string]string{"primary": "62% 0.15 155"}}

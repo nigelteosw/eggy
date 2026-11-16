@@ -15,8 +15,8 @@ import { type LookOption, gradientStop, swatchStyle } from "../lib/theme";
 // drawn in the chosen look's own colours, which the server sends.
 const OPTIONS: { value: Theme; label: string; description: string }[] = [
   { value: "system", label: "Match system", description: "Light or dark, following this device." },
-  { value: "light", label: "Light", description: "For daylight, in your look's light colours." },
-  { value: "dark", label: "Dark", description: "For evenings, in your look's dark colours." },
+  { value: "light", label: "Light", description: "For daylight, in your theme's light colours." },
+  { value: "dark", label: "Dark", description: "For evenings, in your theme's dark colours." },
 ];
 
 function modeSwatch(mode: Theme, look: LookOption | undefined): CSSProperties | undefined {
@@ -82,7 +82,7 @@ export function AppearanceCard({
     }
   }
 
-  const changeLook = (change: { look?: string; text_font?: string; code_font?: string }) => write(() => setAgentLook(change), "Could not save your look");
+  const changeLook = (change: { look?: string; text_font?: string; code_font?: string }) => write(() => setAgentLook(change), "Could not save your theme");
 
   async function saveTheme(event: FormEvent) {
     event.preventDefault();
@@ -147,7 +147,7 @@ export function AppearanceCard({
       </div>
       {look && (
         <>
-          <p className={cn(FIELD_LABEL, "mb-1.5 mt-5")}>Look</p>
+          <p className={cn(FIELD_LABEL, "mb-1.5 mt-5")}>Themes</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {look.options.map((option) => {
                 const selected = look.look === option.name;
@@ -190,7 +190,7 @@ export function AppearanceCard({
           </div>
           {look.look === "custom" && (
             <form onSubmit={saveTheme} className="mt-3 flex flex-col gap-2.5 rounded-card bg-neutral-100 p-3.5">
-              <p className="text-small font-medium">Save this look for everyone</p>
+              <p className="text-small font-medium">Save this theme for everyone</p>
               <p className="text-caption text-neutral-700">Everyone on this Eggy can then choose it, and it stays through redeploys. Only you can delete it.</p>
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_auto]">
                 <Input aria-label="Theme name" placeholder="Name, such as Mint" maxLength={40} value={themeName} onChange={(event) => setThemeName(event.target.value)} />

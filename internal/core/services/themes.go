@@ -164,7 +164,7 @@ func lookOptions(entries []lookEntry, custom *ports.PaletteOverrides, account st
 		options = append(options, item)
 	}
 	if custom != nil {
-		options = append(options, option(LookCustom, "Custom", "The look you asked Eggy for.", legacyLook(*custom)))
+		options = append(options, option(LookCustom, "Custom", "The theme you asked Eggy for.", legacyLook(*custom)))
 	}
 	return options
 }
@@ -472,7 +472,7 @@ func (r *AgentRuntime) SaveTheme(ctx context.Context, label, description string)
 		return "", err
 	}
 	if state.Agent.CustomLook == nil {
-		return "", errors.New("there is no custom look to save yet; ask Eggy for one first")
+		return "", errors.New("there is no custom theme to save yet; ask Eggy for one first")
 	}
 	look := legacyLook(*state.Agent.CustomLook)
 	if err := validatePalette("light", look.Light, defaultLight); err != nil {

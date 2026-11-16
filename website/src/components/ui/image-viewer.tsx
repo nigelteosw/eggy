@@ -160,7 +160,7 @@ export function ImageViewer({ ids, index, onClose }: { ids: string[]; index: num
         <nav
           aria-label="Images"
           onClick={(event) => event.stopPropagation()}
-          className="flex justify-center gap-2 overflow-x-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          className="fade-x flex justify-center gap-2 overflow-x-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           {ids.map((thumb, at) => (
             <button

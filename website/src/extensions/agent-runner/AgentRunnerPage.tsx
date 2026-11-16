@@ -567,7 +567,7 @@ export function AgentRunnerPage({
         {notice && <Notice message={{ tone: "info", text: notice }} />}
 
         <div className="flex flex-wrap items-center gap-3">
-          <div role="tablist" aria-label="Agent Runner" className="flex gap-1 rounded-control bg-neutral-100 p-1">
+          <div role="tablist" aria-label="Agent Runner" className="flex gap-1 rounded-card bg-neutral-100 p-1.5">
             {TABS.map((item) => (
               <button
                 key={item.id}

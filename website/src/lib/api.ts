@@ -462,6 +462,17 @@ export function setAgentLook(change: { look?: string; text_font?: string; code_f
   return request<AgentSelection>("/api/agent/look", { method: "POST", body: JSON.stringify(change) });
 }
 
+// A saved theme is the person's custom look, kept in eggy.db under a name so
+// everyone on the deployment can choose it and it outlives a redeploy. Saving
+// selects it; only its saver may delete it.
+export function saveAgentTheme(theme: { label: string; description?: string }): Promise<AgentSelection> {
+  return request<AgentSelection>("/api/agent/themes", { method: "POST", body: JSON.stringify(theme) });
+}
+
+export function deleteAgentTheme(name: string): Promise<AgentSelection> {
+  return request<AgentSelection>(`/api/agent/themes/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
 export function applyTheme(theme: Theme): void {
   appliedTheme = theme;
   paint(theme);

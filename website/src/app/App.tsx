@@ -247,7 +247,7 @@ export function App() {
 
   if (status === "checking") {
     return (
-      <div className="app-canvas flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div className="app-canvas flex min-h-dvh flex-col items-center justify-center gap-3 text-muted-foreground">
         <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
         <span className="text-small">Loading...</span>
       </div>

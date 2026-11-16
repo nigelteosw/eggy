@@ -6,9 +6,10 @@ import config from "../tailwind.config.js";
 
 // Controls are 10 px, cards and dialogs 16 px, pills full; mark is 4 px for
 // glyph-sized things -- inline code, a legend swatch -- that a 10 px corner
-// would turn into a circle. Tailwind's own radius scale is not generated, so a
+// would turn into a circle; shell is the composer's concentric corner around
+// its round buttons. Tailwind's own radius scale is not generated, so a
 // stray rounded-xl would render square; this test catches it first.
-const RADII = ["none", "mark", "control", "card", "full"];
+const RADII = ["none", "mark", "control", "card", "full", "shell"];
 
 async function sources(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });

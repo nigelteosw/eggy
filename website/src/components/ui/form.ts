@@ -3,7 +3,7 @@
 // chat surface uses; the settings forms are the flatter, tinted variant.
 
 // An input sitting on a neutral-100 card: no border, a one-pixel inset ring.
-export const FIELD = "rounded-control border-0 bg-background shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))]";
+export const FIELD = "rounded-control border-0 bg-background shadow-[inset_0_0_0_1px_var(--hairline)]";
 
 // A labelled input in a compact grid, where the Input primitive's height and
 // ring are replaced wholesale rather than layered.

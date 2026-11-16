@@ -283,6 +283,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	aliases, targets := catalog.aliases, catalog.targets
 	agentRuntime := services.NewAgentRuntime(stateStore, config.Agent.DefaultModel, aliases, catalog.efforts)
+	// Themes people save for everyone live in eggy.db beside the built-in
+	// ones, so they outlive a redeploy.
+	agentRuntime.UseThemes(database)
 	app.runtime = agentRuntime
 	// One core-owned primitive set, built once and registered in the one
 	// registry the one loop runs on: a primitive name resolves to exactly one

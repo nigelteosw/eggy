@@ -18,6 +18,7 @@ import (
 // exercise the routes: aliases are fixed at construction, and an effort that
 // the selected model does not support is not reported.
 type fakeAgentSwitch struct {
+	savedTheme   string
 	theme        string
 	aliases      []string
 	efforts      map[string][]string
@@ -50,6 +51,22 @@ func (f *fakeAgentSwitch) Look(context.Context) (ports.LookView, error) {
 }
 
 func (f *fakeAgentSwitch) SetLook(context.Context, ports.LookChange) error { return nil }
+
+func (f *fakeAgentSwitch) SaveTheme(_ context.Context, label, _ string) (string, error) {
+	if label == "Lavender" {
+		return "", ports.ErrThemeExists
+	}
+	f.savedTheme = label
+	return label, nil
+}
+
+func (f *fakeAgentSwitch) DeleteTheme(_ context.Context, name string) error {
+	if name != f.savedTheme {
+		return ports.ErrThemeNotFound
+	}
+	f.savedTheme = ""
+	return nil
+}
 
 func (f *fakeAgentSwitch) ShowThinking(context.Context) (bool, error) { return !f.hideThinking, nil }
 
@@ -275,6 +292,12 @@ func (s *scopedAgentSwitch) Look(context.Context) (ports.LookView, error) {
 
 func (s *scopedAgentSwitch) SetLook(context.Context, ports.LookChange) error { return nil }
 
+func (s *scopedAgentSwitch) SaveTheme(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (s *scopedAgentSwitch) DeleteTheme(context.Context, string) error { return nil }
+
 func (s *scopedAgentSwitch) Heartbeat(ctx context.Context) (bool, error) {
 	p, err := ports.PrincipalFromContext(ctx)
 	if err != nil {
@@ -400,5 +423,29 @@ func TestAgentThemeStoresTheAccountsChoiceAndRefusesUnknownNames(t *testing.T) {
 	}
 	if agent.theme != "dark" {
 		t.Fatalf("a refused name changed the stored theme to %q", agent.theme)
+	}
+}
+
+// Saving and deleting a theme answer with the whole selection, a taken name is
+// a conflict, and deleting what is not there is a not-found.
+func TestThemeRoutesSaveAndDelete(t *testing.T) {
+	now := time.Now().UTC()
+	cfg, db, _ := accountWebConfig(t, now)
+	agent := &fakeAgentSwitch{}
+	cfg.Agent = agent
+	handler := NewWebHandler("", cfg)
+	session, csrf := signIn(t, handler, db, "nigel", now)
+
+	if response := authenticatedJSON(handler, session, csrf, http.MethodPost, "/api/agent/themes", `{"label":"Lavender"}`); response.Code != http.StatusConflict {
+		t.Fatalf("taken name status=%d", response.Code)
+	}
+	if response := authenticatedJSON(handler, session, csrf, http.MethodPost, "/api/agent/themes", `{"label":"mint"}`); response.Code != http.StatusOK || agent.savedTheme != "mint" {
+		t.Fatalf("save status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := authenticatedJSON(handler, session, csrf, http.MethodDelete, "/api/agent/themes/other", ""); response.Code != http.StatusNotFound {
+		t.Fatalf("delete missing status=%d", response.Code)
+	}
+	if response := authenticatedJSON(handler, session, csrf, http.MethodDelete, "/api/agent/themes/mint", ""); response.Code != http.StatusOK || agent.savedTheme != "" {
+		t.Fatalf("delete status=%d body=%s", response.Code, response.Body.String())
 	}
 }

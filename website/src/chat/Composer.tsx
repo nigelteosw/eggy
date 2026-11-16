@@ -2,6 +2,7 @@ import { enterSendsMessage, usesTouchKeyboard } from "../lib/composer";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "../lib/api";
 import { ArrowUpIcon, CheckIcon, ChevronDownIcon, CloseIcon } from "../components/ui/icons";
+import { IconSwap } from "../components/ui/icon-swap";
 import { cn, errorMessage } from "../lib/utils";
 
 function titleCase(value: string): string {
@@ -60,7 +61,7 @@ function ModelMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-10" aria-hidden="true" onClick={close} />
-          <div role="menu" aria-label="Model" className="absolute bottom-full right-0 z-20 mb-2 max-h-[min(24rem,60dvh)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-card border border-border bg-card p-1.5 shadow-lift">
+          <div role="menu" aria-label="Model" className="absolute bottom-full right-0 z-20 mb-2 max-h-[min(24rem,60dvh)] w-64 max-w-[calc(100vw-2rem)] fade-y overflow-y-auto rounded-card border border-border bg-card p-1.5 shadow-lift">
             {agent.models.map((model) => (
               <button
                 key={model}
@@ -314,7 +315,7 @@ export function Composer({
             line until the text needs more, and the controls stay on the last
             line as it grows. */}
         <div
-          className="cursor-text rounded-card border border-border bg-card shadow-subtle transition-[border-color,box-shadow] duration-150 focus-within:border-neutral-400 focus-within:shadow-card"
+          className="cursor-text rounded-shell border border-border bg-card shadow-subtle transition-[border-color,box-shadow] duration-150 focus-within:border-neutral-400 focus-within:shadow-card"
           onClick={(event) => {
             if (event.target === event.currentTarget) field.current?.focus();
           }}
@@ -371,30 +372,30 @@ export function Composer({
                   onEffort={(effort) => change(() => setAgentEffort(effort))}
                 />
               )}
-              {showStop ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  aria-label="Stop"
-                  title="Stop this reply"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-opacity hover:opacity-85 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-                >
-                  <span aria-hidden="true" className="h-3 w-3 rounded-mark bg-background" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!hasText}
-                  aria-label="Send message"
-                  title={touch ? "Send" : "Send (Enter) · new line (Shift+Enter)"}
-                  className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-[background-color,color,transform] duration-150 active:scale-95 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
-                    hasText ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-neutral-200 text-muted-foreground",
-                  )}
-                >
-                  <ArrowUpIcon className="h-4 w-4" />
-                </button>
-              )}
+              {/* One button that turns from send into stop and back, so the
+                  arrow blurs into the square rather than one control being
+                  swapped for another under the pointer. */}
+              <button
+                type={showStop ? "button" : "submit"}
+                onClick={showStop ? onStop : undefined}
+                disabled={!showStop && !hasText}
+                aria-label={showStop ? "Stop" : "Send message"}
+                title={showStop ? "Stop this reply" : touch ? "Send" : "Send (Enter) · new line (Shift+Enter)"}
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-[background-color,color,opacity,transform] duration-200 active:scale-95 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+                  showStop
+                    ? "bg-foreground text-background hover:opacity-85"
+                    : hasText
+                      ? "bg-primary text-primary-foreground hover:opacity-90"
+                      : "bg-neutral-200 text-muted-foreground",
+                )}
+              >
+                <IconSwap
+                  on={Boolean(showStop)}
+                  onIcon={<span className="block h-3 w-3 rounded-mark bg-current" />}
+                  offIcon={<ArrowUpIcon className="h-4 w-4" />}
+                />
+              </button>
             </div>
           </div>
         </div>

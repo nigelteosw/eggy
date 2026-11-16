@@ -23,6 +23,34 @@ export function resolveTheme(theme: Theme, prefersDark: boolean): Palette {
 // looks and checks every custom one, so the panel only paints what it is sent.
 export type PaletteOverrides = { light?: Record<string, string>; dark?: Record<string, string> };
 
+// LookOption is one look as the server offers it, from
+// internal/themes/themes.json: its words and the OKLCH triples a swatch is
+// drawn from. The panel keeps no colours of its own for a look.
+// user marks a theme someone saved for everyone; mine, one this person saved
+// and may delete.
+export type LookOption = { name: string; label: string; description: string; light: string; dark: string; accent: string; user?: boolean; mine?: boolean };
+
+// gradientStop is an OKLCH colour for a gradient that runs toward `hue`. A
+// near-grey end takes that hue: its chroma is too small for the hue to show,
+// but left as written, OKLCH would sweep the hue wheel between the two ends --
+// amber into a blue-black passes through pink. A pure grey (chroma 0) gets a
+// trace of chroma too: at zero the hue is powerless and Chrome drops the one
+// given, which sent cast iron's black through green.
+export function gradientStop(triple: string, hue: string): string {
+  const [lightness, chroma, own] = triple.split(" ");
+  if (Number(chroma) >= 0.03) return `oklch(${lightness} ${chroma} ${own})`;
+  return `oklch(${lightness} ${Math.max(Number(chroma), 0.002)} ${hue})`;
+}
+
+// swatchStyle draws a look as one OKLCH gradient: its light background,
+// through its accent, into its dark background.
+export function swatchStyle(option: Pick<LookOption, "light" | "dark" | "accent">): { backgroundImage: string } {
+  const hue = option.accent.split(" ")[2];
+  return {
+    backgroundImage: `linear-gradient(135deg in oklch, ${gradientStop(option.light, hue)} 20%, oklch(${option.accent}), ${gradientStop(option.dark, hue)} 80%)`,
+  };
+}
+
 export type LookView = {
   look: string;
   text_font: string;
@@ -30,6 +58,7 @@ export type LookView = {
   overrides: PaletteOverrides;
   has_custom: boolean;
   looks: string[];
+  options: LookOption[];
   text_fonts: string[];
   code_fonts: string[];
 };

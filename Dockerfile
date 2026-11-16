@@ -11,6 +11,8 @@ COPY website/package.json website/bun.lock* ./
 RUN --mount=type=cache,id=s/cc7841e4-c1b2-4f12-b20b-4d45d6e948d7-/root/.bun/install/cache,target=/root/.bun/install/cache \
     bun install
 COPY website/ ./
+# The palette is written once, in internal/themes; Tailwind reads it from there.
+COPY internal/themes/themes.json /src/internal/themes/themes.json
 RUN bun run build
 
 # Node LTS for the agent runner's sandboxed commands. The version and checksum

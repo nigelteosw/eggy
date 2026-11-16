@@ -86,12 +86,12 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
             {rows.map((row) => (
               <div
                 key={row[ID]}
-                className="grid grid-cols-1 gap-3 px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]"
+                className="grid grid-cols-1 gap-3 px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-5 shadow-[inset_0_1px_0_var(--hairline)]"
               >
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-baseline gap-2">
                     <span className="font-mono text-body text-foreground [overflow-wrap:anywhere]">{row[ACTION]}</span>
-                    <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-caption tracking-wide text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]">
+                    <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-caption tracking-wide text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline-strong)]">
                       {row[STATE]}
                     </span>
                   </span>

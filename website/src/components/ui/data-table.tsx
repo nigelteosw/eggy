@@ -32,7 +32,7 @@ export function DataTable({
       {/* Wide screens keep the grid. A phone cannot show four columns without
           sideways scrolling, so below the breakpoint each row becomes a card
           whose values carry their column's label. */}
-      <div className="scrollbar-slim hidden overflow-x-auto sm:block">
+      <div className="scrollbar-slim fade-x hidden overflow-x-auto sm:block">
         <table className="w-full border-collapse text-left text-small">
           <thead>
             <tr>
@@ -49,7 +49,7 @@ export function DataTable({
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={row[0] ?? index} className="shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+              <tr key={row[0] ?? index} className="shadow-[inset_0_1px_0_var(--hairline)]">
                 {row.map((cell, cellIndex) => (
                   <td
                     key={cellIndex}
@@ -69,7 +69,7 @@ export function DataTable({
       </div>
       <ul className="flex flex-col sm:hidden">
         {rows.map((row, index) => (
-          <li key={row[0] ?? index} className="flex flex-col gap-2 px-4 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
+          <li key={row[0] ?? index} className="flex flex-col gap-2 px-4 py-3.5 shadow-[inset_0_1px_0_var(--hairline)] first:shadow-none">
             <span className="break-words text-small font-medium text-foreground">{row[0]}</span>
             {row.slice(1).map((cell, cellIndex) => (
               <span key={cellIndex + 1} className="flex min-w-0 items-baseline justify-between gap-4 text-caption">

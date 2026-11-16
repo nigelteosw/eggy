@@ -88,7 +88,7 @@ type AgentRuntimeState struct {
 
 // PaletteOverrides are colour tokens laid over the panel's default palette,
 // per mode, keyed by token name without its leading dashes ("primary") with an
-// "H S% L%" value. A mode left out keeps the default palette.
+// OKLCH "L% C H" value. A mode left out keeps the default palette.
 type PaletteOverrides struct {
 	Light map[string]string `json:"light,omitempty"`
 	Dark  map[string]string `json:"dark,omitempty"`
@@ -103,8 +103,51 @@ type LookView struct {
 	Overrides PaletteOverrides `json:"overrides"`
 	HasCustom bool             `json:"has_custom"`
 	Looks     []string         `json:"looks"`
+	Options   []LookOption     `json:"options"`
 	TextFonts []string         `json:"text_fonts"`
 	CodeFonts []string         `json:"code_fonts"`
+}
+
+// UserTheme is a look someone saved for everyone on the deployment, beside
+// the built-in themes in internal/themes. It is shared: every account can
+// choose it, and only the account that saved it can delete it. Its palettes
+// are checked like a custom look's before it is stored.
+type UserTheme struct {
+	Name        string
+	Label       string
+	Description string
+	Light       map[string]string
+	Dark        map[string]string
+	CreatedBy   string
+	CreatedAt   time.Time
+}
+
+// ThemeStore keeps user themes, in creation order.
+type ThemeStore interface {
+	ListThemes(ctx context.Context) ([]UserTheme, error)
+	CreateTheme(ctx context.Context, theme UserTheme) error
+	DeleteTheme(ctx context.Context, name string) error
+}
+
+var (
+	ErrThemeExists   = errors.New("a theme with that name already exists")
+	ErrThemeNotFound = errors.New("no theme with that name")
+)
+
+// LookOption is one look as the panel offers it: its name and words, and the
+// OKLCH colours its swatch is drawn from -- the light and dark backgrounds and
+// the accent. The panel holds no colours of its own for a look.
+type LookOption struct {
+	Name        string `json:"name"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Light       string `json:"light"`
+	Dark        string `json:"dark"`
+	Accent      string `json:"accent"`
+	// User marks a theme someone saved, and Mine one this account saved and
+	// may delete.
+	User bool `json:"user,omitempty"`
+	Mine bool `json:"mine,omitempty"`
 }
 
 // LookChange is one write to an account's look. A nil field keeps what is

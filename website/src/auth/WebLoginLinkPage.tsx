@@ -65,7 +65,7 @@ export function WebLoginLinkPage({
   }
 
   return (
-    <div className="app-canvas relative flex min-h-screen items-center justify-center overflow-hidden px-4">
+    <div className="app-canvas relative flex min-h-dvh items-center justify-center overflow-hidden px-4">
       <div className="relative w-full max-w-sm animate-fade-in-up">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-card bg-accent-100 text-display">🥚</div>

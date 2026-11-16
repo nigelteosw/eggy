@@ -114,7 +114,7 @@ function ThemeSwitch({ theme, onChange }: { theme: Theme; onChange: (theme: Them
     }
   }
   return (
-    <div role="group" aria-label="Theme" className="mx-2.5 my-1 flex rounded-control bg-neutral-100 p-0.5">
+    <div role="group" aria-label="Theme" className="mx-2.5 my-1 flex rounded-card bg-neutral-100 p-1.5">
       {THEME_CHOICES.map((choice) => (
         <button
           key={choice.value}

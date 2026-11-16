@@ -56,7 +56,7 @@ export function SafeModePage({ onSessionExpired }: { onSessionExpired: () => voi
   }
 
   return (
-    <div className="app-canvas min-h-screen px-4 py-10">
+    <div className="app-canvas min-h-dvh px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-card bg-tomato-soft text-display">🥚</div>

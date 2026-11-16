@@ -1,3 +1,9 @@
+// Every colour lives in internal/themes/themes.json, which the server embeds
+// too. Its first theme is the default: its palettes become :root and .dark
+// here, and a look the account picks is painted over them at runtime.
+const themes = require("../internal/themes/themes.json");
+const palette = (tokens) => Object.fromEntries(Object.entries(tokens).map(([name, value]) => [`--${name}`, value]));
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
@@ -26,6 +32,12 @@ export default {
       control: "10px",
       card: "16px",
       full: "9999px",
+      // Corners nest concentrically: an outer radius is the inner one plus
+      // the gap between them. card is control + 6 (p-1.5), the usual menu and
+      // segmented-control padding. shell is a round control's radius plus its
+      // gap, for a bar that holds pill buttons at its edge -- the composer,
+      // whose 36 px buttons (44 on touch) sit 7 px in. Set in index.css.
+      shell: "var(--shell-radius)",
     },
     extend: {
       fontFamily: {
@@ -40,44 +52,47 @@ export default {
         mono: ["var(--font-mono)"],
       },
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
-        secondary: { DEFAULT: "hsl(var(--secondary))", foreground: "hsl(var(--secondary-foreground))" },
-        muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
+        // Hairlines are the border ink at low alpha, so a divider blends into
+        // whatever it sits on -- page, card or fill -- instead of being a grey
+        // that matches only one of them. --border-alpha is in index.css.
+        border: "oklch(var(--border) / calc(<alpha-value> * var(--border-alpha)))",
+        input: "oklch(var(--input) / <alpha-value>)",
+        ring: "oklch(var(--ring) / <alpha-value>)",
+        background: "oklch(var(--background) / <alpha-value>)",
+        foreground: "oklch(var(--foreground) / <alpha-value>)",
+        primary: { DEFAULT: "oklch(var(--primary) / <alpha-value>)", foreground: "oklch(var(--primary-foreground) / <alpha-value>)" },
+        secondary: { DEFAULT: "oklch(var(--secondary) / <alpha-value>)", foreground: "oklch(var(--secondary-foreground) / <alpha-value>)" },
+        muted: { DEFAULT: "oklch(var(--muted) / <alpha-value>)", foreground: "oklch(var(--muted-foreground) / <alpha-value>)" },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-          100: "hsl(var(--accent-100))",
-          200: "hsl(var(--accent-200))",
-          300: "hsl(var(--accent-300))",
-          400: "hsl(var(--accent-400))",
-          500: "hsl(var(--accent-500))",
-          600: "hsl(var(--accent-600))",
-          700: "hsl(var(--accent-700))",
-          800: "hsl(var(--accent-800))",
-          900: "hsl(var(--accent-900))",
+          DEFAULT: "oklch(var(--accent) / <alpha-value>)",
+          foreground: "oklch(var(--accent-foreground) / <alpha-value>)",
+          100: "oklch(var(--accent-100) / <alpha-value>)",
+          200: "oklch(var(--accent-200) / <alpha-value>)",
+          300: "oklch(var(--accent-300) / <alpha-value>)",
+          400: "oklch(var(--accent-400) / <alpha-value>)",
+          500: "oklch(var(--accent-500) / <alpha-value>)",
+          600: "oklch(var(--accent-600) / <alpha-value>)",
+          700: "oklch(var(--accent-700) / <alpha-value>)",
+          800: "oklch(var(--accent-800) / <alpha-value>)",
+          900: "oklch(var(--accent-900) / <alpha-value>)",
         },
         neutral: {
-          100: "hsl(var(--neutral-100))",
-          200: "hsl(var(--neutral-200))",
-          300: "hsl(var(--neutral-300))",
-          400: "hsl(var(--neutral-400))",
-          500: "hsl(var(--neutral-500))",
-          600: "hsl(var(--neutral-600))",
-          700: "hsl(var(--neutral-700))",
-          800: "hsl(var(--neutral-800))",
-          900: "hsl(var(--neutral-900))",
+          100: "oklch(var(--neutral-100) / <alpha-value>)",
+          200: "oklch(var(--neutral-200) / <alpha-value>)",
+          300: "oklch(var(--neutral-300) / <alpha-value>)",
+          400: "oklch(var(--neutral-400) / <alpha-value>)",
+          500: "oklch(var(--neutral-500) / <alpha-value>)",
+          600: "oklch(var(--neutral-600) / <alpha-value>)",
+          700: "oklch(var(--neutral-700) / <alpha-value>)",
+          800: "oklch(var(--neutral-800) / <alpha-value>)",
+          900: "oklch(var(--neutral-900) / <alpha-value>)",
         },
-        surface: "hsl(var(--surface))",
-        card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
-        tomato: { DEFAULT: "hsl(var(--tomato))", soft: "hsl(var(--tomato-soft))" },
-        "on-tomato": "hsl(var(--on-tomato))",
-        chive: "hsl(var(--chive))",
-        yolk: { soft: "hsl(var(--yolk-soft))", ink: "hsl(var(--yolk-ink))" },
+        surface: "oklch(var(--surface) / <alpha-value>)",
+        card: { DEFAULT: "oklch(var(--card) / <alpha-value>)", foreground: "oklch(var(--card-foreground) / <alpha-value>)" },
+        tomato: { DEFAULT: "oklch(var(--tomato) / <alpha-value>)", soft: "oklch(var(--tomato-soft) / <alpha-value>)" },
+        "on-tomato": "oklch(var(--on-tomato) / <alpha-value>)",
+        chive: "oklch(var(--chive) / <alpha-value>)",
+        yolk: { soft: "oklch(var(--yolk-soft) / <alpha-value>)", ink: "oklch(var(--yolk-ink) / <alpha-value>)" },
       },
       boxShadow: {
         subtle: "0 1px 2px 0 rgb(43 38 32 / 0.04), 0 1px 3px 0 rgb(43 38 32 / 0.06)",
@@ -100,5 +115,9 @@ export default {
       },
     },
   },
-  plugins: [require("@tailwindcss/typography"), require("tailwindcss-animate")],
+  plugins: [
+    require("@tailwindcss/typography"),
+    require("tailwindcss-animate"),
+    ({ addBase }) => addBase({ ":root": palette(themes[0].light), ".dark": palette(themes[0].dark) }),
+  ],
 };

@@ -107,7 +107,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
             />
 
             <div className="flex flex-wrap items-center gap-3">
-              <div role="tablist" aria-label="Customize" className="scrollbar-none -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-control bg-neutral-100 p-1">
+              <div role="tablist" aria-label="Customize" className="scrollbar-none fade-x -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-card bg-neutral-100 p-1.5">
                 {tabsFor(features).map((item) => (
                   <button
                     key={item.id}

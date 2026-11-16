@@ -17,7 +17,9 @@
           // the app runs; until then the fallback face shows.
           var look = JSON.parse(window.localStorage.getItem("eggy.look") || "{}");
           var tokens = (dark ? look.dark : look.light) || {};
-          for (var name in tokens) document.documentElement.style.setProperty("--" + name, tokens[name]);
+          // A value cached before palettes moved to OKLCH ends in "%" (HSL);
+          // it would paint as no colour, so it waits for the server's answer.
+          for (var name in tokens) if (!/%$/.test(tokens[name])) document.documentElement.style.setProperty("--" + name, tokens[name]);
         } catch (error) {
           // Storage refused: the app paints from the server's answer instead.
         }
@@ -25,7 +27,7 @@
     </script>
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F1E7" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0E0F11" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0B0C0F" />
     <title>Eggy</title>
     <link rel="icon" href="/egg.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

@@ -227,11 +227,11 @@ func TestSettingsToolCheckinScheduleKeepsWhatItWasNotTold(t *testing.T) {
 func TestSettingsToolSetsThisPersonsLook(t *testing.T) {
 	service, _ := modelBrowseService(t, openRouterCatalog(), []string{"fast"})
 	models := service.AgentRuntime.(*fakeModels)
-	output, err := settingsCall(t, service.SettingsTool(), `{"action":"set_theme","scheme":"dark","dark":{"primary":"150 60% 45%"},"text_font":"Inter"}`)
+	output, err := settingsCall(t, service.SettingsTool(), `{"action":"set_theme","scheme":"dark","dark":{"primary":"62% 0.15 155"},"text_font":"Inter"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if models.theme != "dark" || models.look.Custom == nil || models.look.Custom.Dark["primary"] != "150 60% 45%" || *models.look.TextFont != "Inter" {
+	if models.theme != "dark" || models.look.Custom == nil || models.look.Custom.Dark["primary"] != "62% 0.15 155" || *models.look.TextFont != "Inter" {
 		t.Fatalf("theme=%q look=%+v", models.theme, models.look)
 	}
 	if !strings.Contains(output, "custom, Inter text") {
@@ -241,7 +241,7 @@ func TestSettingsToolSetsThisPersonsLook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"scheme":"dark"`, `"default_palettes"`, `"yolk-ink":"40 100% 18%"`} {
+	for _, want := range []string{`"scheme":"dark"`, `"default_palettes"`, `"yolk-ink":"38.6% 0.081 77"`} {
 		if !strings.Contains(shown, want) {
 			t.Fatalf("show_theme missing %q: %s", want, shown)
 		}

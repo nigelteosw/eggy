@@ -15,7 +15,7 @@ export function PluginsTab({ onSessionExpired }: { onSessionExpired: () => void 
 
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" aria-label="Plugins" className="flex gap-1 rounded-control bg-neutral-100 p-1">
+      <div role="tablist" aria-label="Plugins" className="flex gap-1 rounded-card bg-neutral-100 p-1.5">
         {PLUGIN_TABS.map((id) => (
           <button
             key={id}

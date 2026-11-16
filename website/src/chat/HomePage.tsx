@@ -200,7 +200,7 @@ export function HomePage({
             // fold is as likely to be the one that is done.
             <ul className="flex flex-col">
               {watchDraft.map((item, index) => (
-                <li key={item.line ?? `new-${index}`} className="flex items-center gap-2 py-1.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                <li key={item.line ?? `new-${index}`} className="flex items-center gap-2 py-1.5 shadow-[inset_0_1px_0_var(--hairline)]">
                   <input
                     aria-label={`Watch item ${index + 1}`}
                     value={item.text}
@@ -244,7 +244,7 @@ export function HomePage({
           ) : (
             <ul className="flex flex-col">
               {watch.slice(0, 5).map((item) => (
-                <li key={item.line} className="py-2.5 text-small shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                <li key={item.line} className="py-2.5 text-small shadow-[inset_0_1px_0_var(--hairline)]">
                   {item.text}
                 </li>
               ))}
@@ -275,7 +275,7 @@ export function HomePage({
           ) : (
             <ul className="flex flex-col">
               {upcoming.map((row) => (
-                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-small shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-small shadow-[inset_0_1px_0_var(--hairline)]">
                   <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
                   <span className="flex shrink-0 items-center gap-2">
                     <span title={row[NEXT_RUN]} className="text-caption tabular-nums text-neutral-700">

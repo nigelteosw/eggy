@@ -16,6 +16,7 @@ type AgentRuntime struct {
 	defaultAlias string
 	aliases      map[string]struct{}
 	efforts      map[string][]string
+	themes       ports.ThemeStore
 }
 
 // NewAgentRuntime constructs an AgentRuntime. efforts maps a model alias to

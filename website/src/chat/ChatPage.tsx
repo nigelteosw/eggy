@@ -5,6 +5,7 @@ import { ChatEvent, SessionExpiredError, approveChatDecision, createThread, getC
 import { Composer, Quote } from "./Composer";
 import { Button } from "../components/ui/button";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, CopyIcon, LockIcon, MenuIcon, PlusIcon, ReplyIcon, RetryIcon } from "../components/ui/icons";
+import { IconSwap } from "../components/ui/icon-swap";
 import { usesTouchKeyboard } from "../lib/composer";
 import { replyQuote } from "../lib/reply";
 import { timeAgo } from "../lib/time";
@@ -206,7 +207,7 @@ function MessageFooter({
       )}
     >
       <button type="button" onClick={copy} aria-label={copied ? "Copied" : "Copy message"} title="Copy" className={action}>
-        {copied ? <CheckIcon className="h-4 w-4" /> : <CopyIcon className="h-4 w-4" />}
+        <IconSwap on={copied} onIcon={<CheckIcon className="h-4 w-4" />} offIcon={<CopyIcon className="h-4 w-4" />} />
       </button>
       {onRetry && (
         <button type="button" onClick={onRetry} aria-label="Retry" title="Retry" className={action}>
@@ -263,7 +264,7 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
           // its own. Only the panel's own image route is drawn this way.
           img: ({ src, alt }: React.ComponentPropsWithoutRef<"img">) => {
             const at = images.findIndex((id) => src === imageURL(id));
-            if (at < 0) return <img src={src} alt={alt ?? ""} loading="lazy" className="my-2 max-h-[28rem] max-w-full rounded-control" />;
+            if (at < 0) return <img src={src} alt={alt ?? ""} loading="lazy" className="my-2 max-h-[28rem] max-w-full rounded-control mix-blend-multiply dark:mix-blend-normal" />;
             return <ImageThumb id={images[at]} onOpen={() => setViewing(at)} />;
           },
         }}
@@ -404,7 +405,7 @@ function ThreadTitle({ title, renamable, onRename }: { title: string; renamable:
       {menuOpen && (
         <>
           <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setMenuOpen(false)} />
-          <div role="menu" className="absolute left-0 top-full z-20 mt-1 min-w-[11rem] rounded-control border border-border bg-background p-1 shadow-lift">
+          <div role="menu" className="absolute left-0 top-full z-20 mt-1 min-w-[11rem] rounded-card border border-border bg-background p-1.5 shadow-lift">
             <button
               type="button"
               role="menuitem"

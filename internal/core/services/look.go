@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/themes"
 )
 
 // A look is data, never code: colour tokens the panel already defines, and a
@@ -20,95 +22,35 @@ import (
 // The panel paints the overrides a look resolves to over its own stylesheet;
 // the default look resolves to none.
 
-const (
-	LookDefault  = "eggshell"
-	LookCastIron = "cast-iron"
-	LookCustom   = "custom"
-)
+// LookCustom is the account's own look; every other name is a theme in
+// internal/themes/themes.json, whose first entry is the default.
+const LookCustom = "custom"
 
 // Palette modes an account may choose. They match the deployment default's
 // names in internal/config, which core may not import.
 var themeModes = []string{"system", "light", "dark"}
 
-// paletteTokens is every colour token in website/src/app/index.css. A test
-// reads the stylesheet and fails if the two lists differ.
-var paletteTokens = []string{
-	"background", "foreground", "card", "card-foreground",
-	"primary", "primary-foreground", "secondary", "secondary-foreground",
-	"muted", "muted-foreground", "accent", "accent-foreground",
-	"border", "input", "ring", "surface",
-	"neutral-100", "neutral-200", "neutral-300", "neutral-400", "neutral-500",
-	"neutral-600", "neutral-700", "neutral-800", "neutral-900",
-	"accent-100", "accent-200", "accent-300", "accent-400", "accent-500",
-	"accent-600", "accent-700", "accent-800", "accent-900",
-	"tomato", "tomato-soft", "on-tomato", "chive", "yolk-soft", "yolk-ink",
-}
-
-// defaultLight and defaultDark are the stylesheet's own palettes, held here so
-// a partial override can be checked for contrast against what it lands on. A
-// test pins them to index.css value for value.
-var defaultLight = map[string]string{
-	"background": "40 45% 94%", "foreground": "33 15% 15%",
-	"card": "40 100% 98%", "card-foreground": "33 15% 15%",
-	"primary": "41 79% 50%", "primary-foreground": "33 15% 15%",
-	"secondary": "40 36% 88%", "secondary-foreground": "33 15% 15%",
-	"muted": "40 36% 88%", "muted-foreground": "35 11% 38%",
-	"accent": "40 36% 88%", "accent-foreground": "33 15% 15%",
-	"border": "39 30% 83%", "input": "40 29% 77%", "ring": "33 15% 15%",
-	"surface":     "40 100% 98%",
-	"neutral-100": "41 41% 89%", "neutral-200": "41 32% 85%", "neutral-300": "39 30% 83%",
-	"neutral-400": "40 23% 72%", "neutral-500": "38 15% 60%", "neutral-600": "35 10% 49%",
-	"neutral-700": "35 11% 38%", "neutral-800": "35 13% 26%", "neutral-900": "33 15% 15%",
-	"accent-100": "44 87% 94%", "accent-200": "43 87% 88%", "accent-300": "43 85% 76%",
-	"accent-400": "43 82% 65%", "accent-500": "41 79% 50%", "accent-600": "40 86% 41%",
-	"accent-700": "39 100% 27%", "accent-800": "39 100% 21%", "accent-900": "39 100% 12%",
-	"tomato": "10 61% 40%", "tomato-soft": "16 63% 93%", "on-tomato": "40 100% 98%",
-	"chive": "107 30% 33%", "yolk-soft": "43 87% 88%", "yolk-ink": "40 100% 18%",
-}
-
-var defaultDark = map[string]string{
-	"background": "220 10% 6%", "foreground": "240 4% 95%",
-	"card": "220 7% 8%", "card-foreground": "240 4% 95%",
-	"primary": "33 81% 54%", "primary-foreground": "220 10% 6%",
-	"secondary": "220 7% 11%", "secondary-foreground": "240 4% 95%",
-	"muted": "220 7% 11%", "muted-foreground": "220 5% 56%",
-	"accent": "220 7% 11%", "accent-foreground": "240 4% 95%",
-	"border": "220 9% 13%", "input": "220 7% 22%", "ring": "240 4% 95%",
-	"surface":     "220 7% 8%",
-	"neutral-100": "220 7% 8%", "neutral-200": "220 7% 11%", "neutral-300": "220 9% 13%",
-	"neutral-400": "220 7% 22%", "neutral-500": "218 6% 39%", "neutral-600": "220 5% 48%",
-	"neutral-700": "220 5% 56%", "neutral-800": "220 4% 78%", "neutral-900": "240 4% 95%",
-	"accent-100": "33 45% 10%", "accent-200": "33 53% 14%", "accent-300": "33 58% 21%",
-	"accent-400": "33 63% 28%", "accent-500": "33 73% 38%", "accent-600": "33 81% 54%",
-	"accent-700": "33 90% 66%", "accent-800": "33 89% 76%", "accent-900": "33 91% 87%",
-	"tomato": "11 67% 63%", "tomato-soft": "12 30% 14%", "on-tomato": "220 10% 6%",
-	"chive": "105 28% 61%", "yolk-soft": "33 45% 12%", "yolk-ink": "33 90% 66%",
-}
-
-// builtInLooks are the looks that ship. Cast iron is the warm charcoal dark
-// mode Eggy had before it took Herdr's cooler palette; its light mode is the
-// default Eggshell.
-var builtInLooks = map[string]ports.PaletteOverrides{
-	LookDefault: {},
-	LookCastIron: {Dark: map[string]string{
-		"background": "0 0% 8%", "foreground": "0 0% 93%",
-		"card": "0 0% 12%", "card-foreground": "0 0% 93%",
-		"primary": "41 88% 57%", "primary-foreground": "0 0% 9%",
-		"secondary": "0 0% 16%", "secondary-foreground": "0 0% 93%",
-		"muted": "0 0% 16%", "muted-foreground": "0 0% 64%",
-		"accent": "0 0% 16%", "accent-foreground": "0 0% 93%",
-		"border": "0 0% 21%", "input": "0 0% 29%", "ring": "0 0% 93%",
-		"surface":     "0 0% 12%",
-		"neutral-100": "0 0% 12%", "neutral-200": "0 0% 16%", "neutral-300": "0 0% 21%",
-		"neutral-400": "0 0% 29%", "neutral-500": "0 0% 42%", "neutral-600": "0 0% 54%",
-		"neutral-700": "0 0% 64%", "neutral-800": "0 0% 81%", "neutral-900": "0 0% 93%",
-		"accent-100": "39 45% 11%", "accent-200": "42 53% 15%", "accent-300": "41 58% 22%",
-		"accent-400": "41 63% 29%", "accent-500": "40 73% 38%", "accent-600": "41 75% 51%",
-		"accent-700": "43 90% 66%", "accent-800": "43 89% 76%", "accent-900": "43 91% 87%",
-		"tomato": "11 67% 63%", "tomato-soft": "14 35% 17%", "on-tomato": "0 0% 9%",
-		"chive": "105 28% 61%", "yolk-soft": "52 45% 13%", "yolk-ink": "43 90% 66%",
-	}},
-}
+// The palettes come from internal/themes, the one file colours are written
+// in. The default theme's tokens are every token a look may set, and its
+// palettes are what a partial override is laid over and checked against.
+var (
+	allThemes     = themes.All()
+	LookDefault   = allThemes[0].Name
+	defaultLight  = allThemes[0].Light
+	defaultDark   = allThemes[0].Dark
+	paletteTokens = slices.Sorted(maps.Keys(defaultLight))
+	builtInLooks  = func() map[string]ports.PaletteOverrides {
+		looks := make(map[string]ports.PaletteOverrides, len(allThemes))
+		for i, theme := range allThemes {
+			if i == 0 {
+				looks[theme.Name] = ports.PaletteOverrides{}
+				continue
+			}
+			looks[theme.Name] = ports.PaletteOverrides{Light: theme.Light, Dark: theme.Dark}
+		}
+		return looks
+	}()
+)
 
 // The faces a look may use, all served by Google Fonts. The first of each is
 // the default. A name outside these is refused, so the panel only ever builds
@@ -129,6 +71,14 @@ var textPairs = [][2]string{
 	{"yolk-ink", "yolk-soft"}, {"yolk-ink", "background"},
 }
 
+// oklchPattern is "L% C H": lightness as a percentage, chroma, hue in degrees.
+// Nothing else -- no units, no alpha, no CSS -- so a value can only ever be a
+// colour inside the stylesheet's own oklch(var(--token)).
+var oklchPattern = regexp.MustCompile(`^(\d{1,3}(?:\.\d+)?)% (\d(?:\.\d+)?) (\d{1,3}(?:\.\d+)?)$`)
+
+// hslPattern is the "H S% L%" triple palettes were written in before OKLCH. It
+// is read only to convert a custom look stored then; nothing new is accepted
+// in it.
 var hslPattern = regexp.MustCompile(`^(\d{1,3}(?:\.\d+)?) (\d{1,3}(?:\.\d+)?)% (\d{1,3}(?:\.\d+)?)%$`)
 
 // DefaultPalettes returns copies of the stylesheet's own light and dark
@@ -137,22 +87,101 @@ func DefaultPalettes() (light, dark map[string]string) {
 	return maps.Clone(defaultLight), maps.Clone(defaultDark)
 }
 
-// lookNames lists the looks in the order the panel offers them.
-func lookNames() []string { return []string{LookDefault, LookCastIron, LookCustom} }
+// lookEntry is one look an account can choose: a built-in theme from
+// themes.json, or a theme someone saved for everyone, which lives in eggy.db
+// and so outlives a redeploy.
+type lookEntry struct {
+	name, label, description string
+	overrides                ports.PaletteOverrides
+	user                     bool
+	createdBy                string
+}
+
+// UseThemes gives the runtime the store user themes are saved in. Without one
+// only the built-in themes are offered and saving a theme is refused.
+func (r *AgentRuntime) UseThemes(store ports.ThemeStore) { r.themes = store }
+
+// catalog lists every look in the order the panel offers them: built-in
+// themes, then saved ones, oldest first.
+func (r *AgentRuntime) catalog(ctx context.Context) ([]lookEntry, error) {
+	entries := make([]lookEntry, 0, len(allThemes))
+	for _, theme := range allThemes {
+		entries = append(entries, lookEntry{name: theme.Name, label: theme.Label, description: theme.Description, overrides: builtInLooks[theme.Name]})
+	}
+	if r.themes == nil {
+		return entries, nil
+	}
+	saved, err := r.themes.ListThemes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, theme := range saved {
+		// A built-in added later under a saved theme's name wins; the saved
+		// one stays stored but is not offered twice.
+		if _, builtIn := builtInLooks[theme.Name]; builtIn {
+			continue
+		}
+		entries = append(entries, lookEntry{
+			name: theme.Name, label: theme.Label, description: theme.Description,
+			overrides: ports.PaletteOverrides{Light: theme.Light, Dark: theme.Dark},
+			user:      true, createdBy: theme.CreatedBy,
+		})
+	}
+	return entries, nil
+}
+
+// lookNames lists the names an account may choose, custom last.
+func lookNames(entries []lookEntry) []string {
+	names := make([]string, 0, len(entries)+1)
+	for _, entry := range entries {
+		names = append(names, entry.name)
+	}
+	return append(names, LookCustom)
+}
+
+// lookOptions describes each look the account can pick, in order, with the
+// colours a swatch draws: the look's light and dark backgrounds and its
+// accent. Custom is offered only once the account has one.
+func lookOptions(entries []lookEntry, custom *ports.PaletteOverrides, account string) []ports.LookOption {
+	pick := func(overrides map[string]string, base map[string]string, token string) string {
+		if value, ok := overrides[token]; ok {
+			return value
+		}
+		return base[token]
+	}
+	option := func(name, label, description string, look ports.PaletteOverrides) ports.LookOption {
+		return ports.LookOption{
+			Name: name, Label: label, Description: description,
+			Light:  pick(look.Light, defaultLight, "background"),
+			Dark:   pick(look.Dark, defaultDark, "background"),
+			Accent: pick(look.Light, defaultLight, "primary"),
+		}
+	}
+	options := make([]ports.LookOption, 0, len(entries)+1)
+	for _, entry := range entries {
+		item := option(entry.name, entry.label, entry.description, entry.overrides)
+		item.User, item.Mine = entry.user, entry.user && entry.createdBy == account
+		options = append(options, item)
+	}
+	if custom != nil {
+		options = append(options, option(LookCustom, "Custom", "The look you asked Eggy for.", legacyLook(*custom)))
+	}
+	return options
+}
 
 // validatePalette refuses an override that names a token the stylesheet does
-// not define, a value that is not an HSL triple, or a result that leaves any
+// not define, a value that is not an OKLCH triple, or a result that leaves any
 // text pair below 4.5:1 once laid over base.
 func validatePalette(mode string, overrides, base map[string]string) error {
 	merged := make(map[string][3]float64, len(base))
 	for name, value := range base {
-		merged[name], _ = parseHSL(value)
+		merged[name], _ = parseOKLCH(value)
 	}
 	for name, value := range overrides {
 		if !slices.Contains(paletteTokens, name) {
 			return fmt.Errorf("%s: %q is not a colour token; the tokens are %s", mode, name, strings.Join(paletteTokens, ", "))
 		}
-		parsed, err := parseHSL(value)
+		parsed, err := parseOKLCH(value)
 		if err != nil {
 			return fmt.Errorf("%s %s: %w", mode, name, err)
 		}
@@ -166,17 +195,17 @@ func validatePalette(mode string, overrides, base map[string]string) error {
 	return nil
 }
 
-func parseHSL(value string) ([3]float64, error) {
-	match := hslPattern.FindStringSubmatch(strings.TrimSpace(value))
+func parseOKLCH(value string) ([3]float64, error) {
+	match := oklchPattern.FindStringSubmatch(strings.TrimSpace(value))
 	if match == nil {
-		return [3]float64{}, fmt.Errorf("%q must be \"H S%% L%%\", such as \"33 81%% 54%%\"", value)
+		return [3]float64{}, fmt.Errorf("%q must be OKLCH \"L%% C H\", such as \"73.6%% 0.151 65.6\"", value)
 	}
 	var out [3]float64
 	for i := range out {
 		out[i], _ = strconv.ParseFloat(match[i+1], 64)
 	}
-	if out[0] > 360 || out[1] > 100 || out[2] > 100 {
-		return [3]float64{}, fmt.Errorf("%q is out of range: hue 0-360, saturation and lightness 0-100%%", value)
+	if out[0] > 100 || out[1] > 0.4 || out[2] > 360 {
+		return [3]float64{}, fmt.Errorf("%q is out of range: lightness 0-100%%, chroma 0-0.4, hue 0-360", value)
 	}
 	return out, nil
 }
@@ -189,7 +218,37 @@ func contrastRatio(a, b [3]float64) float64 {
 	return (la + 0.05) / (lb + 0.05)
 }
 
-func luminance(hsl [3]float64) float64 {
+// linearSRGB converts an OKLCH triple to linear sRGB, clipped to the gamut a
+// screen shows, which is what the browser paints for a colour outside it.
+func linearSRGB(oklch [3]float64) (r, g, b float64) {
+	l, c, h := oklch[0]/100, oklch[1], oklch[2]*math.Pi/180
+	a, bb := c*math.Cos(h), c*math.Sin(h)
+	l1 := math.Pow(l+0.3963377774*a+0.2158037573*bb, 3)
+	m1 := math.Pow(l-0.1055613458*a-0.0638541728*bb, 3)
+	s1 := math.Pow(l-0.0894841775*a-1.2914855480*bb, 3)
+	clip := func(v float64) float64 { return math.Min(1, math.Max(0, v)) }
+	return clip(4.0767416621*l1 - 3.3077115913*m1 + 0.2309699292*s1),
+		clip(-1.2684380046*l1 + 2.6097574011*m1 - 0.3413193965*s1),
+		clip(-0.0041960863*l1 - 0.7034186147*m1 + 1.7076147010*s1)
+}
+
+func luminance(oklch [3]float64) float64 {
+	r, g, b := linearSRGB(oklch)
+	return 0.2126*r + 0.7152*g + 0.0722*b
+}
+
+// legacyToOKLCH rewrites a value stored as "H S% L%" before palettes moved to
+// OKLCH, so a custom look described then still paints. Anything else is
+// returned as it is.
+func legacyToOKLCH(value string) string {
+	match := hslPattern.FindStringSubmatch(strings.TrimSpace(value))
+	if match == nil {
+		return value
+	}
+	var hsl [3]float64
+	for i := range hsl {
+		hsl[i], _ = strconv.ParseFloat(match[i+1], 64)
+	}
 	s, l := hsl[1]/100, hsl[2]/100
 	chroma := (1 - math.Abs(2*l-1)) * s
 	h := math.Mod(hsl[0], 360) / 60
@@ -212,12 +271,44 @@ func luminance(hsl [3]float64) float64 {
 	m := l - chroma/2
 	linear := func(c float64) float64 {
 		c += m
-		if c <= 0.03928 {
+		if c <= 0.04045 {
 			return c / 12.92
 		}
 		return math.Pow((c+0.055)/1.055, 2.4)
 	}
-	return 0.2126*linear(r) + 0.7152*linear(g) + 0.0722*linear(b)
+	r, g, b = linear(r), linear(g), linear(b)
+	l1 := math.Cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b)
+	m1 := math.Cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b)
+	s1 := math.Cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b)
+	lightness := 0.2104542553*l1 + 0.7936177850*m1 - 0.0040720468*s1
+	a := 1.9779984951*l1 - 2.4285922050*m1 + 0.4505937099*s1
+	bb := 0.0259040371*l1 + 0.7827717662*m1 - 0.8086757660*s1
+	c := math.Hypot(a, bb)
+	hue := math.Atan2(bb, a) * 180 / math.Pi
+	if hue < 0 {
+		hue += 360
+	}
+	if c < 0.0005 {
+		c, hue = 0, 0
+	}
+	round := func(v, scale float64) string { return strconv.FormatFloat(math.Round(v*scale)/scale, 'f', -1, 64) }
+	return round(lightness*100, 10) + "% " + round(c, 1000) + " " + round(hue, 10)
+}
+
+// legacyLook converts every value of a stored custom look, without touching
+// the stored copy.
+func legacyLook(look ports.PaletteOverrides) ports.PaletteOverrides {
+	convert := func(mode map[string]string) map[string]string {
+		if mode == nil {
+			return nil
+		}
+		out := make(map[string]string, len(mode))
+		for name, value := range mode {
+			out[name] = legacyToOKLCH(value)
+		}
+		return out
+	}
+	return ports.PaletteOverrides{Light: convert(look.Light), Dark: convert(look.Dark)}
 }
 
 // Look reports the acting account's look as the panel paints it.
@@ -226,11 +317,17 @@ func (r *AgentRuntime) Look(ctx context.Context) (ports.LookView, error) {
 	if err != nil {
 		return ports.LookView{}, err
 	}
+	entries, err := r.catalog(ctx)
+	if err != nil {
+		return ports.LookView{}, err
+	}
+	principal, _ := ports.PrincipalFromContext(ctx)
 	agent := state.Agent
 	view := ports.LookView{
 		Look: LookDefault, TextFont: textFonts[0], CodeFont: codeFonts[0],
 		HasCustom: agent.CustomLook != nil,
-		Looks:     lookNames(), TextFonts: textFonts, CodeFonts: codeFonts,
+		Looks:     lookNames(entries), Options: lookOptions(entries, agent.CustomLook, principal.AccountID),
+		TextFonts: textFonts, CodeFonts: codeFonts,
 	}
 	if agent.TextFont != "" {
 		view.TextFont = agent.TextFont
@@ -240,10 +337,14 @@ func (r *AgentRuntime) Look(ctx context.Context) (ports.LookView, error) {
 	}
 	switch {
 	case agent.Look == LookCustom && agent.CustomLook != nil:
-		view.Look, view.Overrides = LookCustom, *agent.CustomLook
+		view.Look, view.Overrides = LookCustom, legacyLook(*agent.CustomLook)
 	case agent.Look != "" && agent.Look != LookCustom:
-		if overrides, ok := builtInLooks[agent.Look]; ok {
-			view.Look, view.Overrides = agent.Look, overrides
+		// A saved theme someone has since deleted is no longer in the
+		// catalog, so its last users fall back to the default.
+		for _, entry := range entries {
+			if entry.name == agent.Look {
+				view.Look, view.Overrides = entry.name, entry.overrides
+			}
 		}
 	}
 	return view, nil
@@ -266,8 +367,12 @@ func (r *AgentRuntime) SetLook(ctx context.Context, change ports.LookChange) err
 	}
 	if change.Look != nil {
 		name := strings.TrimSpace(*change.Look)
-		if name != "" && !slices.Contains(lookNames(), name) {
-			return fmt.Errorf("look must be one of %s", strings.Join(lookNames(), ", "))
+		entries, err := r.catalog(ctx)
+		if err != nil {
+			return err
+		}
+		if names := lookNames(entries); name != "" && !slices.Contains(names, name) {
+			return fmt.Errorf("look must be one of %s", strings.Join(names, ", "))
 		}
 	}
 	if err := checkFont(change.TextFont, textFonts, "text font"); err != nil {
@@ -322,4 +427,99 @@ func defaultFont(name string, offered []string) string {
 		return ""
 	}
 	return name
+}
+
+// themeNamePattern is a saved theme's name: lowercase words joined by
+// hyphens, derived from its label.
+var themeNamePattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+// SaveTheme saves the acting account's custom look as a theme everyone on the
+// deployment can choose, under label, and selects it for the account. It is
+// stored in eggy.db, so it outlives a redeploy. The palettes were checked when
+// the custom look was set and are checked again here, so a theme can never be
+// less readable than a custom look is allowed to be.
+func (r *AgentRuntime) SaveTheme(ctx context.Context, label, description string) (string, error) {
+	if r.themes == nil {
+		return "", errors.New("saving themes is unavailable")
+	}
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	label, description = strings.TrimSpace(label), strings.TrimSpace(description)
+	if label == "" || len([]rune(label)) > 40 {
+		return "", errors.New("a theme needs a name of up to 40 characters")
+	}
+	if len([]rune(description)) > 120 {
+		return "", errors.New("a theme's description is up to 120 characters")
+	}
+	name := strings.Trim(themeNamePattern.ReplaceAllString(strings.ToLower(label), "-"), "-")
+	if name == "" {
+		return "", errors.New("a theme's name needs a letter or a digit")
+	}
+	if name == LookCustom {
+		return "", ports.ErrThemeExists
+	}
+	entries, err := r.catalog(ctx)
+	if err != nil {
+		return "", err
+	}
+	if slices.Contains(lookNames(entries), name) {
+		return "", ports.ErrThemeExists
+	}
+	state, err := r.store.Load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if state.Agent.CustomLook == nil {
+		return "", errors.New("there is no custom look to save yet; ask Eggy for one first")
+	}
+	look := legacyLook(*state.Agent.CustomLook)
+	if err := validatePalette("light", look.Light, defaultLight); err != nil {
+		return "", err
+	}
+	if err := validatePalette("dark", look.Dark, defaultDark); err != nil {
+		return "", err
+	}
+	if description == "" {
+		description = "Saved by someone on this Eggy."
+	}
+	theme := ports.UserTheme{
+		Name: name, Label: label, Description: description,
+		Light: look.Light, Dark: look.Dark,
+		CreatedBy: principal.AccountID, CreatedAt: time.Now(),
+	}
+	if err := r.themes.CreateTheme(ctx, theme); err != nil {
+		return "", err
+	}
+	return name, r.update(ctx, func(state *ports.State) { state.Agent.Look = name })
+}
+
+// DeleteTheme removes a saved theme. Only the account that saved it may: the
+// one authorization question is whether this account owns the record.
+func (r *AgentRuntime) DeleteTheme(ctx context.Context, name string) error {
+	if r.themes == nil {
+		return ports.ErrThemeNotFound
+	}
+	principal, err := ports.PrincipalFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	entries, err := r.catalog(ctx)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.name != name {
+			continue
+		}
+		if !entry.user {
+			return errors.New("a built-in theme cannot be deleted")
+		}
+		if entry.createdBy != principal.AccountID {
+			return errors.New("only the person who saved a theme can delete it")
+		}
+		return r.themes.DeleteTheme(ctx, name)
+	}
+	return ports.ErrThemeNotFound
 }

@@ -67,7 +67,7 @@ function Field({ label, children, className }: { label: string; children: ReactN
 // and Received are the everyday ones, so they lead.
 function KindPicker({ value, onChange }: { value: Kind; onChange: (kind: Kind) => void }) {
   return (
-    <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-1 rounded-card bg-background p-1 sm:grid-cols-4">
+    <div role="radiogroup" aria-label="Kind" className="grid grid-cols-2 gap-1 rounded-card bg-background p-1.5 sm:grid-cols-4">
       {KINDS.map((kind) => (
         <button
           key={kind}

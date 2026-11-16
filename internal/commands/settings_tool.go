@@ -34,8 +34,8 @@ var settingsToolSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"active_hours":{"type":"string","description":"set_checkin_schedule: \"08:00-22:00\" in the deployment's timezone, or \"always\". Omit to keep it."},` +
 	`"instruction":{"type":"string","description":"set_checkin_schedule: what to look for on each check-in. Omit to keep it."},` +
 	`"scheme":{"type":"string","enum":["system","light","dark"],"description":"set_theme: light or dark mode, or follow the device."},` +
-	`"look":{"type":"string","enum":["eggshell","cast-iron","custom"],"description":"set_theme: a built-in look, or custom to go back to the stored custom one."},` +
-	`"light":{"type":"object","additionalProperties":{"type":"string"},"description":"set_theme: a custom look's light-mode colours, token name to \"H S% L%\". Replaces the stored custom look and selects it."},` +
+	`"look":{"type":"string","description":"set_theme: one of the looks show_theme lists, or custom to go back to the stored custom one."},` +
+	`"light":{"type":"object","additionalProperties":{"type":"string"},"description":"set_theme: a custom look's light-mode colours, token name to OKLCH \"L% C H\" (lightness %, chroma 0-0.4, hue degrees), such as \"73.6% 0.151 65.6\". border is the ink hairlines are drawn in at low alpha, usually the foreground. Replaces the stored custom look and selects it."},` +
 	`"dark":{"type":"object","additionalProperties":{"type":"string"},"description":"set_theme: as light, for dark mode."},` +
 	`"text_font":{"type":"string","description":"set_theme: one of the text fonts show_theme lists."},` +
 	`"code_font":{"type":"string","description":"set_theme: one of the code fonts show_theme lists."}},` +

@@ -1,27 +1,31 @@
-import { useEffect, useState } from "react";
-import { SessionExpiredError, type LookView, type Theme, applyLook, applyTheme, getAgent, setAgentLook, setAgentTheme } from "../lib/api";
+import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
+import { SessionExpiredError, type LookView, type Theme, applyLook, applyTheme, deleteAgentTheme, getAgent, saveAgentTheme, setAgentLook, setAgentTheme } from "../lib/api";
 import { Label } from "../components/ui/label";
+import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
 import { FIELD_LABEL } from "../components/ui/form";
 import { cn, errorMessage } from "../lib/utils";
 import { CardHeader } from "../components/ui/card-header";
 import { SelectedCheckIcon } from "../components/ui/icons";
 import { ErrorBanner } from "../components/ui/error-banner";
+import { type LookOption, gradientStop, swatchStyle } from "../lib/theme";
 
 // Three equal modes, named for what the person sees. "Match system" follows the
-// device and is the default for an account that has not chosen.
-const OPTIONS: { value: Theme; label: string; description: string; swatch: string }[] = [
-  { value: "system", label: "Match system", description: "Light or dark, following this device.", swatch: "bg-gradient-to-br from-[hsl(40_30%_96%)] to-[hsl(30_6%_8%)]" },
-  { value: "light", label: "Light", description: "For daylight, in your look's light colours.", swatch: "bg-[hsl(40_30%_96%)]" },
-  { value: "dark", label: "Dark", description: "For evenings, in your look's dark colours.", swatch: "bg-[hsl(220_10%_6%)]" },
+// device and is the default for an account that has not chosen. Each swatch is
+// drawn in the chosen look's own colours, which the server sends.
+const OPTIONS: { value: Theme; label: string; description: string }[] = [
+  { value: "system", label: "Match system", description: "Light or dark, following this device." },
+  { value: "light", label: "Light", description: "For daylight, in your look's light colours." },
+  { value: "dark", label: "Dark", description: "For evenings, in your look's dark colours." },
 ];
 
-// The looks, named for what they change. Custom is offered once the person
-// has asked Eggy for one; until then the hint says how.
-const LOOKS: Record<string, { label: string; description: string; swatch: string }> = {
-  eggshell: { label: "Eggshell", description: "Warm paper by day, near-black and amber at night.", swatch: "bg-gradient-to-br from-[hsl(40_45%_94%)] to-[hsl(220_10%_6%)]" },
-  "cast-iron": { label: "Cast iron", description: "Eggshell by day, warm charcoal at night.", swatch: "bg-gradient-to-br from-[hsl(40_45%_94%)] to-[hsl(0_0%_8%)]" },
-  custom: { label: "Custom", description: "The look you asked Eggy for.", swatch: "bg-gradient-to-br from-primary to-background" },
-};
+function modeSwatch(mode: Theme, look: LookOption | undefined): CSSProperties | undefined {
+  if (!look) return undefined;
+  if (mode === "light") return { background: `oklch(${look.light})` };
+  if (mode === "dark") return { background: `oklch(${look.dark})` };
+  const hue = look.accent.split(" ")[2];
+  return { backgroundImage: `linear-gradient(135deg in oklch, ${gradientStop(look.light, hue)} 45%, ${gradientStop(look.dark, hue)} 55%)` };
+}
 
 const selectClass =
   "h-[42px] w-full rounded-control border border-neutral-200 bg-background px-3.5 text-field text-foreground sm:text-small focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
@@ -38,6 +42,9 @@ export function AppearanceCard({
   const [error, setError] = useState<string | null>(null);
   const [look, setLook] = useState<LookView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [themeName, setThemeName] = useState("");
+  const [themeDescription, setThemeDescription] = useState("");
+  const current = look?.options.find((option) => option.name === look.look);
 
   useEffect(() => {
     getAgent()
@@ -51,24 +58,37 @@ export function AppearanceCard({
 
   // Unlike the palette, a look is painted from the server's answer rather
   // than ahead of it: the server resolves a name to colours, so there is
-  // nothing to paint until it has.
-  async function changeLook(change: { look?: string; text_font?: string; code_font?: string }) {
+  // nothing to paint until it has. Every look write answers with the whole
+  // selection, so one path applies them all.
+  async function write(send: () => Promise<{ look?: LookView }>, failure: string): Promise<boolean> {
     setError(null);
     setBusy(true);
     try {
-      const selection = await setAgentLook(change);
+      const selection = await send();
       if (selection.look) {
         setLook(selection.look);
         applyLook(selection.look);
       }
+      return true;
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         onSessionExpired();
-        return;
+        return false;
       }
-      setError(errorMessage(err, "Could not save your look"));
+      setError(errorMessage(err, failure));
+      return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  const changeLook = (change: { look?: string; text_font?: string; code_font?: string }) => write(() => setAgentLook(change), "Could not save your look");
+
+  async function saveTheme(event: FormEvent) {
+    event.preventDefault();
+    if (await write(() => saveAgentTheme({ label: themeName, description: themeDescription }), "Could not save the theme")) {
+      setThemeName("");
+      setThemeDescription("");
     }
   }
 
@@ -108,12 +128,13 @@ export function AppearanceCard({
               aria-pressed={selected}
               className={cn(
                 "flex items-center gap-3 rounded-card p-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
-                selected ? "bg-accent-100 shadow-[inset_0_0_0_1px_hsl(var(--accent-300))]" : "bg-neutral-100 hover:bg-neutral-200",
+                selected ? "bg-accent-100 shadow-[inset_0_0_0_1px_oklch(var(--accent-300))]" : "bg-neutral-100 hover:bg-neutral-200",
               )}
             >
               <span
                 aria-hidden
-                className={cn("h-[38px] w-[38px] shrink-0 rounded-control shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]", option.swatch)}
+                className="h-[38px] w-[38px] shrink-0 rounded-control bg-neutral-200 shadow-[inset_0_0_0_1px_var(--hairline-strong)]"
+                style={modeSwatch(option.value, current)}
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-small font-medium">{option.label}</span>
@@ -128,33 +149,56 @@ export function AppearanceCard({
         <>
           <p className={cn(FIELD_LABEL, "mb-1.5 mt-5")}>Look</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {look.looks
-              .filter((name) => LOOKS[name] && (name !== "custom" || look.has_custom))
-              .map((name) => {
-                const option = LOOKS[name];
-                const selected = look.look === name;
+            {look.options.map((option) => {
+                const selected = look.look === option.name;
                 return (
-                  <button
-                    key={name}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => !selected && changeLook({ look: name })}
-                    aria-pressed={selected}
+                  <div
+                    key={option.name}
                     className={cn(
-                      "flex items-center gap-3 rounded-card p-3.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30",
-                      selected ? "bg-accent-100 shadow-[inset_0_0_0_1px_hsl(var(--accent-300))]" : "bg-neutral-100 hover:bg-neutral-200",
+                      "flex items-center rounded-card transition-colors",
+                      selected ? "bg-accent-100 shadow-[inset_0_0_0_1px_oklch(var(--accent-300))]" : "bg-neutral-100 hover:bg-neutral-200",
                     )}
                   >
-                    <span aria-hidden className={cn("h-[38px] w-[38px] shrink-0 rounded-control shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]", option.swatch)} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-small font-medium">{option.label}</span>
-                      <span className="mt-0.5 block text-caption text-neutral-700">{option.description}</span>
-                    </span>
-                    <SelectedCheckIcon selected={selected} />
-                  </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => !selected && changeLook({ look: option.name })}
+                      aria-pressed={selected}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-card p-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
+                    >
+                      <span aria-hidden className="h-[38px] w-[38px] shrink-0 rounded-control shadow-[inset_0_0_0_1px_var(--hairline-strong)]" style={swatchStyle(option)} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-small font-medium">{option.label}</span>
+                        <span className="mt-0.5 block text-caption text-neutral-700">{option.description}</span>
+                      </span>
+                      <SelectedCheckIcon selected={selected} />
+                    </button>
+                    {option.mine && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void write(() => deleteAgentTheme(option.name), "Could not delete the theme")}
+                        aria-label={`Delete the ${option.label} theme`}
+                        className="mr-1.5 shrink-0 rounded-control px-2.5 py-1.5 text-caption text-neutral-700 transition-colors hover:bg-neutral-200 hover:text-tomato"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 );
               })}
           </div>
+          {look.look === "custom" && (
+            <form onSubmit={saveTheme} className="mt-3 flex flex-col gap-2.5 rounded-card bg-neutral-100 p-3.5">
+              <p className="text-small font-medium">Save this look for everyone</p>
+              <p className="text-caption text-neutral-700">Everyone on this Eggy can then choose it, and it stays through redeploys. Only you can delete it.</p>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_auto]">
+                <Input aria-label="Theme name" placeholder="Name, such as Mint" maxLength={40} value={themeName} onChange={(event) => setThemeName(event.target.value)} />
+                <Input aria-label="Theme description" placeholder="What it looks like (optional)" maxLength={120} value={themeDescription} onChange={(event) => setThemeDescription(event.target.value)} />
+                <Button type="submit" disabled={busy || themeName.trim() === ""}>Save theme</Button>
+              </div>
+            </form>
+          )}
           {!look.has_custom && (
             <p className="mt-2.5 text-caption text-neutral-700">
               Want your own? Ask Eggy in chat, such as “give my panel a forest-green accent” or “make it feel like an old terminal”.

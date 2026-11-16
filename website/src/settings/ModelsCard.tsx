@@ -380,9 +380,9 @@ export function ModelsCard({ onSessionExpired }: { onSessionExpired: () => void 
                 {/* Capped height rather than paging: OpenRouter returns several
                     hundred entries, and a scrolling list keeps the filter box
                     and the form it fills both on screen. */}
-                <ul className="scrollbar-slim max-h-64 overflow-y-auto rounded-control bg-background">
+                <ul className="scrollbar-slim fade-y max-h-64 overflow-y-auto rounded-control bg-background">
                   {matches.map((row) => (
-                    <li key={row[0]} className="shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none">
+                    <li key={row[0]} className="shadow-[inset_0_1px_0_var(--hairline)] first:shadow-none">
                       <button
                         type="button"
                         onClick={() => choose(row)}

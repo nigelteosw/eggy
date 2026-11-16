@@ -137,7 +137,7 @@ export function SetupPage() {
   }
 
   return (
-    <main className="app-canvas min-h-screen px-4 py-8 sm:py-12">
+    <main className="app-canvas min-h-dvh px-4 py-8 sm:py-12">
       <form className="mx-auto flex w-full max-w-3xl flex-col gap-6" onSubmit={submit}>
         <header>
           <p className="text-small font-medium text-accent-700">First-run setup</p>

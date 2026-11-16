@@ -38,10 +38,10 @@ function ruleFor(selector: string): string {
 test("markdown inherits Eggy's readable foreground palette", () => {
   const rule = ruleFor("markdown");
   const required = [
-    /--tw-prose-body:\s*hsl\(var\(--foreground\)\)/,
-    /--tw-prose-bullets:\s*hsl\(var\(--muted-foreground\)\)/,
-    /--tw-prose-quotes:\s*hsl\(var\(--foreground\)\)/,
-    /--tw-prose-code:\s*hsl\(var\(--foreground\)\)/,
+    /--tw-prose-body:\s*oklch\(var\(--foreground\)\)/,
+    /--tw-prose-bullets:\s*oklch\(var\(--muted-foreground\)\)/,
+    /--tw-prose-quotes:\s*oklch\(var\(--foreground\)\)/,
+    /--tw-prose-code:\s*oklch\(var\(--foreground\)\)/,
   ];
   for (const declaration of required) expect(declaration.test(rule)).toBeTrue();
 });
@@ -49,7 +49,7 @@ test("markdown inherits Eggy's readable foreground palette", () => {
 test("user markdown keeps every text treatment readable on the neutral bubble", () => {
   const rule = ruleFor("user-message");
   for (const property of ["body", "headings", "lead", "links", "bold", "quotes", "kbd", "code", "pre-code"]) {
-    expect(rule).toContain(`--tw-prose-${property}: hsl(var(--foreground))`);
+    expect(rule).toContain(`--tw-prose-${property}: oklch(var(--foreground))`);
   }
 });
 

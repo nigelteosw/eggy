@@ -676,7 +676,7 @@ export function TraceBrowser({
           <h2 className="text-caption font-semibold uppercase tracking-wider text-neutral-700">Conversations</h2>
           <span className="text-caption tabular-nums text-neutral-700">{groups.length}</span>
         </div>
-        <div className="trace-conversation-list">
+        <div className="trace-conversation-list fade-x">
           {groups.map((item) => (
             <button
               key={item.key}

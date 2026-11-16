@@ -218,7 +218,7 @@ export function SkillDetail({
             <span aria-hidden="true" className="text-title leading-none">⋮</span>
           </button>
           {menuOpen && (
-            <div className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-control bg-background p-1 shadow-lg ring-1 ring-neutral-200">
+            <div className="absolute right-0 z-10 mt-1 min-w-[160px] rounded-card bg-background p-1.5 shadow-lg ring-1 ring-neutral-200">
               <button
                 type="button"
                 onClick={() => {
@@ -297,7 +297,7 @@ export function SkillDetail({
               <div className="flex min-w-0 flex-col">
                 <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-2">
                   <span className="font-mono text-caption text-neutral-700">/SKILL.md</span>
-                  <div role="group" aria-label="View" className="flex rounded-control bg-neutral-100 p-0.5 text-caption">
+                  <div role="group" aria-label="View" className="flex rounded-card bg-neutral-100 p-1.5 text-caption">
                     {(["preview", "source"] as const).map((mode) => (
                       <button
                         key={mode}
@@ -311,7 +311,7 @@ export function SkillDetail({
                     ))}
                   </div>
                 </div>
-                <div className="scrollbar-slim max-h-[60vh] overflow-auto p-4">
+                <div className="scrollbar-slim max-h-[60dvh] overflow-auto p-4">
                   {view === "preview" ? (
                     <SkillPreview body={skill.body} />
                   ) : (

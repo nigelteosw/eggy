@@ -466,7 +466,7 @@ export function ThreadSidebar({
               <div
                 role="menu"
                 aria-label="Extensions"
-                className="mt-1 overflow-hidden rounded-card bg-card py-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
+                className="mt-1 overflow-hidden rounded-card bg-card p-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
               >
                 {extensions.map((extension) => (
                   <button
@@ -477,7 +477,7 @@ export function ThreadSidebar({
                       setExtensionsOpen(false);
                       onOpenExtension(extension.id);
                     }}
-                    className="flex h-11 w-full items-center gap-3 px-3.5 text-left text-small text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
+                    className="flex h-11 w-full items-center gap-3 rounded-control px-3.5 text-left text-small text-foreground/90 transition-colors hover:bg-neutral-100 focus-visible:outline-none focus-visible:bg-neutral-100"
                   >
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">{extension.icon}</span>
                     {extension.label}
@@ -508,9 +508,9 @@ export function ThreadSidebar({
         </div>
       )}
 
-      <div className="scrollbar-slim flex-1 overflow-y-auto px-2 pb-3">
+      <div className="scrollbar-slim fade-y flex-1 overflow-y-auto px-2 pb-3">
         {threads.length > 0 && (
-          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-200))] focus-within:ring-2 focus-within:ring-ring/40">
+          <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-background px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline)] focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0" />
             <input
               type="search"

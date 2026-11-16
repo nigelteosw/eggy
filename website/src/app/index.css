@@ -3,125 +3,62 @@
 @tailwind utilities;
 
 @layer base {
+  /* Eggshell: warm paper and dark brown ink, with yolk as the one accent.
+     Yolk marks what needs the owner (primary actions, approvals); the rest of
+     the panel is neutral. See docs/superpowers/specs/2026-10-28-ui-ux-review.md.
+     The colours themselves are not here: every palette is written once, in
+     internal/themes/themes.json, and tailwind.config.js puts the default's
+     tokens on :root and .dark. Each is an OKLCH triple, "L% C H", read as
+     oklch(var(--token)). */
   :root {
-    /* Eggshell: warm paper and dark brown ink, with yolk as the one accent.
-       Yolk marks what needs the owner (primary actions, approvals); the rest of
-       the panel is neutral. See docs/superpowers/specs/2026-10-28-ui-ux-review.md. */
-    --background: 40 45% 94%;
-    --foreground: 33 15% 15%;
-
-    --card: 40 100% 98%;
-    --card-foreground: 33 15% 15%;
-
-    --primary: 41 79% 50%;
-    --primary-foreground: 33 15% 15%;
-
-    --secondary: 40 36% 88%;
-    --secondary-foreground: 33 15% 15%;
-
-    --muted: 40 36% 88%;
-    --muted-foreground: 35 11% 38%;
-
-    --accent: 40 36% 88%;
-    --accent-foreground: 33 15% 15%;
-
-    --border: 39 30% 83%;
-    --input: 40 29% 77%;
-    --ring: 33 15% 15%;
-
-    --surface: 40 100% 98%;
-
-    --neutral-100: 41 41% 89%;
-    --neutral-200: 41 32% 85%;
-    --neutral-300: 39 30% 83%;
-    --neutral-400: 40 23% 72%;
-    --neutral-500: 38 15% 60%;
-    --neutral-600: 35 10% 49%;
-    --neutral-700: 35 11% 38%;
-    --neutral-800: 35 13% 26%;
-    --neutral-900: 33 15% 15%;
-
-    --accent-100: 44 87% 94%;
-    --accent-200: 43 87% 88%;
-    --accent-300: 43 85% 76%;
-    --accent-400: 43 82% 65%;
-    --accent-500: 41 79% 50%;
-    --accent-600: 40 86% 41%;
-    --accent-700: 39 100% 27%;
-    --accent-800: 39 100% 21%;
-    --accent-900: 39 100% 12%;
-
-    /* Status: three kitchen colours, used where status is news. Tomato is
-       destructive and failed, chive is done, yolk-soft with yolk-ink is what
-       needs the owner. */
-    --tomato: 10 61% 40%;
-    --tomato-soft: 16 63% 93%;
-    --on-tomato: 40 100% 98%;
-    --chive: 107 30% 33%;
-    --yolk-soft: 43 87% 88%;
-    --yolk-ink: 40 100% 18%;
-
     /* The two faces, as properties so a look can swap them. */
     --font-sans: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --font-mono: "JetBrains Mono", "SFMono-Regular", "SF Mono", Consolas, Menlo, monospace;
     color-scheme: light;
   }
 
-  /* Herdr trial: cool near-black with blue-grey neutrals and amber as the one
-     accent (palette from herdr.dev). Raised surfaces are lighter than the page
-     and carry a border rather than a shadow, which does not show on dark. */
   .dark {
-    --background: 220 10% 6%;
-    --foreground: 240 4% 95%;
-
-    --card: 220 7% 8%;
-    --card-foreground: 240 4% 95%;
-
-    --primary: 33 81% 54%;
-    --primary-foreground: 220 10% 6%;
-
-    --secondary: 220 7% 11%;
-    --secondary-foreground: 240 4% 95%;
-
-    --muted: 220 7% 11%;
-    --muted-foreground: 220 5% 56%;
-
-    --accent: 220 7% 11%;
-    --accent-foreground: 240 4% 95%;
-
-    --border: 220 9% 13%;
-    --input: 220 7% 22%;
-    --ring: 240 4% 95%;
-
-    --surface: 220 7% 8%;
-
-    --neutral-100: 220 7% 8%;
-    --neutral-200: 220 7% 11%;
-    --neutral-300: 220 9% 13%;
-    --neutral-400: 220 7% 22%;
-    --neutral-500: 218 6% 39%;
-    --neutral-600: 220 5% 48%;
-    --neutral-700: 220 5% 56%;
-    --neutral-800: 220 4% 78%;
-    --neutral-900: 240 4% 95%;
-
-    --accent-100: 33 45% 10%;
-    --accent-200: 33 53% 14%;
-    --accent-300: 33 58% 21%;
-    --accent-400: 33 63% 28%;
-    --accent-500: 33 73% 38%;
-    --accent-600: 33 81% 54%;
-    --accent-700: 33 90% 66%;
-    --accent-800: 33 89% 76%;
-    --accent-900: 33 91% 87%;
-
-    --tomato: 11 67% 63%;
-    --tomato-soft: 12 30% 14%;
-    --on-tomato: 220 10% 6%;
-    --chive: 105 28% 61%;
-    --yolk-soft: 33 45% 12%;
-    --yolk-ink: 33 90% 66%;
     color-scheme: dark;
+  }
+
+  /* Hairlines: the border ink at low alpha, so a line blends into whatever
+     is behind it. */
+  html {
+    --border-alpha: 0.13;
+    --hairline: oklch(var(--border) / var(--border-alpha));
+    --hairline-strong: oklch(var(--border) / calc(var(--border-alpha) * 1.7));
+  }
+  html.dark {
+    --border-alpha: 0.1;
+  }
+
+  /* The shell radius: a round control's radius plus its gap to the edge,
+     18 + 7 for the composer's 36 px buttons, 22 + 7 where touch makes them
+     44 px. */
+  html {
+    --shell-radius: 25px;
+  }
+  @media (pointer: coarse) {
+    html {
+      --shell-radius: 29px;
+    }
+  }
+
+  /* An icon's stroke follows the weight of the text it sits in, and its
+     colour is the text's (currentColor), so a medium label never carries a
+     hairline glyph or a bold one beside regular text. Icon in icons.tsx
+     reads --icon-stroke. */
+  :where(body, .font-normal) {
+    --icon-stroke: 1.6;
+  }
+  :where(.font-medium, h1, h2, h3, h4) {
+    --icon-stroke: 1.8;
+  }
+  :where(.font-semibold) {
+    --icon-stroke: 2;
+  }
+  :where(.font-bold) {
+    --icon-stroke: 2.2;
   }
 
   * {
@@ -148,7 +85,7 @@
      browser's blue. */
   input[type="radio"],
   input[type="checkbox"] {
-    accent-color: hsl(var(--primary));
+    accent-color: oklch(var(--primary));
   }
 
   /* A finger needs about 44 px to hit a control reliably. Only touch-first
@@ -166,7 +103,7 @@
   }
 
   :where(button, a, summary):focus-visible {
-    outline: 2px solid hsl(var(--ring));
+    outline: 2px solid oklch(var(--ring));
     outline-offset: 3px;
   }
 
@@ -214,54 +151,58 @@
      which is the dark-on-dark regression this boundary prevents. Every prose
      block carries .markdown (or .user-message, on its bubble); a test holds it. */
   .markdown {
-    --tw-prose-body: hsl(var(--foreground));
-    --tw-prose-headings: hsl(var(--foreground));
-    --tw-prose-lead: hsl(var(--muted-foreground));
-    --tw-prose-links: hsl(var(--primary));
-    --tw-prose-bold: hsl(var(--foreground));
-    --tw-prose-counters: hsl(var(--muted-foreground));
-    --tw-prose-bullets: hsl(var(--muted-foreground));
-    --tw-prose-hr: hsl(var(--border));
-    --tw-prose-quotes: hsl(var(--foreground));
-    --tw-prose-quote-borders: hsl(var(--primary));
-    --tw-prose-captions: hsl(var(--muted-foreground));
-    --tw-prose-code: hsl(var(--foreground));
-    --tw-prose-pre-code: hsl(var(--foreground));
-    --tw-prose-pre-bg: hsl(var(--background));
-    --tw-prose-th-borders: hsl(var(--border));
-    --tw-prose-td-borders: hsl(var(--border));
+    --tw-prose-body: oklch(var(--foreground));
+    --tw-prose-headings: oklch(var(--foreground));
+    --tw-prose-lead: oklch(var(--muted-foreground));
+    --tw-prose-links: oklch(var(--primary));
+    --tw-prose-bold: oklch(var(--foreground));
+    --tw-prose-counters: oklch(var(--muted-foreground));
+    --tw-prose-bullets: oklch(var(--muted-foreground));
+    --tw-prose-hr: var(--hairline);
+    --tw-prose-quotes: oklch(var(--foreground));
+    --tw-prose-quote-borders: oklch(var(--primary));
+    --tw-prose-captions: oklch(var(--muted-foreground));
+    --tw-prose-code: oklch(var(--foreground));
+    --tw-prose-pre-code: oklch(var(--foreground));
+    --tw-prose-pre-bg: oklch(var(--background));
+    --tw-prose-th-borders: var(--hairline-strong);
+    --tw-prose-td-borders: var(--hairline);
   }
 
   .user-message {
-    --tw-prose-body: hsl(var(--foreground));
-    --tw-prose-headings: hsl(var(--foreground));
-    --tw-prose-lead: hsl(var(--foreground));
-    --tw-prose-links: hsl(var(--foreground));
-    --tw-prose-bold: hsl(var(--foreground));
-    --tw-prose-counters: hsl(var(--foreground) / 0.75);
-    --tw-prose-bullets: hsl(var(--foreground) / 0.75);
-    --tw-prose-hr: hsl(var(--foreground) / 0.3);
-    --tw-prose-quotes: hsl(var(--foreground));
-    --tw-prose-quote-borders: hsl(var(--foreground) / 0.45);
-    --tw-prose-captions: hsl(var(--foreground) / 0.75);
-    --tw-prose-kbd: hsl(var(--foreground));
-    --tw-prose-kbd-shadows: hsl(var(--foreground) / 0.2);
-    --tw-prose-code: hsl(var(--foreground));
-    --tw-prose-pre-code: hsl(var(--foreground));
-    --tw-prose-pre-bg: hsl(var(--foreground) / 0.12);
-    --tw-prose-th-borders: hsl(var(--foreground) / 0.35);
-    --tw-prose-td-borders: hsl(var(--foreground) / 0.25);
+    --tw-prose-body: oklch(var(--foreground));
+    --tw-prose-headings: oklch(var(--foreground));
+    --tw-prose-lead: oklch(var(--foreground));
+    --tw-prose-links: oklch(var(--foreground));
+    --tw-prose-bold: oklch(var(--foreground));
+    --tw-prose-counters: oklch(var(--foreground) / 0.75);
+    --tw-prose-bullets: oklch(var(--foreground) / 0.75);
+    --tw-prose-hr: oklch(var(--foreground) / 0.3);
+    --tw-prose-quotes: oklch(var(--foreground));
+    --tw-prose-quote-borders: oklch(var(--foreground) / 0.45);
+    --tw-prose-captions: oklch(var(--foreground) / 0.75);
+    --tw-prose-kbd: oklch(var(--foreground));
+    --tw-prose-kbd-shadows: oklch(var(--foreground) / 0.2);
+    --tw-prose-code: oklch(var(--foreground));
+    --tw-prose-pre-code: oklch(var(--foreground));
+    --tw-prose-pre-bg: oklch(var(--foreground) / 0.12);
+    --tw-prose-th-borders: oklch(var(--foreground) / 0.35);
+    --tw-prose-td-borders: oklch(var(--foreground) / 0.25);
   }
 
+  /* Gradients interpolate in OKLCH, so a fade to transparent or between two
+     hues does not sag through grey in the middle as sRGB mixing does. The
+     plain declaration first is for a browser without interpolation spaces. */
   .composer-dock {
-    background: linear-gradient(to top, hsl(var(--background)) 58%, hsl(var(--background) / 0));
+    background: linear-gradient(to top, oklch(var(--background)) 58%, oklch(var(--background) / 0));
+    background: linear-gradient(to top in oklch, oklch(var(--background)) 58%, oklch(var(--background) / 0));
   }
 
   /* Soft filled surfaces: grouped rounded blocks with a small gap between
      them instead of hairline-bordered columns. A section divider within a
      block uses an inset box-shadow hairline rather than a visible border. */
   .trace-hairline-t {
-    box-shadow: inset 0 1px 0 hsl(var(--neutral-200));
+    box-shadow: inset 0 1px 0 var(--hairline);
   }
 
   .trace-browser {
@@ -290,7 +231,7 @@
   .trace-step {
     @apply grid w-full items-center gap-x-3 gap-y-2 px-4 py-3 text-left;
     grid-template-columns: minmax(0, 1fr) 1rem;
-    box-shadow: inset 0 1px 0 hsl(var(--neutral-200));
+    box-shadow: inset 0 1px 0 var(--hairline);
   }
   .trace-step:first-child {
     box-shadow: none;
@@ -348,7 +289,7 @@
 /* The frame a drawn image lands in while the model is still drawing: a dot
    field that breathes, faded at the edges, under a slow diagonal sheen. */
 .image-placeholder {
-  color: hsl(var(--neutral-500));
+  color: oklch(var(--neutral-500));
 }
 .image-placeholder-dots {
   background-image: radial-gradient(currentColor 1px, transparent 1.5px);
@@ -359,7 +300,8 @@
   animation: image-placeholder-breathe 2.4s ease-in-out infinite;
 }
 .image-placeholder-sheen {
-  background: linear-gradient(115deg, transparent 30%, hsl(var(--foreground) / 0.06) 50%, transparent 70%);
+  background: linear-gradient(115deg, transparent 30%, oklch(var(--foreground) / 0.06) 50%, transparent 70%);
+  background: linear-gradient(115deg in oklch, transparent 30%, oklch(var(--foreground) / 0.06) 50%, transparent 70%);
   background-size: 250% 100%;
   animation: image-placeholder-sheen 2.8s linear infinite;
 }
@@ -378,12 +320,106 @@
   }
 }
 
+/* Blurred icon swap: both glyphs share one cell, and the one leaving blurs,
+   shrinks and fades while the one arriving comes into focus, so a copy tick
+   or a send-to-stop change reads as one icon turning into another rather
+   than a hard cut. components/ui/icon-swap.tsx. */
+.icon-swap {
+  display: inline-grid;
+  place-items: center;
+}
+.icon-swap > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 180ms ease,
+    filter 220ms ease,
+    transform 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+.icon-swap > [data-off] {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-swap > * {
+    transition: opacity 120ms ease;
+  }
+  .icon-swap > [data-off] {
+    filter: none;
+    transform: none;
+  }
+}
+
+/* Edge fades for anything that scrolls: a mask, not an overlay, so the fade
+   shows whatever is behind the strip rather than painting a colour that only
+   matches one background. Each edge fades only while there is more to
+   scroll toward it, driven by the strip's own scroll position; a browser
+   without scroll timelines, or a strip that does not overflow, keeps both
+   edges sharp. */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.fade-x,
+.fade-y {
+  --fade: 1.5rem;
+}
+.fade-x {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+}
+.fade-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent);
+}
+@supports (animation-timeline: scroll()) {
+  .fade-x {
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+  .fade-y {
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self block);
+  }
+}
+@keyframes edge-fade {
+  0% {
+    --fade-start: 0px;
+    --fade-end: var(--fade);
+  }
+  8% {
+    --fade-start: var(--fade);
+  }
+  92% {
+    --fade-end: var(--fade);
+  }
+  100% {
+    --fade-start: var(--fade);
+    --fade-end: 0px;
+  }
+}
+
+/* On desktop the trace conversations are a plain list, not a strip. */
+@media (min-width: 1024px) {
+  .trace-conversation-list.fade-x {
+    -webkit-mask-image: none;
+    mask-image: none;
+    animation: none;
+  }
+}
+
 @layer utilities {
   /* Thin, self-effacing scrollbars -- the platform default bars are
      visually louder than anything else in the chat column. */
   .scrollbar-slim {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border)) transparent;
+    scrollbar-color: var(--hairline-strong) transparent;
   }
 
   .scrollbar-slim::-webkit-scrollbar {
@@ -392,14 +428,14 @@
   }
 
   .scrollbar-slim::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--border));
+    background-color: var(--hairline-strong);
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: content-box;
   }
 
   .scrollbar-slim::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(var(--muted-foreground) / 0.5);
+    background-color: oklch(var(--muted-foreground) / 0.5);
     background-clip: content-box;
   }
 

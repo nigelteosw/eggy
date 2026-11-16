@@ -151,7 +151,7 @@ export function OnboardingSteps({ account, telegramEnabled, onDismiss }: { accou
               aria-hidden
               className={cn(
                 "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-caption",
-                step.done ? "bg-primary text-primary-foreground" : "text-neutral-700 shadow-[inset_0_0_0_1px_hsl(var(--neutral-300))]",
+                step.done ? "bg-primary text-primary-foreground" : "text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline-strong)]",
               )}
             >
               {step.done ? "✓" : index + 1}
@@ -362,7 +362,7 @@ export function AccountsList({
         const passwordAction =
           account.password_state === "environment" ? null : account.password_state === "pending" ? "Retry password setup" : account.self ? "Change password" : "Reset password";
         return (
-          <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]">
+          <li key={account.id} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-1 py-3.5 shadow-[inset_0_1px_0_var(--hairline)]">
             <Avatar id={account.id} self={account.self} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-small font-medium">
@@ -621,7 +621,7 @@ export function ConvertForm({
         {accounts.map((account, index) => (
           <div
             key={index}
-            className={cn("grid gap-2 sm:grid-cols-2", index > 0 && "pt-3 shadow-[inset_0_1px_0_hsl(var(--neutral-200))]")}
+            className={cn("grid gap-2 sm:grid-cols-2", index > 0 && "pt-3 shadow-[inset_0_1px_0_var(--hairline)]")}
           >
             <Input aria-label={`Account ${index + 1} ID`} value={account.id} onChange={(e) => update(index, { id: e.target.value })} placeholder="username" required className={FIELD_COMPACT} />
             <Input

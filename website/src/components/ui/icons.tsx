@@ -5,6 +5,10 @@ import type { ReactNode } from "react";
 
 type IconProps = { className?: string };
 
+// The stroke follows the weight of the surrounding text through
+// --icon-stroke (index.css), and the colour is the text's own, so an icon is
+// never lighter or heavier than the label beside it. The attribute is the
+// fallback for an icon drawn outside the page's stylesheet.
 function Icon({ className, children }: IconProps & { children: ReactNode }) {
   return (
     <svg
@@ -13,6 +17,7 @@ function Icon({ className, children }: IconProps & { children: ReactNode }) {
       fill="none"
       stroke="currentColor"
       strokeWidth="1.6"
+      style={{ strokeWidth: "var(--icon-stroke, 1.6)" }}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

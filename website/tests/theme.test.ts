@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { LOOK_CACHE_KEY, THEME_CACHE_KEY, fontHref, isTheme, lookProperties, resolveTheme } from "../src/lib/theme";
+import { LOOK_CACHE_KEY, THEME_CACHE_KEY, fontHref, gradientStop, isTheme, lookProperties, resolveTheme } from "../src/lib/theme";
 
 test("system follows the device's preference, and dark and light are fixed", () => {
   expect(resolveTheme("system", true)).toBe("dark");
@@ -29,8 +29,8 @@ test("the first-paint script reads both cached keys", () => {
 });
 
 test("a look paints only its own palette's tokens and the faces it changes", () => {
-  const look = { dark: { primary: "150 60% 45%" }, text_font: "Inter", code_font: "JetBrains Mono" };
-  expect(lookProperties(look, "dark")).toEqual({ "--primary": "150 60% 45%", "--font-sans": expect.stringContaining('"Inter"') });
+  const look = { dark: { primary: "62% 0.15 155" }, text_font: "Inter", code_font: "JetBrains Mono" };
+  expect(lookProperties(look, "dark")).toEqual({ "--primary": "62% 0.15 155", "--font-sans": expect.stringContaining('"Inter"') });
   // The light palette has no overrides here, and the default code face needs
   // no property: the stylesheet already sets it.
   expect(Object.keys(lookProperties(look, "light"))).toEqual(["--font-sans"]);
@@ -39,4 +39,10 @@ test("a look paints only its own palette's tokens and the faces it changes", () 
 
 test("a font request names one family from Google Fonts", () => {
   expect(fontHref("IBM Plex Sans")).toBe("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;700&display=swap");
+});
+
+test("a near-grey gradient end takes the accent's hue so OKLCH does not sweep the wheel", () => {
+  expect(gradientStop("19.3% 0 0", "79.5")).toBe("oklch(19.3% 0.002 79.5)");
+  expect(gradientStop("15.5% 0.006 264.4", "79.5")).toBe("oklch(15.5% 0.006 79.5)");
+  expect(gradientStop("79% 0.105 300", "79.5")).toBe("oklch(79% 0.105 300)");
 });

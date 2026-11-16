@@ -399,6 +399,8 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	mux.Handle("POST /api/agent/thinking", guard(newAgentThinkingHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/theme", guard(newAgentThemeHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/look", guard(newAgentLookHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("POST /api/agent/themes", guard(newAgentThemeSaveHandler(webConfig.Agent, webConfig.ApprovalMode)))
+	mux.Handle("DELETE /api/agent/themes/{name}", guard(newAgentThemeDeleteHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("POST /api/agent/heartbeat", guard(newAgentHeartbeatHandler(webConfig.Agent, webConfig.ApprovalMode)))
 	mux.Handle("GET /api/context/watch", guard(newWatchGetRoute(webConfig.Documents)))
 	mux.Handle("POST /api/context/watch", guard(newWatchSetRoute(webConfig.Documents)))

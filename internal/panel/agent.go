@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"net/http"
 	"strings"
@@ -27,6 +28,8 @@ type AgentSwitch interface {
 	SetTheme(ctx context.Context, theme string) error
 	Look(ctx context.Context) (ports.LookView, error)
 	SetLook(ctx context.Context, change ports.LookChange) error
+	SaveTheme(ctx context.Context, label, description string) (string, error)
+	DeleteTheme(ctx context.Context, name string) error
 }
 
 // agentSelection is what the composer renders: every alias it may offer, the
@@ -199,6 +202,53 @@ func newAgentLookHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.Handle
 		change := ports.LookChange{Look: input.Look, TextFont: input.TextFont, CodeFont: input.CodeFont}
 		if err := agent.SetLook(r.Context(), change); err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
+// newAgentThemeSaveHandler saves the account's custom look as a theme for
+// everyone, under the name the person gave it.
+func newAgentThemeSaveHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		var input struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		}
+		if err := decodeAuthBody(r, &input); err != nil {
+			writeWebError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if _, err := agent.SaveTheme(r.Context(), input.Label, input.Description); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, ports.ErrThemeExists) {
+				status = http.StatusConflict
+			}
+			writeWebError(w, status, err.Error())
+			return
+		}
+		respondAgentSelection(w, r, agent, gate)
+	}
+}
+
+// newAgentThemeDeleteHandler deletes a saved theme its saver no longer wants.
+func newAgentThemeDeleteHandler(agent AgentSwitch, gate ApprovalModeSwitch) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if agent == nil {
+			writeWebError(w, http.StatusNotFound, "model selection is unavailable")
+			return
+		}
+		if err := agent.DeleteTheme(r.Context(), r.PathValue("name")); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, ports.ErrThemeNotFound) {
+				status = http.StatusNotFound
+			}
+			writeWebError(w, status, err.Error())
 			return
 		}
 		respondAgentSelection(w, r, agent, gate)

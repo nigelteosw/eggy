@@ -138,7 +138,7 @@ export function ConfigPage({
           {opened && <span className="min-w-0 flex-1 truncate text-small text-neutral-700">{section.label}</span>}
         </div>
       </div>
-      <nav aria-label="Mobile settings navigation" className={`scrollbar-slim min-h-0 flex-1 overflow-y-auto md:hidden ${opened ? "hidden" : ""}`}>
+      <nav aria-label="Mobile settings navigation" className={`scrollbar-slim fade-y min-h-0 flex-1 overflow-y-auto md:hidden ${opened ? "hidden" : ""}`}>
         {GROUPS.map((group) => (
           <section key={group.id} className="px-4 pb-4 pt-5">
             <p className="px-1 pb-2 text-small text-neutral-700" title={group.note}>
@@ -153,7 +153,7 @@ export function ConfigPage({
                     setActive(candidate.id);
                     setOpened(true);
                   }}
-                  className="flex min-h-12 items-center gap-3 px-4 text-left text-body text-foreground shadow-[inset_0_1px_0_hsl(var(--neutral-200))] first:shadow-none"
+                  className="flex min-h-12 items-center gap-3 px-4 text-left text-body text-foreground shadow-[inset_0_1px_0_var(--hairline)] first:shadow-none"
                 >
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center text-neutral-700 [&>svg]:h-5 [&>svg]:w-5">{candidate.icon}</span>
                   <span className="min-w-0 flex-1">{candidate.label}</span>
@@ -180,7 +180,7 @@ export function ConfigPage({
           </label>
         </div>
         <div className="shrink-0 px-4 pb-1 pt-3 text-small text-neutral-700">Settings</div>
-        <div className="scrollbar-slim min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <div className="scrollbar-slim fade-y min-h-0 flex-1 overflow-y-auto px-3 pb-3">
           {GROUPS.map((group) => {
             const matches = SECTIONS.filter((candidate) => candidate.group === group.id && sectionMatches(candidate, query));
             if (matches.length === 0) return null;
@@ -213,7 +213,7 @@ export function ConfigPage({
         </div>
       </div>
 
-      <div className={`app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_hsl(var(--neutral-200))] ${opened ? "" : "hidden"} md:block`}>
+      <div className={`app-canvas scrollbar-slim min-h-0 min-w-0 flex-1 overflow-y-auto shadow-[inset_1px_0_0_var(--hairline)] ${opened ? "" : "hidden"} md:block`}>
         <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-6 sm:px-7 lg:max-w-[960px] lg:px-10 lg:pt-8">
           <header className="flex flex-col gap-1.5 pb-1">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

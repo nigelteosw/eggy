@@ -166,7 +166,7 @@ func TestModeCommandReportsAndSets(t *testing.T) {
 	if err != nil || !handled {
 		t.Fatalf("handled=%v err=%v", handled, err)
 	}
-	if !strings.HasPrefix(output, "When I ask: Before changes.") || len(gate.saved) != 0 {
+	if !strings.HasPrefix(output, "When I ask: Read.") || len(gate.saved) != 0 {
 		t.Fatalf("a bare /mode changed something: output=%q saved=%v", output, gate.saved)
 	}
 
@@ -174,7 +174,7 @@ func TestModeCommandReportsAndSets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gate.mode != ports.ModeStrict || !strings.HasPrefix(output, "When I ask: Every time.") {
+	if gate.mode != ports.ModeStrict || !strings.HasPrefix(output, "When I ask: Manual.") {
 		t.Fatalf("mode=%q output=%q", gate.mode, output)
 	}
 
@@ -246,7 +246,7 @@ func TestStatusReportsTheApprovalMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Before changes") {
+	if !strings.Contains(output, "Read") {
 		t.Fatalf("status did not name the mode: %q", output)
 	}
 	gate.mode = ports.ModeAuto
@@ -254,7 +254,7 @@ func TestStatusReportsTheApprovalMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "Never") || !strings.Contains(output, "/mode normal") {
+	if !strings.Contains(output, "Auto") || !strings.Contains(output, "/mode normal") {
 		t.Fatalf("status did not report the bypass or the way out: %q", output)
 	}
 }

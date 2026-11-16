@@ -170,10 +170,10 @@ type StateStore interface {
 func (m ApprovalMode) Describe() string {
 	switch m {
 	case ModeStrict:
-		return "I ask before every tool I use, including looking things up."
+		return "I ask before every tool I use, even to read or look something up."
 	case ModeAuto:
-		return "I don't ask. I change and send things for you right away."
+		return "I don't ask. I read, change and send things for you on my own."
 	default:
-		return "I ask before I change or send anything. Looking things up doesn't need asking."
+		return "I read and look things up on my own, and ask before I change or send anything."
 	}
 }

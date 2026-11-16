@@ -60,7 +60,7 @@ func (t settingsTool) Definition() ports.ToolDefinition {
 			"add_model: add an OpenRouter model as a new alias -- search first and pass the exact ID; Eggy restarts to load it. " +
 			"select_model: switch this person to a configured alias from their next message on; \"default\" goes back to the default. " +
 			"set_effort: how hard the active model reasons. set_thinking: whether this person sees the model's reasoning. " +
-			"set_mode: when you ask before using a tool, strict or normal; only the person can choose never asking, themselves, with /mode auto or in Settings. " +
+			"set_mode: when you ask before using a tool, strict or normal; only the person can choose auto (never asking), themselves, with /mode auto or in Settings. " +
 			"set_checkins: whether you check in on this person, only when they ask for it. " +
 			"set_checkin_schedule: how often check-ins run, between which hours, and what they look for -- shared by everyone; Eggy restarts to apply it. " +
 			"show_theme: this person's web panel look -- light or dark mode, look, fonts, and every colour token with its default -- read it before designing a custom look. " +
@@ -439,7 +439,7 @@ type connected struct {
 var elsewhereChanged = map[string]string{
 	"soul (who you are and how you sound)": "ask you -- the memory tool rewrites SOUL.md -- or Settings → Soul",
 	"watch list (what check-ins look at)":  "ask you, or Settings → Check-ins",
-	"never asking (/mode auto)":            "only the person themselves: /mode auto in Telegram, or Settings → Model & when Eggy asks",
+	"Auto, never asking (/mode auto)":      "only the person themselves: /mode auto in Telegram, or Settings → Model & when Eggy asks",
 	"providers, API keys, model aliases":   "Settings → Models; you can add an OpenRouter model with add_model",
 	"people and sign-in":                   "Settings → People",
 	"Telegram and Discord":                 "Customize → Channels; each person links their own from Settings → People",

@@ -20,9 +20,9 @@ const selectClass =
   "h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export const APPROVAL_MODES: { value: string; label: string; hint: string }[] = [
-  { value: "normal", label: "Before changes", hint: "I ask before I change or send anything. Looking things up doesn't need asking." },
-  { value: "strict", label: "Every time", hint: "I ask before every tool I use, including looking things up." },
-  { value: "auto", label: "Never", hint: "I don't ask. I change and send things for you right away." },
+  { value: "auto", label: "Auto", hint: "I don't ask. I read, change and send things for you on my own." },
+  { value: "normal", label: "Read", hint: "I read and look things up on my own, and ask before I change or send anything." },
+  { value: "strict", label: "Manual", hint: "I ask before every tool I use, even to read or look something up." },
 ];
 
 export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: () => void }) {

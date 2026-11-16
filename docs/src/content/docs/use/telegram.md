@@ -87,7 +87,7 @@ Eggy's Telegram command surface is intentionally small.
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/code` | Run a coding task on an allowed repository; listed in the menu only while the coding extension runs |
-| `/mode` | Show or set *When Eggy asks*: strict (every time), normal (before changes) or auto (never) |
+| `/mode` | Show or set *When Eggy asks*: strict (Manual: asks before every tool), normal (Read: asks before changes) or auto (Auto: never asks) |
 | `/heartbeat [on\|off]` | Show or switch your own check-ins; off until you turn it on |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
 

@@ -125,13 +125,13 @@ func (s *CommandService) Control(ctx context.Context, action string) (ports.Cont
 		if err := report("/mode"); err != nil {
 			return panel, err
 		}
-		add("Before changes", "set:/mode normal")
-		add("Every time", "set:/mode strict")
-		add("Never", "confirm-auto")
+		add("Auto", "confirm-auto")
+		add("Read", "set:/mode normal")
+		add("Manual", "set:/mode strict")
 		add("Back to settings", "settings")
 	case "confirm-auto":
-		panel.Text = "**Never ask?**\nI'll change and send things for you without asking first. This applies only to your account."
-		add("Never ask", "enable-auto")
+		panel.Text = "**Switch to Auto?**\nI'll read, change and send things for you without asking first. This applies only to your account."
+		add("Use Auto", "enable-auto")
 		add("Keep asking", "mode")
 	case "status", "help", "web":
 		if err := report("/" + action); err != nil {

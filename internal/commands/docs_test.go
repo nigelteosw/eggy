@@ -78,7 +78,7 @@ func TestTopicHelpHasSyntaxExampleAndNextStep(t *testing.T) {
 		"model":    {"/model providers", "/model available", "/model add", "/model effort", "/model thinking", "personal", "shared"},
 		"mcp":      {"/mcp add", "/mcp login", "shared", "unavailable"},
 		"google":   {"/google set", "/google login", "expected_email", "shared", "unavailable"},
-		"mode":     {"/mode", "strict", "normal", "auto", "Before changes", "personal", "memory", "MCP"},
+		"mode":     {"/mode", "strict", "normal", "auto", "Manual", "Read", "Auto", "personal", "memory", "MCP"},
 		"checkins": {"/heartbeat on", "personal", "watch list", "Settings → Check-ins"},
 		"admin":    {"/mcp", "/google", "/restart", "everyone"},
 	}

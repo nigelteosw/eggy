@@ -153,7 +153,7 @@ func TestSettingsToolShowDescribesEverySetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"model":"fast"`, `"thinking_shown":true`, `"check_ins":false`, "Every time", `"check_in_every":"off"`, `"timezone":"UTC"`, "Customize → Connectors", "/mode auto"} {
+	for _, want := range []string{`"model":"fast"`, `"thinking_shown":true`, `"check_ins":false`, "Manual", `"check_in_every":"off"`, `"timezone":"UTC"`, "Customize → Connectors", "/mode auto"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("show missing %q:\n%s", want, output)
 		}
@@ -169,7 +169,7 @@ func TestSettingsToolNeverSelectsAuto(t *testing.T) {
 	if _, err := settingsCall(t, service.SettingsTool(), `{"action":"set_mode","mode":"auto"}`); err == nil || !strings.Contains(err.Error(), "only the person") {
 		t.Fatalf("auto accepted: %v", err)
 	}
-	if output, err := settingsCall(t, service.SettingsTool(), `{"action":"set_mode","mode":"strict"}`); err != nil || gate.mode != ports.ModeStrict || !strings.Contains(output, "Every time") {
+	if output, err := settingsCall(t, service.SettingsTool(), `{"action":"set_mode","mode":"strict"}`); err != nil || gate.mode != ports.ModeStrict || !strings.Contains(output, "Manual") {
 		t.Fatalf("mode=%q output=%s err=%v", gate.mode, output, err)
 	}
 	if len(gate.saved) != 1 {

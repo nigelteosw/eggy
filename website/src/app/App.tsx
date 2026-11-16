@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { applyLook, applyTheme, checkSession, clearLook, clearSession, getAgent, getMode, logout, writes, type Account, type Login, type Mode, type Theme } from "../lib/api";
 import { isTheme } from "../lib/theme";
 import { LoginPage } from "../auth/LoginPage";
@@ -18,7 +18,7 @@ import { ThreadSidebar } from "../chat/ThreadSidebar";
 import { PanelIcon } from "../components/ui/icons";
 import { useStoredFlag } from "../components/ui/sidebar";
 import { pathForView, viewForPath, type View } from "./routing";
-import { isEdgeSwipe, useVisibleHeight, useWide } from "../lib/viewport";
+import { isEdgeSwipe, useVisibleFrame, useWide } from "../lib/viewport";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
@@ -68,7 +68,7 @@ export function App() {
 
   // The phone's gestures for the rail: a swipe from the left edge opens it, and
   // a swipe left closes it. Only a touch starts either, so a mouse is unaffected.
-  const visibleH = useVisibleHeight();
+  const visible = useVisibleFrame();
   useEffect(() => {
     let start: { x: number; y: number } | null = null;
     const down = (event: TouchEvent) => {
@@ -294,7 +294,7 @@ export function App() {
   // menu control on a phone; every other view gets the top bar instead.
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visibleH ? { height: visibleH } : undefined}>
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visible ? { height: visible.height, top: visible.top } : undefined}>
       {sidebarOpen && (
         <div
           className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
@@ -302,26 +302,8 @@ export function App() {
           aria-hidden="true"
         />
       )}
-      {/* The rail slides in and out from the left. Below md it is an overlay
-          that translates. At md and up its grid column grows from 0fr to 1fr
-          while the rail inside translates from -100% to 0 on the same curve,
-          so the rail's right edge rides the column's edge: the page beside it
-          gives up and reclaims the width smoothly, and nothing overlaps. A
-          closed rail stays mounted (so it can animate) but inert, out of the
-          tab order and the accessibility tree. */}
-      <div
-        {...({ inert: sidebarOpen ? undefined : "" } as Record<string, string | undefined>)}
-        className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:static md:grid md:translate-x-0 ${
-          sidebarOpen ? "translate-x-0 shadow-lift md:grid-cols-[1fr] md:shadow-none" : "-translate-x-full md:grid-cols-[0fr]"
-        }`}
-      >
-        {/* w-max keeps the rail its own width while min-w-0 lets the column
-            shrink under it, so -100% is the rail's width, not the column's. */}
-        <div
-          className={`h-full w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
-            sidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
-          }`}
-        >
+      {/* The rail slides in and out from the left; RailFrame says how. */}
+      <RailFrame open={sidebarOpen}>
         <ThreadSidebar
           activeThreadId={activeThreadId}
           onSelect={(id) => {
@@ -352,8 +334,7 @@ export function App() {
           theme={theme}
           onThemeChange={setTheme}
         />
-        </div>
-      </div>
+      </RailFrame>
 
       {/* At md and up, the reopen control holds its own gutter, so no page has to
           leave room for it under its heading. On a phone that gutter would be
@@ -468,6 +449,38 @@ export function App() {
           onSessionExpired={onSessionExpired}
         />
       )}
+    </div>
+  );
+}
+
+// RailFrame holds the rail. Below md it is an overlay pinned to the viewport's
+// height (absolute inset-y-0), and the inner wrapper passes that height on
+// (h-full) so ThreadSidebar's own h-full resolves: without it the sidebar grows
+// with its chat list and the account footer falls off the screen. At md and up
+// its grid column grows from 0fr to 1fr while the rail inside translates from
+// -100% to 0 on the same curve, so the rail's right edge rides the column's
+// edge: the page beside it gives up and reclaims the width smoothly, and
+// nothing overlaps. A closed rail stays mounted (so it can animate) but inert,
+// out of the tab order and the accessibility tree.
+export function RailFrame({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div
+      {...({ inert: open ? undefined : "" } as Record<string, string | undefined>)}
+      data-rail-frame
+      className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:static md:grid md:translate-x-0 ${
+        open ? "translate-x-0 shadow-lift md:grid-cols-[1fr] md:shadow-none" : "-translate-x-full md:grid-cols-[0fr]"
+      }`}
+    >
+      {/* w-max keeps the rail its own width while min-w-0 lets the column
+          shrink under it, so -100% is the rail's width, not the column's. */}
+      <div
+        data-rail-inner
+        className={`h-full w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
+          open ? "md:translate-x-0" : "md:-translate-x-full"
+        }`}
+      >
+        {children}
+      </div>
     </div>
   );
 }

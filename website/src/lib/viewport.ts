@@ -9,27 +9,41 @@ export function isEdgeSwipe(start: { x: number; y: number }, end: { x: number; y
   return start.x <= 24 && dx >= 60 && dy <= dx / 2;
 }
 
-// visibleHeight is the height the app should fill: what the visual viewport
-// shows (less when the keyboard is up), or the layout height when the browser
-// reports no visual viewport.
-export function visibleHeight(visual: { height: number } | undefined, layout: number): number {
-  return visual ? visual.height : layout;
+export type Frame = { height: number; top: number };
+
+// visibleFrame is where the app should sit: as tall as the visual viewport
+// shows (less when the keyboard is up) and as far down the page as it is.
+// iOS opens the keyboard over a layout that keeps its full height and pans
+// the visual viewport down to the focused field, so a root sized right but
+// left at the top of the page is seen from partway down: the composer near
+// the top of the screen and empty page below it. Without a visual viewport
+// the layout height is the answer.
+export function visibleFrame(visual: { height: number; pageTop: number } | undefined, layout: number): Frame {
+  return visual ? { height: visual.height, top: Math.max(0, visual.pageTop) } : { height: layout, top: 0 };
 }
 
-// useVisibleHeight tracks visibleHeight as the keyboard opens and closes. The
-// viewport units (dvh) do not follow the iOS keyboard, so the root is sized in
-// pixels from here instead.
-export function useVisibleHeight(): number | undefined {
-  const [height, setHeight] = useState<number | undefined>(undefined);
+// useVisibleFrame tracks visibleFrame as the keyboard opens, closes and the
+// visual viewport pans. Viewport units (dvh) follow none of that on iOS, so
+// the root is placed in pixels from here instead.
+export function useVisibleFrame(): Frame | undefined {
+  const [frame, setFrame] = useState<Frame | undefined>(undefined);
   useEffect(() => {
     const visual = window.visualViewport;
     if (!visual) return;
-    const update = () => setHeight(visibleHeight({ height: visual.height }, window.innerHeight));
+    const update = () =>
+      setFrame((current) => {
+        const next = visibleFrame(visual, window.innerHeight);
+        return current && current.height === next.height && current.top === next.top ? current : next;
+      });
     update();
     visual.addEventListener("resize", update);
-    return () => visual.removeEventListener("resize", update);
+    visual.addEventListener("scroll", update);
+    return () => {
+      visual.removeEventListener("resize", update);
+      visual.removeEventListener("scroll", update);
+    };
   }, []);
-  return height;
+  return frame;
 }
 
 // useWide reports whether the window is at Tailwind's md breakpoint or wider,

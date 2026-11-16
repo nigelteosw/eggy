@@ -53,7 +53,7 @@ export function AccountMenu({
         <div
           role="menu"
           aria-label="Account"
-          className="absolute inset-x-0 bottom-full z-20 mb-2 overflow-hidden rounded-card bg-card py-1.5 shadow-lift"
+          className="scrollbar-slim absolute inset-x-0 bottom-full z-20 mb-2 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-card bg-card py-1.5 shadow-lift"
         >
           <p className="truncate px-3.5 pb-1.5 pt-1 text-caption text-muted-foreground" title={name}>
             {name}

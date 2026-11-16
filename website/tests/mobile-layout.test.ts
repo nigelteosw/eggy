@@ -54,6 +54,14 @@ test("settings expose a compact mobile section navigation", () => {
   expect(html).toContain("hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex");
 });
 
+test("the phone sidebar is bounded to the viewport so its account menu stays reachable", async () => {
+  // The rail's wrapper must have a height for ThreadSidebar's h-full to resolve;
+  // without it the sidebar grows with its chat list and the account menu falls
+  // below the viewport, where the root's overflow-hidden cuts it off.
+  const source = await Bun.file(new URL("../src/app/App.tsx", import.meta.url)).text();
+  expect(source).toContain("h-full w-max min-w-0");
+});
+
 test("trace list presents labelled turn controls and duration without a wide table", () => {
   const html = renderToStaticMarkup(
     createElement(TraceBrowser, {

@@ -318,7 +318,7 @@ export function App() {
         {/* w-max keeps the rail its own width while min-w-0 lets the column
             shrink under it, so -100% is the rail's width, not the column's. */}
         <div
-          className={`w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
+          className={`h-full w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
             sidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
           }`}
         >

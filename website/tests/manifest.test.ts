@@ -11,7 +11,13 @@ test("the manifest opens standalone with the palette's colours and a shipped ico
   const manifest = JSON.parse(readFileSync(join(root, "public/manifest.webmanifest"), "utf8"));
   expect(manifest.display).toBe("standalone");
   expect(manifest.start_url).toBe("/");
-  expect(manifest.background_color).toBe("#F6F1E7");
+  // The splash and the browser chrome are the default theme's light
+  // background, which index.html also names; the two must agree.
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const light = html.match(/name="theme-color" media="\(prefers-color-scheme: light\)" content="(#[0-9A-F]{6})"/)?.[1];
+  expect(light).toBeDefined();
+  expect(manifest.background_color).toBe(light!);
+  expect(manifest.theme_color).toBe(light!);
   for (const icon of manifest.icons) {
     expect(existsSync(join(root, "public", icon.src))).toBe(true);
   }

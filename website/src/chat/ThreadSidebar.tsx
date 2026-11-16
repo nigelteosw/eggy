@@ -449,7 +449,13 @@ export function ThreadSidebar({
         </button>
       </div>
 
-      <nav aria-label="Main navigation" className="flex flex-col gap-0.5 px-2 pb-2">
+      {/* Between the header and the account footer. On a phone this whole
+          stretch scrolls as one, so the nav and an open Extensions menu can
+          never push the footer -- and Settings -- off a short screen. At md
+          and up only the chat list scrolls, because the Extensions menu opens
+          beside the rail and a scrolling ancestor would clip it. */}
+      <div data-rail-scroll className="scrollbar-slim fade-y flex min-h-0 flex-1 flex-col max-md:overflow-y-auto">
+      <nav aria-label="Main navigation" className="flex shrink-0 flex-col gap-0.5 px-2 pb-2">
         <NavRow icon={<HomeIcon />} label="Home" active={view === "home"} badge={approvalBadge(waitingApprovals)} onClick={() => onNavigate("home")} />
         <NavRow
           icon={<PlusIcon className="h-4 w-4 text-accent-700" />}
@@ -490,13 +496,13 @@ export function ThreadSidebar({
       </nav>
 
       {error && (
-        <p className="mx-3 mb-2 rounded-control bg-tomato-soft px-2.5 py-1.5 text-caption text-tomato" role="alert">
+        <p className="mx-3 mb-2 shrink-0 rounded-control bg-tomato-soft px-2.5 py-1.5 text-caption text-tomato" role="alert">
           {error}
         </p>
       )}
 
       {undoable && (
-        <div role="status" className="mx-3 mb-2 flex items-center gap-2 rounded-control bg-card py-1 pl-3 pr-1 text-caption shadow-subtle">
+        <div role="status" className="mx-3 mb-2 flex shrink-0 items-center gap-2 rounded-control bg-card py-1 pl-3 pr-1 text-caption shadow-subtle">
           <span className="min-w-0 flex-1 truncate">Deleted “{undoable.title || "New chat"}”</span>
           <button
             type="button"
@@ -508,7 +514,7 @@ export function ThreadSidebar({
         </div>
       )}
 
-      <div className="scrollbar-slim fade-y flex-1 overflow-y-auto px-2 pb-3">
+      <div data-chat-list className="scrollbar-slim fade-y px-2 pb-3 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
         {threads.length > 0 && (
           <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-[oklch(var(--rail-raised))] px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline)] focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0" />
@@ -613,8 +619,9 @@ export function ThreadSidebar({
           ))
         )}
       </div>
+      </div>
 
-      <div className="shrink-0 border-t border-border px-2 py-2">
+      <div data-rail-footer className="shrink-0 border-t border-border px-2 py-2">
         <AccountMenu account={account} onNavigate={onNavigate} onOpenSettings={onOpenSettings} onLogout={onLogout} theme={theme} onThemeChange={onThemeChange} />
       </div>
 

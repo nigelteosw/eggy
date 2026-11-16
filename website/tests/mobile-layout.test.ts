@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChatPage } from "../src/chat/ChatPage";
+import { ThreadSidebar } from "../src/chat/ThreadSidebar";
+import { RailFrame } from "../src/app/App";
+import { Window } from "happy-dom";
 import { ConfigPage } from "../src/settings/ConfigPage";
 import { TraceBrowser, Waterfall } from "../src/traces/TracesPage";
 import { Button } from "../src/components/ui/button";
@@ -52,6 +55,59 @@ test("settings expose a compact mobile section navigation", () => {
   expect(html).toContain('aria-label="Mobile settings navigation"');
   expect(html).toContain("md:hidden");
   expect(html).toContain("hidden min-h-0 w-[238px] shrink-0 flex-col bg-neutral-100 md:flex");
+});
+
+// The phone sidebar must stay inside the viewport with its account footer
+// on screen. That is a chain: the frame is pinned to the viewport's height,
+// the inner wrapper hands that height to the sidebar, and between the header
+// and the footer one region shrinks and scrolls while the footer does not.
+test("the phone sidebar is bounded to the viewport so its account menu stays reachable", () => {
+  const html = renderToStaticMarkup(
+    createElement(
+      RailFrame,
+      { open: true },
+      createElement(ThreadSidebar, {
+        activeThreadId: null,
+        onSelect: () => {},
+        onStartNew: () => {},
+        onDeleted: () => {},
+        onActiveTitleChange: () => {},
+        onCollapse: () => {},
+        reloadKey: 0,
+        draftOpen: false,
+        view: "chat",
+        onNavigate: () => {},
+        features: ["finance"],
+        onOpenExtension: () => {},
+        onOpenSettings: () => {},
+        onLogout: () => {},
+      }),
+    ),
+  );
+  const window = new Window();
+  window.document.body.innerHTML = html;
+  const doc = window.document;
+  const classes = (selector: string) => (doc.querySelector(selector)?.getAttribute("class") ?? "").split(/\s+/);
+
+  const frame = doc.querySelector("[data-rail-frame]")!;
+  const inner = doc.querySelector("[data-rail-inner]")!;
+  expect(inner.parentElement).toBe(frame);
+  expect(classes("[data-rail-frame]")).toEqual(expect.arrayContaining(["absolute", "inset-y-0"]));
+  expect(classes("[data-rail-inner]")).toContain("h-full");
+  const sidebar = inner.firstElementChild!;
+  expect(sidebar.getAttribute("class")!.split(/\s+/)).toEqual(expect.arrayContaining(["flex", "flex-col", "h-full"]));
+
+  // The nav and the chat list scroll together on a phone; the footer is the
+  // scroll region's sibling, so it never scrolls away.
+  const scroll = doc.querySelector("[data-rail-scroll]")!;
+  expect(scroll.parentElement).toBe(sidebar);
+  expect(classes("[data-rail-scroll]")).toEqual(expect.arrayContaining(["min-h-0", "flex-1", "max-md:overflow-y-auto"]));
+  expect(scroll.querySelector('nav[aria-label="Main navigation"]')).not.toBeNull();
+  expect(scroll.querySelector("[data-chat-list]")).not.toBeNull();
+  const footer = doc.querySelector("[data-rail-footer]")!;
+  expect(footer.parentElement).toBe(sidebar);
+  expect(classes("[data-rail-footer]")).toContain("shrink-0");
+  expect(scroll.contains(footer)).toBe(false);
 });
 
 test("trace list presents labelled turn controls and duration without a wide table", () => {

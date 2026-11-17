@@ -11,10 +11,13 @@ const (
 	throttleDelay     = 2 * time.Second
 )
 
-// LoginThrottle delays repeated failed login attempts from the same key
-// (typically a client IP) so casual password guessing costs real time,
-// without a persistent lockout store -- state resets on process restart,
-// which is acceptable for Eggy's single-owner threat model.
+// LoginThrottle delays repeated failed login attempts from the same key so
+// password guessing costs real time. The password login counts each failure
+// twice, under the client address and under the account, so neither one
+// address nor many addresses against one account guess freely. There is no
+// persistent lockout store: state resets on process restart, which bounds an
+// attacker to one burst of free guesses per restart -- acceptable while only
+// an account holder can restart Eggy.
 type LoginThrottle struct {
 	mu       sync.Mutex
 	now      func() time.Time

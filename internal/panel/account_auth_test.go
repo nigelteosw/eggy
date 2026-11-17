@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -153,6 +154,39 @@ func TestPasswordLoginRefusals(t *testing.T) {
 	handler.ServeHTTP(get, httptest.NewRequest("GET", "/api/login", nil))
 	if get.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET login status=%d", get.Code)
+	}
+}
+
+// Guesses against one username from many addresses are throttled as one: a
+// spread-out attacker pays the same per-guess wait a single address does. An
+// unknown username is throttled identically, so the 429 says nothing about
+// whether the account exists.
+func TestPasswordLoginThrottlesPerAccountAcrossAddresses(t *testing.T) {
+	now := time.Now().UTC()
+	cfg, db, _ := accountWebConfig(t, now)
+	localPassword(t, db, "partner", "partner-password-long")
+	handler := NewWebHandler("", cfg)
+	attempt := func(username, password string, address int) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"username":"`+username+`","password":"`+password+`"}`))
+		request.RemoteAddr = "10.9." + strconv.Itoa(address/250) + "." + strconv.Itoa(address%250+1) + ":1"
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	for _, username := range []string{"partner", "stranger"} {
+		for i := range 5 {
+			if response := attempt(username, "wrong-password-guess", i); response.Code != http.StatusUnauthorized {
+				t.Fatalf("%s guess %d status=%d", username, i, response.Code)
+			}
+		}
+		response := attempt(username, "wrong-password-guess", 100)
+		if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") == "" {
+			t.Fatalf("%s sixth guess from a fresh address status=%d", username, response.Code)
+		}
+	}
+	// Another account is not held up by partner's throttle.
+	if response := attempt("nigel", "hunter2", 200); response.Code != http.StatusOK {
+		t.Fatalf("unrelated account status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

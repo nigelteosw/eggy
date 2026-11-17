@@ -137,14 +137,31 @@ func handlePasswordLogin(configPath string, webConfig WebUIConfig, throttle *ses
 			writeWebError(w, http.StatusUnauthorized, "web login is not available")
 			return
 		}
-		deny := func() {
-			throttle.RecordFailure(ip)
-			writeWebError(w, http.StatusUnauthorized, "invalid username or password")
-		}
 		// Resolve the identity server-side: the exact ID, or the environment
 		// alias standing for the bound account. Nothing typed selects a
 		// hash the caller did not earn.
 		id, known := resolveUsername(webConfig, username)
+		// The per-address throttle alone lets an attacker with many
+		// addresses guess at one account freely, so failures also count
+		// against the account. An unknown name is counted under what was
+		// typed, the same way, so a 429 does not reveal which names exist.
+		// The cost is that someone hammering a username delays its owner's
+		// password login; the owner can still sign in with a Telegram /web
+		// link, which does not consult this key.
+		accountKey := "account:" + username
+		if known {
+			accountKey = "account:" + id
+		}
+		if delay := throttle.Delay(accountKey); delay > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int((delay+time.Second-1)/time.Second)))
+			writeWebError(w, http.StatusTooManyRequests, "too many failed login attempts, try again shortly")
+			return
+		}
+		deny := func() {
+			throttle.RecordFailure(ip)
+			throttle.RecordFailure(accountKey)
+			writeWebError(w, http.StatusUnauthorized, "invalid username or password")
+		}
 		var record ports.AccountAuth
 		if known {
 			var err error
@@ -209,6 +226,7 @@ func handlePasswordLogin(configPath string, webConfig WebUIConfig, throttle *ses
 			return
 		}
 		throttle.Reset(ip)
+		throttle.Reset(accountKey)
 		setAccountSessionCookie(w, raw, expiresAt)
 		writeWebResult(w, webResult{State: webSuccess, Title: "Logged in."})
 	}

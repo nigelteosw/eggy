@@ -66,7 +66,7 @@ func NewHTTPHandler(routes Routes) http.Handler {
 	if web != nil {
 		mux.Handle("/", web)
 	}
-	return mux
+	return withSecurityHeaders(mux)
 }
 
 func unavailable(w http.ResponseWriter, _ *http.Request) {

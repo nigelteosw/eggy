@@ -1,5 +1,5 @@
-// Package session holds the primitives the owner's login sits on: signed
-// session tokens and login-attempt throttling. It answers "who may talk to
+// Package session holds the primitives account login sits on: session
+// tokens, password hashing, and login-attempt throttling. It answers "who may talk to
 // Eggy", which is the opposite direction of trust from the OAuth grants in
 // internal/google and internal/mcp -- those answer "what may Eggy do on the owner's behalf".
 // The two are kept apart deliberately; merging them produces one security
@@ -22,8 +22,9 @@ import (
 
 // SignSession returns an HMAC-SHA256-signed session token encoding
 // expiresAt, verifiable later with only key -- no server-side session store.
-// The token carries no other payload: Eggy's web UI has exactly one owner
-// account, so there is nothing else to encode.
+// Its one caller is setup mode, which runs before any account exists, so the
+// token names nobody: it carries only its expiry. Account sessions are
+// opaque random tokens the database knows by hash (see NewToken), never this.
 func SignSession(key []byte, expiresAt time.Time) string {
 	payload := strconv.FormatInt(expiresAt.Unix(), 10)
 	return payload + "." + hex.EncodeToString(sign(key, payload))

@@ -176,8 +176,8 @@ func TestWebLoginThrottleKeysPerClientBehindTrustedProxy(t *testing.T) {
 	config := testWebConfig(t, now)
 	config.TrustedProxyHops = 1
 	handler := NewWebHandler("", config)
-	badLogin := func(forwardedFor string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"owner@example.com","password":"wrong"}`))
+	badLogin := func(forwardedFor, username string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"`+username+`","password":"wrong"}`))
 		request.RemoteAddr = "10.0.0.1:443"
 		request.Header.Set("X-Forwarded-For", forwardedFor)
 		response := httptest.NewRecorder()
@@ -185,12 +185,15 @@ func TestWebLoginThrottleKeysPerClientBehindTrustedProxy(t *testing.T) {
 		return response
 	}
 	for i := 0; i < 6; i++ {
-		badLogin("9.9.9.9")
+		badLogin("9.9.9.9", "owner@example.com")
 	}
-	if code := badLogin("9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := badLogin("9.9.9.9", "someone-else").Code; code != http.StatusTooManyRequests {
 		t.Fatalf("attacker not throttled: status=%d", code)
 	}
-	if code := badLogin("8.8.8.8").Code; code != http.StatusUnauthorized {
+	// A different username, so the account key is fresh and only the
+	// address bucket is under test. (The same username from any address is
+	// throttled by design; see TestPasswordLoginThrottlesPerAccountAcrossAddresses.)
+	if code := badLogin("8.8.8.8", "someone-else").Code; code != http.StatusUnauthorized {
 		t.Fatalf("a different client shares the attacker's bucket: status=%d", code)
 	}
 }

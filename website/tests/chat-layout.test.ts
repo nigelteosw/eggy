@@ -34,7 +34,8 @@ test("the composer is one box with the send control inside, and respects the pho
   expect(html).toContain('accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"');
   expect(html).not.toContain("Eggy can make mistakes.");
   expect(html).not.toContain("Run settings");
-  expect(html).toContain("safe-area-inset-bottom");
+  // The bottom inset comes from --safe-bottom, which the keyboard zeroes.
+  expect(html).toContain("var(--safe-bottom)");
   expect(html).toContain('aria-label="Send message"');
   // 36 px to the eye, 44 px under a finger.
   expect(html).toContain("[@media(pointer:coarse)]:h-11");

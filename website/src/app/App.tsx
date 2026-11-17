@@ -294,7 +294,7 @@ export function App() {
   // menu control on a phone; every other view gets the top bar instead.
 
   return (
-    <div className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visible ? { height: visible.height, top: visible.top } : undefined}>
+    <div data-keyboard={visible?.keyboard ? "open" : undefined} className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visible ? { height: visible.height, top: visible.top } : undefined}>
       {sidebarOpen && (
         <div
           className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"

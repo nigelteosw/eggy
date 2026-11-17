@@ -55,6 +55,17 @@
     }
   }
 
+  /* The home-indicator inset, which the composer pads by. iOS keeps reporting
+     it while the keyboard is up, and the keyboard covers that strip, so the
+     app zeroes it with data-keyboard on its root: the field then sits on the
+     keyboard instead of a strip of empty page above it. */
+  html {
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  [data-keyboard="open"] {
+    --safe-bottom: 0px;
+  }
+
   /* An icon's stroke follows the weight of the text it sits in, and its
      colour is the text's (currentColor), so a medium label never carries a
      hairline glyph or a bold one beside regular text. Icon in icons.tsx

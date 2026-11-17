@@ -459,7 +459,7 @@ export function Composer({
   const mode = agent?.approval_mode;
 
   return (
-    <form onSubmit={submit} className="composer-dock shrink-0 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-3 sm:px-8 sm:pb-4">
+    <form onSubmit={submit} className="composer-dock shrink-0 px-3 pb-[max(0.5rem,var(--safe-bottom))] pt-3 sm:px-8 sm:pb-4">
       <div className="mx-auto w-full max-w-4xl">
         {note && (
           <p className="mb-2 rounded-control bg-tomato-soft px-3 py-1.5 text-caption text-tomato" role="alert">

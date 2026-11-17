@@ -9,7 +9,11 @@ export function isEdgeSwipe(start: { x: number; y: number }, end: { x: number; y
   return start.x <= 24 && dx >= 60 && dy <= dx / 2;
 }
 
-export type Frame = { height: number; top: number };
+export type Frame = { height: number; top: number; keyboard: boolean };
+
+// A visual viewport this much shorter than the layout is the keyboard, not the
+// browser's own toolbar, which is smaller and comes and goes while scrolling.
+const KEYBOARD_MIN_HEIGHT = 150;
 
 // visibleFrame is where the app should sit: as tall as the visual viewport
 // shows (less when the keyboard is up) and as far down the page as it is.
@@ -17,9 +21,12 @@ export type Frame = { height: number; top: number };
 // the visual viewport down to the focused field, so a root sized right but
 // left at the top of the page is seen from partway down: the composer near
 // the top of the screen and empty page below it. Without a visual viewport
-// the layout height is the answer.
+// the layout height is the answer. keyboard says whether the keyboard has
+// taken the bottom of the screen, when the page drops the home-indicator
+// inset that the keyboard covers.
 export function visibleFrame(visual: { height: number; pageTop: number } | undefined, layout: number): Frame {
-  return visual ? { height: visual.height, top: Math.max(0, visual.pageTop) } : { height: layout, top: 0 };
+  if (!visual) return { height: layout, top: 0, keyboard: false };
+  return { height: visual.height, top: Math.max(0, visual.pageTop), keyboard: visual.height < layout - KEYBOARD_MIN_HEIGHT };
 }
 
 // useVisibleFrame tracks visibleFrame as the keyboard opens, closes and the
@@ -33,7 +40,7 @@ export function useVisibleFrame(): Frame | undefined {
     const update = () =>
       setFrame((current) => {
         const next = visibleFrame(visual, window.innerHeight);
-        return current && current.height === next.height && current.top === next.top ? current : next;
+        return current && current.height === next.height && current.top === next.top && current.keyboard === next.keyboard ? current : next;
       });
     update();
     visual.addEventListener("resize", update);

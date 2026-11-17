@@ -15,6 +15,7 @@ import { AgentRunnerCard } from "../extensions/agent-runner/AgentRunnerCard";
 import { SharedLabel } from "../components/ui/shared-label";
 import { TelegramCard } from "./TelegramCard";
 import { DiscordCard } from "./DiscordCard";
+import { WeatherSettingsCard } from "../weather/WeatherSettingsCard";
 import { pluginsEnabled } from "../extensions/marketplace/marketplace";
 
 // The page's address holds where the owner is, so refresh, a shared link and
@@ -162,6 +163,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                 <>
                   <GoogleCard onSessionExpired={onSessionExpired} />
                   <McpCard onSessionExpired={onSessionExpired} />
+                  <WeatherSettingsCard onSessionExpired={onSessionExpired} />
                 </>
               )}
               {route.tab === "extensions" && (

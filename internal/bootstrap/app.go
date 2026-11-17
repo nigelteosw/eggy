@@ -33,6 +33,7 @@ import (
 	skillsadapter "github.com/nigelteosw/eggy/internal/skills"
 	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 	"github.com/nigelteosw/eggy/internal/subprocess/localprocess"
+	"github.com/nigelteosw/eggy/internal/weather"
 )
 
 // This file is the composition root: AppOptions/App's shape and NewApp's
@@ -369,6 +370,13 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	// The finance extension: nil service and no tools unless finance.enabled, so
 	// an owner who does not track spending pays no schema bytes and no route.
+	// The home page's weather, and the read-only tool that lets a turn say
+	// "take an umbrella". One shared service, so the tool and Home read the
+	// same cached report.
+	weatherService := newWeather(config, connectionCredentials, options)
+	if err := gate(weather.NewTool(weatherService)); err != nil {
+		return nil, err
+	}
 	financeService, financeTools, err := newFinance(config, database, location, options.Now)
 	if err != nil {
 		return nil, err
@@ -591,6 +599,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	if connectionCredentials != nil {
 		webConfig.Connections = connectionCredentials
 	}
+	webConfig.Weather = weatherService
 	// The same nil rule: a nil *finance.Service boxed into the interface would
 	// look enabled to the panel, mount its routes and list the feature.
 	if financeService != nil {

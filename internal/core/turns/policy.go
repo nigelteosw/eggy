@@ -59,6 +59,10 @@ func ReadOnlyTools() agent.RunOptions {
 		// the schedule tool's list action: create and cancel stay off, because
 		// an unprompted turn must not change what runs later.
 		"schedule:list": true,
+		// The weather takes no arguments, so a call carries nothing a model
+		// chose to the outside; and a morning check-in warning about rain is
+		// one of the most useful things an unprompted turn can say.
+		"weather": true,
 	}}
 }
 

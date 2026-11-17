@@ -62,6 +62,7 @@ type Config struct {
 	Google           GoogleConfig                `yaml:"google,omitempty"`
 	Tavily           TavilyConfig                `yaml:"tavily,omitempty"`
 	Finance          FinanceConfig               `yaml:"finance,omitempty"`
+	Weather          WeatherConfig               `yaml:"weather,omitempty"`
 	Marketplace      MarketplaceConfig           `yaml:"marketplace,omitempty"`
 	AgentRunner      AgentRunnerConfig           `yaml:"agent_runner,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
@@ -687,6 +688,7 @@ func (c *Config) applyDefaults() error {
 	// nothing downstream has to lowercase a product name again.
 	c.Google.Products = normalizeProducts(c.Google.Products)
 	c.Finance.Currency = normalizeFinanceCurrency(c.Finance.Currency)
+	c.Weather.Area = normalizeWeatherArea(c.Weather.Area)
 	if c.Tavily.APIKeyEnv == "" {
 		c.Tavily.APIKeyEnv = "TAVILY_API_KEY"
 	}

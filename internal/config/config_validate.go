@@ -146,6 +146,9 @@ func (c Config) Validate() error {
 	if err := c.validateFinance(); err != nil {
 		return err
 	}
+	if err := c.validateWeather(); err != nil {
+		return err
+	}
 	if err := c.validateAgentRunner(); err != nil {
 		return err
 	}

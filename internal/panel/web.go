@@ -139,6 +139,9 @@ type WebUIConfig struct {
 	// AgentRunner is the coding-run extension. Nil unless agent_runner.enabled,
 	// and then the page and its routes exist; nil mounts nothing.
 	AgentRunner AgentRunnerService
+	// Weather is the shared live-weather report for the home page. Bootstrap
+	// always supplies it; nil leaves the report route unmounted.
+	Weather WeatherService
 	// Schedules lists and cancels cron jobs for the panel. Creating one
 	// stays conversational, so this is deliberately not a full CRUD surface.
 	Schedules ScheduleDirectory
@@ -413,6 +416,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 		mux.Handle("DELETE /api/finance/entries/{id}", guard(newFinanceDeleteHandler(webConfig.Finance)))
 		mux.Handle("GET /api/finance/summary", guard(newFinanceSummaryHandler(webConfig.Finance)))
 		mux.Handle("PUT /api/finance/categories/{name}", guard(newFinanceCategoryHandler(webConfig.Finance)))
+	}
+	mux.Handle("GET /api/config/weather", guard(weatherSettingsGetRoute(configPath, webConfig)))
+	mux.Handle("POST /api/config/weather", guard(weatherSettingsSetRoute(configPath, webConfig)))
+	mux.Handle("DELETE /api/config/weather/key", guard(weatherKeyClearRoute(webConfig)))
+	if webConfig.Weather != nil {
+		mux.Handle("GET /api/weather", guard(newWeatherHandler(webConfig.Weather)))
 	}
 	if webConfig.Marketplace != nil {
 		registerMarketplaceRoutes(mux, guard, webConfig.Marketplace, configPath)

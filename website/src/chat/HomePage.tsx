@@ -20,11 +20,12 @@ import { useConfirm } from "../components/ui/confirm";
 import { TrashIcon } from "../components/ui/icons";
 import { FIELD_COMPACT } from "../components/ui/form";
 import { rewriteWatch, watchItems, type WatchItem } from "./watch-edit";
+import { WeatherCard } from "../weather/WeatherCard";
 
-// The home page answers the three things a person wants when they open Eggy:
-// what needs them, what Eggy is keeping an eye on, and what is coming up. Each
-// is read from the state the panel already holds, so Home adds no mechanism of
-// its own; it only brings those answers to the front.
+// The home page answers what a person wants when they open Eggy: what the
+// weather is doing, what needs them, what Eggy is keeping an eye on, and what
+// is coming up. All but the weather are read from state the panel already
+// holds; the weather is a shared live report from data.gov.sg.
 //
 // It also teaches a new owner what Eggy is for, through a short checklist that
 // ticks itself off from real state and disappears once every item is done.
@@ -159,6 +160,8 @@ export function HomePage({
     <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
       <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
         <PageHeader title={greeting(new Date().getHours(), name)} voice onOpenSidebar={onOpenSidebar} description={status} />
+
+        <WeatherCard onSessionExpired={onSessionExpired} />
 
         {error && <p className="rounded-control bg-tomato-soft px-3 py-2 text-small text-tomato" role="alert">{error}</p>}
 

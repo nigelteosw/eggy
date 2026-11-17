@@ -363,6 +363,64 @@ export function clearDiscordToken(): Promise<CommandResult> {
   return request("/api/config/discord/token", { method: "DELETE" });
 }
 
+// --- Weather --------------------------------------------------------------------
+// Live Singapore weather for Home, from data.gov.sg. One report is shared by
+// every account. Each section can be missing when upstream did not answer it.
+
+export type WeatherNow = {
+  temperature?: number;
+  humidity?: number;
+  station?: string;
+  observed_at?: string;
+  forecast?: string;
+  valid_text?: string;
+};
+
+export type WeatherDay = {
+  forecast: string;
+  low: number;
+  high: number;
+  humidity_low: number;
+  humidity_high: number;
+  wind_low: number;
+  wind_high: number;
+  wind_direction?: string;
+};
+
+export type WeatherPeriod = { label: string; text: string; start: string; end: string; forecast: string };
+export type WeatherOutlook = { day: string; date: string; forecast: string; summary?: string; low: number; high: number };
+
+export type WeatherReport = {
+  area: string;
+  region?: string;
+  fetched_at: string;
+  stale?: boolean;
+  now?: WeatherNow;
+  today?: WeatherDay;
+  periods?: WeatherPeriod[];
+  outlook?: WeatherOutlook[];
+};
+
+export function getWeather(refresh = false): Promise<WeatherReport> {
+  return request<WeatherReport>(`/api/weather${refresh ? "?refresh=1" : ""}`);
+}
+
+// The key is written once and never read back; the view says only whether one
+// is stored. Both the area and the key apply on the next fetch, no restart.
+export type WeatherSettings = { area: string; areas: string[]; key_set: boolean; key_storable: boolean };
+
+export function getWeatherSettings(): Promise<WeatherSettings> {
+  return request<WeatherSettings>("/api/config/weather");
+}
+
+export function setWeatherSettings(input: { area: string; api_key: string }): Promise<CommandResult> {
+  return request("/api/config/weather", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function clearWeatherKey(): Promise<CommandResult> {
+  return request("/api/config/weather/key", { method: "DELETE" });
+}
+
 export function setExpectedGoogleEmail(email: string): Promise<CommandResult> {
   return request("/api/config/google/expected-email", { method: "POST", body: JSON.stringify({ email }) });
 }

@@ -9,10 +9,10 @@ import (
 	sqlitestore "github.com/nigelteosw/eggy/internal/storage/sqlite"
 )
 
-// connectionIDs lists every chat connection whose credentials may be
-// stored, for redaction: a stored bot token must be kept out of logs and
-// traces exactly as an environment one is.
-var connectionIDs = []string{config.DiscordConnection}
+// connectionIDs lists every connection whose credentials may be stored, for
+// redaction: a stored bot token or API key must be kept out of logs and traces
+// exactly as an environment one is.
+var connectionIDs = []string{config.DiscordConnection, config.WeatherConnection}
 
 // openConnectionCredentials builds the sealed per-connection credential
 // store, or nothing when there is no encryption key to seal under. A

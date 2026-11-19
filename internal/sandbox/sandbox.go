@@ -1,4 +1,4 @@
-package agentrunner
+package sandbox
 
 import (
 	"crypto/rand"
@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// ErrSandboxUnsupported is returned on any platform other than Linux, where
+// ErrUnsupported is returned on any platform other than Linux, where
 // the Landlock-based confinement this extension relies on does not exist.
-var ErrSandboxUnsupported = errors.New("sandbox unsupported on this platform")
+var ErrUnsupported = errors.New("sandbox unsupported on this platform")
 
 // Limits the sandbox enforces on every command. They are constants, not
 // config: a run's cost ceiling is part of what the owner agreed to.
@@ -30,8 +30,8 @@ const (
 	sandboxExecExitFailed = 125
 )
 
-// SandboxSpec is one command to run inside a run's sandbox.
-type SandboxSpec struct {
+// Spec is one command to run inside a run's sandbox.
+type Spec struct {
 	RunDir    string        // <data>/agent-runs/<id>; its ws/, home/ and tmp/ are the only writable paths
 	Argv      []string      // program and arguments; Argv[0] is resolved on the sandbox PATH
 	Timeout   time.Duration // zero means defaultCommandTimeout
@@ -41,9 +41,9 @@ type SandboxSpec struct {
 	FullOutputDir string
 }
 
-// SandboxResult is what one command produced. Output is the end of the
+// Result is what one command produced. Output is the end of the
 // command's output; Truncated says whether anything before it was dropped.
-type SandboxResult struct {
+type Result struct {
 	ExitCode  int
 	Output    string
 	TimedOut  bool
@@ -74,9 +74,9 @@ func runEnv(runDir string) []string {
 	}
 }
 
-// makeRunDirs creates a run's three writable directories. Ownership is set
+// MakeRunDirs creates a run's three writable directories. Ownership is set
 // by the platform code, which knows the coder account.
-func makeRunDirs(runDir string) error {
+func MakeRunDirs(runDir string) error {
 	for _, sub := range []string{"ws", "home", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(runDir, sub), 0o700); err != nil {
 			return err
@@ -104,21 +104,81 @@ func validRunDir(runDir string) error {
 	return nil
 }
 
-// parseSandboxExec splits "<runDir> -- <argv...>" as the sandbox-exec entry
-// point receives it.
-func parseSandboxExec(args []string) (runDir string, argv []string, err error) {
-	if len(args) < 3 || args[1] != "--" {
-		return "", nil, errors.New("usage: sandbox-exec <run-dir> -- <command> [args...]")
+// TerminalDir is the terminal extension's one sandbox directory under the data
+// directory. LockDataDir keeps its ws/, home/ and tmp/ with coder.
+const TerminalDir = "terminal"
+
+// terminalFlag selects terminal mode on the sandbox-exec command line.
+const terminalFlag = "--terminal"
+
+// terminalEnv is runEnv plus what an interactive terminal needs: a terminal
+// type, the owner's own installs in ~/.local/bin (where Claude Code's
+// installer puts it), and herdr-core's session and socket under the home, so
+// nothing depends on a login session or XDG_RUNTIME_DIR the container lacks.
+// Like runEnv it is built from nothing.
+func terminalEnv(dir string) []string {
+	home := filepath.Join(dir, "home")
+	env := runEnv(dir)
+	for i, entry := range env {
+		if strings.HasPrefix(entry, "PATH=") {
+			env[i] = "PATH=" + filepath.Join(home, ".local", "bin") + ":" + strings.TrimPrefix(entry, "PATH=")
+		}
 	}
-	if err := validRunDir(args[0]); err != nil {
-		return "", nil, err
-	}
-	return args[0], args[2:], nil
+	return append(env,
+		"TERM=xterm-256color",
+		"COLORTERM=truecolor",
+		"SHELL=/bin/bash",
+		"HC_SESSION=eggy",
+		"HC_SOCKET="+filepath.Join(home, ".hc.sock"),
+	)
 }
 
-// within reports whether path is dir or below it, comparing cleaned paths
+// envFor is the environment for a mode.
+func envFor(dir string, terminal bool) []string {
+	if terminal {
+		return terminalEnv(dir)
+	}
+	return runEnv(dir)
+}
+
+// lookPath resolves name against the PATH in env, never the parent's: the
+// command must be one the sandbox itself would find.
+func lookPath(name string, env []string) (string, error) {
+	if strings.Contains(name, "/") {
+		return name, nil
+	}
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, "PATH=") {
+			continue
+		}
+		for _, dir := range filepath.SplitList(strings.TrimPrefix(entry, "PATH=")) {
+			candidate := filepath.Join(dir, name)
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%q not found on the sandbox PATH", name)
+}
+
+// parseSandboxExec splits "[--terminal] <runDir> -- <argv...>" as the
+// sandbox-exec entry point receives it.
+func parseSandboxExec(args []string) (runDir string, terminal bool, argv []string, err error) {
+	if len(args) > 0 && args[0] == terminalFlag {
+		terminal, args = true, args[1:]
+	}
+	if len(args) < 3 || args[1] != "--" {
+		return "", false, nil, errors.New("usage: sandbox-exec [--terminal] <run-dir> -- <command> [args...]")
+	}
+	if err := validRunDir(args[0]); err != nil {
+		return "", false, nil, err
+	}
+	return args[0], terminal, args[2:], nil
+}
+
+// Within reports whether path is dir or below it, comparing cleaned paths
 // lexically. Callers resolve symlinks first when the distinction matters.
-func within(path, dir string) bool {
+func Within(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel)
 }

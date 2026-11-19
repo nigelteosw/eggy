@@ -20,9 +20,9 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/bootstrap"
 	"github.com/nigelteosw/eggy/internal/config"
-	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/panel"
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // envFilePath prefers <home>/.env, the layout's own slot for secrets, and
@@ -42,7 +42,7 @@ func main() {
 	// sandbox-exec is not a daemon mode: it is this binary re-running itself
 	// as a confined command. It must run before any config or state is read.
 	if len(os.Args) > 1 && os.Args[1] == "sandbox-exec" {
-		os.Exit(agentrunner.SandboxExecMain(os.Args[2:]))
+		os.Exit(sandbox.ExecMain(os.Args[2:]))
 	}
 	if err := run(); err != nil {
 		slog.Error("eggyd stopped", "error", err)

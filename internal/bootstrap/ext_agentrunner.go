@@ -21,6 +21,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // probeTimeout bounds the whole startup sandbox check, so a hung probe cannot
@@ -44,7 +45,7 @@ func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.Agent
 
 	var runner agentrunner.CommandRunner
 	sandboxOK, sandboxReason := false, ""
-	sandbox, err := agentrunner.NewSandbox()
+	sandbox, err := sandbox.New()
 	switch {
 	case err != nil:
 		runner, sandboxReason = agentrunner.Refused{Reason: err}, err.Error()

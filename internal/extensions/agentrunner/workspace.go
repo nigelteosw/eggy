@@ -12,12 +12,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // CommandRunner is the sandbox as the workspace sees it. The real Sandbox
 // satisfies it; tests substitute a fake.
 type CommandRunner interface {
-	Run(ctx context.Context, spec SandboxSpec) (SandboxResult, error)
+	Run(ctx context.Context, spec sandbox.Spec) (sandbox.Result, error)
 	PrepareRunDir(runDir string) error
 }
 
@@ -27,8 +29,8 @@ type CommandRunner interface {
 type Refused struct{ Reason error }
 
 // Run refuses.
-func (r Refused) Run(context.Context, SandboxSpec) (SandboxResult, error) {
-	return SandboxResult{}, r.Reason
+func (r Refused) Run(context.Context, sandbox.Spec) (sandbox.Result, error) {
+	return sandbox.Result{}, r.Reason
 }
 
 // PrepareRunDir refuses.
@@ -66,7 +68,7 @@ func (w *Workspaces) Dir(runID string) string {
 // never appears in argv, a URL or the repository's config.
 func (w *Workspaces) Clone(ctx context.Context, runID, cloneURL, baseBranch, token string) (string, error) {
 	dir := w.Dir(runID)
-	if err := makeRunDirs(dir); err != nil {
+	if err := sandbox.MakeRunDirs(dir); err != nil {
 		return "", err
 	}
 	env, cleanup, err := gitEnv(w.root, filepath.Join(dir, "home"), token)
@@ -224,7 +226,7 @@ func resolveInside(ws, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !within(real, wsReal) {
+	if !sandbox.Within(real, wsReal) {
 		return "", fmt.Errorf("path %q resolves outside the workspace", rel)
 	}
 	return joined, nil

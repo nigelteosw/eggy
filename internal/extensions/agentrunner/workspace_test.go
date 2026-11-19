@@ -8,21 +8,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // fakeRunner stands in for the sandbox: it records each command and answers
 // with a fixed result, so tests of the tools need no Linux.
 type fakeRunner struct {
-	specs  []SandboxSpec
-	result SandboxResult
+	specs  []sandbox.Spec
+	result sandbox.Result
 }
 
-func (f *fakeRunner) Run(_ context.Context, spec SandboxSpec) (SandboxResult, error) {
+func (f *fakeRunner) Run(_ context.Context, spec sandbox.Spec) (sandbox.Result, error) {
 	f.specs = append(f.specs, spec)
 	return f.result, nil
 }
 
-func (f *fakeRunner) PrepareRunDir(runDir string) error { return makeRunDirs(runDir) }
+func (f *fakeRunner) PrepareRunDir(runDir string) error { return sandbox.MakeRunDirs(runDir) }
 
 const runIDA = "0123456789abcdef0123456789abcdef"
 
@@ -114,7 +116,7 @@ func TestSweepHonorsRetention(t *testing.T) {
 	kept := strings.Repeat("c", 32)
 	gone := strings.Repeat("d", 32)
 	for _, id := range []string{kept, gone} {
-		if err := makeRunDirs(w.Dir(id)); err != nil {
+		if err := sandbox.MakeRunDirs(w.Dir(id)); err != nil {
 			t.Fatal(err)
 		}
 	}

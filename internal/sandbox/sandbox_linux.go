@@ -1,6 +1,6 @@
 //go:build linux
 
-package agentrunner
+package sandbox
 
 import (
 	"context"
@@ -61,6 +61,19 @@ var readOnlyTrees = []string{"/usr", "/bin", "/lib", "/lib64", "/etc", "/usr/loc
 // writableDevices are the only device nodes a command may write.
 var writableDevices = []string{"/dev/null"}
 
+// Terminal mode adds what a pseudo-terminal needs and nothing else: the
+// randomness devices herdr-core reads at startup, and the pty multiplexer, the
+// pty slaves and the controlling terminal, which a holder opens, writes and
+// sets modes on. Paths, ports and signals stay as for a command.
+var (
+	terminalReadDevices = []string{"/dev/urandom", "/dev/random", "/dev/zero"}
+	terminalPTYDevices  = []string{"/dev/ptmx", "/dev/tty", "/dev/pts"}
+)
+
+// ptyRights are what a holder needs on a pty device: open it for read and
+// write, and the terminal ioctls (window size, modes).
+const ptyRights = unix.LANDLOCK_ACCESS_FS_READ_FILE | unix.LANDLOCK_ACCESS_FS_WRITE_FILE | unix.LANDLOCK_ACCESS_FS_IOCTL_DEV
+
 // webPorts are the only TCP ports a command may connect to: dependency
 // downloads over HTTPS and HTTP. Binding is not granted at all.
 var webPorts = []uint64{443, 80}
@@ -72,9 +85,9 @@ type Sandbox struct {
 	self     string
 }
 
-// NewSandbox looks up the coder account and records this executable, which
+// New looks up the coder account and records this executable, which
 // the sandbox-exec entry point re-runs as.
-func NewSandbox() (*Sandbox, error) {
+func New() (*Sandbox, error) {
 	u, err := user.Lookup("coder")
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
@@ -99,7 +112,7 @@ func NewSandbox() (*Sandbox, error) {
 // writing, so coder cannot rename or replace the subtrees, and the publisher's
 // own checkout, which sits beside them, is never handed to the agent.
 func (s *Sandbox) PrepareRunDir(runDir string) error {
-	if err := makeRunDirs(runDir); err != nil {
+	if err := MakeRunDirs(runDir); err != nil {
 		return err
 	}
 	if err := os.Chmod(runDir, 0o711); err != nil {
@@ -129,12 +142,16 @@ func (s *Sandbox) chownTree(root string) error {
 // Run executes spec.Argv as coder inside spec.RunDir, through the sandbox-exec
 // entry point. The command runs in its own process group, which is killed on
 // timeout, and its output is capped.
-func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, error) {
+func (s *Sandbox) Run(ctx context.Context, spec Spec) (Result, error) {
+	return s.run(ctx, spec, false)
+}
+
+func (s *Sandbox) run(ctx context.Context, spec Spec, terminal bool) (Result, error) {
 	if err := validRunDir(spec.RunDir); err != nil {
-		return SandboxResult{}, err
+		return Result{}, err
 	}
 	if len(spec.Argv) == 0 {
-		return SandboxResult{}, errors.New("sandbox: empty command")
+		return Result{}, errors.New("sandbox: empty command")
 	}
 	timeout, capBytes := spec.Timeout, spec.OutputCap
 	if timeout <= 0 {
@@ -143,36 +160,46 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 	if capBytes <= 0 {
 		capBytes = outputTailBytes
 	}
-	args := append([]string{"sandbox-exec", spec.RunDir, "--"}, spec.Argv...)
-	cmd := exec.Command(s.self, args...)
-	cmd.Dir = filepath.Join(spec.RunDir, "ws")
-	cmd.Env = runEnv(spec.RunDir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid:    true,
-		Credential: &syscall.Credential{Uid: s.coderUID, Gid: s.coderGID},
-	}
+	cmd := s.command(spec.RunDir, terminal, spec.Argv)
 	var fullFile io.Writer
 	var fullPath string
 	if spec.FullOutputDir != "" {
 		f, err := os.CreateTemp(spec.FullOutputDir, "output-*.log")
 		if err != nil {
-			return SandboxResult{}, fmt.Errorf("sandbox: output file: %w", err)
+			return Result{}, fmt.Errorf("sandbox: output file: %w", err)
 		}
 		defer f.Close()
 		// The command runs as the coder user and reads this file back with its own
 		// shell, so the file is handed to that user; the parent does the writing.
 		if err := f.Chown(int(s.coderUID), int(s.coderGID)); err != nil {
 			_ = os.Remove(f.Name())
-			return SandboxResult{}, fmt.Errorf("sandbox: output file owner: %w", err)
+			return Result{}, fmt.Errorf("sandbox: output file owner: %w", err)
 		}
 		fullFile, fullPath = f, f.Name()
 	}
-	out := newOutputTail(capBytes, fullFile, maxFullOutput)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	if err := cmd.Start(); err != nil {
-		return SandboxResult{}, fmt.Errorf("sandbox: start: %w", err)
+	out := NewOutputTail(capBytes, fullFile, maxFullOutput)
+	// The command writes into a pipe this process owns, not an io.Writer that
+	// exec copies into: with a writer, Wait also waits for every holder of the
+	// pipe to close it, so a backgrounded child kept Wait, and the group kill
+	// after it, waiting until the child had done what it liked.
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return Result{}, fmt.Errorf("sandbox: pipe: %w", err)
 	}
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+	if err := cmd.Start(); err != nil {
+		_ = reader.Close()
+		_ = writer.Close()
+		return Result{}, fmt.Errorf("sandbox: start: %w", err)
+	}
+	_ = writer.Close()
+	copied := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(out, reader)
+		_ = reader.Close()
+		close(copied)
+	}()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	done := make(chan struct{})
@@ -194,11 +221,13 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 	// running and could keep writing into the workspace while the publisher
 	// reads it. Nothing may outlive the command, so the whole group goes.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	// With the group gone the pipe's last writer is closed, so the copy ends.
+	<-copied
 	mu.Lock()
 	didTimeOut := timedOut
 	mu.Unlock()
 	text, truncated := out.result()
-	result := SandboxResult{
+	result := Result{
 		Output:               text,
 		Truncated:            truncated,
 		TimedOut:             didTimeOut,
@@ -213,6 +242,37 @@ func (s *Sandbox) Run(ctx context.Context, spec SandboxSpec) (SandboxResult, err
 		return result, fmt.Errorf("sandbox: wait: %w", waitErr)
 	}
 	return result, nil
+}
+
+// command builds the sandbox-exec invocation for argv in dir, as coder, in its
+// own process group. It is not started.
+func (s *Sandbox) command(dir string, terminal bool, argv []string) *exec.Cmd {
+	args := []string{"sandbox-exec"}
+	if terminal {
+		args = append(args, terminalFlag)
+	}
+	args = append(append(args, dir, "--"), argv...)
+	cmd := exec.Command(s.self, args...)
+	cmd.Dir = filepath.Join(dir, "ws")
+	cmd.Env = envFor(dir, terminal)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid:    true,
+		Credential: &syscall.Credential{Uid: s.coderUID, Gid: s.coderGID},
+	}
+	return cmd
+}
+
+// Terminal returns argv confined in terminal mode in dir, which must have been
+// prepared with PrepareRunDir. It has no timeout and no output capture: the
+// caller wires its pipes, starts it, and kills its process group when done.
+func (s *Sandbox) Terminal(dir string, argv []string) (*exec.Cmd, error) {
+	if err := validRunDir(dir); err != nil {
+		return nil, err
+	}
+	if len(argv) == 0 {
+		return nil, errors.New("sandbox: empty command")
+	}
+	return s.command(dir, true, argv), nil
 }
 
 // Probe proves the sandbox works before any command is trusted with it. The
@@ -241,18 +301,24 @@ func (s *Sandbox) Probe(ctx context.Context, dataDir string, eggyPort int) error
 	defer os.Remove(outside)
 
 	checks := []struct {
-		name string
-		argv []string
-		want string // "ok" needs exit 0; "denied" needs a plain non-zero exit
+		name     string
+		argv     []string
+		want     string // "ok" needs exit 0; "denied" needs a plain non-zero exit
+		terminal bool   // run in terminal mode, which must deny exactly as much
 	}{
-		{"exec", []string{"true"}, "ok"},
-		{"read root-only file", []string{"cat", secret}, "denied"},
-		{"write outside run", []string{"sh", "-c", "touch " + outside}, "denied"},
-		{"connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied"},
-		{"signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied"},
+		{"exec", []string{"true"}, "ok", false},
+		{"read root-only file", []string{"cat", secret}, "denied", false},
+		{"write outside run", []string{"sh", "-c", "touch " + outside}, "denied", false},
+		{"connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied", false},
+		{"signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied", false},
+		{"terminal exec", []string{"head", "-c1", "/dev/urandom"}, "ok", true},
+		{"terminal read root-only file", []string{"cat", secret}, "denied", true},
+		{"terminal write outside run", []string{"sh", "-c", "touch " + outside}, "denied", true},
+		{"terminal connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied", true},
+		{"terminal signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied", true},
 	}
 	for _, check := range checks {
-		result, err := s.Run(ctx, SandboxSpec{RunDir: runDir, Argv: check.argv, Timeout: 30 * time.Second})
+		result, err := s.run(ctx, Spec{RunDir: runDir, Argv: check.argv, Timeout: 30 * time.Second}, check.terminal)
 		if err != nil {
 			return fmt.Errorf("sandbox probe: %s: %w", check.name, err)
 		}
@@ -284,6 +350,7 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 	if err := os.MkdirAll(runs, 0o711); err != nil {
 		return err
 	}
+	terminal := filepath.Join(dataDir, TerminalDir)
 	return filepath.WalkDir(dataDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -294,7 +361,32 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 		if path == runs {
 			return os.Chmod(runs, 0o711)
 		}
-		if within(path, runs) {
+		if path == terminal {
+			// The terminal directory is one run directory: root-owned and
+			// traversable, its own subtrees coder's, and it keeps them across
+			// restarts as an interrupted run does.
+			if err := os.Lchown(path, 0, 0); err != nil {
+				return err
+			}
+			return os.Chmod(path, 0o711)
+		}
+		if Within(path, terminal) {
+			rel, err := filepath.Rel(terminal, path)
+			if err != nil {
+				return err
+			}
+			parts := strings.Split(rel, string(filepath.Separator))
+			if slices.Contains(agentWritable, parts[0]) {
+				if len(parts) == 1 && entry.IsDir() {
+					return s.chownTree(path)
+				}
+				if len(parts) > 1 {
+					return nil
+				}
+			}
+			return os.Lchown(path, 0, 0)
+		}
+		if Within(path, runs) {
 			// Inside a run, only the agent's own subtrees go to coder; the run
 			// directory and the publisher's checkout stay root-owned. Interrupted
 			// runs keep their workspaces across restarts.
@@ -327,26 +419,27 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 	})
 }
 
-// SandboxExecMain is the sandbox-exec entry point, run inside the child
+// ExecMain is the sandbox-exec entry point, run inside the child
 // process as coder. It confines itself and then replaces itself with the
 // command. Any failure exits 125 before the command could run unconfined.
-func SandboxExecMain(args []string) int {
+func ExecMain(args []string) int {
 	// Landlock restricts the calling thread only, and Go may move a goroutine
 	// to another thread between confine and exec. Pinning keeps the restriction
 	// and the exec on the same thread, so the command cannot run unconfined.
 	runtime.LockOSThread()
-	runDir, argv, err := parseSandboxExec(args)
+	runDir, terminal, argv, err := parseSandboxExec(args)
 	if err != nil {
 		return failSandbox(err)
 	}
-	path, err := exec.LookPath(argv[0])
+	env := envFor(runDir, terminal)
+	path, err := lookPath(argv[0], env)
 	if err != nil {
 		return failSandbox(err)
 	}
-	if err := confine(runDir); err != nil {
+	if err := confine(runDir, terminal); err != nil {
 		return failSandbox(err)
 	}
-	if err := unix.Exec(path, argv, runEnv(runDir)); err != nil {
+	if err := unix.Exec(path, argv, env); err != nil {
 		return failSandbox(err)
 	}
 	return sandboxExecExitFailed
@@ -359,7 +452,7 @@ func failSandbox(err error) int {
 
 // confine applies the ruleset to the calling process. It is one-way: once
 // restricted, the process and everything it execs stays restricted.
-func confine(runDir string) error {
+func confine(runDir string, terminal bool) error {
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("no_new_privs: %w", err)
 	}
@@ -392,6 +485,18 @@ func confine(runDir string) error {
 	for _, device := range writableDevices {
 		if err := addPathRule(rulesetFD, device, fsReadExec|unix.LANDLOCK_ACCESS_FS_WRITE_FILE); err != nil {
 			return err
+		}
+	}
+	if terminal {
+		for _, device := range terminalReadDevices {
+			if err := addPathRule(rulesetFD, device, unix.LANDLOCK_ACCESS_FS_READ_FILE); err != nil {
+				return err
+			}
+		}
+		for _, device := range terminalPTYDevices {
+			if err := addPathRule(rulesetFD, device, ptyRights); err != nil {
+				return err
+			}
 		}
 	}
 	// The run directory is the only writable tree.

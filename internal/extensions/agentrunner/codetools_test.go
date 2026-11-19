@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 func findTool(t *testing.T, tools []ports.Tool, name string) ports.Tool {
@@ -40,7 +41,7 @@ func call(t *testing.T, tool ports.Tool, input string) (string, error) {
 func newWorkspaceForTools(t *testing.T, runner CommandRunner, checks [][]string) (*Workspaces, *ActiveRun, string) {
 	t.Helper()
 	w := NewWorkspaces(t.TempDir(), runner)
-	if err := makeRunDirs(w.Dir(runIDA)); err != nil {
+	if err := sandbox.MakeRunDirs(w.Dir(runIDA)); err != nil {
 		t.Fatal(err)
 	}
 	return w, &ActiveRun{ID: runIDA, Checks: checks}, filepath.Join(w.Dir(runIDA), "ws")
@@ -72,7 +73,7 @@ func TestEditExactUnique(t *testing.T) {
 }
 
 func TestRunCheckRecordsAndBashDoesNot(t *testing.T) {
-	runner := &fakeRunner{result: SandboxResult{ExitCode: 0, Output: "ok"}}
+	runner := &fakeRunner{result: sandbox.Result{ExitCode: 0, Output: "ok"}}
 	w, run, _ := newWorkspaceForTools(t, runner, [][]string{{"go", "test", "./..."}})
 	tools := CodingTools(w, run, true)
 	if _, err := call(t, findTool(t, tools, "bash"), `{"command":"echo hi"}`); err != nil {

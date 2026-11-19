@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // Limits on what one tool call returns to the model.
@@ -249,7 +250,7 @@ func bashTool(ctx context.Context, runner CommandRunner, runDir string, in json.
 	if err := json.Unmarshal(in, &args); err != nil {
 		return "", err
 	}
-	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: []string{"bash", "-c", args.Command}, FullOutputDir: filepath.Join(runDir, "tmp")})
+	result, err := runner.Run(ctx, sandbox.Spec{RunDir: runDir, Argv: []string{"bash", "-c", args.Command}, FullOutputDir: filepath.Join(runDir, "tmp")})
 	if err != nil {
 		return "", err
 	}
@@ -267,7 +268,7 @@ func runCheckTool(ctx context.Context, runner CommandRunner, runDir string, run 
 		return "", fmt.Errorf("index %d is not a configured check (have %d)", args.Index, len(run.Checks))
 	}
 	argv := run.Checks[args.Index]
-	result, err := runner.Run(ctx, SandboxSpec{RunDir: runDir, Argv: argv, FullOutputDir: filepath.Join(runDir, "tmp")})
+	result, err := runner.Run(ctx, sandbox.Spec{RunDir: runDir, Argv: argv, FullOutputDir: filepath.Join(runDir, "tmp")})
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +280,7 @@ func runCheckTool(ctx context.Context, runner CommandRunner, runDir string, run 
 
 // formatResult is what the model sees of a command: its output, then how it
 // ended. Output that was cut says what it kept, and where the whole of it is.
-func formatResult(result SandboxResult) string {
+func formatResult(result sandbox.Result) string {
 	status := fmt.Sprintf("exit %d", result.ExitCode)
 	if result.TimedOut {
 		status = "timed out"

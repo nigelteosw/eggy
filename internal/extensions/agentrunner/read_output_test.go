@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 // Offsets are 1-based, as search reports lines. Offset 2 is the second line.
@@ -92,11 +94,11 @@ func TestReadPastTheEndIsAnError(t *testing.T) {
 // A cut command output says what it kept and where the whole of it is, so the
 // model knows it has not seen everything.
 func TestFormatResultNamesTheFullOutputWhenCut(t *testing.T) {
-	out := formatResult(SandboxResult{Output: "FAIL", Truncated: true, FullOutputPath: "/runs/x/tmp/output-1.log", ExitCode: 1})
+	out := formatResult(sandbox.Result{Output: "FAIL", Truncated: true, FullOutputPath: "/runs/x/tmp/output-1.log", ExitCode: 1})
 	if !strings.Contains(out, "/runs/x/tmp/output-1.log") || !strings.HasSuffix(out, "[exit 1]") {
 		t.Fatalf("formatted = %q", out)
 	}
-	if plain := formatResult(SandboxResult{Output: "ok", ExitCode: 0}); strings.Contains(plain, "cut") {
+	if plain := formatResult(sandbox.Result{Output: "ok", ExitCode: 0}); strings.Contains(plain, "cut") {
 		t.Fatalf("whole output marked as cut: %q", plain)
 	}
 }

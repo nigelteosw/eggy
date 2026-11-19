@@ -1,6 +1,6 @@
 //go:build linux
 
-package agentrunner
+package sandbox
 
 import (
 	"testing"

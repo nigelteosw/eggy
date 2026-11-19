@@ -1,4 +1,4 @@
-package agentrunner
+package sandbox
 
 import (
 	"io"
@@ -6,11 +6,11 @@ import (
 	"unicode/utf8"
 )
 
-// outputTail is what a sandboxed command's output becomes. The model reads the
+// OutputTail is what a sandboxed command's output becomes. The model reads the
 // end of it, where errors and summaries are, so only the last limit bytes are
 // kept in memory. Every byte also goes to full, up to fullCap, so the model can
 // search the rest with a narrower command.
-type outputTail struct {
+type OutputTail struct {
 	mu    sync.Mutex
 	limit int
 	tail  []byte
@@ -24,12 +24,12 @@ type outputTail struct {
 	fileIncomplete bool
 }
 
-// newOutputTail keeps the last limit bytes. A nil full writer keeps no copy.
-func newOutputTail(limit int, full io.Writer, fullCap int64) *outputTail {
-	return &outputTail{limit: limit, full: full, fullCap: fullCap}
+// NewOutputTail keeps the last limit bytes. A nil full writer keeps no copy.
+func NewOutputTail(limit int, full io.Writer, fullCap int64) *OutputTail {
+	return &OutputTail{limit: limit, full: full, fullCap: fullCap}
 }
 
-func (o *outputTail) Write(p []byte) (int, error) {
+func (o *OutputTail) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.total += int64(len(p))
@@ -57,7 +57,7 @@ func (o *outputTail) Write(p []byte) (int, error) {
 // result returns the kept end of the output and whether anything before it
 // was dropped. A cut that splits a UTF-8 character is moved forward to the next
 // whole character.
-func (o *outputTail) result() (string, bool) {
+func (o *OutputTail) result() (string, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	data := o.tail
@@ -74,7 +74,7 @@ func (o *outputTail) result() (string, bool) {
 }
 
 // complete reports whether the full copy holds every byte written.
-func (o *outputTail) complete() bool {
+func (o *OutputTail) complete() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return !o.fileIncomplete

@@ -18,6 +18,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/agent"
 	"github.com/nigelteosw/eggy/internal/ports"
+	"github.com/nigelteosw/eggy/internal/sandbox"
 )
 
 const testSecret = "sk-live-test-secret-value"
@@ -168,7 +169,7 @@ func (p *pubEnv) newRun(id string) ports.AgentRun {
 // base file.
 func seedWorkspace(t *testing.T, runDir string) {
 	t.Helper()
-	if err := makeRunDirs(runDir); err != nil {
+	if err := sandbox.MakeRunDirs(runDir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(runDir, "ws", "README.md"), []byte("hello\n"), 0o600); err != nil {

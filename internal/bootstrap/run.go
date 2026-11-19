@@ -20,6 +20,11 @@ func (a *App) Run(ctx context.Context) error {
 	if a.mcp != nil {
 		defer a.mcp.Close()
 	}
+	// Connections to herdr-core close on the way out; the cores and their
+	// terminals keep running for the next App to reconnect to.
+	if a.terminal != nil {
+		defer a.terminal.Close()
+	}
 	defer a.workers.Wait()
 	// The coding-run worker is a long-lived goroutine on the workers group, so
 	// the drain below waits for it. Its own context ends on the way out, before

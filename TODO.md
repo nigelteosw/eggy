@@ -103,9 +103,23 @@ home page's "Needs you" section shows approvals only; a coding run in
 
 - List waiting runs beside the approvals card, linking to the run. Only when
   the agent runner is enabled, so a disabled extension still costs nothing.
+- The same for terminals whose program reported `blocked`, from
+  `GET /api/terminal/needs-you`, only when the terminal extension runs.
 
 Deletion budget: ~40–80 web lines, 0 Go lines if the runs route already
 answers it, 0 config keys/tools/records/loops.
+
+### P2 — Terminal: the rest of the design (M)
+
+The first slice of `docs/superpowers/specs/2026-11-19-terminal-design.md`
+shipped; its *As built* section lists what did not. In order of use:
+
+- Clone a configured repository into a new space, through the agent
+  runner's checkout path, never git run on a folder `coder` controls.
+- Split panes and the Alt shortcuts; the Files and Changes panel.
+- The terminal palette as theme tokens, checked by the contrast rule.
+- A Telegram/Discord pointer when a terminal turns `blocked`, as a link to
+  the panel and never a way to answer it.
 
 ### P3 — Package boundaries that read at a glance (S)
 

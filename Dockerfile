@@ -27,6 +27,20 @@ RUN apt-get update \
     && mkdir -p /usr/local/node \
     && tar -xJf /tmp/node.tar.xz -C /usr/local/node --strip-components=1
 
+# herdr-core (hc) for the terminal extension. Version and checksum are pinned
+# together, as Node's are, and come from releases.herdr.dev/core/<version>/
+# manifest.json. It is installed at /usr/bin/hc, on the sandbox's PATH, and runs
+# only when terminal.enabled is on.
+FROM debian:bookworm-slim AS herdr-core
+ARG HC_VERSION=0.1.21
+ARG HC_SHA256=78424755c10a40dde38a0bdb55c20ac19706e9ae05ed68fc2acf1fcff0d941c1
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && curl -fsSL "https://releases.herdr.dev/core/${HC_VERSION}/herdr-core-linux-x86_64.tar.gz" -o /tmp/hc.tar.gz \
+    && echo "${HC_SHA256}  /tmp/hc.tar.gz" | sha256sum -c - \
+    && mkdir -p /out \
+    && tar -xzf /tmp/hc.tar.gz -C /out
+
 FROM golang:1.26-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -57,6 +71,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Node LTS for the agent runner's sandboxed commands, from the node stage.
 COPY --from=node /usr/local/node /usr/local/node
+# herdr-core for the terminal extension, with its licence and notices.
+COPY --from=herdr-core /out/herdr-core /usr/bin/hc
+COPY --from=herdr-core /out/LICENSE /out/THIRD-PARTY-NOTICES /usr/share/doc/herdr-core/
 # The unprivileged account agent runner commands execute as. It has no login
 # and owns only its run directories under /data/agent-runs.
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin coder

@@ -16,7 +16,8 @@ beforeAll(async () => {
   if (exitCode !== 0) {
     throw new Error(await new Response(build.stderr).text());
   }
-  const asset = (await readdir(join(output, "assets"))).find((name) => name.endsWith(".css"));
+  // The main stylesheet: a lazily loaded page (the terminal) emits its own too.
+  const asset = (await readdir(join(output, "assets"))).find((name) => name.startsWith("index-") && name.endsWith(".css"));
   if (!asset) throw new Error("Vite emitted no stylesheet");
   css = await readFile(join(output, "assets", asset), "utf8");
 });

@@ -25,6 +25,7 @@ docker run --detach --name "$container" \
   --env TELEGRAM_WEBHOOK_SECRET=fake-webhook \
   --env DISCORD_BOT_TOKEN=smoke-discord-secret \
   --env DEEPSEEK_API_KEY=smoke-provider-secret \
+  --env EGGY_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= \
   --volume "$data_dir:/data" \
   "$image" >/dev/null
 
@@ -49,4 +50,25 @@ docker exec "$container" sh -c '! grep -R -F "smoke-provider-secret" /data/confi
 # credential, and with fake adapters no Discord gateway is ever opened.
 docker exec "$container" sh -c '! grep -R -F "smoke-discord-secret" /data/config.yaml /data/SOUL.md /data/accounts'
 docker exec "$container" curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null
+
+# The terminal extension: herdr-core is in the image on the sandbox's PATH,
+# and once terminal.enabled is on the sandbox probe passes and the extension
+# starts, rather than being withheld with a reason in the log.
+docker exec "$container" /usr/bin/hc --version
+docker exec "$container" sh -c 'printf "terminal:\n  enabled: true\n" >> /data/config.yaml'
+docker restart "$container" >/dev/null
+attempt=0
+until docker exec "$container" curl --fail --silent http://127.0.0.1:8080/readyz >/dev/null; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 60 ]; then
+    docker logs "$container"
+    exit 1
+  fi
+  sleep 1
+done
+if docker logs "$container" 2>&1 | grep -F "terminal: not offered"; then
+  echo "the terminal extension was withheld"
+  exit 1
+fi
+docker logs "$container" 2>&1 | grep -F "terminal: ready" >/dev/null
 echo "Eggy Docker smoke test passed"

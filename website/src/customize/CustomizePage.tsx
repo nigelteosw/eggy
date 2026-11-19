@@ -10,6 +10,7 @@ import { PRIMARY_BUTTON } from "../components/ui/form";
 import { SearchIcon } from "../components/ui/icons";
 import { PluginsTab } from "../extensions/marketplace/PluginsTab";
 import { FinanceCard } from "../extensions/finance/FinanceCard";
+import { TerminalCard } from "../extensions/terminal/TerminalCard";
 import { MarketplaceCard } from "../extensions/marketplace/MarketplaceCard";
 import { AgentRunnerCard } from "../extensions/agent-runner/AgentRunnerCard";
 import { SharedLabel } from "../components/ui/shared-label";
@@ -171,6 +172,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                   <FinanceCard onSessionExpired={onSessionExpired} running={features.includes("finance")} />
                   <AgentRunnerCard onSessionExpired={onSessionExpired} running={features.includes("agent_runner")} />
                   <MarketplaceCard onSessionExpired={onSessionExpired} running={features.includes("marketplace")} />
+                  <TerminalCard onSessionExpired={onSessionExpired} running={features.includes("terminal")} />
                 </>
               )}
             </div>

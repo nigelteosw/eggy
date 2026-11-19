@@ -139,6 +139,9 @@ type WebUIConfig struct {
 	// AgentRunner is the coding-run extension. Nil unless agent_runner.enabled,
 	// and then the page and its routes exist; nil mounts nothing.
 	AgentRunner AgentRunnerService
+	// Terminal is the terminal extension, or nil when terminal.enabled is off
+	// or the sandbox probe failed. Nil mounts no routes and reports no feature.
+	Terminal TerminalService
 	// Weather is the shared live-weather report for the home page. Bootstrap
 	// always supplies it; nil leaves the report route unmounted.
 	Weather WeatherService
@@ -317,13 +320,19 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	if webConfig.Marketplace != nil {
 		features = append(features, "marketplace")
 	}
+	if webConfig.Terminal != nil {
+		features = append(features, "terminal")
+	}
 	mux.Handle("GET /api/session", guard(handleAccountSession(features, webConfig.RestartPending)))
 
-	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "marketplace", "agent_runner"} {
+	for _, section := range []string{"providers", "models", "google", "heartbeat", "tracing", "appearance", "finance", "marketplace", "agent_runner", "terminal"} {
 		mux.Handle("GET /api/config/"+section, guard(webConfigGetRoute(configPath, section, webConfig)))
 		mux.Handle("POST /api/config/"+section, guard(webConfigSetRoute(configPath, section, webConfig)))
 	}
 
+	if webConfig.Terminal != nil {
+		mountTerminalRoutes(mux, guard, webConfig, webConfig.Terminal, sessionRevalidator(webConfig, now))
+	}
 	if webConfig.AgentRunner != nil {
 		mountAgentRunnerRoutes(mux, guard, configPath, webConfig.AgentRunner, webConfig.Restarter, webConfig.Getenv)
 	}

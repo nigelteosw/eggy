@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"log/slog"
 	"net/http"
 	"os"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
+	"github.com/nigelteosw/eggy/internal/extensions/terminal"
 
 	"github.com/nigelteosw/eggy/internal/channel/telegram"
 	"github.com/nigelteosw/eggy/internal/channel/webchat"
@@ -81,6 +83,8 @@ type App struct {
 	channel ports.Channel
 	// agentRunner is the coding-run extension, nil unless agent_runner.enabled.
 	agentRunner *agentrunner.Service
+	// terminal is the terminal extension, nil unless terminal.enabled.
+	terminal    *terminal.Service
 	chatHub     *webchat.Hub
 	dispatcher  *services.Dispatcher
 	httpHandler http.Handler
@@ -393,7 +397,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	// The agent runner: nil and no tool, worker or workspace root unless
 	// agent_runner.enabled. Its coding tools never reach this registry; they
 	// belong to the run's own loop.
-	agentRunner, agentRunnerTools, err := newAgentRunner(config, secrets, database, opened.auth, targets, layout, app.channel, options.Now)
+	// One sandbox check for every extension that runs commands in it.
+	box := setupSandbox(config, layout)
+	agentRunner, agentRunnerTools, err := newAgentRunner(config, secrets, database, opened.auth, targets, layout, app.channel, box, options.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -401,6 +407,12 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		return nil, err
 	}
 	app.agentRunner = agentRunner
+	// The terminal: nil unless terminal.enabled and the sandbox probe passed. It
+	// has no tool: a terminal is the owner's, never the model's.
+	app.terminal, err = newTerminal(config, secrets, layout, box)
+	if err != nil {
+		return nil, err
+	}
 	app.mcp, err = newMCPManager(context.Background(), config, secrets, options, opened.auth)
 	if err != nil {
 		return nil, err
@@ -610,6 +622,9 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	}
 	if agentRunner != nil {
 		webConfig.AgentRunner = panelAgentRunner{service: agentRunner}
+	}
+	if app.terminal != nil {
+		webConfig.Terminal = panelTerminal{svc: app.terminal}
 	}
 	webConfig.DiscordLinking = config.DiscordEnabled()
 	webConfig.DiscordRunning = app.discord.running()

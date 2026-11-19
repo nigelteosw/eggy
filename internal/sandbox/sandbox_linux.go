@@ -350,7 +350,13 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 	if err := os.MkdirAll(runs, 0o711); err != nil {
 		return err
 	}
+	// Made here, traversable, rather than on first use: a terminal directory
+	// created later by PrepareRunDir's MkdirAll would leave its parent 0700
+	// and root's, and coder could never reach its own directory below it.
 	terminal := filepath.Join(dataDir, TerminalDir)
+	if err := os.MkdirAll(terminal, 0o711); err != nil {
+		return err
+	}
 	return filepath.WalkDir(dataDir, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err

@@ -158,10 +158,14 @@ removes or makes possible that the standard library and the current code do not.
 - Durable context retains active-secret filtering.
 - Config and owner-facing files retain locking and atomic writes.
 - Configured repositories and stdio MCP servers are trusted code running as
-  Eggy's user; timeouts and environment allowlists are not a sandbox. The
-  agent runner's commands are the one place a sandbox is claimed: they run as
-  the `coder` user under Landlock, and bash is offered only after a startup
-  probe proves the confinement. Without a passing probe, bash is not offered.
+  Eggy's user; timeouts and environment allowlists are not a sandbox.
+  `internal/sandbox` is the one place a sandbox is claimed: the agent runner's
+  commands and the terminal extension's herdr-core run in it as the `coder`
+  user under Landlock, and bash and terminals are offered only after a startup
+  probe proves the confinement. Without a passing probe, neither is offered.
+  Terminal mode adds pty and randomness devices and nothing else, and the
+  probe checks it denies exactly what command mode does. A terminal has no
+  model tool, no git credential and no push: shipping stays with the mandate.
 
 ### Invariants that cost a defect to learn
 
@@ -176,6 +180,16 @@ removes or makes possible that the standard library and the current code do not.
 - The publisher never runs git inside the agent's workspace. The agent controls
   `ws/.git/config`, and git would run it as root. The change set is computed
   from files alone.
+- A sandboxed command writes into a pipe `sandbox.Run` owns, never an
+  `io.Writer` exec copies into. With a writer, `Wait` also waits for every
+  holder of the pipe, so a backgrounded child ran to completion before the
+  group kill, free to write into the workspace while the publisher read it.
+- Every account's terminals run as the same `coder` user, and anyone who can
+  reach an herdr-core socket has everything it has. Each account therefore
+  gets its own core in a directory named by a hash keyed with
+  `EGGY_ENCRYPTION_KEY`, under a `/data/terminal` coder can traverse but not
+  list; Landlock keeps each core inside its own directory. A name another
+  account's program could work out would hand it that account's terminals.
 
 - Owner-facing documents load their built-in default when missing, blank, or
   unreadable, and the default is never written into the owner's file. Writing

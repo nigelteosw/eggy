@@ -36,36 +36,18 @@ const probeTimeout = 2 * time.Minute
 // Eggy's state, then probe the sandbox. A failed probe withholds bash but keeps
 // run_check, as the design says; a failed lock refuses every command, because
 // the lock is part of what makes a command safe to run at all.
-func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.AgentRunStore, records grants.Records, targets map[string]agent.ModelTarget, layout home.Layout, channel ports.Channel, now func() time.Time) (*agentrunner.Service, []ports.Tool, error) {
+func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.AgentRunStore, records grants.Records, targets map[string]agent.ModelTarget, layout home.Layout, channel ports.Channel, box sandboxState, now func() time.Time) (*agentrunner.Service, []ports.Tool, error) {
 	if !cfg.AgentRunner.Enabled {
 		return nil, nil, nil
 	}
 	dataDir := layout.Root
 	logger := slog.Default()
 
-	var runner agentrunner.CommandRunner
-	sandboxOK, sandboxReason := false, ""
-	sandbox, err := sandbox.New()
-	switch {
-	case err != nil:
-		runner, sandboxReason = agentrunner.Refused{Reason: err}, err.Error()
-	default:
-		if err := sandbox.LockDataDir(dataDir); err != nil {
-			runner, sandboxReason = agentrunner.Refused{Reason: err}, "data directory not locked: "+err.Error()
-			break
-		}
-		runner = sandbox
-		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-		defer cancel()
-		port, err := listenPort(cfg.Server.Listen)
-		if err != nil {
-			sandboxReason = err.Error()
-		} else if err := sandbox.Probe(ctx, dataDir, port); err != nil {
-			sandboxReason = err.Error()
-		} else {
-			sandboxOK = true
-		}
+	var runner agentrunner.CommandRunner = agentrunner.Refused{Reason: errors.New(box.reason)}
+	if box.locked {
+		runner = box.sandbox
 	}
+	sandboxOK, sandboxReason := box.ok, box.reason
 	if !sandboxOK {
 		logger.Warn("agent runner: bash is not offered", "reason", sandboxReason)
 	}
@@ -97,6 +79,45 @@ func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.Agent
 		return nil, nil, err
 	}
 	return service, []ports.Tool{agentrunner.NewTool(service)}, nil
+}
+
+// sandboxState is the one boot-time sandbox check, shared by every extension
+// that runs commands in it. locked means the data directory was locked, which
+// is what makes a command safe to run at all; ok means the probe also proved
+// the confinement works, which is what bash and terminals need.
+type sandboxState struct {
+	sandbox *sandbox.Sandbox
+	locked  bool
+	ok      bool
+	reason  string
+}
+
+// setupSandbox locks the data directory and probes the sandbox, once, when
+// anything needs it. A failed lock refuses every command; a failed probe
+// withholds bash and terminals.
+func setupSandbox(cfg config.Config, layout home.Layout) sandboxState {
+	if !cfg.AgentRunner.Enabled && !cfg.Terminal.Enabled {
+		return sandboxState{reason: "no extension uses the sandbox"}
+	}
+	box, err := sandbox.New()
+	if err != nil {
+		return sandboxState{reason: err.Error()}
+	}
+	if err := box.LockDataDir(layout.Root); err != nil {
+		return sandboxState{reason: "data directory not locked: " + err.Error()}
+	}
+	state := sandboxState{sandbox: box, locked: true}
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	port, err := listenPort(cfg.Server.Listen)
+	if err != nil {
+		state.reason = err.Error()
+	} else if err := box.Probe(ctx, layout.Root, port); err != nil {
+		state.reason = err.Error()
+	} else {
+		state.ok = true
+	}
+	return state
 }
 
 // listenPort reads the port from server.listen, such as ":8080".

@@ -1,6 +1,6 @@
 # Terminal extension
 
-Status: design, 2026-11-19. Not started.
+Status: first version built, 2026-11-19. See *As built* at the end for what differs from this design.
 
 A terminal in the web panel, running in the agent runner's sandbox, so the owner
 can install and run Claude Code (or any CLI agent) inside Eggy and check on it
@@ -279,3 +279,46 @@ can come later.
    core is a separate process and the bridge only reconnects).
 4. Confirm `hc` works under Landlock ABI 6 with the current read-only trees,
    and what extra paths it needs, if any.
+
+## As built (2026-11-19)
+
+Checked against the real `hc` 0.1.21 before writing code, in a Linux container
+under the real sandbox: the protocol matches `schema/hc.openrpc.json`; `hc`
+needs no systemd or `XDG_RUNTIME_DIR` once `HC_SOCKET` is set; holders outlive
+both the client and the core, and a later `hc` reconnects to them; under
+Landlock it needs `/dev/urandom` (it panics without it), `/dev/ptmx`,
+`/dev/pts` and `/dev/tty`. End to end in a native container, a terminal
+survives `POST /api/restart` with the same address and process.
+
+Where the build departs from the design above:
+
+- **One core per account, not one core with account labels.** All accounts'
+  programs run as `coder`, and whoever reaches a core's socket has everything
+  in it, so a label check in Eggy would not stop one account's program from
+  attaching to another's terminal. Each account gets its own directory,
+  named by an HMAC of its id keyed with `EGGY_ENCRYPTION_KEY`, and its own
+  core; Landlock confines each to its directory. `terminal.enabled` therefore
+  requires the key at config load.
+- **Pipes, not a socket.** `eggyd` runs `hc connect` confined and speaks over
+  its stdin and stdout, as herdr-app does, so `eggyd` never needs to reach
+  `coder`'s socket.
+- **Spaces are empty folders** made through the core (`machine.exec mkdir`).
+  Cloning a configured repository into one is not built; the owner can
+  `git clone` a public repository from the shell.
+- **The command is a label** (`eggy.command`), not the terminal's `hc` name,
+  because names must be unique among live terminals.
+- **WebSocket through `gorilla/websocket`**, already in the module graph via
+  discordgo; the standard library has no WebSocket server. The upgrade checks
+  the panel's own origin rule and requires an Origin, since the session
+  guard's CSRF check does not run on a GET.
+- **The UI is the first slice**: desktop sidebar (Inbox and Spaces) with tabs
+  and one pane; phone Inbox, full-screen terminal, key bar and compose. Not
+  built yet: split panes, the Files and Changes panel, the status bar, peek,
+  the Alt shortcuts, the palette as theme tokens (it is a fixed dark palette),
+  "Needs you" on the home page (the route exists: `GET
+  /api/terminal/needs-you`), and the Telegram/Discord pointer.
+- **xterm.js loads lazily**, so an account that never opens a terminal does
+  not download it.
+- **Fixed on the way:** `sandbox.Run` let a backgrounded child outlive its
+  command (see `AGENTS.md`), and the root-only sandbox tests had never
+  actually run.

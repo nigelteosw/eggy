@@ -65,6 +65,7 @@ type Config struct {
 	Weather          WeatherConfig               `yaml:"weather,omitempty"`
 	Marketplace      MarketplaceConfig           `yaml:"marketplace,omitempty"`
 	AgentRunner      AgentRunnerConfig           `yaml:"agent_runner,omitempty"`
+	Terminal         TerminalConfig              `yaml:"terminal,omitempty"`
 	Heartbeat        HeartbeatConfig             `yaml:"heartbeat,omitempty"`
 	Appearance       AppearanceConfig            `yaml:"appearance,omitempty"`
 	Approvals        ApprovalsConfig             `yaml:"approvals,omitempty"`

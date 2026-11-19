@@ -435,7 +435,7 @@ export function convertToAccounts(input: ConvertInput): Promise<CommandResult> {
   return request("/api/config/accounts/convert", { method: "POST", body: JSON.stringify(input) });
 }
 
-export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "finance" | "marketplace" | "agent_runner";
+export type ConfigSection = "providers" | "models" | "google" | "heartbeat" | "tracing" | "finance" | "marketplace" | "agent_runner" | "terminal";
 
 // The palette is the signed-in person's own choice, stored with their other
 // settings so it follows them to any browser. An empty theme clears the choice.

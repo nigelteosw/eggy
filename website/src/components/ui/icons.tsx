@@ -107,6 +107,14 @@ export const FileCodeIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const TerminalIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="2.5" y="3.5" width="15" height="13" rx="2" />
+    <path d="m6 8 2.5 2L6 12" />
+    <path d="M10.5 12.5H14" />
+  </Icon>
+);
+
 export const PaletteIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M10 2.8a7.2 7.2 0 0 0 0 14.4c.9 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1-.3-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5h1.3a3.7 3.7 0 0 0 3.7-3.7c0-3.1-3.2-5.7-7.2-5.7Z" />

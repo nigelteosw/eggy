@@ -216,6 +216,10 @@ func webConfigGetRoute(configPath, section string, webConfig WebUIConfig) http.H
 				{Label: "skills", Value: agentSkillPairs(cfg.AgentRunner.Skills)},
 				{Label: "running", Value: strconv.FormatBool(webConfig.AgentRunner != nil)},
 			}
+		case "terminal":
+			// The saved state; the card compares it with the session's feature
+			// list to say "restart to apply", as finance does.
+			result.Fields = []webField{{Label: "enabled", Value: strconv.FormatBool(cfg.Terminal.Enabled)}}
 		case "marketplace":
 			// The saved state; the card compares it with the session's
 			// feature list to say "restart to apply", as finance does.
@@ -377,6 +381,13 @@ func webConfigSetRoute(configPath, section string, webConfig WebUIConfig) http.H
 			title = "Saved Agent Runner."
 			if !enabled {
 				title = "Agent Runner turned off."
+			}
+		case "terminal":
+			enabled := named["enabled"] == "true"
+			err = config.SetTerminalEnabled(configPath, enabled)
+			title = "Saved the terminal."
+			if !enabled {
+				title = "Terminal turned off."
 			}
 		case "marketplace":
 			enabled := named["enabled"] == "true"

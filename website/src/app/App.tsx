@@ -248,7 +248,7 @@ export function App() {
               setStatus("authenticated");
             })
             .catch(() => setStatus("unauthenticated"));
-          navigate("chat");
+          navigate("home");
         }}
       />
     );
@@ -275,6 +275,8 @@ export function App() {
             setRestartPending(session.restartPending === true);
             })
             .catch(() => {});
+          // Signing in always lands on Home, whatever page was showing before.
+          navigate("home");
           setStatus("authenticated");
         }}
       />

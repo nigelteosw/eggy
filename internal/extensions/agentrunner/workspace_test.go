@@ -90,7 +90,7 @@ exit 0
 	const token = "ghp_TOKEN_MUST_NOT_LEAK"
 	root := t.TempDir()
 	w := NewWorkspaces(root, &fakeRunner{})
-	base, err := w.Clone(context.Background(), "", runIDA, "https://github.com/o/r.git", "main", token)
+	base, err := w.Clone(context.Background(), "", runIDA, "r", "https://github.com/o/r.git", "main", token)
 	if err != nil {
 		t.Fatal(err)
 	}

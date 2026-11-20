@@ -63,7 +63,9 @@ func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.Agent
 	}
 	// New runs live in their account's workspace, beside its terminals.
 	workspaces := agentrunner.NewWorkspaces(filepath.Join(dataDir, "agent-runs"), runner).
-		InAccounts(filepath.Join(dataDir, sandbox.WorkspaceDir), dirName)
+		InAccounts(filepath.Join(dataDir, sandbox.WorkspaceDir), dirName).
+		// Runs clone from a mirror only root fetches, with the token.
+		WithMirrors(filepath.Join(dataDir, "mirrors"))
 	service, err := agentrunner.New(agentrunner.Options{
 		Store:         store,
 		Credentials:   creds,

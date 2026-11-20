@@ -52,6 +52,7 @@ var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // under root, and are still found there.
 type Workspaces struct {
 	root     string // <data>/agent-runs: older runs, and git's askpass scratch
+	mirrors  string // <data>/mirrors; empty clones each run straight from the remote
 	accounts string // <data>/workspace; empty puts new runs under root, as before
 	dirName  func(account string) string
 	runner   CommandRunner
@@ -106,7 +107,7 @@ func (w *Workspaces) newDir(account, runID string) (string, error) {
 // because it is a trusted operation holding the PAT. The token travels only in
 // the environment, through a GIT_ASKPASS helper that reads it there, so it
 // never appears in argv, a URL or the repository's config.
-func (w *Workspaces) Clone(ctx context.Context, account, runID, cloneURL, baseBranch, token string) (string, error) {
+func (w *Workspaces) Clone(ctx context.Context, account, runID, repoName, cloneURL, baseBranch, token string) (string, error) {
 	dir, err := w.newDir(account, runID)
 	if err != nil {
 		return "", err
@@ -120,7 +121,18 @@ func (w *Workspaces) Clone(ctx context.Context, account, runID, cloneURL, baseBr
 	}
 	defer cleanup()
 	ws := filepath.Join(dir, "ws")
-	if err := gitRun(ctx, env, "", token, "clone", "--no-tags", "--single-branch", "--branch", baseBranch, cloneURL, ws); err != nil {
+	source, cloneArgs := cloneURL, []string{"clone", "--no-tags", "--single-branch", "--branch", baseBranch}
+	if w.mirrors != "" {
+		mirror, err := w.Mirror(ctx, repoName, cloneURL, token)
+		if err != nil {
+			return "", err
+		}
+		// --no-local copies the objects rather than hard-linking them: the
+		// checkout is handed to the account below, and a hard link would
+		// hand it the mirror's files too.
+		source, cloneArgs = mirror, append(cloneArgs, "--no-local")
+	}
+	if err := gitRun(ctx, env, "", token, append(cloneArgs, source, ws)...); err != nil {
 		return "", err
 	}
 	base, err := gitOutput(ctx, env, ws, token, "rev-parse", "HEAD")

@@ -71,23 +71,47 @@ func (f *fakeModels) SelectModel(_ context.Context, alias string) error {
 // the Eggy runtime -- an owner on a phone has no other way to authorize a
 // server or a Google grant.
 func TestTelegramCommandsAreAdvertised(t *testing.T) {
-	// The menu offers the everyday few. Administration and personal settings
-	// still work when typed, and /help lists them.
-	got := TelegramAutocomplete(false)
-	want := []string{"menu", "settings", "help", "stop", "clear", "web"}
-	if len(got) != len(want) {
-		t.Fatalf("commands=%v", got)
+	names := func(list []Suggestion) string {
+		out := []string{}
+		for _, s := range list {
+			out = append(out, s.Name)
+		}
+		return strings.Join(out, " ")
 	}
-	for index := range want {
-		if got[index].Name != want[index] {
-			t.Fatalf("commands=%v", got)
+	off := names(New(Options{}).Suggestions(t.Context()))
+	if strings.Contains(off, "code") || strings.Contains(off, "plugin") {
+		t.Fatalf("extensions that are off are offered: %s", off)
+	}
+	on := New(Options{Code: &fakeCode{}, Marketplace: &fakeMarketplace{}, Skills: fakeSkillList{
+		{Name: "pdf-tools", Description: "Read PDFs"}, {Name: "off", Disabled: true}, {Name: "bad", Invalid: "x"},
+	}})
+	got := on.Suggestions(t.Context())
+	all := names(got)
+	for _, want := range []string{"plugin", "code", "pdf-tools"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("%s missing: %s", want, all)
 		}
 	}
-	// /code joins the menu only while the coding extension runs.
-	if running := TelegramAutocomplete(true); running[len(running)-1].Name != "code" {
-		t.Fatalf("code missing from the menu while running: %v", running)
+	if strings.Contains(all, "off") || strings.Contains(all, "bad") {
+		t.Fatalf("disabled or invalid skill offered: %s", all)
+	}
+	if menu := names(TelegramMenu(got)); !strings.Contains(menu, "pdf_tools") || strings.Contains(menu, "pdf-tools") {
+		t.Fatalf("telegram menu = %s", menu)
+	}
+	// /<skill> goes to the model, in either spelling.
+	for _, input := range []string{"/pdf-tools read this", "/pdf_tools"} {
+		if _, handled, _ := on.Execute(t.Context(), input); handled {
+			t.Fatalf("%s was handled as a command", input)
+		}
+	}
+	if _, handled, _ := on.Execute(t.Context(), "/off"); !handled {
+		t.Fatal("a disabled skill reached the model")
 	}
 }
+
+type fakeSkillList []ports.SkillSummary
+
+func (f fakeSkillList) List(context.Context) ([]ports.SkillSummary, error) { return f, nil }
 
 func TestUnknownSlashCommandGetsHelpAndProseFallsThrough(t *testing.T) {
 	service := New(Options{})

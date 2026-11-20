@@ -1,7 +1,7 @@
 import { CACHE, recall, remember } from "../lib/cache";
 import { enterSendsMessage, usesTouchKeyboard } from "../lib/composer";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "../lib/api";
+import { AgentSelection, SessionExpiredError, getAgent, getSlashCommands, setAgentEffort, setAgentModel, setApprovalMode, type SlashCommand } from "../lib/api";
 import { ArrowUpIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, PaperclipIcon, PlusIcon, ReturnIcon } from "../components/ui/icons";
 import { IconSwap } from "../components/ui/icon-swap";
 import { APPROVAL_MODES } from "../settings/PersonalSettingsCard";
@@ -374,6 +374,20 @@ export function Composer({
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // The slash list: commands and enabled skills, the same list Telegram's /
+  // menu shows. Fetched when the owner first types a slash, so a new skill
+  // shows up without a reload.
+  const [slashList, setSlashList] = useState<SlashCommand[]>([]);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1];
+  const slashMatches =
+    slashQuery === undefined || slashDismissed
+      ? []
+      : slashList
+          .filter((item) => item.name.toLowerCase().includes(slashQuery.toLowerCase()))
+          .sort((a, b) => Number(!a.name.startsWith(slashQuery)) - Number(!b.name.startsWith(slashQuery)));
+  const slashOpen = slashMatches.length > 0;
   const field = useRef<HTMLTextAreaElement | null>(null);
   const picker = useRef<HTMLInputElement | null>(null);
   const touch = usesTouchKeyboard();
@@ -390,6 +404,20 @@ export function Composer({
   function updateDraft(text: string) {
     setDraft(text);
     writeDraft(draftKey, text);
+    if (text === "/") {
+      setSlashDismissed(false);
+      getSlashCommands()
+        .then(setSlashList)
+        .catch((err) => {
+          if (err instanceof SessionExpiredError) onSessionExpired();
+        });
+    }
+    setSlashIndex(0);
+  }
+
+  function chooseSlash(item: SlashCommand) {
+    updateDraft(`/${item.name} `);
+    field.current?.focus();
   }
 
   // The box fits what is typed, pasted, restored or cleared -- not only what
@@ -472,7 +500,7 @@ export function Composer({
             the text with the send control at its trailing edge. */}
         <div
           className={cn(
-            "cursor-text rounded-card border border-border bg-card transition-[border-color,box-shadow] duration-150 focus-within:border-neutral-400",
+            "relative cursor-text rounded-card border border-border bg-card transition-[border-color,box-shadow] duration-150 focus-within:border-neutral-400",
             dragging && "border-accent-700 ring-2 ring-accent-700/20",
           )}
           onClick={(event) => {
@@ -491,6 +519,34 @@ export function Composer({
             addFiles(Array.from(event.dataTransfer.files));
           }}
         >
+          {slashOpen && (
+            <ul
+              role="listbox"
+              aria-label="Commands and skills"
+              className="scrollbar-slim absolute inset-x-0 bottom-full z-20 mb-2 max-h-72 overflow-y-auto rounded-card border border-border bg-card p-1 shadow-lg"
+            >
+              {slashMatches.map((item, index) => (
+                <li
+                  key={`${item.kind}-${item.name}`}
+                  role="option"
+                  aria-selected={index === slashIndex}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    chooseSlash(item);
+                  }}
+                  onMouseEnter={() => setSlashIndex(index)}
+                  className={cn(
+                    "flex cursor-pointer items-baseline gap-3 rounded-control px-3 py-1.5 text-small",
+                    index === slashIndex && "bg-neutral-100",
+                  )}
+                >
+                  <span className="shrink-0 font-medium text-foreground">/{item.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{item.description}</span>
+                  {item.kind === "skill" && <span className="shrink-0 text-caption text-muted-foreground/80">skill</span>}
+                </li>
+              ))}
+            </ul>
+          )}
           {quote && (
             <div className="flex items-start gap-2 px-3 pt-3">
               <div className="flex min-w-0 flex-1 items-start rounded-control bg-neutral-100 px-3 py-2">
@@ -531,6 +587,24 @@ export function Composer({
               onKeyDown={(event) => {
                 // A key that ends an IME composition is the composition's, not a send.
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                if (slashOpen) {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const step = event.key === "ArrowDown" ? 1 : -1;
+                    setSlashIndex((current) => (current + step + slashMatches.length) % slashMatches.length);
+                    return;
+                  }
+                  if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+                    event.preventDefault();
+                    chooseSlash(slashMatches[Math.min(slashIndex, slashMatches.length - 1)]);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setSlashDismissed(true);
+                    return;
+                  }
+                }
                 if (event.key === "Escape" && quote) {
                   event.preventDefault();
                   onClearQuote();

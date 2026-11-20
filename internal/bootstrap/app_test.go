@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/agent"
 	"github.com/nigelteosw/eggy/internal/core/destination"
@@ -517,11 +516,8 @@ func TestNewAppRegistersTelegramCommandSuggestionsOnBoot(t *testing.T) {
 		}
 		names[command.Command] = true
 	}
-	// The menu is the everyday six; the rest are typed and listed in /help.
-	if len(names) != 6 {
-		t.Fatalf("registered %d commands, want 6: %v", len(names), names)
-	}
-	for _, want := range []string{"menu", "settings", "help", "stop", "clear", "web"} {
+	// The menu is the one slash list the web composer also offers.
+	for _, want := range []string{"menu", "settings", "help", "stop", "clear", "web", "status", "restart"} {
 		if !names[want] {
 			t.Fatalf("command %q missing from registered suggestions: %v", want, names)
 		}
@@ -602,7 +598,7 @@ func TestCommandServiceHandlesEveryRegisteredTelegramCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range commands.TelegramAutocomplete(false) {
+	for _, command := range app.commands.Suggestions(ownerCtx()) {
 		if command.Description == "" {
 			t.Fatalf("command %q has no description", command.Name)
 		}

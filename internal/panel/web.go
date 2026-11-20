@@ -88,6 +88,10 @@ type WebUIConfig struct {
 	// Skills is the owner's view of the skills directory. Skills are core, so
 	// bootstrap always supplies it; nil leaves the skills routes unmounted.
 	Skills SkillsAdmin
+	// SlashCommands is the one slash list (commands and enabled skills) the
+	// chat composer offers, the same list Telegram's / menu is built from.
+	// Nil leaves the route unmounted.
+	SlashCommands func(context.Context) []commands.Suggestion
 	// Tools is the live tool registry, listed read-only by the panel.
 	Tools ToolCatalog
 	// Approvals lists what is waiting on the owner. Deciding one goes
@@ -398,6 +402,12 @@ func NewWebHandler(configPath string, webConfig WebUIConfig) http.Handler {
 	}
 
 	mux.Handle("GET /api/chat/threads", guard(newThreadListHandler(webConfig.Threads)))
+	if webConfig.SlashCommands != nil {
+		list := webConfig.SlashCommands
+		mux.Handle("GET /api/chat/commands", guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, map[string]any{"commands": list(r.Context())})
+		})))
+	}
 	mux.Handle("POST /api/chat/threads", guard(newThreadCreateHandler(webConfig.Threads, now)))
 	mux.Handle("PATCH /api/chat/threads/{id}", guard(newThreadRenameHandler(webConfig.Threads)))
 	mux.Handle("DELETE /api/chat/threads/{id}", guard(newThreadDeleteHandler(webConfig.Threads)))

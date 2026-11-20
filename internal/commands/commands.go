@@ -75,8 +75,10 @@ type Options struct {
 	// Marketplace is the marketplace extension for /plugin. Nil means the
 	// extension is off, and /plugin says so.
 	Marketplace Marketplace
-	Turns       TurnStopper
-	Restarter   Restarter
+	// Skills lists installed skills for the slash list and for /<skill>.
+	Skills    SkillLister
+	Turns     TurnStopper
+	Restarter Restarter
 	// RestartPending reports whether config.yaml differs from what this process
 	// loaded. Nil means the process cannot tell, so /status says nothing about it.
 	RestartPending func() bool
@@ -210,6 +212,11 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 	case "plugin":
 		return s.pluginCommand(ctx, args)
 	default:
+		// /<skill> is a request to the model to use that skill, so it is
+		// not a command: the turn runs with the message as typed.
+		if s.skillNamed(ctx, name) {
+			return "", false, nil
+		}
 		return "Unknown command. Send /help for commands.", true, nil
 	}
 }

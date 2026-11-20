@@ -87,9 +87,15 @@ Eggy's Telegram command surface is intentionally small.
 | `/google [subcommand]` | Configure and authorize Google Workspace |
 | `/web` | Send a one-tap sign-in link to the web panel |
 | `/code` | Run a coding task on an allowed repository; listed in the menu only while the coding extension runs |
+| `/plugin` | Add marketplaces and install skills; `/plugin install` shows a review card and `/plugin approve <code>` installs exactly that. Listed only while the marketplace is on |
 | `/mode` | Show or set *When Eggy asks*: strict (Manual: asks before every tool), normal (Read: asks before changes) or auto (Auto: never asks) |
 | `/heartbeat [on\|off]` | Show or switch your own check-ins; off until you turn it on |
 | `/restart` | Reload `config.yaml` by rebuilding the running daemon |
+
+The `/` menu, in Telegram and in web chat, is one list: these commands and
+every enabled skill. `/<skill> <request>` asks Eggy to use that skill (Telegram
+spells hyphens as underscores, so `pdf-tools` is `/pdf_tools`). Telegram picks
+up newly installed skills after a restart; web chat sees them at once.
 
 Unknown commands return a short `/help` pointer. Malformed known commands show
 their own syntax. Ordinary text continues to the model.

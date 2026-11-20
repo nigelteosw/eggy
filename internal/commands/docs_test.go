@@ -34,7 +34,7 @@ func TestEveryAdvertisedCommandIsDocumented(t *testing.T) {
 		documented[match[1]] = true
 	}
 	advertised := map[string]bool{}
-	for _, command := range TelegramAutocomplete(true) {
+	for _, command := range New(Options{Code: &fakeCode{}, Marketplace: &fakeMarketplace{}}).Suggestions(t.Context()) {
 		advertised[command.Name] = true
 	}
 	accepted := CommandNames(true)
@@ -60,7 +60,7 @@ func TestEveryAdvertisedCommandIsDocumented(t *testing.T) {
 // to the unknown-command reply.
 func TestEveryAdvertisedCommandDispatches(t *testing.T) {
 	service := New(Options{})
-	for _, command := range TelegramAutocomplete(false) {
+	for _, command := range service.Suggestions(t.Context()) {
 		output, handled, err := service.Execute(t.Context(), "/"+command.Name)
 		if err != nil {
 			t.Errorf("/%s: %v", command.Name, err)

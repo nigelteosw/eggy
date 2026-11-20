@@ -678,6 +678,14 @@ export type AgentSelection = {
   approval_summaries?: Record<string, string>;
 };
 
+// SlashCommand is one entry in the slash list: a command, or an enabled skill
+// that /<name> asks Eggy to use. The same list is Telegram's / menu.
+export type SlashCommand = { name: string; description: string; kind: "command" | "skill" };
+
+export function getSlashCommands(): Promise<SlashCommand[]> {
+  return request<{ commands: SlashCommand[] }>("/api/chat/commands").then((result) => result.commands ?? []);
+}
+
 export function getAgent(): Promise<AgentSelection> {
   return request<AgentSelection>("/api/agent");
 }

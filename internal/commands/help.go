@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -48,10 +47,6 @@ func CommandNames(code bool) map[string]bool {
 	}
 	return names
 }
-
-// menuCommands are the everyday few the phone's / menu offers. The rest still
-// work when typed, and /help lists them.
-var menuCommands = []string{"menu", "stop", "clear", "web", "settings", "help"}
 
 // HelpText is the short overview: what a person does most, in my voice, with
 // the syntax for everything else one /help <topic> away.
@@ -113,19 +108,4 @@ func (s *CommandService) help(args []string) string {
 		return helpUsage
 	}
 	return text
-}
-
-// TelegramAutocomplete is the / menu: the everyday commands, and /code when the
-// coding extension is running.
-func TelegramAutocomplete(code bool) []struct{ Name, Description string } {
-	result := make([]struct{ Name, Description string }, 0, len(menuCommands)+1)
-	for _, command := range telegramCommands {
-		if slices.Contains(menuCommands, command.Name) {
-			result = append(result, struct{ Name, Description string }{command.Name, command.Description})
-		}
-	}
-	if code {
-		result = append(result, struct{ Name, Description string }{"code", "Run a coding task on an allowed repository"})
-	}
-	return result
 }

@@ -501,6 +501,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.commands = commands.New(commands.Options{
 		Code:           codeRunnerFor(app.agentRunner),
 		Marketplace:    commandsMarketplaceFor(marketplaceService),
+		Skills:         skillsService,
 		ConfigPath:     options.ConfigPath,
 		MCP:            mcpAdministration.commandsView(),
 		Google:         googleAdministration.commandsView(),
@@ -580,6 +581,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Now:            options.Now,
 		RestartPending: func() bool { return configDigest(options.ConfigPath) != startedFrom },
 		Skills:         skillsService,
+		SlashCommands:  app.commands.Suggestions,
 		ChatHub:        app.chatHub, Enqueue: app.Enqueue, Stop: activeTurns.Stop, Memory: database, Threads: database,
 		Auth: database, Sessions: database, Accounts: app.accounts,
 		PasswordAccountID: passwordAccountID, EnvironmentAlias: environmentAlias, EnvironmentPasswordHash: environmentHash,
@@ -638,7 +640,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		GoogleCallback: googleAdministration.callbackRoute(),
 		Web:            webHandler,
 	})
-	telegramSurface.registerCommands(context.Background(), app.logger, app.agentRunner != nil)
+	telegramSurface.registerCommands(context.Background(), app.logger, app.commands.Suggestions(context.Background()))
 	keepMCP = true
 	keepDatabase = true
 	return app, nil

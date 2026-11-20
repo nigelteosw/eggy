@@ -250,6 +250,34 @@
     --tw-prose-td-borders: var(--hairline);
   }
 
+  /* Replies sit closer together than the plugin's defaults: a paragraph
+     and the list under it read as one block, list items run tight, and a
+     heading is a small label above its text, not a new section. */
+  .markdown :where(p, ul, ol) {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+  }
+  .markdown :where(li) {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
+  .markdown :where(li > p, li > ul, li > ol) {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
+  .markdown :where(h1, h2, h3, h4) {
+    margin-top: 1em;
+    margin-bottom: 0.25em;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .markdown :where(h1, h2, h3, h4):first-child {
+    margin-top: 0;
+  }
+  .markdown :where(ul, ol) {
+    padding-left: 1.25em;
+  }
+
   .user-message {
     --tw-prose-body: oklch(var(--foreground));
     --tw-prose-headings: oklch(var(--foreground));

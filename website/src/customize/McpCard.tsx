@@ -188,7 +188,7 @@ export function McpCard({ onSessionExpired }: { onSessionExpired: () => void }) 
                     </Field>
                     <p className="text-caption leading-relaxed text-neutral-700 sm:col-span-2">
                       Leave both empty for dynamic registration. Otherwise use callback{" "}
-                      <code className="rounded-mark bg-background px-1 py-0.5 text-[0.9em]">
+                      <code className="rounded-mark bg-background px-1 py-0.5 text-[0.9em] [overflow-wrap:anywhere]">
                         {typeof window === "undefined" ? "" : window.location.origin}/auth/mcp/{name || "<name>"}/callback
                       </code>
                       , then name the environment variable holding the secret.

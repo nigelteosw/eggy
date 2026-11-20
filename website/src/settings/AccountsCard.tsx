@@ -1,3 +1,5 @@
+import { StatusLine } from "../components/ui/status-line";
+import { Select } from "../components/ui/select";
 import { SaveBar } from "../components/ui/save-bar";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -46,7 +48,17 @@ const destructiveTextActionClass =
   "min-h-8 whitespace-nowrap rounded-control px-2.5 text-small text-tomato transition-colors hover:bg-tomato-soft disabled:pointer-events-none disabled:opacity-50";
 const panelClass = "rounded-card bg-neutral-100 p-4";
 
-export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled: boolean; onChanged: (message: string) => void; onError: (message: string) => void }) {
+export function TelegramEnableControl({
+  enabled,
+  detail,
+  onChanged,
+  onError,
+}: {
+  enabled: boolean;
+  detail?: string;
+  onChanged: (message: string) => void;
+  onError: (message: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
   async function toggle() {
     setBusy(true);
@@ -60,12 +72,16 @@ export function TelegramEnableControl({ enabled, onChanged, onError }: { enabled
     }
   }
   return (
-    <div className="flex items-center justify-between gap-3 text-small">
-      <span>Telegram is {enabled ? "enabled" : "disabled"}.</span>
-      <button type="button" disabled={busy} onClick={toggle} className={ghostButtonClass}>
-        {busy ? "Saving…" : enabled ? "Disable Telegram" : "Enable Telegram"}
-      </button>
-    </div>
+    <StatusLine
+      tone={enabled ? "on" : "off"}
+      label={enabled ? "On" : "Off"}
+      detail={detail}
+      action={
+        <button type="button" disabled={busy} onClick={toggle} className={ghostButtonClass}>
+          {busy ? "Saving…" : enabled ? "Turn off" : "Turn on"}
+        </button>
+      }
+    />
   );
 }
 
@@ -640,33 +656,31 @@ export function ConvertForm({
       </fieldset>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="convert-migration-owner" className={FIELD_LABEL}>Migration owner (receives the existing history)</Label>
-        <select
+        <Select
           id="convert-migration-owner"
           value={migrationOwner}
           onChange={(e) => setMigrationOwner(e.target.value)}
-          className="h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
               {account.id || `(account ${index + 1})`}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="convert-password-account" className={FIELD_LABEL}>Environment login (signs in with EGGY_UI_USER_EMAIL / EGGY_UI_PASSWORD)</Label>
-        <select
+        <Select
           id="convert-password-account"
           value={passwordAccount}
           onChange={(e) => setPasswordAccount(e.target.value)}
-          className="h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30"
         >
           {accounts.map((account, index) => (
             <option key={index} value={account.id}>
               {account.id || `(account ${index + 1})`}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       {error && (
         <ErrorBanner>

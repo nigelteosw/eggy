@@ -69,7 +69,7 @@ export function SettingsDialog({
             onClick={onClose}
             aria-label="Close settings"
             title="Close (Esc)"
-            className="absolute right-2 top-2 z-10 flex h-10 w-10 items-center justify-center rounded-control bg-background/80 text-neutral-700 backdrop-blur transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center rounded-control bg-background/80 text-neutral-700 backdrop-blur transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <CloseIcon />
           </button>

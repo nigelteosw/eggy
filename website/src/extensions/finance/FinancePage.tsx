@@ -1,3 +1,4 @@
+import { PageShell } from "../../components/ui/page-shell";
 import { SaveBar } from "../../components/ui/save-bar";
 import { PageHeader } from "../../components/ui/page-header";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -573,9 +574,8 @@ export function FinancePage({ onSessionExpired, onClose, onOpenSidebar }: { onSe
   }
 
   return (
-    <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
+    <PageShell as="div">
       {confirmDialog}
-      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-4 pb-11 pt-8 sm:px-7 sm:pt-10">
         <header className="flex flex-col gap-3 pb-1">
           <PageHeader
             title="Finance"
@@ -658,7 +658,6 @@ export function FinancePage({ onSessionExpired, onClose, onOpenSidebar }: { onSe
             />
           </>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

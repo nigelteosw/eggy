@@ -1,3 +1,4 @@
+import { Select } from "../components/ui/select";
 import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
 import { SessionExpiredError, type LookView, type Theme, applyLook, applyTheme, deleteAgentTheme, getAgent, saveAgentTheme, setAgentLook, setAgentTheme } from "../lib/api";
 import { Label } from "../components/ui/label";
@@ -27,8 +28,6 @@ function modeSwatch(mode: Theme, look: LookOption | undefined): CSSProperties | 
   return { backgroundImage: `linear-gradient(135deg in oklch, ${gradientStop(look.light, hue)} 45%, ${gradientStop(look.dark, hue)} 55%)` };
 }
 
-const selectClass =
-  "h-[42px] w-full rounded-control border border-neutral-200 bg-background px-3.5 text-field text-foreground sm:text-small focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
 export function AppearanceCard({
   theme,
@@ -207,19 +206,19 @@ export function AppearanceCard({
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="look-text-font" className={FIELD_LABEL}>Text font</Label>
-              <select id="look-text-font" value={look.text_font} disabled={busy} onChange={(event) => changeLook({ text_font: event.target.value })} className={selectClass}>
+              <Select id="look-text-font" value={look.text_font} disabled={busy} onChange={(event) => changeLook({ text_font: event.target.value })}>
                 {look.text_fonts.map((font) => (
                   <option key={font} value={font}>{font}</option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="look-code-font" className={FIELD_LABEL}>Code font</Label>
-              <select id="look-code-font" value={look.code_font} disabled={busy} onChange={(event) => changeLook({ code_font: event.target.value })} className={selectClass}>
+              <Select id="look-code-font" value={look.code_font} disabled={busy} onChange={(event) => changeLook({ code_font: event.target.value })}>
                 {look.code_fonts.map((font) => (
                   <option key={font} value={font}>{font}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           </div>
         </>

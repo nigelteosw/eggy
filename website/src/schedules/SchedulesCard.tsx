@@ -1,3 +1,4 @@
+import { CACHE, recall, remember } from "../lib/cache";
 import { relativeTime } from "../lib/time";
 import { useCallback, useEffect, useState } from "react";
 import { useConfirm } from "../components/ui/confirm";
@@ -27,14 +28,14 @@ export const WHEN = 6;
  * button rather than full CRUD.
  */
 export function SchedulesCard({ onSessionExpired }: { onSessionExpired: () => void }) {
-  const [result, setResult] = useState<CommandResult | null>(null);
+  const [result, setResult] = useState<CommandResult | null>(() => recall<CommandResult>(CACHE.schedules) ?? null);
   const [confirm, confirmDialog] = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
   const load = useCallback(() => {
     listSchedules()
-      .then(setResult)
+      .then((next) => setResult(remember(CACHE.schedules, next)))
       .catch((err) => {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();

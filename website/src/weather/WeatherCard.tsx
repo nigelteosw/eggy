@@ -1,3 +1,4 @@
+import { CACHE, recall, remember } from "../lib/cache";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { MenuIcon } from "../components/ui/icons";
 import { SessionExpiredError, getWeather, type WeatherOutlook, type WeatherReport } from "../lib/api";
@@ -28,7 +29,7 @@ const POLL_MS = 5 * 60 * 1000;
 export type WeatherHeading = { title: string; description?: ReactNode; onOpenSidebar?: () => void };
 
 export function WeatherCard({ onSessionExpired, heading }: { onSessionExpired: () => void; heading?: WeatherHeading }) {
-  const [report, setReport] = useState<WeatherReport | null>(null);
+  const [report, setReport] = useState<WeatherReport | null>(() => recall<WeatherReport>(CACHE.weather) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -39,7 +40,7 @@ export function WeatherCard({ onSessionExpired, heading }: { onSessionExpired: (
       setRefreshing(true);
       getWeather(refresh)
         .then((next) => {
-          setReport(next);
+          setReport(remember(CACHE.weather, next));
           setError(null);
           loadedAt.current = Date.now();
         })
@@ -134,7 +135,7 @@ export function WeatherView({
           <Greeting heading={heading} action={refresh} />
         </div>
       )}
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] md:gap-4 xl:gap-5">
+      <div className="weather-columns">
         <div className="flex min-w-0 flex-col gap-3 px-1 pt-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -162,7 +163,7 @@ export function WeatherView({
                 </p>
               )}
             </div>
-            <WeatherGlyph glyph={glyph} size={136} animated className="-mr-2 shrink-0 sm:h-[156px] sm:w-[156px] xl:h-[184px] xl:w-[184px]" />
+            <WeatherGlyph glyph={glyph} size={136} animated className="weather-glyph-main -mr-2 shrink-0" />
           </div>
 
           <ul className="mt-auto grid grid-cols-3 gap-2" aria-label="Readings">
@@ -198,7 +199,7 @@ export function WeatherView({
               <ul className="mt-3 grid grid-cols-3 gap-2">
                 {report.periods.slice(0, 3).map((period) => (
                   <li key={period.start} className="flex flex-col items-center gap-1.5 text-center" title={period.text}>
-                    <span className="weather-glass flex h-14 w-14 items-center justify-center rounded-full">
+                    <span className="wx-period-bubble weather-glass flex h-14 w-14 items-center justify-center rounded-full">
                       <WeatherGlyph glyph={glyphFor(period.forecast, periodIsNight(period))} size={40} />
                     </span>
                     <span className="text-caption font-semibold">{period.label}</span>
@@ -241,7 +242,7 @@ function Greeting({ heading, action }: { heading: WeatherHeading; action?: React
             onClick={heading.onOpenSidebar}
             aria-label="Open sidebar"
             title="Open sidebar"
-            className="weather-glass -ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full md:hidden"
+            className="weather-glass -ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full lg:hidden"
           >
             <MenuIcon />
           </button>
@@ -256,8 +257,8 @@ function Greeting({ heading, action }: { heading: WeatherHeading; action?: React
 
 function Reading({ icon, label, value, detail }: { icon: "wind" | "humidity" | "clock"; label: string; value: string; detail?: string }) {
   return (
-    <li className="weather-glass flex min-w-0 flex-col items-center gap-1 rounded-card px-1.5 py-3 text-center">
-      <ReadingIcon kind={icon} className="weather-soft" />
+    <li className="wx-reading weather-glass flex min-w-0 flex-col items-center gap-1 rounded-card px-1.5 py-3 text-center">
+      <ReadingIcon kind={icon} className="wx-reading-icon weather-soft" />
       <span className="weather-soft text-caption">{label}</span>
       <span className="line-clamp-2 text-small font-semibold tabular-nums">{value}</span>
       {detail && <span className="weather-soft hidden truncate text-caption sm:block">{detail}</span>}

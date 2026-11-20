@@ -1,3 +1,6 @@
+import { CACHE, recall, remember } from "../lib/cache";
+import { SkeletonRows } from "../components/ui/skeleton";
+import { PageShell } from "../components/ui/page-shell";
 import { EmptyNote, greeting } from "../components/ui/voice";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -10,6 +13,7 @@ import {
   saveWatchList,
   type AgentSelection,
   type CommandResult,
+  type Thread,
 } from "../lib/api";
 import { ApprovalsCard } from "../settings/ApprovalsCard";
 import { ID, INSTRUCTION, NEXT_RUN, NEXT_RUN_AT } from "../schedules/SchedulesCard";
@@ -61,14 +65,14 @@ export function HomePage({
 }) {
   // The watch list is kept as the document it is, so an edit made here can be
   // written back without disturbing the lines Home does not show.
-  const [watchDoc, setWatchDoc] = useState<string | null>(null);
+  const [watchDoc, setWatchDoc] = useState<string | null>(() => recall<string>(CACHE.watch) ?? null);
   const [watchDraft, setWatchDraft] = useState<WatchItem[] | null>(null);
   const [savingWatch, setSavingWatch] = useState(false);
-  const [schedules, setSchedules] = useState<string[][] | null>(null);
+  const [schedules, setSchedules] = useState<string[][] | null>(() => recall<CommandResult>(CACHE.schedules)?.table_rows ?? null);
   const [editingSchedules, setEditingSchedules] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
-  const [threadCount, setThreadCount] = useState<number | null>(null);
-  const [agent, setAgent] = useState<AgentSelection | null>(null);
+  const [threadCount, setThreadCount] = useState<number | null>(() => recall<Thread[]>(CACHE.threads)?.length ?? null);
+  const [agent, setAgent] = useState<AgentSelection | null>(() => recall<AgentSelection>(CACHE.agent) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
 
@@ -80,16 +84,16 @@ export function HomePage({
     [onSessionExpired],
   );
   const loadSchedules = useCallback(
-    () => listSchedules().then((result) => setSchedules(result.table_rows ?? [])).catch(fail("Some of Home could not load")),
+    () => listSchedules().then((result) => setSchedules(remember(CACHE.schedules, result).table_rows ?? [])).catch(fail("Some of Home could not load")),
     [fail],
   );
 
   useEffect(() => {
     const failed = fail("Some of Home could not load");
-    listThreads().then((threads) => setThreadCount(threads.length)).catch(failed);
-    getWatchList().then((result) => setWatchDoc(watchText(result))).catch(failed);
+    listThreads().then((threads) => setThreadCount(remember(CACHE.threads, threads).length)).catch(failed);
+    getWatchList().then((result) => setWatchDoc(remember(CACHE.watch, watchText(result)))).catch(failed);
     loadSchedules();
-    getAgent().then(setAgent).catch(failed);
+    getAgent().then((next) => setAgent(remember(CACHE.agent, next))).catch(failed);
   }, [fail, loadSchedules]);
 
   const watch = watchDoc === null ? null : watchItems(watchDoc);
@@ -162,10 +166,10 @@ export function HomePage({
     : "Loading…";
 
   return (
-    <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
-      {/* On a wide screen the page widens with it and the sections below the
-          sky sit side by side, rather than a narrow column in a sea of canvas. */}
-      <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-6 sm:px-7 sm:pt-8 xl:max-w-[1240px] xl:pt-10">
+    <PageShell width="wide" className="gap-8 pt-3 md:pt-6">
+      {/* Home's header is the weather card, so it starts a little lower than
+          a title row would; on a wide screen the page widens and the sections
+          below the sky sit side by side. */}
         <WeatherCard onSessionExpired={onSessionExpired} heading={{ title: greeting(new Date().getHours(), name), description: status, onOpenSidebar }} />
 
         {error && <p className="rounded-control bg-tomato-soft px-3 py-2 text-small text-tomato" role="alert">{error}</p>}
@@ -205,7 +209,7 @@ export function HomePage({
             </span>
           </div>
           {schedules === null ? (
-            <p className="text-small text-neutral-700">Loading…</p>
+            <SkeletonRows rows={3} />
           ) : upcoming.length === 0 ? (
             <EmptyNote>Nothing is scheduled.</EmptyNote>
           ) : (
@@ -298,7 +302,7 @@ export function HomePage({
               </li>
             </ul>
           ) : watch === null ? (
-            <p className="text-small text-neutral-700">Loading…</p>
+            <SkeletonRows rows={3} />
           ) : watch.length === 0 ? (
             <EmptyNote>Nothing yet. Tell me what to keep an eye on, and I'll check on it between your conversations.</EmptyNote>
           ) : (
@@ -314,8 +318,7 @@ export function HomePage({
         </section>
 
         </div>
-      </div>
-    </main>
+    </PageShell>
   );
 }
 

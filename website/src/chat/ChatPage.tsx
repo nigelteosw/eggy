@@ -1,3 +1,4 @@
+import { CACHE, recall, remember } from "../lib/cache";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -140,7 +141,9 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 // MessageSheet is a long press's menu: the message's actions, at the thumb.
-function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCopy: () => void; onClose: () => void }) {
+// On a touch screen it is also where an earlier message's time is read, since
+// only the latest reply keeps its footer there.
+function MessageSheet({ at, onReply, onCopy, onClose }: { at?: string; onReply: () => void; onCopy: () => void; onClose: () => void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -156,6 +159,11 @@ function MessageSheet({ onReply, onCopy, onClose }: { onReply: () => void; onCop
         onClick={(event) => event.stopPropagation()}
         className="flex w-full flex-col gap-1 rounded-t-card bg-card p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lift"
       >
+        {at && (
+          <p className="px-4 pb-1 pt-2 text-caption text-muted-foreground">
+            <time dateTime={at}>{new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time>
+          </p>
+        )}
         <button type="button" onClick={onReply} className="flex min-h-12 items-center gap-3 rounded-card px-4 text-left text-small font-medium transition-colors hover:bg-neutral-100">
           <ReplyIcon className="h-4 w-4" />
           Reply
@@ -245,7 +253,7 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   return (
     <div
       className={cn(
-        "prose max-w-none break-words text-body leading-7",
+        "prose max-w-none break-words text-body leading-6 sm:leading-7",
         "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "prose-pre:rounded-control prose-pre:text-small prose-code:font-mono prose-code:text-[0.85em] prose-code:before:content-none prose-code:after:content-none",
         isUserBubble
@@ -559,7 +567,7 @@ export function ChatPage({
           text: row[1] ?? "",
           at: row[2] || undefined,
         }));
-        setHistory(fetched);
+        setHistory(remember(CACHE.history(targetThreadId), fetched));
         historyCountRef.current = fetched.length;
         // Drop any pending optimistic send the server has now caught up on;
         // keep the rest showing until it does.
@@ -573,7 +581,10 @@ export function ChatPage({
   useEffect(() => {
     const createdFromDraft = previousThreadId.current === null && threadId !== null;
     threadRef.current = threadId;
-    setHistory([]);
+    // A chat opened before draws what it showed then, while loadHistory below
+    // fetches what is new.
+    const remembered = threadId ? (recall<ChatMessage[]>(CACHE.history(threadId)) ?? []) : [];
+    setHistory(remembered);
     // The first send creates the durable thread and changes this prop while
     // its message is still in flight. Keep that optimistic message visible;
     // a normal switch between existing chats should reset the pane.
@@ -585,7 +596,7 @@ export function ChatPage({
     turnStartRef.current = null;
     setLiveSteps([]);
     setActivityByIndex({});
-    historyCountRef.current = 0;
+    historyCountRef.current = remembered.length;
     setQuote(null);
     previousThreadId.current = threadId;
     if (!threadId) return;
@@ -772,7 +783,7 @@ export function ChatPage({
           <button
             type="button"
             onClick={onOpenSidebar}
-            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 lg:hidden"
             aria-label="Open sidebar"
             title="Open sidebar"
           >
@@ -784,7 +795,7 @@ export function ChatPage({
           <button
             type="button"
             onClick={onNewChat}
-            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:hidden"
+            className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-700 transition-colors hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 lg:hidden"
             aria-label="New chat"
             title="New chat"
           >
@@ -806,6 +817,7 @@ export function ChatPage({
       >
         {pressed && (
           <MessageSheet
+            at={pressed.at}
             onReply={() => {
               setQuote(replyQuote(pressedBody, pressed.role === "assistant"));
               setPressedMessage(null);
@@ -838,7 +850,7 @@ export function ChatPage({
             <ReplyIcon className="h-4 w-4" />
           </button>
         )}
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-8 sm:px-8 sm:py-10">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:gap-7 sm:px-8 sm:py-10">
           {messages.length === 0 && !typing && (
             <div className="py-16 text-center">
               <p className="font-voice text-title text-neutral-700">What can I do for you?</p>
@@ -870,7 +882,10 @@ export function ChatPage({
                     )}
                     {body.trim() && <MessageBody text={body} isUserBubble />}
                   </div>
-                  <MessageFooter text={body} at={message.at} touch={touch} alwaysVisible={touch} />
+                  {/* A finger has no hover to reveal a footer with, and a 44 px
+                      row under every message made the phone scroll mostly
+                      chrome; a long press opens the same actions and the time. */}
+                  {!touch && <MessageFooter text={body} at={message.at} touch={touch} alwaysVisible={false} />}
                 </div>
               );
             }
@@ -891,13 +906,15 @@ export function ChatPage({
               <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-small">
                 {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
                 <MessageBody text={message.text} isUserBubble={false} />
-                <MessageFooter
-                  text={message.text}
-                  at={message.at}
-                  touch={touch}
-                  alwaysVisible={touch || isLatest}
-                  onRetry={retryFrom >= 0 ? () => retry(retryFrom) : undefined}
-                />
+                {(!touch || isLatest) && (
+                  <MessageFooter
+                    text={message.text}
+                    at={message.at}
+                    touch={touch}
+                    alwaysVisible={touch || isLatest}
+                    onRetry={retryFrom >= 0 ? () => retry(retryFrom) : undefined}
+                  />
+                )}
               </div>
             );
           })}

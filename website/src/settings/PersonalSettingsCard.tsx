@@ -1,3 +1,4 @@
+import { Select } from "../components/ui/select";
 import { useCallback, useEffect, useState } from "react";
 import { SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setAgentThinking, setApprovalMode, type AgentSelection } from "../lib/api";
 import { CardHeader } from "../components/ui/card-header";
@@ -16,13 +17,14 @@ import { GitHubTokenField } from "./GitHubTokenField";
 // Shared deployment settings (providers, connections, tracing) live under
 // their own heading and are deliberately not mixed in here.
 
-const selectClass =
-  "h-[42px] rounded-control border border-neutral-200 bg-background px-3.5 text-small text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-600/30";
 
-export const APPROVAL_MODES: { value: string; label: string; hint: string }[] = [
-  { value: "auto", label: "Auto", hint: "I don't ask. I read, change and send things for you on my own." },
-  { value: "normal", label: "Read", hint: "I read and look things up on my own, and ask before I change or send anything." },
-  { value: "strict", label: "Manual", hint: "I ask before every tool I use, even to read or look something up." },
+// chip is how the composer names the mode in force: the mode's name alone
+// ("Read") said nothing about what it does to someone who had not opened the
+// menu, so the chip says the behaviour instead.
+export const APPROVAL_MODES: { value: string; label: string; chip: string; hint: string }[] = [
+  { value: "auto", label: "Auto", chip: "Never asks", hint: "I don't ask. I read, change and send things for you on my own." },
+  { value: "normal", label: "Read", chip: "Asks before changes", hint: "I read and look things up on my own, and ask before I change or send anything." },
+  { value: "strict", label: "Manual", chip: "Asks every time", hint: "I ask before every tool I use, even to read or look something up." },
 ];
 
 export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: () => void }) {
@@ -82,38 +84,41 @@ export function PersonalSettingsCard({ onSessionExpired }: { onSessionExpired: (
       {selection && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="personal-model" className={FIELD_LABEL}>Model</Label>
-            <select
+            {/* The way back to the default sits on the label's line, beside
+                what it resets, rather than under the field where a finger's
+                44 px row left it floating. */}
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="personal-model" className={FIELD_LABEL}>Model</Label>
+              <button type="button" disabled={busy} onClick={() => apply(() => setAgentModel("default"))} className="text-caption text-neutral-700 underline-offset-4 hover:underline">
+                Use the deployment default
+              </button>
+            </div>
+            <Select
               id="personal-model"
               aria-label="Model"
               value={selection.model}
               disabled={busy}
               onChange={(event) => apply(() => setAgentModel(event.target.value))}
-              className={selectClass}
             >
               {selection.models.map((alias) => (
                 <option key={alias} value={alias}>{alias}</option>
               ))}
-            </select>
-            <button type="button" disabled={busy} onClick={() => apply(() => setAgentModel("default"))} className="self-start text-caption text-neutral-700 underline-offset-4 hover:underline">
-              Use the deployment default
-            </button>
+            </Select>
           </div>
           {selection.efforts.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="personal-effort" className={FIELD_LABEL}>Reasoning effort</Label>
-              <select
+              <Select
                 id="personal-effort"
                 aria-label="Reasoning effort"
                 value={selection.effort}
                 disabled={busy}
                 onChange={(event) => apply(() => setAgentEffort(event.target.value))}
-                className={selectClass}
               >
                 {selection.efforts.map((effort) => (
                   <option key={effort} value={effort}>{effort}</option>
                 ))}
-              </select>
+              </Select>
             </div>
           )}
           <div className="flex flex-col gap-1 rounded-card bg-neutral-100 p-4">

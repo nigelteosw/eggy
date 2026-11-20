@@ -1,3 +1,4 @@
+import { PageShell } from "../components/ui/page-shell";
 import { PageHeader } from "../components/ui/page-header";
 import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
@@ -6,6 +7,7 @@ import { GoogleCard } from "./GoogleCard";
 import { SkillsPanel } from "./SkillsPanel";
 import { SkillDetail } from "./SkillDetail";
 import { Input } from "../components/ui/input";
+import { Select } from "../components/ui/select";
 import { PRIMARY_BUTTON } from "../components/ui/form";
 import { SearchIcon } from "../components/ui/icons";
 import { PluginsTab } from "../extensions/marketplace/PluginsTab";
@@ -85,8 +87,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
   const backToList = () => go({ tab: "skills", skill: null });
 
   return (
-    <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-6 px-5 pb-11 pt-10 sm:px-7">
+    <PageShell>
         {route.tab === "skills" && route.skill ? (
           <SkillDetail
             key={route.skill}
@@ -109,7 +110,19 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
             />
 
             <div className="flex flex-wrap items-center gap-3">
-              <div role="tablist" aria-label="Customize" className="scrollbar-none fade-x -mx-1 flex max-w-full gap-1 overflow-x-auto rounded-card bg-neutral-100 p-1.5">
+              {/* Five tabs do not fit across a phone, and a scrolling tab bar
+                  hides the ones past the edge, so a phone picks the section
+                  from a list instead. */}
+              <div className="w-full sm:hidden">
+                <Select aria-label="Customize section" value={route.tab} onChange={(event) => go({ tab: event.target.value as Tab, skill: null }, false)}>
+                  {tabsFor(features).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div role="tablist" aria-label="Customize" className="scrollbar-none fade-x -mx-1 hidden max-w-full gap-1 overflow-x-auto rounded-card bg-neutral-100 p-1.5 sm:flex">
                 {tabsFor(features).map((item) => (
                   <button
                     key={item.id}
@@ -118,6 +131,7 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
                     id={`customize-tab-${item.id}`}
                     aria-selected={route.tab === item.id}
                     aria-controls="customize-panel"
+                    ref={route.tab === item.id ? (node) => node?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
                     onClick={() => go({ tab: item.id, skill: null }, false)}
                     className={cn(
                       "min-h-11 shrink-0 rounded-control px-3.5 text-small transition-colors sm:min-h-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
@@ -130,8 +144,8 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
               </div>
 
               {route.tab === "skills" && (
-                <div className="ml-auto flex items-center gap-2">
-                  <label className="flex h-10 w-full max-w-[260px] items-center gap-2 rounded-control bg-neutral-100 px-3 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
+                <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+                  <label className="flex h-10 w-full min-w-0 sm:max-w-[260px] items-center gap-2 rounded-control bg-neutral-100 px-3 text-neutral-700 focus-within:ring-2 focus-within:ring-ring/40">
                     <SearchIcon className="h-4 w-4 shrink-0" />
                     <Input
                       type="search"
@@ -178,7 +192,6 @@ export function CustomizePage({ onSessionExpired, features, onOpenSidebar }: { o
             </div>
           </>
         )}
-      </div>
-    </main>
+    </PageShell>
   );
 }

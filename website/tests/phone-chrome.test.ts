@@ -9,7 +9,8 @@ import { SaveBar } from "../src/components/ui/save-bar";
 test("the page heading carries the phone menu button beside the title", () => {
   const html = renderToStaticMarkup(createElement(PageHeader, { title: "Scheduled", onOpenSidebar: () => {}, action: createElement("button", null, "Refresh") }));
   expect(html).toContain('aria-label="Open sidebar"');
-  expect(html).toContain("md:hidden");
+  // The rail is a drawer below lg, so the button shows until then.
+  expect(html).toContain("lg:hidden");
   expect(html).toContain("Scheduled");
   expect(html).toContain("Refresh");
   expect(renderToStaticMarkup(createElement(PageHeader, { title: "Home" }))).not.toContain("Open sidebar");

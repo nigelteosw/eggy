@@ -7,7 +7,7 @@ import { Switch } from "../components/ui/switch";
 import { CardHeader } from "../components/ui/card-header";
 import { ErrorBanner } from "../components/ui/error-banner";
 import { FIELD_COMPACT, FIELD_LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../components/ui/form";
-import { SummaryRows } from "../components/ui/summary-rows";
+import { StatusLine, type StatusTone } from "../components/ui/status-line";
 import { errorMessage } from "../lib/utils";
 
 // The Discord card is where the bot is added: the token is pasted here and
@@ -15,10 +15,12 @@ import { errorMessage } from "../lib/utils";
 // environment, so an owner can add a bot without touching the host. Each
 // person then links their own Discord from the Accounts card.
 
-export function describeDiscord(view: DiscordView): string[] {
-  const token = !view.bot_token_set ? "not set" : view.bot_token_source === "environment" ? "from environment" : "stored";
-  const state = !view.enabled ? "disabled" : view.running ? "running" : "enabled (restart to start)";
-  return [state, view.application_id || "—", token];
+export function describeDiscord(view: DiscordView): { tone: StatusTone; label: string; detail: string } {
+  const token = !view.bot_token_set ? "No bot token yet" : view.bot_token_source === "environment" ? "Bot token from the environment" : "Bot token stored";
+  const detail = [token, view.application_id ? `application ${view.application_id}` : ""].filter(Boolean).join(" · ");
+  if (!view.enabled) return { tone: "off", label: "Off", detail };
+  if (!view.running) return { tone: "waiting", label: "On, starts after a restart", detail };
+  return { tone: "on", label: "Running", detail };
 }
 
 export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void }) {
@@ -72,7 +74,7 @@ export function DiscordCard({ onSessionExpired }: { onSessionExpired: () => void
         description="Talk to Eggy in a private Discord DM. Add the bot here; each person links their own Discord from Settings → People."
       />
 
-      {view && <SummaryRows headers={["State", "Application ID", "Bot token"]} row={describeDiscord(view)} />}
+      {view && <StatusLine {...describeDiscord(view)} className="mb-3" />}
 
       <details className="rounded-card bg-neutral-100 p-4">
         <summary className="cursor-pointer text-small font-medium">Configure Discord</summary>

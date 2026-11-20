@@ -1,3 +1,5 @@
+import { CACHE, recall, remember } from "../lib/cache";
+import { SkeletonRows } from "../components/ui/skeleton";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useConfirm } from "../components/ui/confirm";
 import { Thread, deleteThread, listApprovals, listThreads, renameThread, type Account, type Theme } from "../lib/api";
@@ -75,6 +77,17 @@ export function initialThreadSelection(threads: Thread[], now = Date.now()): str
 export function canStartNewChat(threads: Thread[], activeThreadId: string | null): boolean {
   const active = threads.find((thread) => thread.id === activeThreadId);
   return !active || active.title !== "";
+}
+
+// newChatAction is what "New chat" does from where the owner is. In the chat
+// view, sitting in an empty draft or an empty thread, it does nothing, as
+// above. Anywhere else it always does something: it opens that empty chat,
+// since it is the new chat, rather than greying out on Home where nothing on
+// screen explains why.
+export function newChatAction(view: string, draftOpen: boolean, threads: Thread[], activeThreadId: string | null): "start" | "open" | "none" {
+  const fresh = !draftOpen && canStartNewChat(threads, activeThreadId);
+  if (fresh) return "start";
+  return view === "chat" ? "none" : "open";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -206,7 +219,10 @@ export function ThreadSidebar({
   onThemeChange?: (theme: Theme) => void;
 }) {
   const [confirm, confirmDialog] = useConfirm();
-  const [threads, setThreads] = useState<Thread[]>([]);
+  const [threads, setThreads] = useState<Thread[]>(() => recall<Thread[]>(CACHE.threads) ?? []);
+  // Whether the list has answered once, so the rail does not say "No chats
+  // yet" in the moment before it has looked.
+  const [threadsLoaded, setThreadsLoaded] = useState(() => recall<Thread[]>(CACHE.threads) !== undefined);
   // The count of approvals waiting, read whenever the rail is shown or the view
   // changes, so the Home badge is current without a timer.
   const [waitingApprovals, setWaitingApprovals] = useState(0);
@@ -281,7 +297,8 @@ export function ThreadSidebar({
   useEffect(() => {
     listThreads()
       .then((loaded) => {
-        setThreads(loaded);
+        setThreads(remember(CACHE.threads, loaded));
+        setThreadsLoaded(true);
         if (initialSelectionStarted.current) return;
         initialSelectionStarted.current = true;
 
@@ -295,7 +312,10 @@ export function ThreadSidebar({
         // first non-empty message creates the server thread.
         onStartNew();
       })
-      .catch(() => setThreads([]));
+      .catch(() => {
+        setThreads([]);
+        setThreadsLoaded(true);
+      });
   }, [reloadKey]);
 
   useEffect(() => {
@@ -329,14 +349,15 @@ export function ThreadSidebar({
     };
   }, []);
 
-  const newChatAvailable = !draftOpen && canStartNewChat(threads, activeThreadId);
+  const newChat = newChatAction(view, draftOpen, threads, activeThreadId);
+  const newChatAvailable = newChat !== "none";
   const matching = filterThreads(threads, chatQuery);
   const groups = groupThreads(matching);
 
   function handleNew() {
-    if (!newChatAvailable) return;
+    if (newChat === "none") return;
     setError(null);
-    onStartNew();
+    if (newChat === "start") onStartNew();
     onNavigate("chat");
   }
 
@@ -427,7 +448,7 @@ export function ThreadSidebar({
 
   return (
     <div
-      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 shadow-[inset_-1px_0_0_var(--hairline)] md:w-[var(--sidebar-width)]"
+      className="relative flex h-full w-[min(90vw,22rem)] shrink-0 flex-col bg-neutral-100 shadow-[inset_-1px_0_0_var(--hairline)] lg:w-[var(--sidebar-width)]"
       style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
     >
       {confirmDialog}
@@ -454,7 +475,7 @@ export function ThreadSidebar({
           never push the footer -- and Settings -- off a short screen. At md
           and up only the chat list scrolls, because the Extensions menu opens
           beside the rail and a scrolling ancestor would clip it. */}
-      <div data-rail-scroll className="scrollbar-slim fade-y flex min-h-0 flex-1 flex-col max-md:overflow-y-auto">
+      <div data-rail-scroll className="scrollbar-slim fade-y flex min-h-0 flex-1 flex-col max-lg:overflow-y-auto">
       <nav aria-label="Main navigation" className="flex shrink-0 flex-col gap-0.5 px-2 pb-2">
         <NavRow icon={<HomeIcon />} label="Home" active={view === "home"} badge={approvalBadge(waitingApprovals)} onClick={() => onNavigate("home")} />
         <NavRow
@@ -472,7 +493,7 @@ export function ThreadSidebar({
               <div
                 role="menu"
                 aria-label="Extensions"
-                className="mt-1 overflow-hidden rounded-card bg-card p-1.5 shadow-lift md:absolute md:left-full md:top-0 md:z-30 md:ml-2 md:mt-0 md:w-48"
+                className="mt-1 overflow-hidden rounded-card bg-card p-1.5 shadow-lift lg:absolute lg:left-full lg:top-0 lg:z-30 lg:ml-2 lg:mt-0 lg:w-48"
               >
                 {extensions.map((extension) => (
                   <button
@@ -514,7 +535,7 @@ export function ThreadSidebar({
         </div>
       )}
 
-      <div data-chat-list className="scrollbar-slim fade-y px-2 pb-3 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+      <div data-chat-list className="scrollbar-slim fade-y px-2 pb-3 max-lg:shrink-0 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
         {threads.length > 0 && (
           <label className="mx-1 mb-2 flex h-9 items-center gap-2 rounded-control bg-[oklch(var(--rail-raised))] px-2.5 text-neutral-700 shadow-[inset_0_0_0_1px_var(--hairline)] focus-within:ring-2 focus-within:ring-ring/40">
             <SearchIcon className="h-3.5 w-3.5 shrink-0" />
@@ -528,7 +549,9 @@ export function ThreadSidebar({
             />
           </label>
         )}
-        {threads.length === 0 ? (
+        {!threadsLoaded && threads.length === 0 ? (
+          <SkeletonRows rows={4} className="px-2 pt-2" rowClassName="h-7" label="Loading chats" />
+        ) : threads.length === 0 ? (
           <p className="px-2 py-6 text-center font-voice text-small text-muted-foreground">No chats yet.</p>
         ) : matching.length === 0 ? (
           <p className="px-2 py-6 text-center text-caption text-muted-foreground">No chats match “{chatQuery.trim()}”.</p>
@@ -637,7 +660,9 @@ export function ThreadSidebar({
         onKeyDown={resizeWithKeyboard}
         onDoubleClick={resetSidebarWidth}
         className={cn(
-          "group absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none md:block",
+          // A 12 px edge is a mouse's target, not a finger's: on a touch screen
+          // the rail keeps its width.
+          "group absolute inset-y-0 -right-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none lg:block [@media(pointer:coarse)]:hidden",
           // A grey grip, drawn as a short pill on the edge. It stays hidden until
           // the pointer has rested on the edge for 0.3s, so the edge is quiet
           // while the owner is only passing over it. While dragging it shows at

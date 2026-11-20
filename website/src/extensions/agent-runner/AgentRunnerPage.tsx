@@ -1,3 +1,4 @@
+import { PageShell } from "../../components/ui/page-shell";
 import { SaveBar } from "../../components/ui/save-bar";
 import { PageHeader } from "../../components/ui/page-header";
 import { useCallback, useEffect, useState } from "react";
@@ -518,8 +519,7 @@ export function AgentRunnerPage({
   return (
     // The scroll container is this page's own: the extension window gives a
     // fixed height, and without overflow here the content is clipped, not scrolled.
-    <div className="app-canvas scrollbar-slim h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6">
+    <PageShell as="div">
         <PageHeader
           title="Agent Runner"
           onOpenSidebar={onOpenSidebar}
@@ -725,7 +725,6 @@ export function AgentRunnerPage({
             />
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

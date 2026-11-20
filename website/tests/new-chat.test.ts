@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { canStartNewChat } from "../src/chat/ThreadSidebar";
+import { canStartNewChat, newChatAction } from "../src/chat/ThreadSidebar";
 import { ChatPage } from "../src/chat/ChatPage";
 import type { Thread } from "../src/lib/api";
 import { createElement } from "react";
@@ -26,6 +26,16 @@ test("allows a new chat once the open one has been written in", () => {
 test("allows a new chat before the thread list has loaded", () => {
   expect(canStartNewChat([], null)).toBe(true);
   expect(canStartNewChat([], "not-loaded-yet")).toBe(true);
+});
+
+// On Home with the empty draft behind it, New chat used to grey out with
+// nothing on screen to say why. Away from the chat it always goes somewhere.
+test("new chat opens the empty draft from another view instead of doing nothing", () => {
+  expect(newChatAction("home", true, [], null)).toBe("open");
+  expect(newChatAction("chat", true, [], null)).toBe("none");
+  expect(newChatAction("home", false, [thread("fresh", "")], "fresh")).toBe("open");
+  expect(newChatAction("chat", false, [thread("used", "Deploy")], "used")).toBe("start");
+  expect(newChatAction("home", false, [thread("used", "Deploy")], "used")).toBe("start");
 });
 
 test("a new chat draft can render before a server thread exists", () => {

@@ -1,3 +1,4 @@
+import { Select } from "../components/ui/select";
 import { useEffect, useState, type FormEvent } from "react";
 import { PROVIDER_PRESETS, presetById } from "../lib/providers";
 import {
@@ -154,11 +155,11 @@ export function SetupPage() {
             />
             <div className="grid gap-3 rounded-card bg-neutral-100 p-4 sm:grid-cols-2">
               {section.presets && (
-                <div className="sm:col-span-2">
+                <div className="flex flex-col gap-2 sm:col-span-2">
                   <Label htmlFor="provider-preset">Provider</Label>
-                  <select
+                  <Select
                     id="provider-preset"
-                    className={`mt-2 h-11 w-full rounded-control bg-background px-3 text-field ${FIELD}`}
+                    className="bg-background"
                     defaultValue=""
                     disabled={completed}
                     onChange={(event) => {
@@ -190,7 +191,7 @@ export function SetupPage() {
                       </option>
                     ))}
                     <option value="other">Another provider</option>
-                  </select>
+                  </Select>
                 </div>
               )}
               {section.fields.map((field) => (

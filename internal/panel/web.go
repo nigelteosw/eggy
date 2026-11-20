@@ -2,8 +2,12 @@ package panel
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/nigelteosw/eggy/internal/auth/session"
@@ -458,15 +462,54 @@ func methodNotAllowed(w http.ResponseWriter, _ *http.Request) {
 }
 
 func webUIHandler() http.Handler {
-	fileServer := http.FileServer(http.FS(webui.Assets()))
+	return webUIHandlerFor(webui.Assets())
+}
+
+// The panel's own files are cached by what they are. Vite names everything
+// under assets/ by its content, so a name never means two different files and
+// those are kept for a year without revalidating. The shell that names them is
+// revalidated on every open against an ETag taken once from the bundle, so a
+// deploy is seen at once and an unchanged shell is a 304. Embedded files have
+// no modification time, so without the ETag there was nothing to revalidate
+// against. Icons and the manifest change rarely and are kept for a day.
+const (
+	cacheImmutable = "public, max-age=31536000, immutable"
+	cacheShell     = "no-cache"
+	cacheStatic    = "public, max-age=86400"
+)
+
+func webUIHandlerFor(assets fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(assets))
+	shellTag := ""
+	if index, err := fs.ReadFile(assets, "index.html"); err == nil {
+		sum := sha256.Sum256(index)
+		shellTag = `"` + hex.EncodeToString(sum[:8]) + `"`
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && isApplicationRoute(r.URL.Path) {
+		appRoute := r.Method == http.MethodGet && isApplicationRoute(r.URL.Path)
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/assets/"):
+			// Only a file that exists is marked immutable: a 404 kept for a
+			// year would outlive the deploy that fixed it.
+			if _, err := fs.Stat(assets, strings.TrimPrefix(r.URL.Path, "/")); err == nil {
+				w.Header().Set("Cache-Control", cacheImmutable)
+			}
+		case r.URL.Path == "/" || appRoute:
+			w.Header().Set("Cache-Control", cacheShell)
+			if shellTag != "" {
+				w.Header().Set("ETag", shellTag)
+			}
+		default:
+			w.Header().Set("Cache-Control", cacheStatic)
+		}
+		if appRoute {
 			if r.URL.Path == "/auth/link" {
 				// The login token rides in this page's fragment. The
 				// fragment never reaches the server, but the page must not
 				// be cached with it in a history entry, nor leak its URL
 				// as a referrer to anything the shell loads.
 				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Del("ETag")
 				w.Header().Set("Referrer-Policy", "no-referrer")
 			}
 			request := r.Clone(r.Context())

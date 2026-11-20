@@ -1,3 +1,5 @@
+import { CACHE, recall, remember } from "../lib/cache";
+import { SkeletonRows } from "../components/ui/skeleton";
 import { useCallback, useEffect, useState } from "react";
 import {
   CommandResult,
@@ -23,13 +25,13 @@ const REQUESTED = 4;
  * a second way to approve something.
  */
 export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => void }) {
-  const [result, setResult] = useState<CommandResult | null>(null);
+  const [result, setResult] = useState<CommandResult | null>(() => recall<CommandResult>(CACHE.approvals) ?? null);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<string | null>(null);
 
   const load = useCallback(() => {
     listApprovals()
-      .then(setResult)
+      .then((next) => setResult(remember(CACHE.approvals, next)))
       .catch((err) => {
         if (err instanceof SessionExpiredError) {
           onSessionExpired();
@@ -70,14 +72,22 @@ export function ApprovalsCard({ onSessionExpired }: { onSessionExpired: () => vo
         <CardHeader
           title="Waiting on you"
           className="mb-3"
+          // Why an expired approval is still listed is said only when one is:
+          // before that, it is a paragraph explaining a row nobody can see.
           description={
-            <>
-              Protected actions waiting on you, oldest first. An approval past its window shows as expired: it still
-              counts as pending until it is decided, which is why it appears here rather than vanishing.
-            </>
+            rows.some((row) => row[STATE] === "expired") ? (
+              <>
+                Protected actions, oldest first. An expired one still counts as pending until it is decided, which is
+                why it stays here.
+              </>
+            ) : (
+              "Protected actions, oldest first."
+            )
           }
         />
-        {rows.length === 0 ? (
+        {result === null && !error ? (
+          <SkeletonRows rows={2} rowClassName="h-12" />
+        ) : rows.length === 0 ? (
           <p className="rounded-card bg-neutral-100 px-4 py-6 text-center text-small text-neutral-700">
             Nothing is waiting on you.
           </p>

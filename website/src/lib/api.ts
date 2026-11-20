@@ -1,3 +1,4 @@
+import { forgetAll } from "./cache";
 import { DEFAULT_CODE_FONT, DEFAULT_TEXT_FONT, LOOK_CACHE_KEY, THEME_CACHE_KEY, fontHref, isTheme, lookProperties, paintedLook, resolveTheme, type LookView, type PaintedLook, type Theme } from "./theme";
 
 export type ResultField = { label: string; value: string };
@@ -48,6 +49,8 @@ export function currentSession(): Session | null {
 
 export function clearSession(): void {
   session = null;
+  // Whatever the panel remembered was this account's; the next one starts clean.
+  forgetAll();
 }
 
 const CSRF_HEADER = "X-Eggy-CSRF";
@@ -87,7 +90,12 @@ export async function request<T = CommandResult>(path: string, init?: RequestIni
   if (!response.ok) {
     throw new RequestError(body.title ?? "Request failed", response.status, body as Record<string, unknown>);
   }
-  if (method !== "GET" && method !== "HEAD" && !path.startsWith("/api/chat/")) writes.dispatchEvent(new Event("write"));
+  if (method !== "GET" && method !== "HEAD") {
+    // A write may change what any page shows, so no page draws its old copy
+    // after one; chat traffic included, since a reply can add a schedule.
+    forgetAll();
+    if (!path.startsWith("/api/chat/")) writes.dispatchEvent(new Event("write"));
+  }
   return body;
 }
 

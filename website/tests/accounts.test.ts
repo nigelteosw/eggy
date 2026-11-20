@@ -24,7 +24,7 @@ import {
 import { LoginPage } from "../src/auth/LoginPage";
 import { AccountsCard, AccountsList, ConvertForm, DiscordLinkControl, PasswordForm, RevokeConfirm, TelegramLinkControl, inviteText } from "../src/settings/AccountsCard";
 import { DiscordCard, describeDiscord } from "../src/customize/DiscordCard";
-import { GoogleIdentity } from "../src/customize/GoogleCard";
+import { GoogleIdentity, describeGoogle } from "../src/customize/GoogleCard";
 import { ConfigPage } from "../src/settings/ConfigPage";
 import { AccountMenu } from "../src/app/AccountMenu";
 
@@ -283,9 +283,13 @@ test("the accounts list shows Discord status only when Discord is enabled", () =
 });
 
 test("the Discord card writes the token once and reads back only whether it is set", async () => {
-  expect(describeDiscord({ enabled: false, application_id: "", bot_token_set: false, running: false })).toEqual(["disabled", "—", "not set"]);
-  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "environment", running: false })).toEqual(["enabled (restart to start)", "42", "from environment"]);
-  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "stored", running: true })).toEqual(["running", "42", "stored"]);
+  expect(describeDiscord({ enabled: false, application_id: "", bot_token_set: false, running: false })).toEqual({ tone: "off", label: "Off", detail: "No bot token yet" });
+  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "environment", running: false })).toEqual({
+    tone: "waiting",
+    label: "On, starts after a restart",
+    detail: "Bot token from the environment · application 42",
+  });
+  expect(describeDiscord({ enabled: true, application_id: "42", bot_token_set: true, bot_token_source: "stored", running: true })).toEqual({ tone: "on", label: "Running", detail: "Bot token stored · application 42" });
   const calls = fakeFetch((call) => call.method === "GET" ? { enabled: false, application_id: "", bot_token_set: false, running: false } : { state: "success" });
   await getDiscord();
   await setDiscord({ enabled: true, application_id: "42", bot_token: "secret" });
@@ -299,4 +303,13 @@ test("the Discord card writes the token once and reads back only whether it is s
   const html = renderToStaticMarkup(createElement(DiscordCard, { onSessionExpired: () => {} }));
   expect(html).toContain('type="password"');
   expect(html).toContain("Bot token");
+});
+
+// Google's status is words, not the config row: no raw "disabled" and no
+// empty client-id cells shown as if they were information.
+test("the Google card describes its state in words", () => {
+  expect(describeGoogle(undefined).label).toBe("Not set up");
+  expect(describeGoogle(["disabled", "", "", ""]).label).toBe("Not set up");
+  expect(describeGoogle(["disabled", "id.apps", "GOOGLE_CLIENT_SECRET", "calendar, gmail"])).toEqual({ tone: "off", label: "Off", detail: "Products: Calendar, Gmail" });
+  expect(describeGoogle(["enabled", "id.apps", "GOOGLE_CLIENT_SECRET", "calendar"])).toEqual({ tone: "on", label: "On", detail: "Products: Calendar" });
 });

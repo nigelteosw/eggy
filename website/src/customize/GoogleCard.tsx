@@ -6,7 +6,7 @@ import { useConfigSection } from "../settings/useConfigSection";
 import type { CommandResult } from "../lib/api";
 import { cn } from "../lib/utils";
 import { Button } from "../components/ui/button";
-import { DataTable } from "../components/ui/data-table";
+import { StatusLine, type StatusTone } from "../components/ui/status-line";
 import { Input } from "../components/ui/input";
 import { Switch } from "../components/ui/switch";
 import { CardHeader } from "../components/ui/card-header";
@@ -80,6 +80,21 @@ export function GoogleIdentity({
       )}
     </div>
   );
+}
+
+// describeGoogle turns the one config row into a status line: what state the
+// connection is in and which products it covers, in words rather than the
+// row's raw "disabled" and empty columns.
+export function describeGoogle(row: string[] | undefined): { tone: StatusTone; label: string; detail: string } {
+  const named = (row?.[PRODUCT_LIST] ?? "")
+    .split(",")
+    .map((product) => product.trim())
+    .filter(Boolean)
+    .map((product) => product[0].toUpperCase() + product.slice(1));
+  const products = named.length > 0 ? `Products: ${named.join(", ")}` : "No products chosen";
+  if (!row || !row[CLIENT_ID]) return { tone: "off", label: "Not set up", detail: "Add an OAuth client under Configure to connect Google." };
+  if (row[STATE] !== "enabled") return { tone: "off", label: "Off", detail: products };
+  return { tone: "on", label: "On", detail: products };
 }
 
 function field(result: CommandResult | null, label: string): string {
@@ -166,8 +181,10 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
         }
       />
       <div className="flex flex-col gap-3">
-        <DataTable headers={result?.table_headers?.slice(0, 4)} rows={result?.table_rows?.map((row) => row.slice(0, 4))} empty="Google is not configured yet." />
-        {result?.table_rows?.[0] && (
+        {result && <StatusLine {...describeGoogle(result.table_rows?.[0])} />}
+        {/* Who it is connected as only means something once there is a
+            client to connect with; before that the status line says so. */}
+        {result?.table_rows?.[0]?.[CLIENT_ID] && (
           <GoogleIdentity
             connected={result.table_rows[0][CONNECTED_AS] ?? ""}
             expected={result.table_rows[0][EXPECTED_EMAIL] ?? ""}
@@ -188,7 +205,7 @@ export function GoogleCard({ onSessionExpired }: { onSessionExpired: () => void 
                   ["desktop", "Desktop app", "Nothing to register. Run /google login in chat and paste back the page that fails to load."],
                 ] as const
               ).map(([value, label, help]) => (
-                <label key={value} className="flex items-start gap-2 text-small">
+                <label key={value} className="flex min-h-11 items-start gap-2 py-1 text-small">
                   <input
                     type="radio"
                     name="google-client-type"

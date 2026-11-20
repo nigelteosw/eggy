@@ -101,7 +101,7 @@ test("the phone sidebar is bounded to the viewport so its account menu stays rea
   // scroll region's sibling, so it never scrolls away.
   const scroll = doc.querySelector("[data-rail-scroll]")!;
   expect(scroll.parentElement).toBe(sidebar);
-  expect(classes("[data-rail-scroll]")).toEqual(expect.arrayContaining(["min-h-0", "flex-1", "max-md:overflow-y-auto"]));
+  expect(classes("[data-rail-scroll]")).toEqual(expect.arrayContaining(["min-h-0", "flex-1", "max-lg:overflow-y-auto"]));
   expect(scroll.querySelector('nav[aria-label="Main navigation"]')).not.toBeNull();
   expect(scroll.querySelector("[data-chat-list]")).not.toBeNull();
   const footer = doc.querySelector("[data-rail-footer]")!;
@@ -155,7 +155,7 @@ test("chat header carries the menu control on a phone only while the rail is clo
     }),
   );
   expect(closed).toContain('aria-label="Open sidebar"');
-  expect(closed).toContain("md:hidden");
+  expect(closed).toContain("lg:hidden");
 
   const open = renderToStaticMarkup(
     createElement(ChatPage, { threadId: null, title: "New chat", onSessionExpired: () => {} }),

@@ -166,7 +166,7 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
       <aside className={cn("flex min-h-0 w-full flex-col border-r border-border md:w-[280px] md:shrink-0", open ? "hidden md:flex" : "flex")}>
         <header className="flex min-h-14 items-center gap-1 px-3">
           {onOpenSidebar && (
-            <button type="button" onClick={onOpenSidebar} aria-label="Open sidebar" className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-700 hover:bg-neutral-100 md:hidden">
+            <button type="button" onClick={onOpenSidebar} aria-label="Open sidebar" className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-700 hover:bg-neutral-100 lg:hidden">
               <MenuIcon />
             </button>
           )}

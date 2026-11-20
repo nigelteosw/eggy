@@ -101,8 +101,9 @@ test("the add-repository form refuses an empty name or URL before sending", () =
 // The extension window has a fixed height, so the page must scroll itself. The
 // finance page does it with this wrapper; without it, content is clipped.
 test("the Agent Runner page owns its scrolling, as the finance page does", async () => {
-  const source = await Bun.file(new URL("../../../src/extensions/agent-runner/AgentRunnerPage.tsx", import.meta.url)).text();
-  expect(source).toContain("h-full min-h-0 overflow-y-auto");
+  // PageShell is the scroller; rendered, the window's root must be one.
+  const markup = renderToStaticMarkup(createElement(AgentRunnerPage, { onClose: () => {}, onSessionExpired: () => {} }));
+  expect(markup).toMatch(/^<div class="[^"]*h-full min-h-0[^"]*overflow-y-auto/);
 });
 
 test("the Agent Runner window opens on its start tab, with the previous runs tab beside it", () => {

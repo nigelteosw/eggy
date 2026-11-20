@@ -29,21 +29,21 @@ export function TelegramCard({ onSessionExpired }: { onSessionExpired: () => voi
         title="Telegram"
         description="Talk to Eggy from Telegram. Once it's on, each person links their own Telegram from Settings → People with a single-use link; nobody can link on someone else's behalf."
       />
-      <div className="rounded-card bg-neutral-100 p-4">
-        {view && (
-          <TelegramEnableControl
-            enabled={view.telegram_enabled}
-            onChanged={(message) => {
-              setNotice(message);
-              load();
-            }}
-            onError={setError}
-          />
-        )}
-        {view?.telegram_enabled && !view.telegram_pairing_available && (
-          <p className="mt-2 text-caption text-neutral-700">Linking is unavailable until Eggy can discover the bot's username. Check the Telegram credentials and restart.</p>
-        )}
-      </div>
+      {view && (
+        <TelegramEnableControl
+          enabled={view.telegram_enabled}
+          detail={
+            view.telegram_enabled && !view.telegram_pairing_available
+              ? "Linking is unavailable until Eggy can discover the bot's username. Check the Telegram credentials and restart."
+              : undefined
+          }
+          onChanged={(message) => {
+            setNotice(message);
+            load();
+          }}
+          onError={setError}
+        />
+      )}
       {notice && <p className="text-caption text-neutral-700">{notice}</p>}
       {error && <ErrorBanner>{error}</ErrorBanner>}
     </div>

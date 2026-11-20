@@ -828,7 +828,7 @@ export function TracesPage({ onSessionExpired, onOpenSidebar }: { onSessionExpir
       <PageHeader
         title="Traces"
         onOpenSidebar={onOpenSidebar}
-        className="shrink-0 px-5 py-4 sm:px-6"
+        className="shrink-0 px-4 pb-3 pt-1.5 sm:px-8"
         description={<span className="text-caption tabular-nums">{count(traces.length, "recent turn", "recent turns")}</span>}
         action={
           <Button variant="ghost" onClick={reload} disabled={loading} className="shrink-0 rounded-control hover:bg-neutral-200">

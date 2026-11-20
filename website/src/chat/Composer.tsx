@@ -1,3 +1,4 @@
+import { CACHE, recall, remember } from "../lib/cache";
 import { enterSendsMessage, usesTouchKeyboard } from "../lib/composer";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AgentSelection, SessionExpiredError, getAgent, setAgentEffort, setAgentModel, setApprovalMode } from "../lib/api";
@@ -182,7 +183,7 @@ function ModeMenu({
   onMode: (mode: string) => void;
 }) {
   const [open, setOpen] = useMenu();
-  const label = APPROVAL_MODES.find((m) => m.value === mode)?.label ?? titleCase(mode);
+  const label = APPROVAL_MODES.find((m) => m.value === mode)?.chip ?? titleCase(mode);
   return (
     <div className="shrink-0 sm:relative">
       <button
@@ -191,6 +192,7 @@ function ModeMenu({
         aria-expanded={open}
         disabled={busy}
         onClick={() => setOpen(!open)}
+        aria-label={`When Eggy asks: ${label}`}
         title={summaries?.[mode] ?? "When Eggy asks before acting"}
         className={cn(CHIP, mode === "normal" ? "text-foreground" : "bg-yolk-soft font-medium text-yolk-ink hover:bg-yolk-soft hover:opacity-90", open && mode === "normal" && "bg-neutral-100")}
       >
@@ -368,7 +370,7 @@ export function Composer({
 }) {
   const [draft, setDraft] = useState(() => readDraft(draftKey));
   const [files, setFiles] = useState<File[]>([]);
-  const [agent, setAgent] = useState<AgentSelection | null>(null);
+  const [agent, setAgent] = useState<AgentSelection | null>(() => recall<AgentSelection>(CACHE.agent) ?? null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -406,7 +408,7 @@ export function Composer({
 
   useEffect(() => {
     getAgent()
-      .then(setAgent)
+      .then((next) => setAgent(remember(CACHE.agent, next)))
       .catch((err) => {
         if (err instanceof SessionExpiredError) onSessionExpired();
       });

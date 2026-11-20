@@ -25,7 +25,7 @@ export function Field({
     <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <label htmlFor={id} className={FIELD_LABEL}>
         {label}
-        {configKey && <span className="ml-1.5 font-mono text-neutral-500">{configKey}</span>}
+        {configKey && <span className="ml-1.5 font-mono text-neutral-500 [overflow-wrap:anywhere]">{configKey}</span>}
       </label>
       {cloneElement(children, { id })}
       {hint && <p className="text-caption text-neutral-700">{hint}</p>}

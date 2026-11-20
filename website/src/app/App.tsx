@@ -22,6 +22,11 @@ import { isEdgeSwipe, useVisibleFrame, useWide } from "../lib/viewport";
 
 type Status = "checking" | "setup" | "authenticated" | "unauthenticated";
 
+// The rail is pinned beside the page from lg (1024 px) up and is a drawer
+// below it. At md it was pinned, and on an iPad held upright it took 244 of
+// 820 px from the page; as a drawer the page gets the whole width there.
+const RAIL_PINNED = "(min-width: 1024px)";
+
 export function App() {
   const [status, setStatus] = useState<Status>("checking");
   const [mode, setMode] = useState<Mode>("normal");
@@ -54,8 +59,8 @@ export function App() {
   // chat or page when it closes.
   const [activeExtension, setActiveExtension] = useState<string | null>(null);
   // Whether the rail is showing. It is one flag across both layouts, remembered
-  // per device: below md the rail is an off-canvas overlay (there is no room for
-  // a static column beside the content on a phone), and at md and up it is an
+  // per device: below lg the rail is an off-canvas overlay (there is no room for
+  // a static column beside the content on a phone or an upright iPad), and at lg and up it is an
   // inline column that the owner can close to give the content the whole
   // window. The stored default is open, so a first visit lands on the list.
   // The first-visit default depends on the screen: open on a desktop, where the
@@ -63,7 +68,7 @@ export function App() {
   // the one thing the owner came for. An explicit choice is remembered after that.
   const [sidebarOpen, setSidebarOpen] = useStoredFlag(
     "eggy.chat.sidebar",
-    typeof window === "undefined" || window.matchMedia("(min-width: 768px)").matches,
+    typeof window === "undefined" || window.matchMedia(RAIL_PINNED).matches,
   );
 
   // The phone's gestures for the rail: a swipe from the left edge opens it, and
@@ -77,7 +82,7 @@ export function App() {
     };
     const up = (event: TouchEvent) => {
       const touch = event.changedTouches[0];
-      if (!start || !touch || window.matchMedia("(min-width: 768px)").matches) return;
+      if (!start || !touch || window.matchMedia(RAIL_PINNED).matches) return;
       const end = { x: touch.clientX, y: touch.clientY };
       if (!sidebarOpen && isEdgeSwipe(start, end)) setSidebarOpen(true);
       else if (sidebarOpen && start.x - end.x >= 60 && Math.abs(end.y - start.y) <= (start.x - end.x) / 2) setSidebarOpen(false);
@@ -295,11 +300,15 @@ export function App() {
   // A chat with a thread or draft open draws its own header, which carries the
   // menu control on a phone; every other view gets the top bar instead.
 
+  // viewport-fit=cover lets the page run under a phone's notch or Dynamic
+  // Island when it is turned sideways; the root keeps its content out of those
+  // side insets. The top inset stays zero because the home-screen app keeps
+  // the default (opaque) status bar, declared in index.html.
   return (
-    <div data-keyboard={visible?.keyboard ? "open" : undefined} className="relative flex h-dvh flex-col overflow-hidden bg-background md:flex-row" style={visible ? { height: visible.height, top: visible.top } : undefined}>
+    <div data-keyboard={visible?.keyboard ? "open" : undefined} className="relative flex h-dvh flex-col overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] lg:flex-row" style={visible ? { height: visible.height, top: visible.top } : undefined}>
       {sidebarOpen && (
         <div
-          className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] md:hidden"
+          className="absolute inset-0 z-20 bg-foreground/25 backdrop-blur-[2px] lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -338,7 +347,7 @@ export function App() {
         />
       </RailFrame>
 
-      {/* At md and up, the reopen control holds its own gutter, so no page has to
+      {/* At lg and up, the reopen control holds its own gutter, so no page has to
           leave room for it under its heading. On a phone that gutter would be
           empty width, so the control becomes a menu button in a top bar instead,
           and a chat's own header carries it. */}
@@ -346,7 +355,7 @@ export function App() {
           it opens, on the rail's curve, so the page moves once, not twice. */}
       <div
         {...({ inert: sidebarOpen ? "" : undefined } as Record<string, string | undefined>)}
-        className={`hidden shrink-0 justify-center overflow-hidden pt-1.5 transition-[width,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:flex ${
+        className={`hidden shrink-0 justify-center overflow-hidden pt-1.5 transition-[width,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none lg:flex ${
           sidebarOpen ? "w-0 opacity-0" : "w-14 opacity-100"
         }`}
       >
@@ -457,10 +466,10 @@ export function App() {
   );
 }
 
-// RailFrame holds the rail. Below md it is an overlay pinned to the viewport's
+// RailFrame holds the rail. Below lg it is an overlay pinned to the viewport's
 // height (absolute inset-y-0), and the inner wrapper passes that height on
 // (h-full) so ThreadSidebar's own h-full resolves: without it the sidebar grows
-// with its chat list and the account footer falls off the screen. At md and up
+// with its chat list and the account footer falls off the screen. At lg and up
 // its grid column grows from 0fr to 1fr while the rail inside translates from
 // -100% to 0 on the same curve, so the rail's right edge rides the column's
 // edge: the page beside it gives up and reclaims the width smoothly, and
@@ -471,8 +480,8 @@ export function RailFrame({ open, children }: { open: boolean; children: ReactNo
     <div
       {...({ inert: open ? undefined : "" } as Record<string, string | undefined>)}
       data-rail-frame
-      className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:static md:grid md:translate-x-0 ${
-        open ? "translate-x-0 shadow-lift md:grid-cols-[1fr] md:shadow-none" : "-translate-x-full md:grid-cols-[0fr]"
+      className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none lg:static lg:grid lg:translate-x-0 ${
+        open ? "translate-x-0 shadow-lift lg:grid-cols-[1fr] lg:shadow-none" : "-translate-x-full lg:grid-cols-[0fr]"
       }`}
     >
       {/* w-max keeps the rail its own width while min-w-0 lets the column
@@ -480,7 +489,7 @@ export function RailFrame({ open, children }: { open: boolean; children: ReactNo
       <div
         data-rail-inner
         className={`h-full w-max min-w-0 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none ${
-          open ? "md:translate-x-0" : "md:-translate-x-full"
+          open ? "lg:translate-x-0" : "lg:-translate-x-full"
         }`}
       >
         {children}

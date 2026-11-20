@@ -840,3 +840,30 @@ func TestCapabilityManifestKeepsTheHeartbeatLineOnlyWhenSwitchedOn(t *testing.T)
 		t.Fatalf("switched-on account got %q", got)
 	}
 }
+
+// A web thread is redrawn from the conversation record after every reply, so a
+// command and its answer must be recorded there or they vanish. Telegram keeps
+// its own history and records nothing.
+func TestCommandsAreRecordedOnlyInWebThreads(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		want int
+	}{{destination.Web, 2}, {destination.Telegram, 0}} {
+		conversation := &fakeConversation{}
+		service := New(Options{
+			Commands: &countingCommands{}, Registry: &fakeRegistry{}, Conversation: conversation, Context: fakeContextStore{},
+			Store: fakeStore{}, Runtime: fakeRuntime{}, Skills: fakeSkills{}, Loop: &fakeLoop{},
+			Channel: &fakeChannel{}, Now: func() time.Time { return time.Unix(0, 0).UTC() },
+		})
+		ctx := destination.With(context.Background(), destination.Destination{Kind: tc.kind, ThreadID: "t1"})
+		if err := service.OwnerMessage(ctx, ports.Message{Content: "/status"}, "web"); err != nil {
+			t.Fatal(err)
+		}
+		if len(conversation.recorded) != tc.want {
+			t.Fatalf("%s: recorded=%#v, want %d", tc.kind, conversation.recorded, tc.want)
+		}
+		if tc.want == 2 && (conversation.recorded[0].Content != "/status" || conversation.recorded[1].Content != "command output") {
+			t.Fatalf("recorded=%#v", conversation.recorded)
+		}
+	}
+}

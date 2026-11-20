@@ -42,6 +42,18 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 			if err != nil {
 				return err
 			}
+			// A web thread is drawn from the conversation record, and the
+			// browser refetches it after every reply, so an unrecorded
+			// command and its answer would flash and vanish. Telegram keeps
+			// its own history, so only web threads record them.
+			if dest := destination.FromContext(ctx); dest.Kind == destination.Web && policy.RecordConversation && !policy.InputAlreadyRecorded {
+				conversationID := dest.ConversationID()
+				for _, message := range []ports.Message{{Role: ports.RoleUser, Content: durableText}, {Role: ports.RoleAssistant, Content: output}} {
+					if err := s.Conversation.Record(ctx, conversationID, message, policy.Source); err != nil {
+						return err
+					}
+				}
+			}
 			return s.Channel.Deliver(ctx, output)
 		}
 	}

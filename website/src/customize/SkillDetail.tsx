@@ -155,7 +155,7 @@ export function SkillDetail({
             </span>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className={FIELD_LABEL}>When to use it</span>
+            <span className={FIELD_LABEL}>Description</span>
             <Input
               value={draft.description}
               onChange={(event) => setDraft({ ...draft, description: event.target.value })}
@@ -275,7 +275,7 @@ export function SkillDetail({
           {tab === "overview" && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
-                <span className={FIELD_LABEL}>When to use it</span>
+                <span className={FIELD_LABEL}>Description</span>
                 <p className="text-body leading-7 text-foreground">{skill.description}</p>
               </div>
               <div>

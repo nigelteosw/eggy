@@ -15,6 +15,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/channel/webchat"
 	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/core/events"
+	"github.com/nigelteosw/eggy/internal/core/toolsteps"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -193,7 +194,12 @@ func newThreadDeleteHandler(threads ThreadDirectory) http.HandlerFunc {
 	}
 }
 
-func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http.HandlerFunc {
+// newThreadHistoryHandler returns a thread's messages for display. A reply
+// carries, in a fourth column, what the turn that produced it did -- its tool
+// steps and how long it ran -- read from the trace, so a reloaded chat shows
+// what the live one did. traces is nil when tracing is off, and the column is
+// then always empty.
+func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader, traces TraceDirectory) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, _, ok := requireExistingThread(w, r, threads)
 		if !ok {
@@ -204,13 +210,22 @@ func newThreadHistoryHandler(threads ThreadDirectory, memory HistoryReader) http
 			writeWebError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		activity := map[int]string{}
+		if traces != nil {
+			turns, err := traces.ConversationToolCalls(r.Context(), id, chatHistoryDisplayLimit)
+			if err != nil {
+				writeWebError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			activity = replyActivity(messages, turns)
+		}
 		rows := make([][]string, 0, len(messages))
-		for _, message := range messages {
-			rows = append(rows, []string{string(message.Role), message.Content, message.CreatedAt.UTC().Format(time.RFC3339)})
+		for index, message := range messages {
+			rows = append(rows, []string{string(message.Role), message.Content, message.CreatedAt.UTC().Format(time.RFC3339), activity[index]})
 		}
 		writeWebResult(w, webResult{
 			State:        webSuccess,
-			TableHeaders: []string{"role", "content", "created_at"},
+			TableHeaders: []string{"role", "content", "created_at", "activity"},
 			TableRows:    rows,
 		})
 	}
@@ -452,4 +467,55 @@ func defaultUploadPrompt(parts []ports.ContentPart) string {
 		}
 	}
 	return "Describe this image."
+}
+
+// turnActivity is what the chat draws above a reply: the steps its turn took
+// and how many seconds it ran.
+type turnActivity struct {
+	Seconds int              `json:"seconds"`
+	Steps   []toolsteps.Step `json:"steps"`
+}
+
+// replyActivity pairs each finished turn with the reply it produced, keyed by
+// the reply's index in messages. A trace and a message share no ID, so the
+// pairing is by time: a turn's reply is the first assistant message, other
+// than a reasoning message, written after the turn began and before the next
+// one did. A turn that produced no reply (it failed, or was stopped) claims
+// nothing, rather than the next turn's reply. A turn still running is left to
+// the live stream, which is drawing it.
+func replyActivity(messages []ports.StoredMessage, turns []ports.TurnToolCalls) map[int]string {
+	activity := map[int]string{}
+	next := 0
+	for t, turn := range turns {
+		if !turn.Complete {
+			continue
+		}
+		var until time.Time
+		if t+1 < len(turns) {
+			until = turns[t+1].StartedAt
+		}
+		for next < len(messages) && messages[next].CreatedAt.Before(turn.StartedAt) {
+			next++
+		}
+		for i := next; i < len(messages); i++ {
+			message := messages[i]
+			if !until.IsZero() && !message.CreatedAt.Before(until) {
+				break
+			}
+			if message.Role != ports.RoleAssistant || strings.HasPrefix(message.Content, ports.ThinkingPrefix) {
+				continue
+			}
+			steps := make([]toolsteps.Step, 0, len(turn.Calls))
+			for _, call := range turn.Calls {
+				steps = append(steps, toolsteps.For(call.Name, call.Arguments))
+			}
+			encoded, err := json.Marshal(turnActivity{Seconds: int(turn.Duration.Round(time.Second) / time.Second), Steps: steps})
+			if err == nil {
+				activity[i] = string(encoded)
+			}
+			next = i + 1
+			break
+		}
+	}
+	return activity
 }

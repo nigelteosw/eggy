@@ -138,10 +138,10 @@ func TestChannelShowProgressBroadcastsAProgressEvent(t *testing.T) {
 	_, events, unregister := hub.Register("owner", "thread-1")
 	defer unregister()
 
-	if err := channel.ShowProgress(webTurn("thread-1"), "Calling current_time..."); err != nil {
+	if err := channel.ShowProgress(webTurn("thread-1"), ports.Progress{Text: "Searching the web", Detail: "soft boiled eggs"}); err != nil {
 		t.Fatal(err)
 	}
-	if event := recv(t, events); event.Kind != EventProgress || event.Text != "Calling current_time..." || event.ID != "" {
+	if event := recv(t, events); event.Kind != EventProgress || event.Text != "Searching the web" || event.Detail != "soft boiled eggs" || event.ID != "" {
 		t.Fatalf("event=%#v", event)
 	}
 }

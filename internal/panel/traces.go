@@ -17,6 +17,8 @@ import (
 type TraceDirectory interface {
 	ListTraces(ctx context.Context, limit int) ([]ports.Trace, error)
 	Trace(ctx context.Context, id string) (trace ports.Trace, spans []ports.TraceSpan, found bool, err error)
+	// ConversationToolCalls is what the chat history draws beside each reply.
+	ConversationToolCalls(ctx context.Context, conversationID string, limit int) ([]ports.TurnToolCalls, error)
 }
 
 // traceListLimit bounds one page of the trace list. It is a display bound,

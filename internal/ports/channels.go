@@ -82,5 +82,13 @@ var ErrImagesUnsupported = errors.New("this surface cannot show images")
 // extension only changes where the status is drawn, never whether it is.
 type ProgressChannel interface {
 	Channel
-	ShowProgress(ctx context.Context, text string) error
+	ShowProgress(ctx context.Context, progress Progress) error
+}
+
+// Progress is one status of a running turn: Text says what it is doing, in
+// the owner's words, and Detail -- empty when there is none -- what it was
+// asked for, such as a search's query.
+type Progress struct {
+	Text   string
+	Detail string
 }

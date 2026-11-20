@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -241,5 +242,67 @@ func TestConversationResetAtReportsTheLastClear(t *testing.T) {
 	}
 	if at, _, _ := store.ConversationResetAt(ctx, "telegram"); !at.Equal(later) {
 		t.Fatalf("at=%v, want the most recent clear %v", at, later)
+	}
+}
+
+// The chat reads back what each of a conversation's turns called, and only
+// that: its own account's owner turns in that conversation, oldest first,
+// each with its tool calls in the order they ran.
+func TestConversationToolCallsReadsEachTurnsCallsInOrder(t *testing.T) {
+	t.Parallel()
+
+	store := openTraceStore(t)
+	ctx := as("owner")
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	start := func(ctx context.Context, id, conversation, kind string, at time.Time) {
+		t.Helper()
+		if err := store.StartTrace(ctx, ports.Trace{ID: id, ConversationID: conversation, Channel: "web", Source: "web", Kind: kind, Model: "m", StartedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start(ctx, "first", "thread-1", ports.TraceKindOwner, base)
+	start(ctx, "second", "thread-1", ports.TraceKindOwner, base.Add(time.Minute))
+	start(ctx, "quiet", "thread-1", ports.TraceKindOwner, base.Add(2*time.Minute))
+	start(ctx, "elsewhere", "thread-2", ports.TraceKindOwner, base)
+	start(ctx, "beat", "thread-1", ports.TraceKindHeartbeat, base)
+	start(as("someone-else"), "theirs", "thread-1", ports.TraceKindOwner, base)
+	for _, span := range []ports.TraceSpan{
+		{TraceID: "first", Sequence: 2, Kind: ports.TraceSpanToolCall, Name: "current_time", Request: `{}`},
+		{TraceID: "first", Sequence: 1, Kind: ports.TraceSpanToolCall, Name: "web_search", Request: `{"query":"eggs"}`},
+		{TraceID: "first", Sequence: 3, Kind: ports.TraceSpanModelCall, Name: "m", Request: `{"messages":[]}`},
+		{TraceID: "second", Sequence: 1, Kind: ports.TraceSpanToolCall, Name: "memory", Request: `{"action":"add"}`},
+	} {
+		if err := store.AppendSpan(ctx, span); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.CompleteTrace(ctx, ports.Trace{ID: "first", Model: "m", Duration: 4 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := store.ConversationToolCalls(ctx, "thread-1", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 3 || turns[0].TraceID != "first" || turns[1].TraceID != "second" || turns[2].TraceID != "quiet" {
+		t.Fatalf("turns=%+v", turns)
+	}
+	if !turns[0].Complete || turns[0].Duration != 4*time.Second || !turns[0].StartedAt.Equal(base) {
+		t.Fatalf("first turn=%+v", turns[0])
+	}
+	calls := turns[0].Calls
+	if len(calls) != 2 || calls[0].Name != "web_search" || string(calls[0].Arguments) != `{"query":"eggs"}` || calls[1].Name != "current_time" {
+		t.Fatalf("first turn calls=%+v", calls)
+	}
+	if len(turns[2].Calls) != 0 {
+		t.Fatalf("a turn that called nothing has calls: %+v", turns[2].Calls)
+	}
+
+	newest, err := store.ConversationToolCalls(ctx, "thread-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newest) != 1 || newest[0].TraceID != "quiet" {
+		t.Fatalf("limit kept %+v, want only the newest turn", newest)
 	}
 }

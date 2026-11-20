@@ -246,3 +246,57 @@ func decodeUsage(encoded string) ports.ModelUsage {
 	}
 	return usage
 }
+
+// ConversationToolCalls returns the tool calls of the newest limit owner
+// turns in conversationID, oldest turn first, for the chat to draw beside the
+// replies they produced. It reads only the name and arguments of each tool
+// span, never a prompt or an output: the chat shows what a turn did, and the
+// bodies stay in the Traces view.
+func (s *Store) ConversationToolCalls(ctx context.Context, conversationID string, limit int) ([]ports.TurnToolCalls, error) {
+	if limit <= 0 {
+		return nil, errors.New("turn limit must be positive")
+	}
+	account, err := accountOf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.started_at, t.duration_ns, t.complete, s.name, s.request
+		FROM (
+			SELECT id, started_at, duration_ns, complete, rowid AS r FROM traces
+			WHERE account_id = ? AND conversation_id = ? AND kind = ?
+			ORDER BY started_at DESC, rowid DESC
+			LIMIT ?
+		) t
+		LEFT JOIN trace_spans s ON s.trace_id = t.id AND s.kind = ?
+		ORDER BY t.started_at, t.r, s.sequence, s.id
+	`, account, conversationID, ports.TraceKindOwner, limit, string(ports.TraceSpanToolCall))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var turns []ports.TurnToolCalls
+	for rows.Next() {
+		var id string
+		var startedAt, duration int64
+		var complete bool
+		var name, request sql.NullString
+		if err := rows.Scan(&id, &startedAt, &duration, &complete, &name, &request); err != nil {
+			return nil, err
+		}
+		if len(turns) == 0 || turns[len(turns)-1].TraceID != id {
+			turns = append(turns, ports.TurnToolCalls{
+				TraceID:   id,
+				StartedAt: time.Unix(0, startedAt).UTC(),
+				Duration:  time.Duration(duration),
+				Complete:  complete,
+			})
+		}
+		if name.Valid {
+			turn := &turns[len(turns)-1]
+			turn.Calls = append(turn.Calls, ports.ToolCall{Name: name.String, Arguments: json.RawMessage(request.String)})
+		}
+	}
+	return turns, rows.Err()
+}

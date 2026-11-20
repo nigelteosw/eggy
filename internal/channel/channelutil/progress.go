@@ -17,10 +17,10 @@ var ErrProgressUnsupported = errors.New("channel does not support progress statu
 // other helpers here it does not degrade to Deliver itself: a status line
 // is only worth posting as a message if the caller can keep editing that
 // message, which is a decision the caller owns.
-func ShowProgress(ctx context.Context, channel ports.Channel, text string) error {
-	progress, ok := channel.(ports.ProgressChannel)
+func ShowProgress(ctx context.Context, channel ports.Channel, progress ports.Progress) error {
+	surface, ok := channel.(ports.ProgressChannel)
 	if !ok {
 		return ErrProgressUnsupported
 	}
-	return progress.ShowProgress(ctx, text)
+	return surface.ShowProgress(ctx, progress)
 }

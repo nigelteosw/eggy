@@ -22,6 +22,10 @@ func (f *fakeTraceDirectory) ListTraces(_ context.Context, limit int) ([]ports.T
 	return f.traces, nil
 }
 
+func (f *fakeTraceDirectory) ConversationToolCalls(context.Context, string, int) ([]ports.TurnToolCalls, error) {
+	return nil, nil
+}
+
 func (f *fakeTraceDirectory) Trace(_ context.Context, id string) (ports.Trace, []ports.TraceSpan, bool, error) {
 	for _, trace := range f.traces {
 		if trace.ID == id {

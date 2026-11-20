@@ -103,6 +103,18 @@ type Trace struct {
 	Images []string
 }
 
+// TurnToolCalls is what one owner turn of a conversation called, for the chat
+// to show beside the reply it produced. It is read out of the trace, so a
+// deployment with tracing off, or a turn retention has pruned, has none.
+type TurnToolCalls struct {
+	TraceID   string
+	StartedAt time.Time
+	Duration  time.Duration
+	Complete  bool
+	// Calls are the turn's tool calls in the order they ran.
+	Calls []ToolCall
+}
+
 // TraceStore persists turn traces. It is written by the recorder on the turn
 // path and read by the web panel; nothing in the agent's own context ever
 // reads it back, which is what keeps a trace from feeding itself into the

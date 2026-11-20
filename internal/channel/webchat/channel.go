@@ -90,9 +90,9 @@ func (c *Channel) SendTyping(ctx context.Context) error {
 	return nil
 }
 
-func (c *Channel) ShowProgress(ctx context.Context, text string) error {
+func (c *Channel) ShowProgress(ctx context.Context, progress ports.Progress) error {
 	if accountID, threadID, ok := c.thread(ctx); ok {
-		c.hub.Broadcast(accountID, threadID, Event{Kind: EventProgress, Text: text})
+		c.hub.Broadcast(accountID, threadID, Event{Kind: EventProgress, Text: progress.Text, Detail: progress.Detail})
 	}
 	return nil
 }

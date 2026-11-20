@@ -16,11 +16,11 @@ export function imageIdsIn(text: string): string[] {
 }
 
 // The status line the server sends while generate_image runs. It is the
-// label in internal/bootstrap/turn_presenter.go; a test there pins it.
+// label in internal/core/toolsteps; a test there pins it.
 export const DRAWING_STEP = "Drawing an image";
 
 // The chat draws its placeholder only while drawing is what the turn is doing
 // now, not merely something it did earlier in the turn.
-export function isDrawing(steps: string[]): boolean {
-  return steps[steps.length - 1] === DRAWING_STEP;
+export function isDrawing(steps: { label: string }[]): boolean {
+  return steps[steps.length - 1]?.label === DRAWING_STEP;
 }

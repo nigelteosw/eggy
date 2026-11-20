@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/core/approvals"
+	"github.com/nigelteosw/eggy/internal/ports"
 )
 
 // progressChannel records what the presenter does to its live progress message.
@@ -34,8 +35,8 @@ func (c *progressChannel) DeleteMessage(_ context.Context, id string) error {
 func TestFinishedProgressIsDeletedWhenTheChannelCanDeleteIt(t *testing.T) {
 	channel := &progressChannel{}
 	onToolCall, finish := turnPresenter{channel: channel}.ShowToolCalls(context.Background())
-	onToolCall("web_search")
-	onToolCall("current_time")
+	onToolCall(ports.ToolCall{Name: "web_search"})
+	onToolCall(ports.ToolCall{Name: "current_time"})
 	editsBeforeFinish := len(channel.edited)
 	finish()
 	if len(channel.deleted) != 1 || channel.deleted[0] != "progress-1" {
@@ -51,7 +52,7 @@ func TestFinishedProgressIsDeletedWhenTheChannelCanDeleteIt(t *testing.T) {
 func TestFinishedProgressFallsBackToASummaryWhenItCannotBeDeleted(t *testing.T) {
 	channel := &progressChannel{deleteErr: errors.New("message is too old")}
 	onToolCall, finish := turnPresenter{channel: channel}.ShowToolCalls(context.Background())
-	onToolCall("web_search")
+	onToolCall(ports.ToolCall{Name: "web_search"})
 	finish()
 	if len(channel.edited) != 1 || channel.edited[0] != "progress-1: Searching the web." {
 		t.Fatalf("edits=%v: want the summary in place of the progress line", channel.edited)

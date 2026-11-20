@@ -82,7 +82,7 @@ type Presenter interface {
 	StartTyping(ctx context.Context) (stop func())
 	// ShowToolCalls returns a per-tool-call callback and the function that
 	// settles the indicator once the turn is done.
-	ShowToolCalls(ctx context.Context) (onToolCall func(string), finish func())
+	ShowToolCalls(ctx context.Context) (onToolCall func(ports.ToolCall), finish func())
 	// DeliverOutcome reports the result of an approve/reject tap, editing the
 	// original message when the surface supports it.
 	DeliverOutcome(ctx context.Context, messageID, text string) error

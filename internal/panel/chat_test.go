@@ -226,7 +226,7 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handler := newThreadHistoryHandler(memory, memory)
+	handler := newThreadHistoryHandler(memory, memory, memory)
 
 	request := withPathValue(ownerRequest(http.MethodGet, "/api/chat/threads/thread-1/history", nil), "id", "thread-1")
 	response := httptest.NewRecorder()
@@ -253,7 +253,7 @@ func TestThreadHistoryReturnsThatThreadsRecentMessagesAsTableRows(t *testing.T) 
 
 func TestThreadHistoryReturns404ForAnUnknownThread(t *testing.T) {
 	memory := newTestMemoryStore(t)
-	handler := newThreadHistoryHandler(memory, memory)
+	handler := newThreadHistoryHandler(memory, memory, memory)
 
 	request := withPathValue(ownerRequest(http.MethodGet, "/api/chat/threads/missing/history", nil), "id", "missing")
 	response := httptest.NewRecorder()
@@ -606,5 +606,73 @@ func TestThreadSendCarriesUploadedFilesAsVerifiedParts(t *testing.T) {
 		if response := send(body); response.Code != http.StatusBadRequest || got.Type != "" {
 			t.Fatalf("%s: status=%d enqueued=%v", name, response.Code, got.Type != "")
 		}
+	}
+}
+
+// A reloaded chat shows what each turn did, beside the reply it produced: the
+// steps read from the trace, with what each was asked for. A turn that
+// produced no reply claims nothing, and reasoning is not a reply.
+func TestThreadHistoryCarriesEachRepliesSteps(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := asOwner()
+	if _, err := store.CreateThread(ctx, "thread-1", "web", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	write := func(role ports.Role, content string, at time.Duration) {
+		t.Helper()
+		if err := store.WriteMessage(ctx, ports.StoredMessage{ConversationID: "thread-1", Role: role, Content: content, Source: "web", CreatedAt: base.Add(at)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turn := func(id string, at, took time.Duration, calls ...ports.TraceSpan) {
+		t.Helper()
+		if err := store.StartTrace(ctx, ports.Trace{ID: id, ConversationID: "thread-1", Channel: "web", Source: "web", Kind: ports.TraceKindOwner, Model: "m", StartedAt: base.Add(at)}); err != nil {
+			t.Fatal(err)
+		}
+		for i, span := range calls {
+			span.TraceID, span.Sequence, span.Kind = id, i+1, ports.TraceSpanToolCall
+			if err := store.AppendSpan(ctx, span); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.CompleteTrace(ctx, ports.Trace{ID: id, Model: "m", Duration: took}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(ports.RoleUser, "boil an egg", 0)
+	turn("searched", time.Millisecond, 3*time.Second, ports.TraceSpan{Name: "web_search", Request: `{"query":"soft boiled eggs"}`})
+	write(ports.RoleAssistant, ports.ThinkingPrefix+"look it up", 2*time.Second)
+	write(ports.RoleAssistant, "six minutes", 3*time.Second)
+	write(ports.RoleUser, "and then?", time.Minute)
+	turn("failed", time.Minute+time.Millisecond, time.Second, ports.TraceSpan{Name: "current_time", Request: `{}`})
+	write(ports.RoleUser, "hello?", 2*time.Minute)
+	turn("answered", 2*time.Minute+time.Millisecond, time.Second)
+	write(ports.RoleAssistant, "ice bath", 2*time.Minute+time.Second)
+
+	request := withPathValue(ownerRequest(http.MethodGet, "/api/chat/threads/thread-1/history", nil), "id", "thread-1")
+	response := httptest.NewRecorder()
+	newThreadHistoryHandler(store, store, store)(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var decoded webResult
+	if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	activity := make([]string, len(decoded.TableRows))
+	for i, row := range decoded.TableRows {
+		activity[i] = row[3]
+	}
+	want := []string{
+		"",
+		"",
+		`{"seconds":3,"steps":[{"label":"Searching the web","detail":"soft boiled eggs"}]}`,
+		"",
+		"",
+		`{"seconds":1,"steps":[]}`,
+	}
+	if strings.Join(activity, "|") != strings.Join(want, "|") {
+		t.Fatalf("activity=%q\nwant     %q", activity, want)
 	}
 }

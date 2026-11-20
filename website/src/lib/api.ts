@@ -613,6 +613,8 @@ export type ChatEvent = {
   kind: "message" | "typing" | "progress" | "edit" | "approval";
   id?: string;
   text?: string;
+  // A progress event's account of what the step was asked for, e.g. a query.
+  detail?: string;
   approval?: { id: string; summary: string; details?: string };
 };
 

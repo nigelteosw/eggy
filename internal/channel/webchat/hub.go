@@ -32,9 +32,12 @@ type ApprovalPayload struct {
 }
 
 type Event struct {
-	Kind     EventKind        `json:"kind"`
-	ID       string           `json:"id,omitempty"`
-	Text     string           `json:"text,omitempty"`
+	Kind EventKind `json:"kind"`
+	ID   string    `json:"id,omitempty"`
+	Text string    `json:"text,omitempty"`
+	// Detail is a progress event's one-line account of what the step was
+	// asked for; empty on every other kind.
+	Detail   string           `json:"detail,omitempty"`
 	Approval *ApprovalPayload `json:"approval,omitempty"`
 }
 

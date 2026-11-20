@@ -24,9 +24,11 @@ test("a reply's images are found in the order it drew them", () => {
 // The placeholder appears only while the newest step is the drawing one: an
 // earlier drawing step followed by a search is not drawing any more.
 test("the chat is drawing only while drawing is the newest step", () => {
-  expect(isDrawing([DRAWING_STEP])).toBe(true);
-  expect(isDrawing(["Searching the web", DRAWING_STEP])).toBe(true);
-  expect(isDrawing([DRAWING_STEP, "Searching the web"])).toBe(false);
+  const drawing = { label: DRAWING_STEP, detail: "a cat" };
+  const searching = { label: "Searching the web", detail: "cats" };
+  expect(isDrawing([drawing])).toBe(true);
+  expect(isDrawing([searching, drawing])).toBe(true);
+  expect(isDrawing([drawing, searching])).toBe(false);
   expect(isDrawing([])).toBe(false);
 });
 

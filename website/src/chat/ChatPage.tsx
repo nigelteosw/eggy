@@ -16,18 +16,47 @@ import { imageIdsIn, isDrawing, withImages } from "./images";
 import { imageURL } from "../lib/images";
 import { ImagePlaceholder, ImageThumb, ImageViewer } from "../components/ui/image-viewer";
 
-// The status steps a turn went through, and how long it ran, kept on the reply
-// the turn produced. Live steps are not persisted, so a reloaded chat shows
-// only the reply and any reasoning the backend stored as its own message.
-type Activity = { steps: string[]; seconds: number | null };
+// One tool call of a turn, as the owner reads it: what it was doing and what
+// it was asked for (internal/core/toolsteps).
+type Step = { label: string; detail?: string };
+
+// The steps a turn went through, and how long it ran, kept on the reply the
+// turn produced. The history carries them from the trace; a turn that has
+// just finished keeps its live steps until the next history load replaces
+// them.
+type Activity = { steps: Step[]; seconds: number | null };
+
+// readActivity parses the history's activity column, empty when the reply's
+// turn left no trace.
+function readActivity(raw: string | undefined): Activity | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { seconds?: number; steps?: Step[] };
+    return { steps: parsed.steps ?? [], seconds: parsed.seconds ?? null };
+  } catch {
+    return undefined;
+  }
+}
 // at is when the message was written, as an ISO time. A reply that has not come
 // back from history yet has none, so its footer shows no time.
-type ChatMessage = { id: string; role: "user" | "assistant"; text: string; at?: string };
+type ChatMessage = { id: string; role: "user" | "assistant"; text: string; at?: string; activity?: Activity };
 
 // The backend delivers a model's reasoning as its own assistant message with
 // this prefix when the owner has thinking shown (see turns.run). The web view
 // draws it as a collapsed thought rather than as a reply.
 const THINKING_PREFIX = "Thinking:\n";
+
+// The reasoning messages that run up to position end, newest last, with the
+// prefix removed: the working-out of the reply at end.
+function thoughtsBefore(messages: { role: string; text: string }[], end: number): string[] {
+  const thoughts: string[] = [];
+  for (let i = end - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "assistant" || !message.text.startsWith(THINKING_PREFIX)) break;
+    thoughts.unshift(message.text.slice(THINKING_PREFIX.length));
+  }
+  return thoughts;
+}
 
 // The reply prefix as events.Message.Prompt builds it on the backend. The
 // optimistic bubble must be the exact string history will later hold, or the
@@ -285,19 +314,36 @@ function MessageBody({ text, isUserBubble }: { text: string; isUserBubble: boole
   );
 }
 
-// A turn's working-out, drawn as one line that opens onto its steps. Each step is
-// a tool the turn called. While the turn runs the line names the newest step
-// with the typing dots; once the reply is in it reads as a count and the time.
-function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds: number | null; live: boolean }) {
-  const [open, setOpen] = useState(!live);
+// A turn's working-out, drawn the way Claude draws it: one line that opens onto
+// a card. While the turn runs the line names what it is doing now; once the
+// reply is in it says how long the turn took and how many tools it used. The
+// card holds the model's reasoning, when the provider sent any, and then every
+// tool the turn called, in order.
+function TurnActivity({
+  thoughts,
+  steps,
+  seconds,
+  live,
+}: {
+  thoughts: string[];
+  steps: Step[];
+  seconds: number | null;
+  live: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const tools = steps.length > 0 ? `${steps.length} ${steps.length === 1 ? "tool" : "tools"}` : "";
+  const duration = seconds !== null ? `${seconds}s` : "";
   const summary = live
-    ? (steps[steps.length - 1] ?? "I'm typing")
-    : `Used ${steps.length} ${steps.length === 1 ? "tool" : "tools"}${seconds !== null ? ` · ${seconds}s` : ""}`;
+    ? (steps[steps.length - 1]?.label ?? (thoughts.length > 0 ? "Thinking" : "I'm typing"))
+    : thoughts.length > 0
+      ? [`Thought${duration ? ` for ${duration}` : ""}`, tools && `used ${tools}`].filter(Boolean).join(" · ")
+      : [`Used ${tools}`, duration].filter(Boolean).join(" · ");
+  const hasDetail = thoughts.length > 0 || steps.length > 0;
   return (
     <div className="text-small">
       <button
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => hasDetail && setOpen((current) => !current)}
         aria-expanded={open}
         className="flex max-w-full items-center gap-2 rounded-control py-1 text-left text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -309,46 +355,36 @@ function ActivityDisclosure({ steps, seconds, live }: { steps: string[]; seconds
           </span>
         )}
         <span className="truncate">{summary}</span>
-        <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
+        {hasDetail && <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />}
       </button>
-      {open && steps.length > 0 && (
-        <ul className="mt-2 space-y-2 border-l border-border pl-4 text-small text-muted-foreground">
-          {steps.map((step, index) => {
-            const running = live && index === steps.length - 1;
-            return (
-              <li key={`${index}-${step}`} className="flex items-center gap-2 leading-5">
-                {running ? (
-                  <span className="h-1.5 w-1.5 shrink-0 animate-blink rounded-full bg-accent-500" aria-hidden="true" />
-                ) : (
-                  <CheckIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-                )}
-                {step}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// A reasoning message, collapsed until the owner opens it.
-function ThoughtBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="text-small">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-control py-1 text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <span>Thinking</span>
-        <ChevronDownIcon className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
-      </button>
-      {open && (
-        <div className="mt-2 rounded-card border border-border px-4 py-3.5 text-muted-foreground">
-          <MessageBody text={text.slice(THINKING_PREFIX.length)} isUserBubble={false} />
+      {open && hasDetail && (
+        <div className="mt-2 space-y-3 rounded-card border border-border px-4 py-3.5 text-muted-foreground">
+          {!live && duration && <p className="text-caption">{thoughts.length > 0 ? "Thought" : "Worked"} for {duration}</p>}
+          {thoughts.map((thought, index) => (
+            <div key={`thought-${index}`} className="text-muted-foreground">
+              <MessageBody text={thought} isUserBubble={false} />
+            </div>
+          ))}
+          {steps.length > 0 && (
+            <ul className="space-y-2">
+              {steps.map((step, index) => {
+                const running = live && index === steps.length - 1;
+                return (
+                  <li key={`${index}-${step.label}`} className="flex items-start gap-2 leading-5">
+                    {running ? (
+                      <span className="mt-[7px] h-1.5 w-1.5 shrink-0 animate-blink rounded-full bg-accent-500" aria-hidden="true" />
+                    ) : (
+                      <CheckIcon className="mt-[3px] h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+                    )}
+                    <span className="min-w-0">
+                      {step.label}
+                      {step.detail && <span className="mt-0.5 block break-words font-mono text-caption text-muted-foreground/80">{step.detail}</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
     </div>
@@ -509,8 +545,8 @@ export function ChatPage({
   // liveSteps is the running turn's status lines ("Calling web_search..."),
   // shown as the turn's working-out. liveRef mirrors it for the SSE handlers,
   // which are bound once per thread and would otherwise read a stale copy.
-  const [liveSteps, setLiveSteps] = useState<string[]>([]);
-  const liveRef = useRef<string[]>([]);
+  const [liveSteps, setLiveSteps] = useState<Step[]>([]);
+  const liveRef = useRef<Step[]>([]);
   const turnStartRef = useRef<number | null>(null);
   // Finished turns' steps, keyed by the reply's index in history. The index
   // is what survives the history refetch that follows every reply.
@@ -566,6 +602,7 @@ export function ChatPage({
           role: row[0] === "user" ? ("user" as const) : ("assistant" as const),
           text: row[1] ?? "",
           at: row[2] || undefined,
+          activity: readActivity(row[3]),
         }));
         setHistory(remember(CACHE.history(targetThreadId), fetched));
         historyCountRef.current = fetched.length;
@@ -604,9 +641,10 @@ export function ChatPage({
     const source = new EventSource(`/api/chat/threads/${encodeURIComponent(threadId)}/stream`);
 
     // Records one status line of the running turn, skipping an immediate repeat.
-    function pushStep(text: string | undefined) {
-      if (!text || liveRef.current[liveRef.current.length - 1] === text) return;
-      liveRef.current = [...liveRef.current, text];
+    function pushStep(label: string | undefined, detail: string | undefined) {
+      const last = liveRef.current[liveRef.current.length - 1];
+      if (!label || (last?.label === label && last?.detail === detail)) return;
+      liveRef.current = [...liveRef.current, { label, detail }];
       setLiveSteps(liveRef.current);
     }
 
@@ -616,10 +654,10 @@ export function ChatPage({
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
       const text = event.text ?? "";
       const index = historyCountRef.current;
-      setTyping(false);
       // Reasoning arrives before the reply it belongs to, so the turn's steps
-      // are only closed off by the reply itself.
+      // and its typing line are only closed off by the reply itself.
       if (!text.startsWith(THINKING_PREFIX)) {
+        setTyping(false);
         if (liveRef.current.length > 0) {
           const seconds = turnStartRef.current === null ? null : Math.round((Date.now() - turnStartRef.current) / 1000);
           const finished = { steps: liveRef.current, seconds };
@@ -646,7 +684,7 @@ export function ChatPage({
       const event = JSON.parse((raw as MessageEvent).data) as ChatEvent;
       turnStartRef.current ??= Date.now();
       setTyping(true);
-      pushStep(event.text);
+      pushStep(event.text, event.detail);
     });
 
     source.addEventListener("edit", (raw) => {
@@ -889,14 +927,19 @@ export function ChatPage({
                 </div>
               );
             }
+            // Reasoning is drawn inside the activity of the reply it led to
+            // (or the running turn's), never as a block of its own.
             if (message.text.startsWith(THINKING_PREFIX)) {
+              const hasReply = messages.slice(index + 1).some((next) => next.role === "user" || !next.text.startsWith(THINKING_PREFIX));
+              if (hasReply || typing) return null;
               return (
                 <div key={message.id} data-role="assistant" className="animate-fade-in-up">
-                  <ThoughtBlock text={message.text} />
+                  <TurnActivity thoughts={thoughtsBefore(messages, index + 1)} steps={[]} seconds={null} live={false} />
                 </div>
               );
             }
-            const activity = activityByIndex[index];
+            const activity = message.activity ?? activityByIndex[index];
+            const thoughts = thoughtsBefore(messages, index);
             const isLatest = index === lastAssistantIndex;
             // Retry re-sends the owner message before this reply, and only on the
             // latest reply once the turn has finished.
@@ -904,7 +947,9 @@ export function ChatPage({
             const retryFrom = previous >= 0 && retryText(previous).body.trim() !== "" ? previous : -1;
             return (
               <div key={message.id} data-message-id={message.id} data-role="assistant" className="group flex animate-fade-in-up flex-col gap-3 text-small">
-                {activity && <ActivityDisclosure steps={activity.steps} seconds={activity.seconds} live={false} />}
+                {((activity?.steps.length ?? 0) > 0 || thoughts.length > 0) && (
+                  <TurnActivity thoughts={thoughts} steps={activity?.steps ?? []} seconds={activity?.seconds ?? null} live={false} />
+                )}
                 <MessageBody text={message.text} isUserBubble={false} />
                 {(!touch || isLatest) && (
                   <MessageFooter
@@ -918,7 +963,7 @@ export function ChatPage({
               </div>
             );
           })}
-          {typing && <ActivityDisclosure steps={liveSteps} seconds={null} live />}
+          {typing && <TurnActivity thoughts={thoughtsBefore(messages, messages.length)} steps={liveSteps} seconds={null} live />}
           {typing && isDrawing(liveSteps) && <ImagePlaceholder />}
           {approvals.map((approval) => (
             <ApprovalCard key={approval.id} approval={approval} onDecide={(approved) => handleApproval(approval.id, approved)} />

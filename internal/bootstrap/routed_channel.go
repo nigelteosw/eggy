@@ -128,12 +128,12 @@ func (r *routedChannel) DeleteMessage(ctx context.Context, messageID string) err
 	return channelutil.DeleteText(ctx, channel, messageID)
 }
 
-func (r *routedChannel) ShowProgress(ctx context.Context, text string) error {
+func (r *routedChannel) ShowProgress(ctx context.Context, progress ports.Progress) error {
 	channel, err := r.route(ctx)
 	if err != nil {
 		return err
 	}
-	return channelutil.ShowProgress(ctx, channel, text)
+	return channelutil.ShowProgress(ctx, channel, progress)
 }
 
 func (r *routedChannel) DeliverImage(ctx context.Context, id string, image ports.ContentPart) error {

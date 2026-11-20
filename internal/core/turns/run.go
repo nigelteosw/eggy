@@ -125,7 +125,7 @@ func (s *Service) run(ctx context.Context, input ports.Message, options agent.Ru
 		}
 	}
 	finishToolProgress := func() {}
-	onToolCall := func(string) {}
+	onToolCall := func(ports.ToolCall) {}
 	if policy.RecordConversation && s.Presenter != nil {
 		onToolCall, finishToolProgress = s.Presenter.ShowToolCalls(ctx)
 	}
@@ -436,11 +436,11 @@ func durableMessageText(message ports.Message) string {
 // live "Calling X..." indicator, and the trace. Keeping them on one
 // subscription is what guarantees the record and what the owner watched
 // describe the same turn.
-func turnEvents(onToolCall func(string), trace *services.TraceTurn) func(agent.Event) {
+func turnEvents(onToolCall func(ports.ToolCall), trace *services.TraceTurn) func(agent.Event) {
 	return func(event agent.Event) {
 		switch event.Kind {
 		case agent.EventToolStart:
-			onToolCall(event.Call.Name)
+			onToolCall(event.Call)
 			trace.ToolStarted(event.Call)
 		case agent.EventToolEnd, agent.EventToolError:
 			trace.ToolFinished(event.Call, event.Output, event.Err)

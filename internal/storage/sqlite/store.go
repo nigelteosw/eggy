@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS trace_spans (
     duration_ns INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_traces_conversation ON traces(conversation_id, started_at);
 CREATE TABLE IF NOT EXISTS trace_images (
     id          TEXT    PRIMARY KEY,
     trace_id    TEXT    NOT NULL,

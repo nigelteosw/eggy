@@ -16,6 +16,8 @@ const VOICE_FILES = [
   "chat/ThreadSidebar.tsx",
   "components/ui/page-header.tsx",
   "components/ui/voice.tsx",
+  // Home's greeting, which sits in the weather card's top row.
+  "weather/WeatherCard.tsx",
 ];
 
 async function sources(dir: string): Promise<string[]> {

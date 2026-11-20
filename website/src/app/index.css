@@ -620,6 +620,41 @@
     background: linear-gradient(90deg, oklch(0.78 0.11 220), oklch(0.83 0.15 85), oklch(0.72 0.17 50));
   }
 
+  /* A little motion, on the large picture and the sky only: clouds bob, the
+     sun's rays turn slowly, rain falls and fades, lightning flickers now and
+     then, and the soft puffs at the top of the sky drift. Slow and small, so
+     it reads as weather rather than as something asking to be looked at. */
+  .weather-sky::before {
+    animation: weather-drift 38s ease-in-out infinite alternate;
+  }
+  .weather-anim .wx-float {
+    animation: weather-bob 6s ease-in-out infinite;
+  }
+  .weather-anim .wx-rays {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: weather-turn 40s linear infinite;
+  }
+  .weather-anim .wx-glow {
+    animation: weather-glow 5s ease-in-out infinite;
+  }
+  .weather-anim .wx-drop {
+    animation: weather-fall 1.35s ease-in infinite;
+  }
+  .weather-anim .wx-flash {
+    animation: weather-flash 5.5s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .weather-sky::before,
+    .weather-anim .wx-float,
+    .weather-anim .wx-rays,
+    .weather-anim .wx-glow,
+    .weather-anim .wx-drop,
+    .weather-anim .wx-flash {
+      animation: none;
+    }
+  }
+
   /* The current temperature is a figure, not text: the one number the card
      exists to show, sized like the weather apps it follows. It sits outside
      the type scale on purpose and nowhere else does. */
@@ -635,4 +670,34 @@
       font-size: 92px;
     }
   }
+  @media (min-width: 1280px) {
+    .weather-figure {
+      font-size: 112px;
+    }
+  }
+}
+
+@keyframes weather-drift {
+  from { transform: translateX(-18px); }
+  to { transform: translateX(18px); }
+}
+@keyframes weather-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes weather-turn {
+  to { transform: rotate(360deg); }
+}
+@keyframes weather-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.82; }
+}
+@keyframes weather-fall {
+  0% { transform: translateY(-3px); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(7px); opacity: 0; }
+}
+@keyframes weather-flash {
+  0%, 86%, 92%, 100% { opacity: 1; }
+  88%, 90% { opacity: 0.35; }
 }

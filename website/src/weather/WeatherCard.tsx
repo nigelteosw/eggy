@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { MenuIcon } from "../components/ui/icons";
 import { SessionExpiredError, getWeather, type WeatherOutlook, type WeatherReport } from "../lib/api";
 import { timeAgo } from "../lib/time";
 import { errorMessage } from "../lib/utils";
@@ -22,7 +23,11 @@ import {
 // and the server caches it, so polling here costs upstream nothing extra.
 const POLL_MS = 5 * 60 * 1000;
 
-export function WeatherCard({ onSessionExpired }: { onSessionExpired: () => void }) {
+// Home's greeting and status line live in the card's top row, so the sky is
+// the first thing on the page rather than something under a heading.
+export type WeatherHeading = { title: string; description?: ReactNode; onOpenSidebar?: () => void };
+
+export function WeatherCard({ onSessionExpired, heading }: { onSessionExpired: () => void; heading?: WeatherHeading }) {
   const [report, setReport] = useState<WeatherReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,7 +74,8 @@ export function WeatherCard({ onSessionExpired }: { onSessionExpired: () => void
 
   if (!report) {
     return (
-      <section aria-label="Weather" data-sky={isNightAt(now) ? "night" : "day"} className="weather-sky flex min-h-[148px] flex-col justify-end rounded-card p-5">
+      <section aria-label="Weather" data-sky={isNightAt(now) ? "night" : "day"} className="weather-sky flex min-h-[148px] flex-col justify-between gap-6 rounded-card p-5">
+        {heading && <Greeting heading={heading} />}
         {error ? (
           <p className="text-small" role="alert">
             {error}{" "}
@@ -83,11 +89,23 @@ export function WeatherCard({ onSessionExpired }: { onSessionExpired: () => void
       </section>
     );
   }
-  return <WeatherView report={report} now={now} refreshing={refreshing} onRefresh={() => load(true)} />;
+  return <WeatherView report={report} now={now} refreshing={refreshing} onRefresh={() => load(true)} heading={heading} />;
 }
 
 // The presentational half, so the card can be rendered in a test without a server.
-export function WeatherView({ report, now, refreshing = false, onRefresh }: { report: WeatherReport; now: Date; refreshing?: boolean; onRefresh?: () => void }) {
+export function WeatherView({
+  report,
+  now,
+  refreshing = false,
+  onRefresh,
+  heading,
+}: {
+  report: WeatherReport;
+  now: Date;
+  refreshing?: boolean;
+  onRefresh?: () => void;
+  heading?: WeatherHeading;
+}) {
   const night = isNightAt(now);
   const current = report.now;
   const headline = current?.forecast || report.today?.forecast || "";
@@ -96,10 +114,27 @@ export function WeatherView({ report, now, refreshing = false, onRefresh }: { re
   const temperature = current?.temperature;
   const outlook = report.outlook ?? [];
   const [next, ...later] = outlook;
+  const refresh = onRefresh && (
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={refreshing}
+      aria-label="Refresh the weather"
+      title="Refresh"
+      className="weather-glass flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-70"
+    >
+      <ReadingIcon kind="refresh" className={refreshing ? "motion-safe:animate-spin" : undefined} />
+    </button>
+  );
 
   return (
-    <section aria-labelledby="home-weather" data-sky={skyFor(glyph, night)} className="weather-sky rounded-card p-3 sm:p-4">
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] md:gap-4">
+    <section aria-labelledby="home-weather" data-sky={skyFor(glyph, night)} className="weather-sky rounded-card p-3 sm:p-4 xl:p-5">
+      {heading && (
+        <div className="px-1 pb-4 pt-1 sm:pb-5">
+          <Greeting heading={heading} action={refresh} />
+        </div>
+      )}
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1.08fr)_minmax(0,1fr)] md:gap-4 xl:gap-5">
         <div className="flex min-w-0 flex-col gap-3 px-1 pt-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -111,18 +146,7 @@ export function WeatherView({ report, now, refreshing = false, onRefresh }: { re
                 {dayLine(now)} · {clockTime(now)}
               </p>
             </div>
-            {onRefresh && (
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={refreshing}
-                aria-label="Refresh the weather"
-                title="Refresh"
-                className="weather-glass flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-70"
-              >
-                <ReadingIcon kind="refresh" className={refreshing ? "motion-safe:animate-spin" : undefined} />
-              </button>
-            )}
+            {!heading && refresh}
           </div>
 
           <div className="flex items-center justify-between gap-2">
@@ -138,7 +162,7 @@ export function WeatherView({ report, now, refreshing = false, onRefresh }: { re
                 </p>
               )}
             </div>
-            <WeatherGlyph glyph={glyph} size={136} className="-mr-2 shrink-0 sm:h-[156px] sm:w-[156px]" />
+            <WeatherGlyph glyph={glyph} size={136} animated className="-mr-2 shrink-0 sm:h-[156px] sm:w-[156px] xl:h-[184px] xl:w-[184px]" />
           </div>
 
           <ul className="mt-auto grid grid-cols-3 gap-2" aria-label="Readings">
@@ -204,6 +228,29 @@ export function WeatherView({ report, now, refreshing = false, onRefresh }: { re
         {current?.station ? ` · ${current.station} station` : ""} · data.gov.sg
       </p>
     </section>
+  );
+}
+
+function Greeting({ heading, action }: { heading: WeatherHeading; action?: ReactNode }) {
+  return (
+    <header className="flex flex-col gap-1.5">
+      <div className="flex min-h-11 items-start gap-2">
+        {heading.onOpenSidebar && (
+          <button
+            type="button"
+            onClick={heading.onOpenSidebar}
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            className="weather-glass -ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full md:hidden"
+          >
+            <MenuIcon />
+          </button>
+        )}
+        <h1 className="min-w-0 flex-1 self-center font-voice text-display font-normal tracking-tight">{heading.title}</h1>
+        {action}
+      </div>
+      {heading.description && <p className="weather-soft max-w-2xl text-small leading-6">{heading.description}</p>}
+    </header>
   );
 }
 

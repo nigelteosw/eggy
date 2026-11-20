@@ -7,12 +7,23 @@ import type { Glyph } from "./weather";
 // the way a photograph would. Gradients are in user space so overlapping cloud
 // puffs share one fill and show no seams.
 
-export function WeatherGlyph({ glyph, size = 96, className }: { glyph: Glyph; size?: number; className?: string }) {
+// `animated` gives the one large picture on the card a little life -- clouds
+// bob, the sun's rays turn, rain falls, lightning flickers -- and leaves the
+// small forecast glyphs still, so the card moves in one place, not ten. The
+// motion is CSS (weather-anim in index.css) and stops under reduced motion.
+export function WeatherGlyph({ glyph, size = 96, className, animated = false }: { glyph: Glyph; size?: number; className?: string; animated?: boolean }) {
   const id = useId().replace(/:/g, "");
   const cloudFill = glyph === "storm" ? `url(#${id}-storm)` : `url(#${id}-cloud)`;
   const lifted = glyph === "rain" || glyph === "storm";
   return (
-    <svg viewBox="0 0 96 96" width={size} height={size} className={className} aria-hidden="true" focusable="false">
+    <svg
+      viewBox="0 0 96 96"
+      width={size}
+      height={size}
+      className={animated ? `weather-anim ${className ?? ""}` : className}
+      aria-hidden="true"
+      focusable="false"
+    >
       <defs>
         <radialGradient id={`${id}-sun`} cx="0.42" cy="0.38" r="0.7">
           <stop offset="0" stopColor="#FFF4B8" />
@@ -66,26 +77,28 @@ export function WeatherGlyph({ glyph, size = 96, className }: { glyph: Glyph; si
         </g>
       )}
       {(glyph === "cloud" || glyph === "partly-day" || glyph === "partly-night" || lifted) && (
-        <g transform={glyph === "cloud" ? "translate(0 2)" : lifted ? "translate(0 -10)" : "translate(-6 8)"} filter={`url(#${id}-shade)`} fill={cloudFill}>
-          <circle cx="34" cy="56" r="14" />
-          <circle cx="51" cy="45" r="20" />
-          <circle cx="68" cy="56" r="14" />
-          <rect x="20" y="54" width="62" height="20" rx="10" />
+        <g className="wx-float">
+          <g transform={glyph === "cloud" ? "translate(0 2)" : lifted ? "translate(0 -10)" : "translate(-6 8)"} filter={`url(#${id}-shade)`} fill={cloudFill}>
+            <circle cx="34" cy="56" r="14" />
+            <circle cx="51" cy="45" r="20" />
+            <circle cx="68" cy="56" r="14" />
+            <rect x="20" y="54" width="62" height="20" rx="10" />
+          </g>
         </g>
       )}
       {glyph === "rain" && (
         <g fill={`url(#${id}-drop)`}>
-          <Drop x={34} y={74} />
-          <Drop x={50} y={80} />
-          <Drop x={66} y={74} />
+          <Drop x={34} y={74} delay={0} />
+          <Drop x={50} y={80} delay={0.45} />
+          <Drop x={66} y={74} delay={0.9} />
         </g>
       )}
       {glyph === "storm" && (
         <>
-          <path d="M52 58 40 77h9l-5 15 17-22h-9l5-12z" fill="#FFC83D" stroke="#F2A10C" strokeWidth="1.5" strokeLinejoin="round" />
+          <path className="wx-flash" d="M52 58 40 77h9l-5 15 17-22h-9l5-12z" fill="#FFC83D" stroke="#F2A10C" strokeWidth="1.5" strokeLinejoin="round" />
           <g fill={`url(#${id}-drop)`}>
-            <Drop x={30} y={74} />
-            <Drop x={70} y={76} />
+            <Drop x={30} y={74} delay={0.2} />
+            <Drop x={70} y={76} delay={0.8} />
           </g>
         </>
       )}
@@ -97,7 +110,7 @@ function Sun({ id, cx, cy, scale }: { id: string; cx: number; cy: number; scale:
   const rays = Array.from({ length: 8 }, (_, index) => (index * Math.PI) / 4);
   return (
     <g transform={`translate(${cx} ${cy}) scale(${scale})`}>
-      <g stroke="#FFC23A" strokeWidth="5" strokeLinecap="round">
+      <g className="wx-rays" stroke="#FFC23A" strokeWidth="5" strokeLinecap="round">
         {rays.map((angle) => (
           <line key={angle} x1={Math.cos(angle) * 29} y1={Math.sin(angle) * 29} x2={Math.cos(angle) * 37} y2={Math.sin(angle) * 37} />
         ))}
@@ -114,13 +127,13 @@ function Moon({ id, cx, cy, scale }: { id: string; cx: number; cy: number; scale
         <circle r="24" fill="#fff" />
         <circle cx="13" cy="-11" r="20" fill="#000" />
       </mask>
-      <circle r="24" fill={`url(#${id}-moon)`} mask={`url(#${id}-crescent)`} />
+      <circle className="wx-glow" r="24" fill={`url(#${id}-moon)`} mask={`url(#${id}-crescent)`} />
     </g>
   );
 }
 
-function Drop({ x, y }: { x: number; y: number }) {
-  return <path d={`M${x} ${y}c0 0-5 6.5-5 10a5 5 0 0 0 10 0c0-3.5-5-10-5-10z`} />;
+function Drop({ x, y, delay = 0 }: { x: number; y: number; delay?: number }) {
+  return <path className="wx-drop" style={{ animationDelay: `${delay}s` }} d={`M${x} ${y}c0 0-5 6.5-5 10a5 5 0 0 0 10 0c0-3.5-5-10-5-10z`} />;
 }
 
 // Line icons for the readings, drawn in the text colour around them.

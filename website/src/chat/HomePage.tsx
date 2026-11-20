@@ -1,5 +1,4 @@
 import { EmptyNote, greeting } from "../components/ui/voice";
-import { PageHeader } from "../components/ui/page-header";
 import { useCallback, useEffect, useState } from "react";
 import {
   SessionExpiredError,
@@ -158,12 +157,15 @@ export function HomePage({
 
   return (
     <main className="app-canvas scrollbar-slim h-full min-h-0 min-w-0 overflow-y-auto">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-10 sm:px-7">
-        <PageHeader title={greeting(new Date().getHours(), name)} voice onOpenSidebar={onOpenSidebar} description={status} />
-
-        <WeatherCard onSessionExpired={onSessionExpired} />
+      {/* On a wide screen the page widens with it and the sections below the
+          sky sit side by side, rather than a narrow column in a sea of canvas. */}
+      <div className="mx-auto flex max-w-[860px] flex-col gap-8 px-5 pb-11 pt-6 sm:px-7 sm:pt-8 xl:max-w-[1240px] xl:pt-10">
+        <WeatherCard onSessionExpired={onSessionExpired} heading={{ title: greeting(new Date().getHours(), name), description: status, onOpenSidebar }} />
 
         {error && <p className="rounded-control bg-tomato-soft px-3 py-2 text-small text-tomato" role="alert">{error}</p>}
+
+        <div className="grid gap-8 xl:grid-cols-2 xl:items-start xl:gap-10">
+        <div className="flex min-w-0 flex-col gap-8">
 
         {!checklistDone && loaded && (
           <section aria-label="Getting started" className="flex flex-col gap-2 rounded-card bg-neutral-100 p-5">
@@ -180,7 +182,55 @@ export function HomePage({
           <ApprovalsCard onSessionExpired={onSessionExpired} />
         </section>
 
-        <section aria-labelledby="home-watching" className="flex flex-col gap-3">
+        <section aria-labelledby="home-coming-up" className="flex flex-col gap-3">
+          {confirmDialog}
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="home-coming-up" className="text-small font-semibold">Coming up</h2>
+            <span className="flex items-baseline gap-4">
+              {upcoming.length > 0 && (
+                <button type="button" onClick={() => setEditingSchedules((editing) => !editing)} className={HEADER_BUTTON}>
+                  {editingSchedules ? "Done" : "Edit"}
+                </button>
+              )}
+              <button type="button" onClick={() => onNavigate("scheduled")} className={HEADER_BUTTON}>
+                All scheduled
+              </button>
+            </span>
+          </div>
+          {schedules === null ? (
+            <p className="text-small text-neutral-700">Loading…</p>
+          ) : upcoming.length === 0 ? (
+            <EmptyNote>Nothing is scheduled.</EmptyNote>
+          ) : (
+            <ul className="flex flex-col">
+              {upcoming.map((row) => (
+                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-small shadow-[inset_0_1px_0_var(--hairline)]">
+                  <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span title={row[NEXT_RUN]} className="text-caption tabular-nums text-neutral-700">
+                      {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
+                    </span>
+                    {editingSchedules && (
+                      <button
+                        type="button"
+                        aria-label="Cancel this schedule"
+                        title="Cancel schedule"
+                        disabled={cancelling === row[ID]}
+                        onClick={() => removeSchedule(row)}
+                        className={TRASH_BUTTON}
+                      >
+                        <TrashIcon />
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        </div>
+
+        <section aria-labelledby="home-watching" className="flex min-w-0 flex-col gap-3">
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="home-watching" className="text-small font-semibold">Watching</h2>
             {watchDraft === null ? (
@@ -256,52 +306,7 @@ export function HomePage({
           )}
         </section>
 
-        <section aria-labelledby="home-coming-up" className="flex flex-col gap-3">
-          {confirmDialog}
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 id="home-coming-up" className="text-small font-semibold">Coming up</h2>
-            <span className="flex items-baseline gap-4">
-              {upcoming.length > 0 && (
-                <button type="button" onClick={() => setEditingSchedules((editing) => !editing)} className={HEADER_BUTTON}>
-                  {editingSchedules ? "Done" : "Edit"}
-                </button>
-              )}
-              <button type="button" onClick={() => onNavigate("scheduled")} className={HEADER_BUTTON}>
-                All scheduled
-              </button>
-            </span>
-          </div>
-          {schedules === null ? (
-            <p className="text-small text-neutral-700">Loading…</p>
-          ) : upcoming.length === 0 ? (
-            <EmptyNote>Nothing is scheduled.</EmptyNote>
-          ) : (
-            <ul className="flex flex-col">
-              {upcoming.map((row) => (
-                <li key={row[ID]} className="flex items-center justify-between gap-4 py-2.5 text-small shadow-[inset_0_1px_0_var(--hairline)]">
-                  <span className="min-w-0 break-words">{row[INSTRUCTION]}</span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span title={row[NEXT_RUN]} className="text-caption tabular-nums text-neutral-700">
-                      {row[NEXT_RUN_AT] ? relativeTime(row[NEXT_RUN_AT], Date.now()) : row[NEXT_RUN]}
-                    </span>
-                    {editingSchedules && (
-                      <button
-                        type="button"
-                        aria-label="Cancel this schedule"
-                        title="Cancel schedule"
-                        disabled={cancelling === row[ID]}
-                        onClick={() => removeSchedule(row)}
-                        className={TRASH_BUTTON}
-                      >
-                        <TrashIcon />
-                      </button>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        </div>
       </div>
     </main>
   );

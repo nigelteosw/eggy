@@ -213,3 +213,14 @@ func TestMemoryToolRewritesSoulWhole(t *testing.T) {
 		t.Fatalf("a refused call changed soul: %q", loaded.Soul)
 	}
 }
+
+// TestSecretGuardRedactsAContainingSecretWhole pins the order: a secret that
+// contains another must be masked whole, or its tail survives into memory or
+// a trace once the shorter one is replaced first.
+func TestSecretGuardRedactsAContainingSecretWhole(t *testing.T) {
+	guard := NewSecretGuard([]string{"abc123", "abc123-long-tail"})
+	got := guard.Redact("key abc123-long-tail end")
+	if got != "key [redacted] end" {
+		t.Fatalf("Redact=%q, want the longer secret masked whole", got)
+	}
+}

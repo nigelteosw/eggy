@@ -1,10 +1,12 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/nigelteosw/eggy/internal/ports"
@@ -30,6 +32,9 @@ func NewSecretGuard(activeSecrets []string) *SecretGuard {
 			active = append(active, secret)
 		}
 	}
+	// Longest first, so a secret that contains another is masked whole rather
+	// than leaving its tail behind once the shorter one is replaced.
+	slices.SortStableFunc(active, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 	return &SecretGuard{active: active}
 }
 

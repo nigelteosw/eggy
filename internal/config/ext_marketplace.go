@@ -76,10 +76,26 @@ func SetMarketplaceSources(path string, sources []MarketplaceSource) error {
 	})
 }
 
+// DefaultMarketplaceSources are the catalogs a marketplace starts with: the
+// superpowers planning and debugging skills, and Anthropic's own skills. They
+// are only listed; every install is still the owner's reviewed choice.
+func DefaultMarketplaceSources() []MarketplaceSource {
+	return []MarketplaceSource{
+		{Name: "superpowers", Kind: "skills_repo", Repo: "obra/superpowers", Path: "skills"},
+		{Name: "anthropic-skills", Kind: "skills_repo", Repo: "anthropics/skills", Path: "skills"},
+	}
+}
+
 // SetMarketplaceEnabled turns the marketplace on or off and leaves the sources
 // as they are, for the settings card. It applies on restart, like finance.
+// Turning it on with no sources writes the defaults, so the first check has
+// something to show. They are written into the config rather than applied on
+// load, so the Sources card shows them and the owner can remove either one.
 func SetMarketplaceEnabled(path string, enabled bool) error {
 	return mutate(path, func(cfg *Config) error {
+		if enabled && !cfg.Marketplace.Enabled && len(cfg.Marketplace.Sources) == 0 {
+			cfg.Marketplace.Sources = DefaultMarketplaceSources()
+		}
 		cfg.Marketplace.Enabled = enabled
 		return nil
 	})

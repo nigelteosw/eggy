@@ -195,3 +195,31 @@ func TestRefusalSeparatesInvalidFromFailed(t *testing.T) {
 		t.Fatalf("missing file: err = %v, want a failure that is not a refusal", err)
 	}
 }
+
+func TestEnablingMarketplaceSeedsDefaultSourcesOnce(t *testing.T) {
+	path := marketplaceConfigPath(t, "")
+	if err := SetMarketplaceEnabled(path, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := GetMarketplaceSources(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, DefaultMarketplaceSources()) {
+		t.Fatalf("sources = %+v, want defaults", got)
+	}
+	// An owner's own list is never replaced by the defaults.
+	own := []MarketplaceSource{{Name: "mine", Kind: "skills_repo", Repo: "me/skills"}}
+	if err := SetMarketplaceSources(path, own); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMarketplaceEnabled(path, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetMarketplaceEnabled(path, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := GetMarketplaceSources(path); !slices.Equal(got, own) {
+		t.Fatalf("owner's sources replaced: %+v", got)
+	}
+}

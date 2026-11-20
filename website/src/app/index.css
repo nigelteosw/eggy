@@ -410,6 +410,17 @@
     animation-timeline: scroll(self block);
   }
 }
+/* A mask hides everything outside its own box. At md and up the Extensions
+   menu opens beside the rail, outside the rail's scroll area, so that area
+   carries no fade there; only the chat list inside it scrolls, and it keeps
+   its own. */
+@media (min-width: 48rem) {
+  [data-rail-scroll].fade-y {
+    -webkit-mask-image: none;
+    mask-image: none;
+    animation: none;
+  }
+}
 @keyframes edge-fade {
   0% {
     --fade-start: 0px;

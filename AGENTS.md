@@ -203,6 +203,11 @@ removes or makes possible that the standard library and the current code do not.
   `PrepareTerminalDir` chowns only the three directories it creates.
 - The terminal's `PATH` puts `~/.local/bin` last, and the launcher runs
   `/usr/bin/hc` by path: an install must never replace bash or herdr-core.
+  Debian's `/etc/profile` resets `PATH` in every login shell, so
+  `/etc/profile.d/eggy.sh` (`deploy/eggy-profile.sh`, also sourced by zsh's
+  zprofile) puts the image's tools back and `~/.local/bin` last, and reads
+  `~/.bashrc` when the account has no profile of its own. Without it, what
+  an account installs in its home is there after a redeploy but not found.
 
 - Owner-facing documents load their built-in default when missing, blank, or
   unreadable, and the default is never written into the owner's file. Writing

@@ -44,7 +44,9 @@ const claudeInstall = "curl -fsSL https://claude.ai/install.sh | bash"
 func argvFor(command string) ([]string, error) {
 	switch command {
 	case "shell":
-		return []string{"bash", "-l"}, nil
+		// The owner's shell is zsh once they have a ~/.zshrc, bash otherwise.
+		// Either is a login shell, so /etc/profile.d/eggy.sh sets its PATH.
+		return []string{"bash", "-lc", `[ -f "$HOME/.zshrc" ] && command -v zsh >/dev/null && exec zsh -l; exec bash -l`}, nil
 	case "claude":
 		return []string{"bash", "-lc", `command -v claude >/dev/null || { printf 'Claude Code is not installed here yet. Install it with:\n\n  ` + claudeInstall + `\n\nthen run: claude\n\n'; exec bash -l; }; exec claude`}, nil
 	case "codex":

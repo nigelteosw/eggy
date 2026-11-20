@@ -66,9 +66,15 @@ RUN --mount=type=cache,id=s/cc7841e4-c1b2-4f12-b20b-4d45d6e948d7-/go/pkg/mod,tar
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates curl git openssh-client tini \
+    && apt-get install --yes --no-install-recommends ca-certificates curl git openssh-client tini zsh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+# Every login shell (bash through /etc/profile, zsh through its zprofile)
+# gets the image's tools and the account's ~/.local/bin back on PATH, and bash
+# reads ~/.bashrc, so what an account installs into its home keeps working
+# across redeploys: the home is on the volume, the image is not.
+COPY deploy/eggy-profile.sh /etc/profile.d/eggy.sh
+RUN echo 'emulate sh -c ". /etc/profile.d/eggy.sh"' >> /etc/zsh/zprofile
 # Node LTS for the agent runner's sandboxed commands, from the node stage.
 COPY --from=node /usr/local/node /usr/local/node
 # herdr-core for the terminal extension, with its licence and notices.

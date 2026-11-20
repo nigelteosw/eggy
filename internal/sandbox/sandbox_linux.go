@@ -304,7 +304,9 @@ func (s *Sandbox) probe(ctx context.Context, dataDir string, eggyPort int, termi
 		argv []string
 		want string // "ok" needs exit 0; "denied" needs a plain non-zero exit
 	}{
-		{"exec", []string{"true"}, "ok"},
+		// A pipeline forks: RLIMIT_NPROC is counted per uid across the whole host,
+		// so a uid other tenants share can leave a command unable to fork at all.
+		{"exec and fork", []string{"sh", "-c", "true | true"}, "ok"},
 		{"read root-only file", []string{"cat", secret}, "denied"},
 		{"write outside run", []string{"sh", "-c", "touch " + outside}, "denied"},
 		{"connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied"},

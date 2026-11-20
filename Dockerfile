@@ -76,7 +76,10 @@ COPY --from=herdr-core /out/herdr-core /usr/bin/hc
 COPY --from=herdr-core /out/LICENSE /out/THIRD-PARTY-NOTICES /usr/share/doc/herdr-core/
 # The unprivileged account agent runner commands execute as. It has no login
 # and owns only its run directories under /data/agent-runs.
-RUN useradd --system --no-create-home --shell /usr/sbin/nologin coder
+# A fixed, uncommon uid: RLIMIT_NPROC counts every process of a uid on the
+# host, not per container, and on a shared host the default system uid (999)
+# already had more than the sandbox's 512, so nothing sandboxed could fork.
+RUN useradd --system --uid 199999 --no-create-home --shell /usr/sbin/nologin coder
 COPY --from=builder /usr/local/go /usr/local/go
 COPY --from=builder /out/eggyd /usr/local/bin/eggyd
 RUN mkdir -p /tmp/runs

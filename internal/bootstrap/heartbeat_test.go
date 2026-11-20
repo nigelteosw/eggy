@@ -180,50 +180,10 @@ func TestNextHeartbeatWakeSnapsToTheWindowOpening(t *testing.T) {
 				location: singapore,
 				now:      func() time.Time { return tt.now },
 			}
-			if got := app.nextHeartbeatWake(tt.requested); got != tt.want {
+			if got := app.heartbeatSchedule().NextWake(tt.requested); got != tt.want {
 				t.Fatalf("nextHeartbeatWake=%s want %s", got, tt.want)
 			}
 		})
-	}
-}
-
-// The bounds are a guard against one misjudged beat, not an opinion about
-// pacing, so they are wide and the floor is flat.
-func TestHeartbeatWakeBounds(t *testing.T) {
-	const interval = 3 * time.Hour
-	for name, tt := range map[string]struct {
-		requested time.Duration
-		want      time.Duration
-	}{
-		// The case the flat floor exists for. A floor of interval/6 would
-		// round this up to 30m and the beat would miss the thing it knows is
-		// landing -- which is the whole point of letting it choose.
-		"a tight wake survives against a long interval": {requested: 7 * time.Minute, want: 7 * time.Minute},
-		"an ordinary wake is untouched":                 {requested: 90 * time.Minute, want: 90 * time.Minute},
-		"below the floor is raised to it":               {requested: 30 * time.Second, want: 5 * time.Minute},
-		"the floor itself is kept":                      {requested: 5 * time.Minute, want: 5 * time.Minute},
-		"a week is capped at eight intervals":           {requested: 7 * 24 * time.Hour, want: 24 * time.Hour},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := clampHeartbeatWake(tt.requested, interval); got != tt.want {
-				t.Fatalf("clampHeartbeatWake(%s)=%s want %s", tt.requested, got, tt.want)
-			}
-		})
-	}
-}
-
-// What the beat asked for reaches the clock, and the fallback is only for a
-// beat that decided nothing -- one that failed, or answered in prose.
-func TestNextHeartbeatWakeHonoursTheBeat(t *testing.T) {
-	app := &App{
-		config: config.Config{Heartbeat: config.HeartbeatConfig{Interval: config.Duration(3 * time.Hour)}},
-		now:    func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) },
-	}
-	if got := app.nextHeartbeatWake(20 * time.Minute); got != 20*time.Minute {
-		t.Fatalf("nextHeartbeatWake=%s want the 20m the beat asked for", got)
-	}
-	if got := app.nextHeartbeatWake(0); got != 3*time.Hour {
-		t.Fatalf("nextHeartbeatWake=%s want the configured interval as the fallback", got)
 	}
 }
 
@@ -245,21 +205,8 @@ func TestNextWakeSnapsOnTheOwnerClock(t *testing.T) {
 		location: singapore,
 		now:      func() time.Time { return time.Date(2026, 8, 24, 3, 0, 0, 0, time.UTC) },
 	}
-	if got := app.nextHeartbeatWake(0); got != time.Hour {
+	if got := app.heartbeatSchedule().NextWake(0); got != time.Hour {
 		t.Fatalf("nextHeartbeatWake=%s want 1h -- the window was read on the host clock", got)
-	}
-}
-
-// An empty configured instruction falls back to the built-in default rather
-// than running a turn with no input at all.
-func TestHeartbeatInstructionFallsBackToTheDefault(t *testing.T) {
-	app := &App{config: config.Config{Heartbeat: config.HeartbeatConfig{Instruction: "   "}}}
-	if got := app.heartbeatInstruction(); got != defaultHeartbeatInstruction {
-		t.Fatalf("instruction=%q, want the built-in default", got)
-	}
-	app.config.Heartbeat.Instruction = "watch the deploy"
-	if got := app.heartbeatInstruction(); got != "watch the deploy" {
-		t.Fatalf("instruction=%q, want the configured one", got)
 	}
 }
 
@@ -277,28 +224,6 @@ func (s *stubContextStore) RemoveEntry(context.Context, ports.ContextDocument, s
 }
 func (s *stubContextStore) ReplaceDocument(context.Context, ports.ContextDocument, string) error {
 	return nil
-}
-
-// An empty watch list means the owner asked for nothing to be watched, so
-// there is nothing to check and no model call to justify.
-func TestWatchListEmptiness(t *testing.T) {
-	for name, tt := range map[string]struct {
-		watch string
-		empty bool
-	}{
-		"absent":               {watch: "", empty: true},
-		"whitespace":           {watch: "   \n\n\t\n", empty: true},
-		"headings only":        {watch: "# Eggy Watch\n\n## Deploys\n", empty: true},
-		"one entry":            {watch: "# Eggy Watch\n\nPR #18 open since Aug 20\n", empty: false},
-		"entry under headings": {watch: "# Eggy Watch\n\n## Deploys\nRailway settles slowly\n", empty: false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			app := &App{context: &stubContextStore{watch: tt.watch}}
-			if got := app.watchListIsEmpty(context.Background()); got != tt.empty {
-				t.Fatalf("watchListIsEmpty=%v want %v", got, tt.empty)
-			}
-		})
-	}
 }
 
 // A silent no-op is indistinguishable from a broken heartbeat, so the first
@@ -323,21 +248,6 @@ func TestEmptyWatchWarningRearmsAfterANonEmptyList(t *testing.T) {
 	if !app.shouldWarnEmptyWatch() {
 		t.Fatal("the warning did not re-arm")
 	}
-}
-
-// A store failure must degrade into a beat rather than into silence: an
-// unreadable watch list is a bug to surface, not a reason to stop checking.
-func TestUnreadableWatchListStillBeats(t *testing.T) {
-	app := &App{context: &failingContextStore{}}
-	if app.watchListIsEmpty(context.Background()) {
-		t.Fatal("an unreadable watch list suppressed the beat")
-	}
-}
-
-type failingContextStore struct{ stubContextStore }
-
-func (*failingContextStore) Load(context.Context) (ports.AgentContext, error) {
-	return ports.AgentContext{}, errors.New("disk gone")
 }
 
 // Quiet hours are the v1 spec's one deferred omission: an interval-only
@@ -369,7 +279,7 @@ func TestHeartbeatSkipsOutsideActiveHours(t *testing.T) {
 				location: singapore,
 				now:      func() time.Time { return tt.now },
 			}
-			if got := app.withinActiveHours(); got != tt.active {
+			if got := app.heartbeatSchedule().Active(); got != tt.active {
 				t.Fatalf("withinActiveHours=%v want %v", got, tt.active)
 			}
 		})
@@ -390,7 +300,7 @@ func TestActiveHoursUseTheOwnerTimezone(t *testing.T) {
 		location: singapore,
 		now:      func() time.Time { return time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC) },
 	}
-	if !app.withinActiveHours() {
+	if !app.heartbeatSchedule().Active() {
 		t.Fatal("the window was read in the host timezone rather than the owner's")
 	}
 }

@@ -79,10 +79,10 @@ func (a *App) Run(ctx context.Context) error {
 			// fixed phase the beat's own duration eats into. A skipped tick
 			// has nothing to wait for.
 			if !a.onHeartbeatTick(ctx) {
-				heartbeat.Reset(a.nextHeartbeatWake(0))
+				heartbeat.Reset(a.heartbeatSchedule().NextWake(0))
 			}
 		case requested := <-a.heartbeatWake:
-			wake := a.nextHeartbeatWake(requested)
+			wake := a.heartbeatSchedule().NextWake(requested)
 			// The one record that a beat happened and what it decided.
 			// Without it a self-paced heartbeat is unobservable: a quiet beat
 			// writes nothing anywhere, so nobody can tell good pacing from a

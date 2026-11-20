@@ -8,22 +8,9 @@ import (
 
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/destination"
+	"github.com/nigelteosw/eggy/internal/core/turns"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
-
-// defaultHeartbeatInstruction is what a heartbeat asks when the owner has not
-// said what to check. Deliberately open: the silence protocol in the system
-// message is what keeps an open question from becoming chatter.
-const defaultHeartbeatInstruction = "Check in: is there anything the owner needs to know about right now? Say nothing unless there is."
-
-// heartbeatInstruction falls back to the built-in default rather than running
-// a turn with no input at all.
-func (a *App) heartbeatInstruction() string {
-	if instruction := strings.TrimSpace(a.config.Heartbeat.Instruction); instruction != "" {
-		return instruction
-	}
-	return defaultHeartbeatInstruction
-}
 
 // heartbeatCadence says when beats run, such as "every 3h, 08:00-22:00
 // Asia/Singapore". It is empty exactly when heartbeatTicks returns no clock,
@@ -153,82 +140,14 @@ func (a *App) ownerNow() time.Time {
 	return now().In(location)
 }
 
-// The bounds on what a beat may ask for. Wide on purpose: they are a guard
-// against a beat that misjudges once, not an opinion about pacing.
-//
-// The floor is flat rather than a fraction of the interval, because a fraction
-// forbids the tight end of the range -- with a 3h interval it would rule out
-// the beat that knows a deploy lands in four minutes, which is the case that
-// matters most. Five minutes is what stops a misjudged beat becoming a hot
-// loop, and nothing else.
-//
-// The ceiling is relative because its job is different: it prevents a beat
-// talking itself into a week of quiet, and what counts as too quiet is exactly
-// what the owner expressed by configuring an interval.
-const (
-	minHeartbeatWake      = 5 * time.Minute
-	maxHeartbeatWakeScale = 8
-)
-
-// clampHeartbeatWake holds a beat's request inside those bounds. Silently: the
-// model's judgement about direction is worth keeping even when its magnitude
-// is off, and rejecting would cost a round trip to learn a bound it cannot
-// see.
-func clampHeartbeatWake(wake, interval time.Duration) time.Duration {
-	if wake < minHeartbeatWake {
-		wake = minHeartbeatWake
+// heartbeatSchedule is the heartbeat's timing policy (turns.HeartbeatSchedule)
+// read from config and set on the owner's clock.
+func (a *App) heartbeatSchedule() turns.HeartbeatSchedule {
+	return turns.HeartbeatSchedule{
+		Interval: a.config.Heartbeat.Interval.Value(),
+		Window:   a.config.Heartbeat.ActiveHours,
+		Now:      a.ownerNow,
 	}
-	if ceiling := interval * maxHeartbeatWakeScale; ceiling > 0 && wake > ceiling {
-		wake = ceiling
-	}
-	return wake
-}
-
-// nextHeartbeatWake is how long to wait before the next beat, given what the
-// last one asked for.
-//
-// A non-positive request falls back to the configured interval, which is what
-// a beat that made no decision gets: a skipped beat, a failed beat, or the
-// first beat after a restart.
-//
-// A wake landing in quiet hours is moved to the window opening rather than
-// dropped. Dropping it is what the ticker did, and it is why the first beat of
-// the day could be a whole interval late.
-func (a *App) nextHeartbeatWake(requested time.Duration) time.Duration {
-	interval := a.config.Heartbeat.Interval.Value()
-	wake := requested
-	if wake <= 0 {
-		wake = interval
-	}
-	if wake <= 0 {
-		return 0
-	}
-	wake = clampHeartbeatWake(wake, interval)
-	wait, configured := a.config.Heartbeat.ActiveHours.NextOpen(a.ownerNow().Add(wake))
-	if !configured {
-		return wake
-	}
-	return wake + wait
-}
-
-// watchListIsEmpty reports whether the account's watch list holds nothing
-// to check.
-//
-// Blank lines and Markdown headings do not count: a document that is only its
-// own title is what a store returns before anyone has written to it, and
-// beating on it would run a model call to look at nothing. An unreadable
-// document is treated as non-empty so a store failure degrades into a beat
-// rather than into silence.
-func (a *App) watchListIsEmpty(ctx context.Context) bool {
-	if a.context == nil {
-		return true
-	}
-	agentContext, err := a.context.Load(ctx)
-	if err != nil {
-		slog.Error("watch list unreadable; beating anyway", "error", err)
-		return false
-	}
-	return ports.WatchListIsEmpty(agentContext.Watch)
 }
 
 // heartbeatAccounts is who a tick beats for: every account that has switched
@@ -244,38 +163,12 @@ func (a *App) heartbeatAccounts(ctx context.Context) []context.Context {
 			continue
 		}
 		accountCtx := ports.WithPrincipal(ctx, ports.Principal{AccountID: account.ID})
-		if !a.heartbeatSwitchedOn(accountCtx) || a.watchListIsEmpty(accountCtx) {
+		if !turns.HeartbeatEligible(accountCtx, a.store, a.context) {
 			continue
 		}
 		beats = append(beats, accountCtx)
 	}
 	return beats
-}
-
-// heartbeatSwitchedOn reports whether the account has turned its check-ins
-// on. An unreadable state reads as off: a beat nobody asked for is the
-// failure the switch exists to prevent.
-func (a *App) heartbeatSwitchedOn(ctx context.Context) bool {
-	if a.store == nil {
-		return false
-	}
-	state, err := a.store.Load(ctx)
-	if err != nil {
-		slog.Error("heartbeat switch unreadable; not beating", "error", err)
-		return false
-	}
-	return state.Agent.Heartbeat
-}
-
-// withinActiveHours reports whether now falls inside the configured window,
-// read on the owner's clock rather than the host's. An unset window is always
-// active, so an absent section changes nothing.
-func (a *App) withinActiveHours() bool {
-	hours := a.config.Heartbeat.ActiveHours
-	if !hours.Configured() {
-		return true
-	}
-	return hours.Active(a.ownerNow())
 }
 
 // shouldWarnEmptyWatch reports whether this skip is the transition into the
@@ -310,7 +203,7 @@ func (a *App) onHeartbeatTick(ctx context.Context) bool {
 	// Outside the owner's active hours nothing beats. Checked before the
 	// watch list so a quiet-hours skip costs no store read, and before any
 	// model call so a 03:00 tick costs nothing at all.
-	if !a.withinActiveHours() {
+	if !a.heartbeatSchedule().Active() {
 		return false
 	}
 	// An empty watch list means the person has asked for nothing to be
@@ -340,7 +233,7 @@ func (a *App) onHeartbeatTick(ctx context.Context) bool {
 		for _, beatCtx := range beats {
 			// Not retried: the next tick is the retry, and a heartbeat has no
 			// durable claim to release.
-			response, err := a.turnService.HeartbeatTurn(destination.With(beatCtx, proactiveDestination()), a.heartbeatInstruction(), a.config.Heartbeat.IncludeRecentHistory)
+			response, err := a.turnService.HeartbeatTurn(destination.With(beatCtx, proactiveDestination()), turns.HeartbeatInstruction(a.config.Heartbeat.Instruction), a.config.Heartbeat.IncludeRecentHistory)
 			if err != nil {
 				slog.Error("heartbeat failed", "error", err)
 				continue
@@ -365,7 +258,7 @@ func (a *App) onHeartbeatTick(ctx context.Context) bool {
 //
 // A zero requested duration is a beat that made no decision -- it failed, or
 // answered in prose without calling heartbeat_respond -- and falls back to the
-// configured interval in nextHeartbeatWake.
+// configured interval in turns.HeartbeatSchedule.NextWake.
 func (a *App) finishHeartbeat(ctx context.Context, requested time.Duration) {
 	select {
 	case a.heartbeatWake <- requested:

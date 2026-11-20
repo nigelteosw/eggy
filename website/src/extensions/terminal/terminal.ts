@@ -141,3 +141,18 @@ export function composeBytes(text: string): string {
 }
 
 export const SPACE_NAME = /^[a-z0-9][a-z0-9._-]{0,47}$/;
+
+// orderedCommands puts Claude Code first: it is what a space is usually for.
+export function orderedCommands(commands: string[]): string[] {
+  return [...commands].sort((a, b) => (a === "claude" ? -1 : b === "claude" ? 1 : 0));
+}
+
+// spaceNote is the line a space shows instead of its terminals, or null when
+// it has terminals to show. A problem is drawn as one.
+export function spaceNote(space: TerminalSpace): { text: string; problem?: boolean } | null {
+  if (space.preparing) return { text: "Copying from GitHub..." };
+  if (space.error) return { text: `Could not copy: ${space.error}. Use Fetch from GitHub in the + menu to try again.`, problem: true };
+  if (space.terminals.length > 0) return null;
+  if (space.repo) return { text: "Press + to start Claude Code or a shell in this repository." };
+  return { text: "Nothing running. Press + to start." };
+}

@@ -182,6 +182,76 @@ func (s *Service) DeleteSpace(ctx context.Context, name string) error {
 	return c.run(ctx, "rm", "-rf", "--", dir)
 }
 
+// Spaces lists the account's spaces, each with its terminals. A terminal with
+// no space, such as one a program started itself, is listed under "".
+func (s *Service) Spaces(ctx context.Context) ([]Space, error) {
+	c, err := s.coreFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(c.dir, "ws"))
+	if err != nil {
+		return nil, err
+	}
+	s.ensureRepos(context.WithoutCancel(ctx), c)
+	set := spaceSet{}
+	for _, e := range entries {
+		if e.IsDir() && spaceName.MatchString(e.Name()) {
+			set.get(e.Name())
+		}
+	}
+	for _, t := range c.list() {
+		sp := set.get(t.Space)
+		sp.Terminals = append(sp.Terminals, t)
+	}
+	for _, name := range s.repos() {
+		sp := set.get(name)
+		sp.Repo = true
+		if !hasCopy(c.dir, name) {
+			sp.Preparing, sp.Error = s.copies.state(c.dir, name)
+		}
+	}
+	return set.sorted(), nil
+}
+
+// spaceSet gathers a listing's spaces by name: folders, the spaces terminals
+// name, and configured repositories each add to the one entry.
+type spaceSet map[string]*Space
+
+func (set spaceSet) get(name string) *Space {
+	if sp := set[name]; sp != nil {
+		return sp
+	}
+	sp := &Space{Name: name, Terminals: []Terminal{}}
+	set[name] = sp
+	return sp
+}
+
+func (set spaceSet) sorted() []Space {
+	out := make([]Space, 0, len(set))
+	for _, sp := range set {
+		out = append(out, *sp)
+	}
+	slices.SortFunc(out, func(a, b Space) int { return strings.Compare(a.Name, b.Name) })
+	return out
+}
+
+// CreateSpace makes an empty folder in the account's workspace. The sandbox
+// user owns it, because its programs work in it.
+func (s *Service) CreateSpace(ctx context.Context, name string) error {
+	name = strings.TrimSpace(name)
+	if err := s.checkNewSpace(name); err != nil {
+		return err
+	}
+	c, err := s.coreFor(ctx)
+	if err != nil {
+		return err
+	}
+	// The folder is made by a program in the sandbox, as its owner, so the
+	// extension never needs coder's ownership rights itself.
+	return c.run(ctx, "mkdir", "-p", "--", filepath.Join(c.dir, "ws", name))
+}
+
 // checkNewSpace refuses a name a space cannot take.
 func (s *Service) checkNewSpace(name string) error {
 	if !spaceName.MatchString(name) {
@@ -191,34 +261,6 @@ func (s *Service) checkNewSpace(name string) error {
 		return fmt.Errorf("%s is a repository space already", name)
 	}
 	return nil
-}
-
-// spaceFlags marks repository spaces in a listing with how their working
-// copy stands, and adds those with no folder yet, so the list shows every
-// configured repository.
-func (s *Service) spaceFlags(c *core, spaces []Space) []Space {
-	repos := s.repos()
-	seen := map[string]bool{}
-	for i := range spaces {
-		seen[spaces[i].Name] = true
-	}
-	for _, name := range repos {
-		if !seen[name] {
-			spaces = append(spaces, Space{Name: name, Terminals: []Terminal{}})
-		}
-	}
-	for i := range spaces {
-		sp := &spaces[i]
-		if !slices.Contains(repos, sp.Name) {
-			continue
-		}
-		sp.Repo = true
-		if !hasCopy(c.dir, sp.Name) {
-			sp.Preparing, sp.Error = s.copies.state(c.dir, sp.Name)
-		}
-	}
-	slices.SortFunc(spaces, func(a, b Space) int { return strings.Compare(a.Name, b.Name) })
-	return spaces
 }
 
 // hasCopy reports whether the repository's working copy is there: a git

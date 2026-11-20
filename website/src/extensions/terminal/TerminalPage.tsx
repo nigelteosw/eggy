@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SessionExpiredError } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { CloseIcon, MenuIcon } from "../../components/ui/icons";
 import { ErrorBanner } from "../../components/ui/error-banner";
+import { SpaceMenu } from "./SpaceMenu";
 import { TerminalView } from "./TerminalView";
 import {
   INBOX_LABEL,
@@ -13,7 +14,9 @@ import {
   deleteSpace,
   killTerminal,
   listSpaces,
+  orderedCommands,
   sectionOf,
+  spaceNote,
   startTerminal,
   terminalLabel,
   updateRepo,
@@ -258,10 +261,6 @@ function EmptyState({ commands, busy, hasTerminals, onStart }: { commands: strin
 }
 
 // Claude Code first: it is why the extension exists.
-function orderedCommands(commands: string[]): string[] {
-  return [...commands].sort((a, b) => (a === "claude" ? -1 : b === "claude" ? 1 : 0));
-}
-
 function SpaceGroup({
   space,
   commands,
@@ -281,103 +280,21 @@ function SpaceGroup({
   onStart: (space: string, command: string) => void;
   onRemove: (address: string) => void;
   onDelete: (space: string) => void;
-  onUpdate: (space: string) => void;
+  onUpdate: (space: string) => Promise<void>;
 }) {
-  const [menu, setMenu] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const live = space.terminals.filter((t) => t.live).length;
-  const root = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!menu) return;
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setMenu(false);
-    };
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [menu]);
   const terminals = [...space.terminals].sort((a, b) => Number(b.live) - Number(a.live) || Date.parse(b.changed) - Date.parse(a.changed));
+  const note = spaceNote(space);
   return (
     <section aria-label={space.name} className="mb-2">
-      <div ref={root} className="relative flex items-center gap-2 px-2 py-1">
+      <div className="flex items-center gap-2 px-2 py-1">
         <span className="min-w-0 flex-1 truncate text-caption font-medium uppercase tracking-wide text-neutral-600">{space.name}</span>
         {space.repo && <span title="A configured repository, copied from its mirror" className="shrink-0 rounded-full bg-neutral-100 px-1.5 text-caption text-neutral-600">repo</span>}
-        <button
-          type="button"
-          aria-label={`Start in ${space.name}`}
-          aria-expanded={menu}
-          title={`Start in ${space.name}`}
-          disabled={busy || space.preparing}
-          onClick={() => {
-            setConfirmDelete(false);
-            setMenu((v) => !v);
-          }}
-          className="flex h-7 w-7 items-center justify-center rounded-mark text-base text-neutral-700 hover:bg-neutral-100 disabled:opacity-40"
-        >
-          +
-        </button>
-        {menu && (
-          <div role="menu" className="absolute right-2 top-full z-20 mt-1 w-44 overflow-hidden rounded-card bg-card p-1 shadow-lift">
-            {orderedCommands(commands).map((command) => (
-              <button
-                key={command}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenu(false);
-                  onStart(space.name, command);
-                }}
-                className="flex h-10 w-full items-center rounded-control px-3 text-left text-small hover:bg-neutral-100"
-              >
-                {commandLabel(command)}
-              </button>
-            ))}
-            <div className="my-1 border-t border-border" />
-            {space.repo ? (
-              <button
-                type="button"
-                role="menuitem"
-                disabled={updating}
-                onClick={async () => {
-                  setUpdating(true);
-                  await onUpdate(space.name);
-                  setUpdating(false);
-                  setMenu(false);
-                }}
-                className="flex h-10 w-full items-center rounded-control px-3 text-left text-small hover:bg-neutral-100 disabled:opacity-50"
-              >
-                {updating ? "Fetching..." : "Fetch from GitHub"}
-              </button>
-            ) : confirmDelete ? (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenu(false);
-                  onDelete(space.name);
-                }}
-                className="flex min-h-10 w-full items-center rounded-control px-3 py-1.5 text-left text-small font-medium text-tomato hover:bg-tomato-soft"
-              >
-                {live > 0 ? `Delete folder and end ${live} terminal${live === 1 ? "" : "s"}` : "Delete folder and its files"}
-              </button>
-            ) : (
-              <button type="button" role="menuitem" onClick={() => setConfirmDelete(true)} className="flex h-10 w-full items-center rounded-control px-3 text-left text-small text-tomato hover:bg-tomato-soft">
-                Delete space...
-              </button>
-            )}
-          </div>
-        )}
+        <SpaceMenu space={space} commands={commands} disabled={busy || !!space.preparing} onStart={onStart} onDelete={onDelete} onUpdate={onUpdate} />
       </div>
-      {space.preparing ? (
-        <p className="px-2 pb-1 text-caption text-neutral-500">Copying from GitHub...</p>
-      ) : space.error ? (
-        <p className="px-2 pb-1 text-caption text-tomato" title={space.error}>
-          Could not copy: {space.error}. Use Fetch from GitHub in the + menu to try again.
+      {note ? (
+        <p className={cn("px-2 pb-1 text-caption", note.problem ? "text-tomato" : "text-neutral-500")} title={space.error}>
+          {note.text}
         </p>
-      ) : space.repo && terminals.length === 0 && !space.terminals.length ? (
-        <p className="px-2 pb-1 text-caption text-neutral-500">Press + to start Claude Code or a shell in this repository.</p>
-      ) : terminals.length === 0 ? (
-        <p className="px-2 pb-1 text-caption text-neutral-500">Nothing running. Press + to start.</p>
       ) : (
         terminals.map((t) => <Row key={t.address} terminal={t} selected={open === t.address} onOpen={onOpen} onRemove={onRemove} />)
       )}

@@ -187,7 +187,7 @@ func (s *CommandService) pluginMarketplace(ctx context.Context, args []string) (
 		}
 		var lines []string
 		for _, st := range statuses {
-			line := st.Name + " · " + st.Repo
+			line := "- " + st.Name + " · " + st.Repo
 			if st.Error != "" {
 				line += " · " + st.Error
 			} else if st.SHA != "" {
@@ -295,9 +295,9 @@ func (s *CommandService) pluginBrowse(ctx context.Context, source string) (strin
 	if len(items) == 0 {
 		return source + " lists nothing installable.", true, nil
 	}
-	lines := []string{source + ":"}
+	lines := []string{source + ":", ""}
 	for _, item := range items {
-		line := "• " + item.Name
+		line := "- " + item.Name
 		if item.Description != "" {
 			line += " — " + clip(item.Description, 120)
 		}
@@ -372,11 +372,11 @@ func (s *CommandService) findPluginSource(ctx context.Context, item string) (str
 }
 
 func reviewCard(plan MarketplacePlan, code string) string {
-	lines := []string{fmt.Sprintf("Review: %s from %s", plan.Item, plan.Source), fmt.Sprintf("%s @ %s", plan.Repo, shortSHA(plan.SHA)), ""}
+	lines := []string{fmt.Sprintf("Review: %s from %s (%s @ %s)", plan.Item, plan.Source, plan.Repo, shortSHA(plan.SHA)), ""}
 	if len(plan.Skills) > 0 {
-		lines = append(lines, fmt.Sprintf("Skills (%d):", len(plan.Skills)))
+		lines = append(lines, fmt.Sprintf("Skills (%d):", len(plan.Skills)), "")
 		for _, sk := range plan.Skills {
-			line := "• " + sk.Name
+			line := "- " + sk.Name
 			if sk.Description != "" {
 				line += " — " + clip(sk.Description, 160)
 			}
@@ -385,14 +385,14 @@ func reviewCard(plan MarketplacePlan, code string) string {
 			}
 			lines = append(lines, line)
 			for _, w := range sk.Warnings {
-				lines = append(lines, "  ⚠ "+w)
+				lines = append(lines, "  - ⚠ "+w)
 			}
 		}
 	}
 	if len(plan.MCP) > 0 {
-		lines = append(lines, "", "MCP servers (added switched off, enabled only after review on the Connectors page):")
+		lines = append(lines, "", "MCP servers (added switched off, enabled only after review on the Connectors page):", "")
 		for _, m := range plan.MCP {
-			lines = append(lines, "• "+m.Name+" — "+m.URL)
+			lines = append(lines, "- "+m.Name+" — "+m.URL)
 		}
 	}
 	if extra := skippedLines(plan.Skipped); extra != "" {
@@ -411,7 +411,7 @@ func skippedLines(skipped []string) string {
 	if len(skipped) == 0 {
 		return ""
 	}
-	return "\n\nSkipped:\n• " + strings.Join(skipped, "\n• ")
+	return "\n\nSkipped:\n- " + strings.Join(skipped, "\n- ")
 }
 
 func (s *CommandService) pluginShow(ctx context.Context, code, skill string) (string, bool, error) {
@@ -469,7 +469,7 @@ func (s *CommandService) pluginList(ctx context.Context) (string, bool, error) {
 	}
 	var lines []string
 	for _, in := range installs {
-		line := fmt.Sprintf("%s · %s@%s @ %s", in.ID, in.Item, in.SourceName, shortSHA(in.CommitSHA))
+		line := fmt.Sprintf("- %s · %s@%s @ %s", in.ID, in.Item, in.SourceName, shortSHA(in.CommitSHA))
 		if in.Disabled {
 			line += " · off"
 		}

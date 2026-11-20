@@ -71,7 +71,7 @@ func TestPluginInstallNeedsApprovedReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(card, "Review: pdf from skills") || !strings.Contains(card, "abcdef1") {
+	if !strings.Contains(card, "Review: pdf from skills (anthropics/skills @ abcdef1)") || !strings.Contains(card, "abcdef1") {
 		t.Fatalf("card = %q", card)
 	}
 	if len(fake.installed) != 0 {

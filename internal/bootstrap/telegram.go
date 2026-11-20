@@ -28,7 +28,7 @@ type telegramWiring struct {
 	// Separate interface fields, assigned only when a client exists, so they
 	// stay *true* nils. Assigning client unconditionally would box a nil
 	// *telegram.Client into a non-nil interface, which compares non-nil while
-	// wrapping a nil pointer and silently defeats newRoutedChannel's and
+	// wrapping a nil pointer and silently defeats router.New's and
 	// NewWebhookHandler's nil checks.
 	channel      ports.Channel
 	acknowledger telegram.CallbackAcknowledger

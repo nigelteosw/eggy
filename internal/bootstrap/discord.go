@@ -20,7 +20,7 @@ type discordWiring struct {
 	client  discordTransport
 	handler *discord.Handler
 	// channel is a separate interface field assigned only when a client
-	// exists, so it stays a true nil for newRoutedChannel.
+	// exists, so it stays a true nil for router.New.
 	channel ports.Channel
 }
 

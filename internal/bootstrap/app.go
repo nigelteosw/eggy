@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/channel/router"
 	"log/slog"
 	"net/http"
 	"os"
@@ -216,7 +217,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	telegramSurface := newTelegramWiring(config, secrets, options, app.accounts, consumePairing)
 	connectionCredentials := openConnectionCredentials(database, secrets, options.Logger)
 	app.discord = newDiscordWiring(config, secrets, options, app.accounts, connectionCredentials, app.Enqueue, identityLinks)
-	app.channel = newRoutedChannel(telegramSurface.channel, webChannel, app.discord.channel)
+	app.channel = router.New(telegramSurface.channel, webChannel, app.discord.channel)
 	app.approvals = services.NewApprovalService(stateStore, options.Now, 30*time.Minute, ports.ApprovalMode(config.Approvals.Mode))
 	// The channel is already routed by context, so an approval asked during a
 	// Telegram turn arrives in Telegram and one asked in web chat arrives there.
@@ -681,15 +682,6 @@ type staticModel struct{}
 func (staticModel) Generate(context.Context, ports.ModelRequest) (ports.ModelResponse, error) {
 	return ports.ModelResponse{Message: ports.Message{Role: ports.RoleAssistant, Content: "Eggy fake adapter ready."}}, nil
 }
-
-// noopChannel is the channel used when no surface is configured at all. It
-// implements only ports.Channel: with nowhere to deliver to there is no
-// message to edit in place and no one to show a typing indicator to, so it
-// claims neither optional extension rather than stubbing them.
-type noopChannel struct{}
-
-func (noopChannel) Deliver(context.Context, string) error                     { return nil }
-func (noopChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }
 
 // configDigest fingerprints config.yaml as it is on disk. An unreadable file
 // digests to the empty string, so a file that later appears counts as a change.

@@ -1,4 +1,4 @@
-package bootstrap
+package router
 
 import (
 	"context"
@@ -40,7 +40,7 @@ type routedChannel struct {
 	discord  ports.Channel
 }
 
-// newRoutedChannel returns telegram directly, unwrapped, when it is the only
+// New returns telegram directly, unwrapped, when it is the only
 // configured surface, a routedChannel when any other surface exists, or
 // noopChannel{} if none is.
 //
@@ -52,7 +52,7 @@ type routedChannel struct {
 // to. Dropping it instead keeps "no Telegram configured" meaning "no
 // unprompted output", while owner-initiated web and Discord turns, which
 // stamp their own destination, still route normally.
-func newRoutedChannel(telegram, web, discord ports.Channel) ports.Channel {
+func New(telegram, web, discord ports.Channel) ports.Channel {
 	switch {
 	case telegram == nil && web == nil && discord == nil:
 		return noopChannel{}
@@ -159,3 +159,12 @@ func (r *routedChannel) SendTyping(ctx context.Context) error {
 	}
 	return typing.SendTyping(ctx)
 }
+
+// noopChannel is the channel used when no surface is configured at all. It
+// implements only ports.Channel: with nowhere to deliver to there is no
+// message to edit in place and no one to show a typing indicator to, so it
+// claims neither optional extension rather than stubbing them.
+type noopChannel struct{}
+
+func (noopChannel) Deliver(context.Context, string) error                     { return nil }
+func (noopChannel) DeliverApproval(context.Context, approvals.Approval) error { return nil }

@@ -70,7 +70,7 @@ func compactDuration(d time.Duration) string {
 // costs nothing at runtime: no ticker, no goroutine, no branch ever taken.
 //
 // A configured Telegram channel is required too. Unprompted output is
-// addressed to proactiveDestination(), and newRoutedChannel gives a web-only
+// addressed to proactiveDestination(), and router.New gives a web-only
 // deployment a noop Telegram deliberately -- so without this guard such a
 // deployment would wake every interval, run a full model turn, and deliver it
 // into the noop: a standing token cost that can never produce a visible

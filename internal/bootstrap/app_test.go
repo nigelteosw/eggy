@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/nigelteosw/eggy/internal/channel/router"
 	"io"
 	"log/slog"
 	"net/http"
@@ -955,7 +956,7 @@ func TestNewAppBuildsAWebOnlyDeploymentWithNoTelegramConfiguration(t *testing.T)
 	// it must be dropped, not redirected into a web thread the owner never
 	// asked to be pushed to.
 	web := &fakeChannel{name: "web"}
-	app.channel = newRoutedChannel(nil, web, nil)
+	app.channel = router.New(nil, web, nil)
 	payload, err := json.Marshal(events.Message{Text: "scheduled reminder"})
 	if err != nil {
 		t.Fatal(err)
@@ -983,7 +984,7 @@ func TestUnpromptedTurnsAlwaysReportToTelegram(t *testing.T) {
 		t.Fatal(err)
 	}
 	telegramChannel, webChannel := &fakeChannel{name: "telegram"}, &fakeChannel{name: "web"}
-	app.channel = newRoutedChannel(telegramChannel, webChannel, nil)
+	app.channel = router.New(telegramChannel, webChannel, nil)
 
 	payload, err := json.Marshal(events.Message{Text: "scheduled reminder"})
 	if err != nil {

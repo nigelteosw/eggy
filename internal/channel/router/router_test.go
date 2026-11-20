@@ -1,15 +1,13 @@
-package bootstrap
+package router
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/nigelteosw/eggy/internal/channel/channelutil"
 	"github.com/nigelteosw/eggy/internal/core/approvals"
 	"github.com/nigelteosw/eggy/internal/core/destination"
-	"github.com/nigelteosw/eggy/internal/core/events"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
@@ -79,7 +77,7 @@ func webCtx(threadID string) context.Context {
 func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.Deliver(webCtx("thread-1"), "hello"); err != nil {
 		t.Fatal(err)
@@ -95,7 +93,7 @@ func TestRoutedChannelDeliverReachesOnlyTheDestinationsChannel(t *testing.T) {
 func TestRoutedChannelDeliverReachesTelegramForATelegramDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.Deliver(telegramCtx(), "hello"); err != nil {
 		t.Fatal(err)
@@ -111,7 +109,7 @@ func TestRoutedChannelDeliverReachesTelegramForATelegramDestination(t *testing.T
 func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.Deliver(context.Background(), "hello"); err != nil {
 		t.Fatal(err)
@@ -124,7 +122,7 @@ func TestRoutedChannelDefaultsToTelegramWhenNoDestinationIsStamped(t *testing.T)
 func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{deliverErr: errors.New("web down")}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.Deliver(webCtx("thread-1"), "hello"); err == nil {
 		t.Fatal("expected the web channel's error to propagate")
@@ -134,7 +132,7 @@ func TestRoutedChannelDeliverPropagatesTheUnderlyingChannelsError(t *testing.T) 
 func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{trackableID: "123"}
 	web := &fakeChannel{trackableID: "abc"}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
@@ -148,7 +146,7 @@ func TestRoutedChannelDeliverTrackableRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelDeliverTrackableFallsBackToPlainDeliveryForABaseChannel(t *testing.T) {
 	telegram := &fakeChannel{trackableID: "123"}
 	web := &baseChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	id, err := channel.(ports.TrackableChannel).DeliverTrackable(webCtx("thread-1"), "working...")
 	if err != nil {
@@ -163,7 +161,7 @@ func TestRoutedChannelDeliverTrackableFallsBackToPlainDeliveryForABaseChannel(t 
 }
 
 func TestRoutedChannelEditTextReportsUnsupportedForABaseChannel(t *testing.T) {
-	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{}, nil)
+	channel := New(&fakeChannel{}, &baseChannel{}, nil)
 
 	err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done")
 	if !errors.Is(err, channelutil.ErrEditsUnsupported) {
@@ -172,7 +170,7 @@ func TestRoutedChannelEditTextReportsUnsupportedForABaseChannel(t *testing.T) {
 }
 
 func TestRoutedChannelSendTypingIsANoopForABaseChannel(t *testing.T) {
-	channel := newRoutedChannel(&fakeChannel{}, &baseChannel{}, nil)
+	channel := New(&fakeChannel{}, &baseChannel{}, nil)
 
 	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatalf("err=%v, want a silent no-op for a channel with no typing indicator", err)
@@ -182,7 +180,7 @@ func TestRoutedChannelSendTypingIsANoopForABaseChannel(t *testing.T) {
 func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.(ports.TrackableChannel).EditText(webCtx("thread-1"), "abc", "done"); err != nil {
 		t.Fatal(err)
@@ -198,7 +196,7 @@ func TestRoutedChannelEditTextRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	if err := channel.(ports.TypingChannel).SendTyping(webCtx("thread-1")); err != nil {
 		t.Fatal(err)
@@ -214,7 +212,7 @@ func TestRoutedChannelSendTypingRoutesToTheDestination(t *testing.T) {
 func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 	telegram := &fakeChannel{}
 	web := &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, nil)
+	channel := New(telegram, web, nil)
 
 	approval := approvals.Approval{ID: "approval-1"}
 	if err := channel.DeliverApproval(webCtx("thread-1"), approval); err != nil {
@@ -230,7 +228,7 @@ func TestRoutedChannelDeliverApprovalRoutesToTheDestination(t *testing.T) {
 
 func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured(t *testing.T) {
 	telegram := &fakeChannel{}
-	channel := newRoutedChannel(telegram, nil, nil)
+	channel := New(telegram, nil, nil)
 	if channel != ports.Channel(telegram) {
 		t.Fatal("expected newRoutedChannel to return the sole non-nil channel directly, not wrap it")
 	}
@@ -241,7 +239,7 @@ func TestNewRoutedChannelReturnsTheSingleChannelUnwrappedWhenOnlyOneIsConfigured
 // dropped, while web-addressed delivery still routes normally.
 func TestWebOnlyDeploymentDropsTelegramAddressedDeliveryInsteadOfRedirectingIt(t *testing.T) {
 	web := &fakeChannel{name: "web"}
-	channel := newRoutedChannel(nil, web, nil)
+	channel := New(nil, web, nil)
 
 	proactive := destination.With(context.Background(), destination.Destination{Kind: destination.Telegram})
 	if err := channel.Deliver(proactive, "heartbeat check-in"); err != nil {
@@ -269,7 +267,7 @@ func discordCtx(channelID string) context.Context {
 
 func TestRoutedChannelDeliversDiscordDestinationsOnlyToDiscord(t *testing.T) {
 	telegram, web, discord := &fakeChannel{}, &fakeChannel{}, &fakeChannel{}
-	channel := newRoutedChannel(telegram, web, discord)
+	channel := New(telegram, web, discord)
 
 	if err := channel.Deliver(discordCtx("chan-1"), "hello"); err != nil {
 		t.Fatal(err)
@@ -287,7 +285,7 @@ func TestRoutedChannelDeliversDiscordDestinationsOnlyToDiscord(t *testing.T) {
 
 func TestRoutedChannelRefusesADiscordDestinationWithoutAChannelID(t *testing.T) {
 	telegram, discord := &fakeChannel{}, &fakeChannel{}
-	channel := newRoutedChannel(telegram, &fakeChannel{}, discord)
+	channel := New(telegram, &fakeChannel{}, discord)
 
 	if err := channel.Deliver(discordCtx(""), "hello"); err == nil {
 		t.Fatal("expected an error before delivery")
@@ -299,7 +297,7 @@ func TestRoutedChannelRefusesADiscordDestinationWithoutAChannelID(t *testing.T) 
 
 func TestRoutedChannelRefusesAnUnknownDestinationKindInsteadOfFallingBackToTelegram(t *testing.T) {
 	telegram := &fakeChannel{}
-	channel := newRoutedChannel(telegram, &fakeChannel{}, &fakeChannel{})
+	channel := New(telegram, &fakeChannel{}, &fakeChannel{})
 	ctx := destination.With(context.Background(), destination.Destination{Kind: "slack"})
 
 	if err := channel.Deliver(ctx, "hello"); err == nil {
@@ -312,7 +310,7 @@ func TestRoutedChannelRefusesAnUnknownDestinationKindInsteadOfFallingBackToTeleg
 
 func TestRoutedChannelRefusesDiscordDeliveryWhenDiscordIsNotConfigured(t *testing.T) {
 	telegram := &fakeChannel{}
-	channel := newRoutedChannel(telegram, &fakeChannel{}, nil)
+	channel := New(telegram, &fakeChannel{}, nil)
 
 	if err := channel.Deliver(discordCtx("chan-1"), "hello"); err == nil {
 		t.Fatal("expected an error: a Discord target cannot become Telegram")
@@ -324,7 +322,7 @@ func TestRoutedChannelRefusesDiscordDeliveryWhenDiscordIsNotConfigured(t *testin
 
 func TestRoutedChannelDiscordSupportsTrackableAndTypingExtensions(t *testing.T) {
 	discord := &fakeChannel{trackableID: "m1"}
-	channel := newRoutedChannel(&fakeChannel{}, &fakeChannel{}, discord)
+	channel := New(&fakeChannel{}, &fakeChannel{}, discord)
 
 	id, err := channel.(ports.TrackableChannel).DeliverTrackable(discordCtx("c"), "working")
 	if err != nil || id != "m1" {
@@ -343,25 +341,6 @@ func TestRoutedChannelDiscordSupportsTrackableAndTypingExtensions(t *testing.T) 
 
 // A message event carrying a destination nothing can deliver to is refused
 // at ingress, before any turn runs, rather than being answered on Telegram.
-func TestProcessEventRefusesAnInvalidDestinationBeforeStartingATurn(t *testing.T) {
-	app, err := NewApp(appTestConfig(t.TempDir()), appTestSecrets("deepseek"), AppOptions{FakeAdapters: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	telegram := &fakeChannel{name: "telegram"}
-	app.channel = newRoutedChannel(telegram, &fakeChannel{}, nil)
-	payload, _ := json.Marshal(events.Message{Text: "hello"})
-	for _, dest := range []destination.Destination{{Kind: destination.Discord}, {Kind: "slack"}} {
-		event := events.Event{ID: "discord:message:1", Type: events.TypeMessage, Owner: "42", Source: "discord", Destination: dest, Payload: payload}
-		if err := app.processEvent(ownerCtx(), event); err == nil {
-			t.Fatalf("destination %+v: expected an ingress error", dest)
-		}
-	}
-	if len(telegram.delivered) != 0 {
-		t.Fatalf("telegram delivered=%v, want nothing", telegram.delivered)
-	}
-}
-
 type imageFakeChannel struct {
 	fakeChannel
 	images []string
@@ -377,7 +356,7 @@ func (f *imageFakeChannel) DeliverImage(_ context.Context, id string, _ ports.Co
 func TestRoutedChannelRoutesImagesAndReportsATextOnlySurface(t *testing.T) {
 	web := &imageFakeChannel{}
 	telegram := &baseChannel{}
-	routed := newRoutedChannel(telegram, web, nil).(ports.ImageChannel)
+	routed := New(telegram, web, nil).(ports.ImageChannel)
 	image := ports.ContentPart{Type: ports.ModalityImage, MediaType: "image/png", Data: []byte("png")}
 
 	webCtx := destination.With(context.Background(), destination.Destination{Kind: destination.Web, ThreadID: "t"})

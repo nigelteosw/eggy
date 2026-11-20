@@ -85,7 +85,7 @@ type hcStatus struct {
 
 func toTerminal(t hcTerminal) Terminal {
 	out := Terminal{
-		Address: t.Address, Space: t.Labels[spaceLabel], Title: t.Title,
+		Address: t.Address, Space: t.Labels[spaceLabel], Run: t.Labels[runLabel], Title: t.Title,
 		Live: t.State == "live", ExitCode: t.ExitCode,
 		Changed: time.UnixMilli(t.Created),
 	}

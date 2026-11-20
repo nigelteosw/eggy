@@ -43,6 +43,7 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 		// The agent runner's repositories are spaces too, cloned from the
 		// mirrors it keeps.
 		opts.Repos, opts.Mirror = runner.RepositoryNames, runner.MirrorFor
+		opts.Runs = terminalRuns(runner)
 	}
 	svc, err := terminal.New(opts)
 	if err == nil {
@@ -76,7 +77,7 @@ type panelTerminal struct {
 
 func panelTerminalInfo(t terminal.Terminal) panel.TerminalInfo {
 	return panel.TerminalInfo{
-		Address: t.Address, Space: t.Space, Name: t.Name, Title: t.Title, Live: t.Live,
+		Address: t.Address, Space: t.Space, Run: t.Run, Name: t.Name, Title: t.Title, Live: t.Live,
 		Status: t.Status, Message: t.Message, App: t.App, Changed: t.Changed, ExitCode: t.ExitCode,
 	}
 }
@@ -101,7 +102,11 @@ func (p panelTerminal) Spaces(ctx context.Context) ([]panel.TerminalSpace, error
 		for _, t := range s.Terminals {
 			ts = append(ts, panelTerminalInfo(t))
 		}
-		out = append(out, panel.TerminalSpace{Name: s.Name, Repo: s.Repo, Preparing: s.Preparing, Error: s.Error, Terminals: ts})
+		runs := make([]panel.TerminalRun, 0, len(s.Runs))
+		for _, r := range s.Runs {
+			runs = append(runs, panel.TerminalRun{ID: r.ID, State: r.State, Brief: r.Brief})
+		}
+		out = append(out, panel.TerminalSpace{Name: s.Name, Repo: s.Repo, Preparing: s.Preparing, Error: s.Error, Terminals: ts, Runs: runs})
 	}
 	return out, nil
 }
@@ -120,6 +125,11 @@ func (p panelTerminal) UpdateRepo(ctx context.Context, name string) error {
 
 func (p panelTerminal) Start(ctx context.Context, space, command string, cols, rows uint16) (panel.TerminalInfo, error) {
 	t, err := p.svc.Start(ctx, space, command, cols, rows)
+	return panelTerminalInfo(t), panelTerminalErr(err)
+}
+
+func (p panelTerminal) StartInRun(ctx context.Context, run, command string, cols, rows uint16) (panel.TerminalInfo, error) {
+	t, err := p.svc.StartInRun(ctx, run, command, cols, rows)
 	return panelTerminalInfo(t), panelTerminalErr(err)
 }
 
@@ -145,4 +155,19 @@ func (p panelTerminal) NeedsYou(ctx context.Context) ([]panel.TerminalInfo, erro
 		out = append(out, panelTerminalInfo(t))
 	}
 	return out, nil
+}
+
+// terminalRuns lists the calling account's agent runs for the terminal.
+func terminalRuns(runner *agentrunner.Service) func(context.Context) ([]terminal.Run, error) {
+	return func(ctx context.Context) ([]terminal.Run, error) {
+		runs, err := runner.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]terminal.Run, 0, len(runs))
+		for _, r := range runs {
+			out = append(out, terminal.Run{ID: r.ID, Repository: r.Repository, State: string(r.State), Brief: r.Brief})
+		}
+		return out, nil
+	}
 }

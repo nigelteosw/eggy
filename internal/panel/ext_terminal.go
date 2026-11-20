@@ -24,6 +24,7 @@ type TerminalService interface {
 	DeleteSpace(ctx context.Context, name string) error
 	UpdateRepo(ctx context.Context, name string) error
 	Start(ctx context.Context, space, command string, cols, rows uint16) (TerminalInfo, error)
+	StartInRun(ctx context.Context, run, command string, cols, rows uint16) (TerminalInfo, error)
 	Kill(ctx context.Context, address string) error
 	Attach(ctx context.Context, address string, cols, rows uint16) (TerminalStream, error)
 	NeedsYou(ctx context.Context) ([]TerminalInfo, error)
@@ -36,6 +37,7 @@ var ErrTerminalNotFound = errors.New("terminal not found")
 type TerminalInfo struct {
 	Address  string    `json:"address"`
 	Space    string    `json:"space"`
+	Run      string    `json:"run,omitempty"`
 	Name     string    `json:"name"`
 	Title    string    `json:"title"`
 	Live     bool      `json:"live"`
@@ -53,6 +55,14 @@ type TerminalSpace struct {
 	Preparing bool           `json:"preparing,omitempty"`
 	Error     string         `json:"error,omitempty"`
 	Terminals []TerminalInfo `json:"terminals"`
+	Runs      []TerminalRun  `json:"runs,omitempty"`
+}
+
+// TerminalRun is an agent run with a checkout in the account's workspace.
+type TerminalRun struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+	Brief string `json:"brief"`
 }
 
 // TerminalStream is an attached terminal.
@@ -132,7 +142,10 @@ func terminalStart(svc TerminalService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// A command is a name from a fixed list, never a command line.
 		var body struct {
+			// Run, when set, opens the terminal in that agent run's
+			// checkout instead of a space's folder.
 			Space   string `json:"space"`
+			Run     string `json:"run"`
 			Command string `json:"command"`
 			Cols    uint16 `json:"cols"`
 			Rows    uint16 `json:"rows"`
@@ -141,7 +154,12 @@ func terminalStart(svc TerminalService) http.HandlerFunc {
 			writeWebError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		t, err := svc.Start(r.Context(), body.Space, body.Command, body.Cols, body.Rows)
+		start := svc.Start
+		target := body.Space
+		if body.Run != "" {
+			start, target = svc.StartInRun, body.Run
+		}
+		t, err := start(r.Context(), target, body.Command, body.Cols, body.Rows)
 		if err != nil {
 			writeTerminalError(w, err)
 			return

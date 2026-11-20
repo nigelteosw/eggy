@@ -6,6 +6,8 @@ import { request } from "../../lib/api";
 export type TerminalInfo = {
   address: string;
   space: string;
+  // run is the agent run whose checkout the terminal was opened in.
+  run?: string;
   name: string;
   title: string;
   live: boolean;
@@ -18,7 +20,14 @@ export type TerminalInfo = {
 
 // repo marks a configured repository's working copy; preparing, one still
 // being copied from its mirror, which has no folder yet.
-export type TerminalSpace = { name: string; repo?: boolean; preparing?: boolean; error?: string; terminals: TerminalInfo[] };
+export type TerminalSpace = { name: string; repo?: boolean; preparing?: boolean; error?: string; terminals: TerminalInfo[]; runs?: TerminalRun[] };
+
+// TerminalRun is an agent run with a checkout in the account's workspace,
+// listed under its repository's space.
+export type TerminalRun = { id: string; state: string; brief: string };
+
+// StartTarget is where a terminal opens: a space's folder, or a run's checkout.
+export type StartTarget = { space: string } | { run: string };
 
 export async function listSpaces(): Promise<{ spaces: TerminalSpace[]; commands: string[] }> {
   return request("/api/terminal/spaces");
@@ -36,8 +45,8 @@ export async function updateRepo(name: string): Promise<void> {
   await request(`/api/terminal/spaces/${encodeURIComponent(name)}/update`, { method: "POST", body: "{}" });
 }
 
-export async function startTerminal(space: string, command: string, cols: number, rows: number): Promise<TerminalInfo> {
-  return request("/api/terminal/terminals", { method: "POST", body: JSON.stringify({ space, command, cols, rows }) });
+export async function startTerminal(target: StartTarget, command: string, cols: number, rows: number): Promise<TerminalInfo> {
+  return request("/api/terminal/terminals", { method: "POST", body: JSON.stringify({ ...target, command, cols, rows }) });
 }
 
 export async function killTerminal(address: string): Promise<void> {
@@ -155,4 +164,22 @@ export function spaceNote(space: TerminalSpace): { text: string; problem?: boole
   if (space.terminals.length > 0) return null;
   if (space.repo) return { text: "Press + to start Claude Code or a shell in this repository." };
   return { text: "Nothing running. Press + to start." };
+}
+
+// runState is how a run's state reads in the list, and whether the agent is
+// working in its checkout now, when a shell there should say so.
+export function runState(state: string): { label: string; agentWorking: boolean } {
+  switch (state) {
+    case "queued":
+      return { label: "Queued", agentWorking: true };
+    case "running":
+    case "publishing":
+      return { label: state === "running" ? "Running" : "Publishing", agentWorking: true };
+    case "waiting_for_user":
+      return { label: "Waiting for you", agentWorking: false };
+    case "completed":
+      return { label: "Done", agentWorking: false };
+    default:
+      return { label: state.charAt(0).toUpperCase() + state.slice(1).replace(/_/g, " "), agentWorking: false };
+  }
 }

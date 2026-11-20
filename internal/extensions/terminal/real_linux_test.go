@@ -3,10 +3,12 @@
 package terminal
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -72,6 +74,7 @@ func TestRealHerdrCore(t *testing.T) {
 		t.Fatalf("second shell: %v", err)
 	}
 	defer func() { _ = svc.Kill(ctx, second.Address) }()
+	shellInRun(t, svc, ctx, filepath.Join(root, "acct-alice"))
 	stream, err := svc.Attach(ctx, term.Address, 80, 24)
 	if err != nil {
 		t.Fatal(err)
@@ -118,5 +121,56 @@ func TestRealHerdrCore(t *testing.T) {
 	}
 	if err := again.Kill(ctx, term.Address); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// shellInRun opens a shell in a run's checkout under the account directory,
+// laid out as the workspace lays it out (runs/ and the run root's, the
+// checkout the account's), and proves it works there by making a file.
+func shellInRun(t *testing.T, svc *Service, ctx context.Context, account string) {
+	t.Helper()
+	id := strings.Repeat("e", 32)
+	checkout := filepath.Join(account, "runs", id, "ws")
+	if err := os.MkdirAll(checkout, 0o711); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(account, "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := info.Sys().(*syscall.Stat_t)
+	if err := os.Chown(checkout, int(st.Uid), int(st.Gid)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(checkout, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc.opts.Runs = func(context.Context) ([]Run, error) {
+		return []Run{{ID: id, Repository: "web", State: "waiting_for_user"}}, nil
+	}
+	term, err := svc.StartInRun(ctx, id, "shell", 80, 24)
+	if err != nil {
+		t.Fatalf("shell in a run: %v", err)
+	}
+	defer func() { _ = svc.Kill(ctx, term.Address) }()
+	stream, err := svc.Attach(ctx, term.Address, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	go func() {
+		for range stream.Output() {
+		}
+	}()
+	_, _ = stream.Write([]byte("touch ran-here\r"))
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(checkout, "ran-here")); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the shell did not run in the run's checkout")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

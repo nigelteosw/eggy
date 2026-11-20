@@ -22,6 +22,9 @@ import {
   updateRepo,
   type InboxSection,
   type TerminalInfo,
+  runState,
+  type StartTarget,
+  type TerminalRun,
   type TerminalSpace,
 } from "./terminal";
 
@@ -85,14 +88,31 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
         await createSpace(FIRST_SPACE);
         target = FIRST_SPACE;
       }
-      const t = await startTerminal(target, command, 100, 30);
-      await refresh();
-      setOpen(t.address);
+      await launch({ space: target }, command);
     } catch (err) {
       fail(err);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function startInRun(run: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await launch({ run }, "shell");
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // launch starts a terminal and opens it; every start ends here.
+  async function launch(target: StartTarget, command: string) {
+    const t = await startTerminal(target, command, 100, 30);
+    await refresh();
+    setOpen(t.address);
   }
 
   async function end(address: string) {
@@ -171,7 +191,7 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
                 </section>
               )}
               {named.map((space) => (
-                <SpaceGroup key={space.name} space={space} commands={commands} open={open} busy={busy} onOpen={setOpen} onStart={start} onRemove={end} onDelete={removeSpace} onUpdate={refreshRepo} />
+                <SpaceGroup key={space.name} space={space} commands={commands} open={open} busy={busy} onOpen={setOpen} onStart={start} onRemove={end} onDelete={removeSpace} onUpdate={refreshRepo} onShellInRun={startInRun} />
               ))}
               {/* Terminals a program started itself carry no space. */}
               {(spaces.find((s) => s.name === "")?.terminals ?? []).map((t) => (
@@ -271,6 +291,7 @@ function SpaceGroup({
   onRemove,
   onDelete,
   onUpdate,
+  onShellInRun,
 }: {
   space: TerminalSpace;
   commands: string[];
@@ -281,6 +302,7 @@ function SpaceGroup({
   onRemove: (address: string) => void;
   onDelete: (space: string) => void;
   onUpdate: (space: string) => Promise<void>;
+  onShellInRun: (run: string) => void;
 }) {
   const terminals = [...space.terminals].sort((a, b) => Number(b.live) - Number(a.live) || Date.parse(b.changed) - Date.parse(a.changed));
   const note = spaceNote(space);
@@ -298,7 +320,33 @@ function SpaceGroup({
       ) : (
         terminals.map((t) => <Row key={t.address} terminal={t} selected={open === t.address} onOpen={onOpen} onRemove={onRemove} />)
       )}
+      {space.runs?.map((run) => <RunRow key={run.id} run={run} busy={busy} onShell={onShellInRun} />)}
     </section>
+  );
+}
+
+// RunRow is an agent run under its repository's space, with a way into its
+// checkout. While the agent is working there the shell is the owner's to look
+// with, and the button says so; edits then race the agent.
+function RunRow({ run, busy, onShell }: { run: TerminalRun; busy: boolean; onShell: (run: string) => void }) {
+  const state = runState(run.state);
+  return (
+    <div className="flex min-h-11 items-center gap-2 rounded-control px-2 py-1.5 hover:bg-neutral-100">
+      <span aria-hidden className="w-2 shrink-0 text-center text-caption text-neutral-500">◇</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-small text-foreground">{run.brief || `Run ${run.id.slice(0, 6)}`}</span>
+        <span className="truncate text-caption text-neutral-600">Agent run · {state.label}</span>
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onShell(run.id)}
+        title={state.agentWorking ? "The agent is working in this folder: look, but edits race it" : "Open a shell in this run's checkout"}
+        className="shrink-0 rounded-control px-2 py-1 text-caption text-neutral-700 hover:bg-neutral-200 disabled:opacity-40"
+      >
+        Open a shell here
+      </button>
+    </div>
   );
 }
 
@@ -315,7 +363,7 @@ function Row({
   onRemove?: (address: string) => void;
   showSpace?: boolean;
 }) {
-  const detail = [showSpace ? terminal.space : "", terminal.message].filter(Boolean).join(" · ");
+  const detail = [showSpace ? terminal.space : "", terminal.run ? `in run ${terminal.run.slice(0, 6)}` : "", terminal.message].filter(Boolean).join(" · ");
   return (
     <div className={cn("group flex min-h-11 items-center rounded-control", selected ? "bg-neutral-100" : "hover:bg-neutral-100", !terminal.live && "opacity-60")}>
       <button type="button" onClick={() => onOpen(terminal.address)} className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left">

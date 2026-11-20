@@ -187,3 +187,46 @@ func TestFailedCopyIsShownAndRetriedOnUpdate(t *testing.T) {
 		t.Fatalf("error kept after retry: %+v", app)
 	}
 }
+
+// A run with a checkout in the account's workspace is listed under its
+// repository's space, and a shell opens in that checkout; a run without
+// one, or not the account's, is neither listed nor opened.
+func TestRunsAreListedAndOpenedInTheirCheckout(t *testing.T) {
+	svc, root, l := newRepoService(t)
+	here, gone := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	checkout := filepath.Join(root, "dir-alice", "runs", here, "ws")
+	if err := os.MkdirAll(checkout, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svc.opts.Runs = func(context.Context) ([]Run, error) {
+		return []Run{
+			{ID: here, Repository: "app", State: "waiting_for_user", Brief: "fix it"},
+			{ID: gone, Repository: "app", State: "completed"},
+		}, nil
+	}
+	ctx := as("alice")
+	spaces, err := svc.Spaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, _ := spaceNamed(spaces, "app")
+	if len(app.Runs) != 1 || app.Runs[0].ID != here {
+		t.Fatalf("runs: %+v", app.Runs)
+	}
+	if _, err := svc.StartInRun(ctx, here, "shell", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	calls := l.last().callsNamed("terminal.run")
+	params := calls[len(calls)-1].Params
+	if params["cwd"] != checkout {
+		t.Fatalf("cwd: %v", params["cwd"])
+	}
+	if labels, _ := params["labels"].(map[string]any); labels[runLabel] != here || labels[spaceLabel] != "app" {
+		t.Fatalf("labels: %v", params["labels"])
+	}
+	for _, id := range []string{gone, strings.Repeat("c", 32), "../../etc"} {
+		if _, err := svc.StartInRun(ctx, id, "shell", 80, 24); err != ErrNotFound {
+			t.Fatalf("opened %s: %v", id, err)
+		}
+	}
+}

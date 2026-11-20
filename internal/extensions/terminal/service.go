@@ -89,6 +89,8 @@ type Options struct {
 	// the token. Both nil means no repository spaces.
 	Repos  func() []string
 	Mirror func(ctx context.Context, name string) (string, error)
+	// Runs lists the calling account's agent runs. Nil means none are shown.
+	Runs   func(ctx context.Context) ([]Run, error)
 	Logger *slog.Logger
 	Now    func() time.Time
 }
@@ -131,6 +133,7 @@ func New(opts Options) (*Service, error) {
 type Terminal struct {
 	Address  string    `json:"address"`
 	Space    string    `json:"space"`
+	Run      string    `json:"run,omitempty"`
 	Name     string    `json:"name"`
 	Title    string    `json:"title"`
 	Live     bool      `json:"live"`
@@ -153,6 +156,8 @@ type Space struct {
 	// Error is why the working copy could not be made; Update retries.
 	Error     string     `json:"error,omitempty"`
 	Terminals []Terminal `json:"terminals"`
+	// Runs are the agent runs on this repository with a checkout here.
+	Runs []Run `json:"runs,omitempty"`
 }
 
 func principal(ctx context.Context) (string, error) {
@@ -226,14 +231,20 @@ func (s *Service) Start(ctx context.Context, space, command string, cols, rows u
 	if err != nil {
 		return Terminal{}, err
 	}
-	cwd := filepath.Join(c.dir, "ws", space)
+	labels := map[string]string{spaceLabel: space, commandLabel: command}
+	return s.start(ctx, c, argv, filepath.Join(c.dir, "ws", space), labels, cols, rows)
+}
+
+// start runs argv in cwd, which must be a folder, as a terminal carrying
+// labels. Every way of starting a terminal ends here.
+func (s *Service) start(ctx context.Context, c *core, argv []string, cwd string, labels map[string]string, cols, rows uint16) (Terminal, error) {
 	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
 		return Terminal{}, ErrNotFound
 	}
 	params := map[string]any{
 		"argv":   argv,
 		"cwd":    cwd,
-		"labels": map[string]string{spaceLabel: space, commandLabel: command},
+		"labels": labels,
 		// A terminal outlives every viewer and every Eggy restart; it ends
 		// when its program does or its owner kills it.
 		"no_parent": true,

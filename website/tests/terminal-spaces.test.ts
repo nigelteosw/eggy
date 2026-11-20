@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { orderedCommands, spaceNote, type TerminalInfo, type TerminalSpace } from "../src/extensions/terminal/terminal";
+import { orderedCommands, runState, spaceNote, type TerminalInfo, type TerminalSpace } from "../src/extensions/terminal/terminal";
 
 const term = { address: "a", space: "s", name: "shell", title: "", live: true, changed: "2026-11-20T00:00:00Z" } as TerminalInfo;
 const space = (s: Partial<TerminalSpace>): TerminalSpace => ({ name: "s", terminals: [], ...s });
@@ -23,4 +23,11 @@ describe("spaceNote", () => {
 test("orderedCommands puts Claude Code first and keeps the rest", () => {
   expect(orderedCommands(["shell", "claude", "codex"])[0]).toBe("claude");
   expect(orderedCommands(["shell", "codex"])).toEqual(["shell", "codex"]);
+});
+
+test("runState says when the agent is working in a run's checkout", () => {
+  expect(runState("running")).toEqual({ label: "Running", agentWorking: true });
+  expect(runState("waiting_for_user")).toEqual({ label: "Waiting for you", agentWorking: false });
+  expect(runState("completed").label).toBe("Done");
+  expect(runState("cancelled")).toEqual({ label: "Cancelled", agentWorking: false });
 });

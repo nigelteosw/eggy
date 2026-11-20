@@ -36,6 +36,9 @@ func (f *fakeTerminal) Spaces(ctx context.Context) ([]TerminalSpace, error) {
 func (f *fakeTerminal) CreateSpace(ctx context.Context, name string) error { f.seen(ctx); return nil }
 func (f *fakeTerminal) DeleteSpace(ctx context.Context, name string) error { f.seen(ctx); return nil }
 func (f *fakeTerminal) UpdateRepo(ctx context.Context, name string) error  { f.seen(ctx); return nil }
+func (f *fakeTerminal) StartInRun(ctx context.Context, run, command string, cols, rows uint16) (TerminalInfo, error) {
+	return f.Start(ctx, "run:"+run, command, cols, rows)
+}
 func (f *fakeTerminal) Start(ctx context.Context, space, command string, cols, rows uint16) (TerminalInfo, error) {
 	f.seen(ctx)
 	f.mu.Lock()
@@ -142,6 +145,15 @@ func TestTerminalRoutesNeedASessionAndActAsIt(t *testing.T) {
 	}
 	if r := call(t, handler, cookie, http.MethodPost, "/api/terminal/terminals", `{"space":"web","command":"claude","cols":80,"rows":24}`); r.Code != http.StatusOK {
 		t.Fatalf("start = %d %s", r.Code, r.Body.String())
+	}
+	if r := call(t, handler, cookie, http.MethodPost, "/api/terminal/terminals", `{"run":"abc","command":"shell"}`); r.Code != http.StatusOK {
+		t.Fatalf("start in a run = %d %s", r.Code, r.Body.String())
+	}
+	svc.mu.Lock()
+	last := svc.started[len(svc.started)-1]
+	svc.mu.Unlock()
+	if last != "run:abc/shell" {
+		t.Fatalf("started %q, not in the run", last)
 	}
 	// No field may choose the account or the command line.
 	if r := call(t, handler, cookie, http.MethodPost, "/api/terminal/terminals", `{"space":"web","command":"shell","account":"bob"}`); r.Code != http.StatusBadRequest {

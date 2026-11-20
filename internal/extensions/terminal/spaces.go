@@ -211,6 +211,7 @@ func (s *Service) Spaces(ctx context.Context) ([]Space, error) {
 			sp.Preparing, sp.Error = s.copies.state(c.dir, name)
 		}
 	}
+	s.addRuns(ctx, c, set)
 	return set.sorted(), nil
 }
 

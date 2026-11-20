@@ -1,6 +1,6 @@
 # One workspace per account: the agent runner and the terminal share it
 
-Status: steps 1 (layout, runs as the account), 2 (mirrors) and 3 (repository spaces, space delete) built 2026-11-20.
+Status: steps 1 (layout, runs as the account), 2 (mirrors), 3 (repository spaces, space delete) and 4 (runs in the terminal) built 2026-11-20.
 
 ## Why
 
@@ -114,9 +114,13 @@ the checks; the budget; `waiting_for_user`.
   read-only by convention only, so the page says "the agent is working in
   this folder"; once the run is waiting or done it is the owner's to edit,
   and a later **Continue** hands the folder back to the agent.
-- A terminal opened in a run is confined to that run's directory, home and
-  tmp, exactly like the run, so it cannot reach the owner's working copies
-  either.
+- As built, a shell in a run uses the account's one core, so it has the
+  account's whole directory, as every terminal of that account does, not
+  only the run's. A core per run would confine it to the run alone, but
+  every tree it could reach belongs to the same account and uid, so that
+  buys nothing between accounts and costs a core per open run. Only runs
+  whose checkout is under the account's `runs/` are listed; a legacy run in
+  `/data/agent-runs` is not.
 
 ## Shipping from a working copy
 

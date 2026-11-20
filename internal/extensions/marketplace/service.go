@@ -983,3 +983,18 @@ func newInstallID() (string, error) {
 	}
 	return hex.EncodeToString(b[:]), nil
 }
+
+// Detect reads a repository once at its default branch and says whether it is
+// a Claude Code marketplace or a skills repository, and where its skills are,
+// so adding a source needs only owner/repo. Nothing is written.
+func (s *Service) Detect(ctx context.Context, repo string) (kind, skillsPath string, err error) {
+	sha, err := s.opts.Fetch.resolve(ctx, repo, "")
+	if err != nil {
+		return "", "", err
+	}
+	tree, err := s.opts.Fetch.tarball(ctx, repo, sha)
+	if err != nil {
+		return "", "", err
+	}
+	return detectLayout(tree)
+}

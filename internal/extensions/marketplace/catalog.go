@@ -208,3 +208,34 @@ func frontmatterDescription(content []byte) (string, error) {
 	}
 	return front.Description, nil
 }
+
+// detectLayout says how a repository is read: as a Claude Code marketplace when
+// it has a catalog file, otherwise as a skills repository rooted at the folder
+// holding the most <name>/SKILL.md directories, preferring "skills".
+func detectLayout(tree Tree) (kind, skillsPath string, err error) {
+	if _, ok := tree.Files[claudeCatalogPath]; ok {
+		return KindClaudeMarketplace, "", nil
+	}
+	counts := map[string]int{}
+	for file := range tree.Files {
+		if path.Base(file) != "SKILL.md" {
+			continue
+		}
+		if parent := path.Dir(path.Dir(file)); !strings.HasPrefix(parent, ".") {
+			counts[parent]++
+		}
+	}
+	best := ""
+	for dir, n := range counts {
+		if dir == defaultSkillsPath {
+			return KindSkillsRepo, defaultSkillsPath, nil
+		}
+		if n > counts[best] || (n == counts[best] && dir < best) {
+			best = dir
+		}
+	}
+	if best == "" {
+		return "", "", fmt.Errorf("found neither %s nor a folder of <name>/SKILL.md skills", claudeCatalogPath)
+	}
+	return KindSkillsRepo, best, nil
+}

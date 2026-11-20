@@ -18,7 +18,7 @@ import (
 
 // pluginUsage lists every /plugin form. The words follow Claude Code's
 // /plugin so a person who knows one knows the other.
-const pluginUsage = "Usage:\n/plugin marketplace add <owner/repo> [skills [path]]\n/plugin marketplace list\n/plugin marketplace remove <name>\n/plugin browse <marketplace>\n/plugin install <item>[@<marketplace>]\n/plugin show <code> <skill>\n/plugin approve <code>\n/plugin list\n/plugin uninstall <id>"
+const pluginUsage = "Usage:\n/plugin marketplace add <owner/repo> [skills [path]]  (layout is detected; skills [path] overrides)\n/plugin marketplace list\n/plugin marketplace remove <name>\n/plugin browse <marketplace>\n/plugin install <item>[@<marketplace>]\n/plugin show <code> <skill>\n/plugin approve <code>\n/plugin list\n/plugin uninstall <id>"
 
 // pluginReviewTTL is how long a review card's code stays valid. The install
 // re-checks the digest at the reviewed commit either way; the expiry only keeps
@@ -31,6 +31,9 @@ const pluginReviewTTL = 30 * time.Minute
 // calls: one install path, two views onto it.
 type Marketplace interface {
 	Sources(ctx context.Context) ([]MarketplaceSourceStatus, error)
+	// Detect reads a repository and says how to read it: "claude_marketplace",
+	// or "skills_repo" with the folder its skills are in.
+	Detect(ctx context.Context, repo string) (kind, skillsPath string, err error)
 	Items(ctx context.Context, source string) ([]MarketplaceItem, error)
 	Plan(ctx context.Context, source, item string) (MarketplacePlan, error)
 	Install(ctx context.Context, source, item, sha, digest string) error
@@ -205,6 +208,13 @@ func (s *CommandService) pluginMarketplace(ctx context.Context, args []string) (
 				source.Path = args[3]
 			}
 		}
+		if len(args) == 2 {
+			kind, skillsPath, err := s.Marketplace.Detect(ctx, source.Repo)
+			if err != nil {
+				return fmt.Sprintf("Couldn't add %s: %v", source.Repo, err), true, nil
+			}
+			source.Kind, source.Path = kind, skillsPath
+		}
 		return s.pluginAddSource(source)
 	case "remove":
 		if len(args) != 2 {
@@ -248,7 +258,9 @@ func (s *CommandService) pluginAddSource(source config.MarketplaceSource) (strin
 	}
 	taken := map[string]bool{}
 	for _, src := range sources {
-		if strings.EqualFold(src.Repo, source.Repo) && src.Path == source.Path {
+		// One repository is one source, however it is read: a second entry
+		// would list every item twice.
+		if strings.EqualFold(src.Repo, source.Repo) {
 			return fmt.Sprintf("%s is already added as %s. Next: /plugin browse %s", source.Repo, src.Name, src.Name), true, nil
 		}
 		taken[src.Name] = true
@@ -260,11 +272,11 @@ func (s *CommandService) pluginAddSource(source config.MarketplaceSource) (strin
 	if err := config.SetMarketplaceSources(s.ConfigPath, append(sources, source)); err != nil {
 		return err.Error(), true, nil
 	}
-	reply := fmt.Sprintf("Added marketplace %s (%s). Next: /plugin browse %s", source.Name, source.Repo, source.Name)
-	if source.Kind == "claude_marketplace" {
-		reply += "\nIf it has no .claude-plugin/marketplace.json, remove it and add it as a skills repository: /plugin marketplace add " + source.Repo + " skills [path]"
+	read := "a Claude Code marketplace"
+	if source.Kind == "skills_repo" {
+		read = "skills in " + source.Path + "/"
 	}
-	return reply, true, nil
+	return fmt.Sprintf("Added marketplace %s (%s, %s). Next: /plugin browse %s", source.Name, source.Repo, read, source.Name), true, nil
 }
 
 func sourceName(raw string) string {

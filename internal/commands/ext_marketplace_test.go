@@ -22,6 +22,12 @@ type fakeMarketplace struct {
 func (f *fakeMarketplace) Sources(context.Context) ([]MarketplaceSourceStatus, error) {
 	return []MarketplaceSourceStatus{{Name: "skills", Repo: "anthropics/skills", SHA: "abcdef1234"}, {Name: "other", Repo: "o/r", SHA: "1"}}, nil
 }
+func (f *fakeMarketplace) Detect(_ context.Context, repo string) (string, string, error) {
+	if repo == "anthropics/skills" {
+		return "claude_marketplace", "", nil
+	}
+	return "skills_repo", "skills", nil
+}
 func (f *fakeMarketplace) Items(_ context.Context, source string) ([]MarketplaceItem, error) {
 	if source == "other" {
 		return []MarketplaceItem{{Name: "shared"}}, nil
@@ -130,7 +136,7 @@ func TestPluginMarketplaceAddWritesSource(t *testing.T) {
 	if reply, _, _ := svc.Execute(ctx, "/plugin marketplace add anthropics/skills"); !strings.Contains(reply, "Added marketplace skills") {
 		t.Fatalf("add = %q", reply)
 	}
-	if reply, _, _ := svc.Execute(ctx, "/plugin marketplace add obra/superpowers skills"); !strings.Contains(reply, "Added") {
+	if reply, _, _ := svc.Execute(ctx, "/plugin marketplace add obra/superpowers"); !strings.Contains(reply, "Added") {
 		t.Fatalf("add skills repo = %q", reply)
 	}
 	if reply, _, _ := svc.Execute(ctx, "/plugin marketplace add anthropics/skills"); !strings.Contains(reply, "already added") {

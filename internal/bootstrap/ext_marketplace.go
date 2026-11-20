@@ -276,6 +276,10 @@ func (c commandsMarketplace) Sources(ctx context.Context) ([]commands.Marketplac
 	return out, nil
 }
 
+func (c commandsMarketplace) Detect(ctx context.Context, repo string) (string, string, error) {
+	return c.svc.Detect(ctx, repo)
+}
+
 func (c commandsMarketplace) Items(ctx context.Context, source string) ([]commands.MarketplaceItem, error) {
 	items, err := c.svc.Items(ctx, source)
 	if err != nil {

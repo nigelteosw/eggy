@@ -69,7 +69,11 @@ type stream struct {
 	channel uint32
 	out     chan []byte
 	reason  chan string
-	once    sync.Once
+	// mu makes delivering and finishing exclusive: out is closed only under
+	// it, and nothing is sent on it after, so a viewer closing its stream
+	// while output arrives cannot make the reader send on a closed channel.
+	mu       sync.Mutex
+	finished bool
 	// blocking streams are read by Eggy itself (events), never dropped.
 	blocking bool
 }
@@ -309,22 +313,36 @@ func (c *client) routeReply(payload []byte) {
 // rather than allowed to stall every other stream: the core repaints a viewer
 // that falls behind, so nothing it needs is lost by reattaching.
 func (s *stream) deliver(payload []byte) {
+	s.mu.Lock()
+	if s.finished {
+		s.mu.Unlock()
+		return
+	}
 	if s.blocking {
+		// Only the core's own reader finishes a blocking (event) stream, and it
+		// is this goroutine, so holding mu while blocked cannot deadlock.
 		s.out <- payload
+		s.mu.Unlock()
 		return
 	}
 	select {
 	case s.out <- payload:
+		s.mu.Unlock()
 	default:
-		s.Close()
+		s.mu.Unlock()
+		_ = s.Close()
 	}
 }
 
 func (s *stream) finish(reason string) {
-	s.once.Do(func() {
-		s.reason <- reason
-		close(s.out)
-	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.finished {
+		return
+	}
+	s.finished = true
+	s.reason <- reason
+	close(s.out)
 }
 
 // Output is the terminal's bytes: first paint, then live output. It closes

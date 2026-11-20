@@ -75,8 +75,8 @@ func TestTerminalEnvHasNoParentSecrets(t *testing.T) {
 			t.Fatalf("terminal environment lacks %q: %v", want, env)
 		}
 	}
-	if !slices.Contains(env, "PATH="+filepath.Join(dir, "home", ".local", "bin")+":/usr/local/go/bin:/usr/local/node/bin:/usr/bin:/bin") {
-		t.Fatalf("terminal PATH does not start with ~/.local/bin: %v", env)
+	if !slices.Contains(env, "PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/bin:/bin:"+filepath.Join(dir, "home", ".local", "bin")) {
+		t.Fatalf("terminal PATH must end, not start, with ~/.local/bin, so an install cannot replace bash or hc: %v", env)
 	}
 }
 

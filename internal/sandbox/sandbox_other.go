@@ -27,6 +27,12 @@ func (s *Sandbox) Probe(context.Context, string, int) error { return ErrUnsuppor
 // PrepareRunDir refuses.
 func (s *Sandbox) PrepareRunDir(string) error { return ErrUnsupported }
 
+// ProbeTerminal refuses: nothing can be verified here.
+func (s *Sandbox) ProbeTerminal(context.Context, string, int) error { return ErrUnsupported }
+
+// PrepareTerminalDir refuses.
+func (s *Sandbox) PrepareTerminalDir(string) error { return ErrUnsupported }
+
 // Terminal refuses.
 func (s *Sandbox) Terminal(string, []string) (*exec.Cmd, error) { return nil, ErrUnsupported }
 

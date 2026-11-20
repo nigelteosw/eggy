@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -141,10 +142,7 @@ func TestSandboxKillsBackgroundChildren(t *testing.T) {
 // root-only file. Without the device rules herdr-core panics at startup.
 func TestTerminalModeOpensPTYAndStaysConfined(t *testing.T) {
 	sb, dataDir := requireSandbox(t)
-	dir := filepath.Join(dataDir, TerminalDir)
-	if err := sb.PrepareRunDir(dir); err != nil {
-		t.Fatal(err)
-	}
+	dir := prepareTerminal(t, sb, dataDir, "alice")
 	secret := filepath.Join(dataDir, "secret")
 	if err := os.WriteFile(secret, []byte("s3cr3t"), 0o600); err != nil {
 		t.Fatal(err)
@@ -167,11 +165,117 @@ func TestTerminalModeOpensPTYAndStaysConfined(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Command mode keeps no pty access: the agent runner's rules do not widen.
-	result, err := sb.Run(context.Background(), Spec{RunDir: dir, Argv: []string{"bash", "-c", "exec 3<>/dev/ptmx"}})
+	run2 := filepath.Join(dataDir, "agent-runs", "nopty")
+	if err := sb.PrepareRunDir(run2); err != nil {
+		t.Fatal(err)
+	}
+	result, err := sb.Run(context.Background(), Spec{RunDir: run2, Argv: []string{"bash", "-c", "exec 3<>/dev/ptmx"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ExitCode == 0 {
 		t.Fatal("command mode opened a pty")
+	}
+}
+
+func prepareTerminal(t *testing.T, sb *Sandbox, dataDir, account string) string {
+	t.Helper()
+	root := filepath.Join(dataDir, TerminalDir)
+	if err := os.MkdirAll(root, 0o711); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, account)
+	if err := sb.PrepareTerminalDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func ownerOf(t *testing.T, path string) uint32 {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Sys().(*syscall.Stat_t).Uid
+}
+
+// Each account's terminals run as their own uid, so one account's programs
+// cannot open another's pty: every pty of the same uid would be open to
+// Landlock's /dev/pts rule, so ownership is what keeps them apart.
+func TestTerminalAccountsAreSeparateUsers(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	alice := prepareTerminal(t, sb, dataDir, "alice")
+	bob := prepareTerminal(t, sb, dataDir, "bob")
+	a, b := ownerOf(t, filepath.Join(alice, "home")), ownerOf(t, filepath.Join(bob, "home"))
+	if a < TerminalUIDBase || b < TerminalUIDBase || a == b || a == sb.coderUID {
+		t.Fatalf("uids: alice %d bob %d coder %d", a, b, sb.coderUID)
+	}
+	// Preparing again keeps the uid.
+	if err := sb.PrepareTerminalDir(alice); err != nil {
+		t.Fatal(err)
+	}
+	if again := ownerOf(t, filepath.Join(alice, "home")); again != a {
+		t.Fatalf("uid changed from %d to %d", a, again)
+	}
+
+	// Alice holds a pty open; bob tries to read it.
+	holder, err := sb.Terminal(alice, []string{"python3", "-c", "import os,pty,time; m,s=os.openpty(); print(os.ttyname(s), flush=True); time.sleep(30)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := holder.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Kill(-holder.Process.Pid, syscall.SIGKILL); _ = holder.Wait() }()
+	buf := make([]byte, 64)
+	n, _ := out.Read(buf)
+	pts := strings.TrimSpace(string(buf[:n]))
+	if !strings.HasPrefix(pts, "/dev/pts/") {
+		t.Skipf("no pty name from python3: %q", pts)
+	}
+	thief, err := sb.Terminal(bob, []string{"sh", "-c", "exec 3<>" + pts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := thief.CombinedOutput(); err == nil {
+		t.Fatalf("bob opened alice's pty %s: %s", pts, got)
+	}
+}
+
+// The boot lock leaves each account's subtrees with their owner and never
+// walks into them, since their programs may still be running.
+func TestLockDataDirKeepsTerminalOwners(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	alice := prepareTerminal(t, sb, dataDir, "alice")
+	uid := ownerOf(t, filepath.Join(alice, "home"))
+	file := filepath.Join(alice, "home", "notes")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Lchown(file, int(uid), int(uid)); err != nil {
+		t.Fatal(err)
+	}
+	if err := sb.LockDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(alice, "ws"), filepath.Join(alice, "home"), filepath.Join(alice, "tmp"), file} {
+		if got := ownerOf(t, path); got != uid {
+			t.Fatalf("%s now belongs to %d, not %d", path, got, uid)
+		}
+	}
+	if got := ownerOf(t, alice); got != 0 {
+		t.Fatalf("account directory belongs to %d", got)
+	}
+}
+
+func TestSandboxProbeTerminalPasses(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	if err := sb.ProbeTerminal(context.Background(), dataDir, 1); err != nil {
+		t.Fatalf("terminal probe failed on a working sandbox: %v", err)
 	}
 }

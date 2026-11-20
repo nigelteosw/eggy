@@ -90,6 +90,10 @@ type sandboxState struct {
 	locked  bool
 	ok      bool
 	reason  string
+	// terminalOK is terminal mode's own probe, run only when terminals are
+	// enabled, so a terminal-only failure never withholds bash.
+	terminalOK     bool
+	terminalReason string
 }
 
 // setupSandbox locks the data directory and probes the sandbox, once, when
@@ -116,6 +120,15 @@ func setupSandbox(cfg config.Config, layout home.Layout) sandboxState {
 		state.reason = err.Error()
 	} else {
 		state.ok = true
+	}
+	if state.ok && cfg.Terminal.Enabled {
+		if err := box.ProbeTerminal(ctx, layout.Root, port); err != nil {
+			state.terminalReason = err.Error()
+		} else {
+			state.terminalOK = true
+		}
+	} else {
+		state.terminalReason = state.reason
 	}
 	return state
 }

@@ -121,7 +121,9 @@ func terminalEnv(dir string) []string {
 	env := runEnv(dir)
 	for i, entry := range env {
 		if strings.HasPrefix(entry, "PATH=") {
-			env[i] = "PATH=" + filepath.Join(home, ".local", "bin") + ":" + strings.TrimPrefix(entry, "PATH=")
+			// Last, never first: the system's programs (bash, hc) must not be
+			// replaceable by whatever the owner installs into their home.
+			env[i] = entry + ":" + filepath.Join(home, ".local", "bin")
 		}
 	}
 	return append(env,

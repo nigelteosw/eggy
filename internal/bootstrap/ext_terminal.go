@@ -24,8 +24,8 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 	if !cfg.Terminal.Enabled {
 		return nil, nil
 	}
-	if !box.ok {
-		slog.Warn("terminal: not offered, the sandbox probe did not pass", "reason", box.reason)
+	if !box.terminalOK {
+		slog.Warn("terminal: not offered, the sandbox probe did not pass", "reason", box.terminalReason)
 		return nil, nil
 	}
 	dirName, err := terminalDirName(secrets.EncryptionKey)
@@ -35,7 +35,7 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 	svc, err := terminal.New(terminal.Options{
 		Root:     filepath.Join(layout.Root, sandbox.TerminalDir),
 		DirName:  dirName,
-		Prepare:  box.sandbox.PrepareRunDir,
+		Prepare:  box.sandbox.PrepareTerminalDir,
 		Launcher: terminal.SandboxLauncher{Start: box.sandbox.Terminal},
 	})
 	if err == nil {
@@ -45,11 +45,9 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 }
 
 // terminalDirName names each account's terminal directory with a keyed hash
-// of its id. Every account's programs run as the same sandbox user, and a
-// name another account's program could work out would let it reach that
-// account's herdr-core socket, which grants everything. Landlock already
-// keeps each core inside its own directory; the unguessable name is what keeps
-// another account's programs from finding the socket at all.
+// of its id. Each account's terminals already run as their own uid, which is
+// what keeps accounts apart; an unguessable name is defence in depth, and keeps
+// account ids out of the paths every program in the container can see.
 func terminalDirName(key string) (func(string) string, error) {
 	if key == "" {
 		return nil, errors.New("terminal: needs the encryption key to name account directories")

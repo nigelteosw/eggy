@@ -160,7 +160,7 @@ func (s *Sandbox) run(ctx context.Context, spec Spec, terminal bool) (Result, er
 	if capBytes <= 0 {
 		capBytes = outputTailBytes
 	}
-	cmd := s.command(spec.RunDir, terminal, spec.Argv)
+	cmd := s.command(spec.RunDir, terminal, spec.Argv, s.coderUID, s.coderGID)
 	var fullFile io.Writer
 	var fullPath string
 	if spec.FullOutputDir != "" {
@@ -244,9 +244,9 @@ func (s *Sandbox) run(ctx context.Context, spec Spec, terminal bool) (Result, er
 	return result, nil
 }
 
-// command builds the sandbox-exec invocation for argv in dir, as coder, in its
-// own process group. It is not started.
-func (s *Sandbox) command(dir string, terminal bool, argv []string) *exec.Cmd {
+// command builds the sandbox-exec invocation for argv in dir, as uid:gid, in
+// its own process group. It is not started.
+func (s *Sandbox) command(dir string, terminal bool, argv []string, uid, gid uint32) *exec.Cmd {
 	args := []string{"sandbox-exec"}
 	if terminal {
 		args = append(args, terminalFlag)
@@ -257,22 +257,9 @@ func (s *Sandbox) command(dir string, terminal bool, argv []string) *exec.Cmd {
 	cmd.Env = envFor(dir, terminal)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid:    true,
-		Credential: &syscall.Credential{Uid: s.coderUID, Gid: s.coderGID},
+		Credential: &syscall.Credential{Uid: uid, Gid: gid},
 	}
 	return cmd
-}
-
-// Terminal returns argv confined in terminal mode in dir, which must have been
-// prepared with PrepareRunDir. It has no timeout and no output capture: the
-// caller wires its pipes, starts it, and kills its process group when done.
-func (s *Sandbox) Terminal(dir string, argv []string) (*exec.Cmd, error) {
-	if err := validRunDir(dir); err != nil {
-		return nil, err
-	}
-	if len(argv) == 0 {
-		return nil, errors.New("sandbox: empty command")
-	}
-	return s.command(dir, true, argv), nil
 }
 
 // Probe proves the sandbox works before any command is trusted with it. The
@@ -280,6 +267,18 @@ func (s *Sandbox) Terminal(dir string, argv []string) (*exec.Cmd, error) {
 // check must fail with an ordinary error, not with the entry point's own
 // failure code, so a broken sandbox can never pass as a working one.
 func (s *Sandbox) Probe(ctx context.Context, dataDir string, eggyPort int) error {
+	return s.probe(ctx, dataDir, eggyPort, false)
+}
+
+// ProbeTerminal proves terminal mode the same way: it opens what a terminal
+// needs and denies exactly what a command is denied. It is separate from
+// Probe so a terminal-only failure never withholds the agent runner's bash,
+// and a deployment without terminals never pays for it.
+func (s *Sandbox) ProbeTerminal(ctx context.Context, dataDir string, eggyPort int) error {
+	return s.probe(ctx, dataDir, eggyPort, true)
+}
+
+func (s *Sandbox) probe(ctx context.Context, dataDir string, eggyPort int, terminal bool) error {
 	id, err := newProbeID()
 	if err != nil {
 		return err
@@ -301,35 +300,35 @@ func (s *Sandbox) Probe(ctx context.Context, dataDir string, eggyPort int) error
 	defer os.Remove(outside)
 
 	checks := []struct {
-		name     string
-		argv     []string
-		want     string // "ok" needs exit 0; "denied" needs a plain non-zero exit
-		terminal bool   // run in terminal mode, which must deny exactly as much
+		name string
+		argv []string
+		want string // "ok" needs exit 0; "denied" needs a plain non-zero exit
 	}{
-		{"exec", []string{"true"}, "ok", false},
-		{"read root-only file", []string{"cat", secret}, "denied", false},
-		{"write outside run", []string{"sh", "-c", "touch " + outside}, "denied", false},
-		{"connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied", false},
-		{"signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied", false},
-		{"terminal exec", []string{"head", "-c1", "/dev/urandom"}, "ok", true},
-		{"terminal read root-only file", []string{"cat", secret}, "denied", true},
-		{"terminal write outside run", []string{"sh", "-c", "touch " + outside}, "denied", true},
-		{"terminal connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied", true},
-		{"terminal signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied", true},
+		{"exec", []string{"true"}, "ok"},
+		{"read root-only file", []string{"cat", secret}, "denied"},
+		{"write outside run", []string{"sh", "-c", "touch " + outside}, "denied"},
+		{"connect to eggy port", []string{"bash", "-c", fmt.Sprintf("exec 3<>/dev/tcp/127.0.0.1/%d", eggyPort)}, "denied"},
+		{"signal eggyd", []string{"sh", "-c", fmt.Sprintf("kill -0 %d", os.Getpid())}, "denied"},
+	}
+	mode := ""
+	if terminal {
+		// What a terminal needs, before proving it is denied the same.
+		checks[0].argv = []string{"bash", "-c", "exec 3<>/dev/ptmx && head -c1 /dev/urandom >/dev/null"}
+		mode = "terminal "
 	}
 	for _, check := range checks {
-		result, err := s.run(ctx, Spec{RunDir: runDir, Argv: check.argv, Timeout: 30 * time.Second}, check.terminal)
+		result, err := s.run(ctx, Spec{RunDir: runDir, Argv: check.argv, Timeout: 30 * time.Second}, terminal)
 		if err != nil {
-			return fmt.Errorf("sandbox probe: %s: %w", check.name, err)
+			return fmt.Errorf("sandbox probe: %s%s: %w", mode, check.name, err)
 		}
 		switch check.want {
 		case "ok":
 			if result.ExitCode != 0 {
-				return fmt.Errorf("sandbox probe: %s: exit %d: %s", check.name, result.ExitCode, result.Output)
+				return fmt.Errorf("sandbox probe: %s%s: exit %d: %s", mode, check.name, result.ExitCode, result.Output)
 			}
 		case "denied":
 			if result.ExitCode == 0 || result.ExitCode == sandboxExecExitFailed || result.TimedOut {
-				return fmt.Errorf("sandbox probe: %s was not denied (exit %d)", check.name, result.ExitCode)
+				return fmt.Errorf("sandbox probe: %s%s was not denied (exit %d)", mode, check.name, result.ExitCode)
 			}
 		}
 	}
@@ -368,27 +367,30 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 			return os.Chmod(runs, 0o711)
 		}
 		if path == terminal {
-			// The terminal directory is one run directory: root-owned and
-			// traversable, its own subtrees coder's, and it keeps them across
-			// restarts as an interrupted run does.
 			if err := os.Lchown(path, 0, 0); err != nil {
 				return err
 			}
 			return os.Chmod(path, 0o711)
 		}
 		if Within(path, terminal) {
+			// <terminal>/<account>/{ws,home,tmp}. The account directory is
+			// root's and traversable; its three subtrees belong to the
+			// account's own uid and are never walked: their programs outlive
+			// restarts and may be running now, and a chown walk over a tree a
+			// running program controls can be raced through a symlink.
 			rel, err := filepath.Rel(terminal, path)
 			if err != nil {
 				return err
 			}
 			parts := strings.Split(rel, string(filepath.Separator))
-			if slices.Contains(agentWritable, parts[0]) {
-				if len(parts) == 1 && entry.IsDir() {
-					return s.chownTree(path)
+			switch {
+			case len(parts) == 1 && entry.IsDir():
+				if err := os.Lchown(path, 0, 0); err != nil {
+					return err
 				}
-				if len(parts) > 1 {
-					return nil
-				}
+				return os.Chmod(path, 0o711)
+			case len(parts) == 2 && entry.IsDir() && slices.Contains(agentWritable, parts[1]):
+				return fs.SkipDir
 			}
 			return os.Lchown(path, 0, 0)
 		}

@@ -20,7 +20,7 @@ type SandboxLauncher struct {
 
 // Connect starts hc connect and returns its pipes.
 func (l SandboxLauncher) Connect(dir string) (Conn, error) {
-	cmd, err := l.Start(dir, []string{"hc", "connect"})
+	cmd, err := l.Start(dir, []string{"/usr/bin/hc", "connect"})
 	if err != nil {
 		return nil, err
 	}

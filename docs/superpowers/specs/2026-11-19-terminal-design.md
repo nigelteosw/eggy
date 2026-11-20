@@ -292,12 +292,14 @@ survives `POST /api/restart` with the same address and process.
 
 Where the build departs from the design above:
 
-- **One core per account, not one core with account labels.** All accounts'
-  programs run as `coder`, and whoever reaches a core's socket has everything
-  in it, so a label check in Eggy would not stop one account's program from
-  attaching to another's terminal. Each account gets its own directory,
-  named by an HMAC of its id keyed with `EGGY_ENCRYPTION_KEY`, and its own
-  core; Landlock confines each to its directory. `terminal.enabled` therefore
+- **One core and one uid per account, not one core with account labels.**
+  Whoever reaches a core's socket has everything in it, so a label check in
+  Eggy would not keep accounts apart. Each account gets its own directory
+  (named by an HMAC of its id keyed with `EGGY_ENCRYPTION_KEY`), its own
+  core, and its own uid from 200000, with passwd entries added at first use.
+  The uid is what matters: Landlock grants all of `/dev/pts`, so with one
+  shared uid any account could read another's ptys. Terminal mode has its
+  own startup probe, run only when terminals are enabled. `terminal.enabled` therefore
   requires the key at config load.
 - **Pipes, not a socket.** `eggyd` runs `hc connect` confined and speaks over
   its stdin and stdout, as herdr-app does, so `eggyd` never needs to reach

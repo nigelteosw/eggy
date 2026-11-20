@@ -2,10 +2,9 @@
 // panel, run by herdr-core (hc) inside the agent runner's sandbox, so an owner
 // can install and use Claude Code inside Eggy and check on it from a phone.
 //
-// Each account gets its own sandbox directory and its own hc core. The
-// directory's name is derived from the account with a keyed hash, so one
-// account's programs cannot name another's files or socket, and Landlock
-// confines each core to its own directory. The extension holds no credential:
+// Each account gets its own sandbox directory, its own uid and its own hc
+// core, so ordinary ownership keeps one account's programs out of another's
+// files, socket and ptys, and Landlock confines each core to its directory. The extension holds no credential:
 // whatever the owner signs in to inside a terminal stays in that directory.
 //
 // The design is docs/superpowers/specs/2026-11-19-terminal-design.md.
@@ -85,7 +84,8 @@ type Options struct {
 	// unguessable from the account id (bootstrap keys it with the encryption
 	// key) and stable across restarts.
 	DirName func(accountID string) string
-	// Prepare creates a directory's ws/, home/ and tmp/ for the sandbox user.
+	// Prepare creates a directory's ws/, home/ and tmp/ for the account's own
+	// sandbox user (sandbox.PrepareTerminalDir).
 	Prepare  func(dir string) error
 	Launcher Launcher
 	Logger   *slog.Logger
@@ -95,9 +95,21 @@ type Options struct {
 // Service is the one path to terminals. The panel is a thin caller of it.
 type Service struct {
 	opts  Options
-	mu    sync.Mutex
-	cores map[string]*core
+	mu    sync.Mutex // guards slots only; never held while talking to a core
+	slots map[string]*slot
 }
+
+// slot is one account's place in the service. Its lock is held while that
+// account's core is started, so one slow or hung core holds up only its own
+// account.
+type slot struct {
+	mu   sync.Mutex
+	core *core
+}
+
+// connectTimeout bounds starting and greeting a core. A core that never
+// answers is abandoned, not waited on.
+const connectTimeout = 20 * time.Second
 
 // New builds the service. Nothing starts until an account uses it.
 func New(opts Options) (*Service, error) {
@@ -110,7 +122,7 @@ func New(opts Options) (*Service, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Service{opts: opts, cores: map[string]*core{}}, nil
+	return &Service{opts: opts, slots: map[string]*slot{}}, nil
 }
 
 // Terminal is one terminal as its owner sees it.
@@ -166,17 +178,38 @@ func (s *Service) coreFor(ctx context.Context) (*core, error) {
 		return nil, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if c := s.cores[account]; c != nil {
+	sl := s.slots[account]
+	if sl == nil {
+		sl = &slot{}
+		s.slots[account] = sl
+	}
+	s.mu.Unlock()
+
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	if c := sl.core; c != nil {
 		select {
 		case <-c.client.done:
 			_ = c.conn.Close()
-			delete(s.cores, account)
+			sl.core = nil
 		default:
 			return c, nil
 		}
 	}
-	dir := s.dir(account)
+	c, err := s.connect(ctx, s.dir(account))
+	if err != nil {
+		return nil, err
+	}
+	sl.core = c
+	return c, nil
+}
+
+// connect prepares dir, starts its core and greets it, all within
+// connectTimeout. On timeout the connection is closed, which ends any read
+// still waiting on it.
+func (s *Service) connect(ctx context.Context, dir string) (*core, error) {
+	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	defer cancel()
 	if err := s.opts.Prepare(dir); err != nil {
 		return nil, fmt.Errorf("terminal: prepare: %w", err)
 	}
@@ -184,9 +217,13 @@ func (s *Service) coreFor(ctx context.Context) (*core, error) {
 	if err != nil {
 		return nil, fmt.Errorf("terminal: start herdr-core: %w", err)
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	reader := bufio.NewReader(conn)
 	if err := hello(reader, conn); err != nil {
 		_ = conn.Close()
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("terminal: herdr-core did not answer: %w", ctx.Err())
+		}
 		return nil, err
 	}
 	c := &core{dir: dir, conn: conn, terms: map[string]Terminal{}}
@@ -200,7 +237,11 @@ func (s *Service) coreFor(ctx context.Context) (*core, error) {
 	if err := installStatusHooks(ctx, c.client); err != nil {
 		s.opts.Logger.Warn("terminal: Claude Code status hooks not installed", "error", err)
 	}
-	s.cores[account] = c
+	// Greeted in time: from here the connection lives as long as the core.
+	if !stop() {
+		_ = conn.Close()
+		return nil, fmt.Errorf("terminal: herdr-core did not answer: %w", ctx.Err())
+	}
 	return c, nil
 }
 
@@ -532,10 +573,16 @@ func (s *Service) NeedsYou(ctx context.Context) ([]Terminal, error) {
 // a restart of Eggy leaves the owner's programs where they were.
 func (s *Service) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for account, c := range s.cores {
-		_ = c.conn.Close()
-		delete(s.cores, account)
+	slots := s.slots
+	s.slots = map[string]*slot{}
+	s.mu.Unlock()
+	for _, sl := range slots {
+		sl.mu.Lock()
+		if sl.core != nil {
+			_ = sl.core.conn.Close()
+			sl.core = nil
+		}
+		sl.mu.Unlock()
 	}
 	return nil
 }

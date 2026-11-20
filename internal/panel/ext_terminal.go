@@ -180,6 +180,9 @@ const (
 	// terminalRecheck is how often an open terminal re-checks the session, so
 	// a sign-out or an expired session ends it, as the chat stream does.
 	terminalRecheck = 30 * time.Second
+	// terminalIdle is how long a viewer may go without a message or a pong:
+	// two missed pings.
+	terminalIdle = 2*terminalRecheck + 10*time.Second
 )
 
 // terminalControl is a text message from the browser. Keys travel as binary.
@@ -212,10 +215,19 @@ func terminalAttach(svc TerminalService, upgrader *websocket.Upgrader, revalidat
 		}
 		defer conn.Close()
 		conn.SetReadLimit(terminalMaxInput)
+		// A viewer that has gone quiet (a phone asleep, a dropped network) is
+		// noticed within terminalIdle: every message or pong extends the
+		// deadline, and the writer pings each terminalRecheck.
+		extend := func() { _ = conn.SetReadDeadline(time.Now().Add(terminalIdle)) }
+		extend()
+		conn.SetPongHandler(func(string) error { extend(); return nil })
 
 		// One writer: output, the periodic session check, and the final reason.
 		go func() {
 			defer cancel()
+			// Closing the socket ends the reader below too, so neither side
+			// outlives the other.
+			defer conn.Close()
 			recheck := time.NewTicker(terminalRecheck)
 			defer recheck.Stop()
 			for {
@@ -249,6 +261,7 @@ func terminalAttach(svc TerminalService, upgrader *websocket.Upgrader, revalidat
 			if err != nil {
 				return
 			}
+			extend()
 			if ctx.Err() != nil {
 				return
 			}

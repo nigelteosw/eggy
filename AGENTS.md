@@ -160,9 +160,10 @@ removes or makes possible that the standard library and the current code do not.
 - Configured repositories and stdio MCP servers are trusted code running as
   Eggy's user; timeouts and environment allowlists are not a sandbox.
   `internal/sandbox` is the one place a sandbox is claimed: the agent runner's
-  commands and the terminal extension's herdr-core run in it as the `coder`
-  user under Landlock, and bash and terminals are offered only after a startup
-  probe proves the confinement. Without a passing probe, neither is offered.
+  commands run in it as `coder` and the terminal extension's herdr-core as
+  each account's own uid, under Landlock, and bash and terminals are offered only after a startup
+  probe proves the confinement (terminals have their own probe, run only when
+  enabled). Without a passing probe, neither is offered.
   Terminal mode adds pty and randomness devices and nothing else, and the
   probe checks it denies exactly what command mode does. A terminal has no
   model tool, no git credential and no push: shipping stays with the mandate.
@@ -184,12 +185,18 @@ removes or makes possible that the standard library and the current code do not.
   `io.Writer` exec copies into. With a writer, `Wait` also waits for every
   holder of the pipe, so a backgrounded child ran to completion before the
   group kill, free to write into the workspace while the publisher read it.
-- Every account's terminals run as the same `coder` user, and anyone who can
-  reach an herdr-core socket has everything it has. Each account therefore
-  gets its own core in a directory named by a hash keyed with
-  `EGGY_ENCRYPTION_KEY`, under a `/data/terminal` coder can traverse but not
-  list; Landlock keeps each core inside its own directory. A name another
-  account's program could work out would hand it that account's terminals.
+- Each account's terminals run as that account's own uid (from 200000, read
+  back from its `home/`'s owner), never `coder`. Landlock grants all of
+  `/dev/pts` and cannot tell one pty from another, so with one shared uid any
+  account could read another's keystrokes; ownership is what stops it, and
+  it makes the per-uid process limit per account. The hashed directory name
+  is defence in depth, not the boundary.
+- Nothing walks a terminal subtree as root once it exists: its programs
+  outlive restarts, and a chown walk over a tree a running program controls
+  can be raced through a symlink. `LockDataDir` skips them and
+  `PrepareTerminalDir` chowns only the three directories it creates.
+- The terminal's `PATH` puts `~/.local/bin` last, and the launcher runs
+  `/usr/bin/hc` by path: an install must never replace bash or herdr-core.
 
 - Owner-facing documents load their built-in default when missing, blank, or
   unreadable, and the default is never written into the owner's file. Writing

@@ -51,6 +51,7 @@ type TerminalSpace struct {
 	Name      string         `json:"name"`
 	Repo      bool           `json:"repo,omitempty"`
 	Preparing bool           `json:"preparing,omitempty"`
+	Error     string         `json:"error,omitempty"`
 	Terminals []TerminalInfo `json:"terminals"`
 }
 

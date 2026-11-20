@@ -370,6 +370,10 @@ function SpaceGroup({
       </div>
       {space.preparing ? (
         <p className="px-2 pb-1 text-caption text-neutral-500">Copying from GitHub...</p>
+      ) : space.error ? (
+        <p className="px-2 pb-1 text-caption text-tomato" title={space.error}>
+          Could not copy: {space.error}. Use Fetch from GitHub in the + menu to try again.
+        </p>
       ) : space.repo && terminals.length === 0 && !space.terminals.length ? (
         <p className="px-2 pb-1 text-caption text-neutral-500">Press + to start Claude Code or a shell in this repository.</p>
       ) : terminals.length === 0 ? (

@@ -8,11 +8,59 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
 // repoCloneTimeout bounds making one repository's working copy.
 const repoCloneTimeout = 10 * time.Minute
+
+// repoState is what the service knows about working copies being made, keyed
+// by the account directory and repository. It lives on the service, not on a
+// connection, so a reconnect neither forgets a clone in flight (and starts a
+// second into the same folder) nor forgets why the last one failed.
+type repoState struct {
+	mu        sync.Mutex
+	preparing map[string]bool
+	failed    map[string]string
+}
+
+func repoKey(dir, name string) string { return dir + "\x00" + name }
+
+// begin marks the copy as being made, or reports that it already is.
+func (r *repoState) begin(dir, name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.preparing == nil {
+		r.preparing, r.failed = map[string]bool{}, map[string]string{}
+	}
+	k := repoKey(dir, name)
+	if r.preparing[k] {
+		return false
+	}
+	r.preparing[k] = true
+	delete(r.failed, k)
+	return true
+}
+
+// end records how making the copy went.
+func (r *repoState) end(dir, name string, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := repoKey(dir, name)
+	delete(r.preparing, k)
+	if err != nil {
+		r.failed[k] = err.Error()
+	}
+}
+
+// state reports whether the copy is being made, and the last failure.
+func (r *repoState) state(dir, name string) (bool, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := repoKey(dir, name)
+	return r.preparing[k], r.failed[k]
+}
 
 func (s *Service) repos() []string {
 	if s.opts.Repos == nil || s.opts.Mirror == nil {
@@ -29,16 +77,20 @@ func (s *Service) repos() []string {
 
 func (s *Service) isRepo(name string) bool { return slices.Contains(s.repos(), name) }
 
-// ensureRepos makes the working copy of every configured repository the
-// account does not have yet. It runs after a core connects.
+// ensureRepos starts making, in the background, the working copy of every
+// configured repository the account does not have, is not already making,
+// and has not just failed to make (Update retries that). It runs after a
+// core connects and on every listing, so a repository added later appears
+// without a reconnect.
 func (s *Service) ensureRepos(ctx context.Context, c *core) {
 	for _, name := range s.repos() {
 		if hasCopy(c.dir, name) {
 			continue
 		}
-		if err := s.cloneRepo(ctx, c, name); err != nil {
-			s.opts.Logger.Warn("terminal: repository space not made", "repository", name, "error", err)
+		if _, failed := s.copies.state(c.dir, name); failed != "" {
+			continue
 		}
+		go func() { _ = s.cloneRepo(ctx, c, name) }()
 	}
 }
 
@@ -46,37 +98,46 @@ func (s *Service) ensureRepos(ctx context.Context, c *core) {
 // the sandbox as the account, through its core, so root never runs git in a
 // tree the account controls; the mirror is the origin, so git pull works and
 // git push cannot.
-func (s *Service) cloneRepo(ctx context.Context, c *core, name string) error {
-	c.mu.Lock()
-	if c.preparing[name] {
-		c.mu.Unlock()
+func (s *Service) cloneRepo(ctx context.Context, c *core, name string) (err error) {
+	if !s.copies.begin(c.dir, name) {
 		return nil
 	}
-	c.preparing[name] = true
-	c.mu.Unlock()
 	defer func() {
-		c.mu.Lock()
-		delete(c.preparing, name)
-		c.mu.Unlock()
+		s.copies.end(c.dir, name, err)
+		if err != nil {
+			s.opts.Logger.Warn("terminal: repository space not made", "repository", name, "error", err)
+		}
 	}()
 	// Not the request's deadline: the clone outlives the request that
 	// started it. The context still names the account, whose token the
 	// mirror fetch uses.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), repoCloneTimeout)
 	defer cancel()
-	mirror, err := s.opts.Mirror(ctx, name)
+	mirror, err := s.syncMirror(ctx, c, name)
 	if err != nil {
-		return err
-	}
-	if err := trustMirror(ctx, c, mirror); err != nil {
 		return err
 	}
 	return c.run(ctx, "git", "clone", "--quiet", "--no-local", mirror, filepath.Join(c.dir, "ws", name))
 }
 
+// syncMirror brings the repository's mirror up to date and names it safe in
+// the account's own git config, once. Git refuses another user's repository
+// otherwise, and only a user's global config can say it is safe (not -c, on
+// the git in the image). The account's runs and terminals share that config,
+// so its own git pull and its runs' fetches work too.
+func (s *Service) syncMirror(ctx context.Context, c *core, name string) (string, error) {
+	mirror, err := s.opts.Mirror(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	err = c.run(ctx, "sh", "-c", `git config --global --get-all safe.directory | grep -qxF "$1" || git config --global --add safe.directory "$1"`, "sh", mirror)
+	return mirror, err
+}
+
 // UpdateRepo brings a repository space up to date: the mirror from GitHub,
 // then the working copy's origin from the mirror. It fetches and never
-// merges: the working copy is the owner's. A missing working copy is made.
+// merges: the working copy is the owner's. A missing working copy is made,
+// which is also how a failed one is retried.
 func (s *Service) UpdateRepo(ctx context.Context, name string) error {
 	if !s.isRepo(name) {
 		return ErrNotFound
@@ -85,18 +146,13 @@ func (s *Service) UpdateRepo(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(c.dir, "ws", name)
 	if !hasCopy(c.dir, name) {
 		return s.cloneRepo(ctx, c, name)
 	}
-	mirror, err := s.opts.Mirror(ctx, name)
-	if err != nil {
+	if _, err := s.syncMirror(ctx, c, name); err != nil {
 		return err
 	}
-	if err := trustMirror(ctx, c, mirror); err != nil {
-		return err
-	}
-	return c.run(ctx, "git", "-C", dir, "fetch", "--quiet", "origin")
+	return c.run(ctx, "git", "-C", filepath.Join(c.dir, "ws", name), "fetch", "--quiet", "origin")
 }
 
 // DeleteSpace ends the space's terminals and deletes its folder. A
@@ -137,37 +193,32 @@ func (s *Service) checkNewSpace(name string) error {
 	return nil
 }
 
-// spaceFlags marks repository spaces in a listing and adds those still being
-// made, so the list shows every configured repository.
+// spaceFlags marks repository spaces in a listing with how their working
+// copy stands, and adds those with no folder yet, so the list shows every
+// configured repository.
 func (s *Service) spaceFlags(c *core, spaces []Space) []Space {
 	repos := s.repos()
-	c.mu.Lock()
-	preparing := map[string]bool{}
-	for name := range c.preparing {
-		preparing[name] = true
-	}
-	c.mu.Unlock()
 	seen := map[string]bool{}
 	for i := range spaces {
-		spaces[i].Repo = slices.Contains(repos, spaces[i].Name)
 		seen[spaces[i].Name] = true
 	}
 	for _, name := range repos {
 		if !seen[name] {
-			spaces = append(spaces, Space{Name: name, Repo: true, Preparing: preparing[name], Terminals: []Terminal{}})
+			spaces = append(spaces, Space{Name: name, Terminals: []Terminal{}})
+		}
+	}
+	for i := range spaces {
+		sp := &spaces[i]
+		if !slices.Contains(repos, sp.Name) {
+			continue
+		}
+		sp.Repo = true
+		if !hasCopy(c.dir, sp.Name) {
+			sp.Preparing, sp.Error = s.copies.state(c.dir, sp.Name)
 		}
 	}
 	slices.SortFunc(spaces, func(a, b Space) int { return strings.Compare(a.Name, b.Name) })
 	return spaces
-}
-
-// trustMirror names the root-owned mirror safe in the account's own git
-// config, once. Git refuses another user's repository otherwise, and only a
-// user's global config can say it is safe (not -c, on the git in the image).
-// The account's runs and terminals share that config, so its own git pull
-// and its runs' fetches work too.
-func trustMirror(ctx context.Context, c *core, mirror string) error {
-	return c.run(ctx, "sh", "-c", `git config --global --get-all safe.directory | grep -qxF "$1" || git config --global --add safe.directory "$1"`, "sh", mirror)
 }
 
 // hasCopy reports whether the repository's working copy is there: a git

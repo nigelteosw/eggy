@@ -101,7 +101,7 @@ func (p panelTerminal) Spaces(ctx context.Context) ([]panel.TerminalSpace, error
 		for _, t := range s.Terminals {
 			ts = append(ts, panelTerminalInfo(t))
 		}
-		out = append(out, panel.TerminalSpace{Name: s.Name, Repo: s.Repo, Preparing: s.Preparing, Terminals: ts})
+		out = append(out, panel.TerminalSpace{Name: s.Name, Repo: s.Repo, Preparing: s.Preparing, Error: s.Error, Terminals: ts})
 	}
 	return out, nil
 }

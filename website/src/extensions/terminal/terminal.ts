@@ -18,7 +18,7 @@ export type TerminalInfo = {
 
 // repo marks a configured repository's working copy; preparing, one still
 // being copied from its mirror, which has no folder yet.
-export type TerminalSpace = { name: string; repo?: boolean; preparing?: boolean; terminals: TerminalInfo[] };
+export type TerminalSpace = { name: string; repo?: boolean; preparing?: boolean; error?: string; terminals: TerminalInfo[] };
 
 export async function listSpaces(): Promise<{ spaces: TerminalSpace[]; commands: string[] }> {
   return request("/api/terminal/spaces");

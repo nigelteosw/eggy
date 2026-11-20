@@ -100,9 +100,10 @@ type Options struct {
 
 // Service is the one path to terminals. The panel is a thin caller of it.
 type Service struct {
-	opts  Options
-	mu    sync.Mutex // guards slots only; never held while talking to a core
-	slots map[string]*slot
+	opts   Options
+	mu     sync.Mutex // guards slots only; never held while talking to a core
+	slots  map[string]*slot
+	copies repoState
 }
 
 // slot is one account's place in the service. Its lock is held while that
@@ -153,20 +154,20 @@ type Space struct {
 	Repo bool `json:"repo,omitempty"`
 	// Preparing means a repository space whose working copy is still being
 	// made; it has no folder yet.
-	Preparing bool       `json:"preparing,omitempty"`
+	Preparing bool `json:"preparing,omitempty"`
+	// Error is why the working copy could not be made; Update retries.
+	Error     string     `json:"error,omitempty"`
 	Terminals []Terminal `json:"terminals"`
 }
 
 // core is one account's connection to its hc core and what it has learned
 // from the event stream.
 type core struct {
-	dir string
-	// preparing names repositories whose working copy is being made now.
-	preparing map[string]bool
-	conn      Conn
-	client    *client
-	mu        sync.Mutex
-	terms     map[string]Terminal
+	dir    string
+	conn   Conn
+	client *client
+	mu     sync.Mutex
+	terms  map[string]Terminal
 }
 
 func principal(ctx context.Context) (string, error) {
@@ -240,7 +241,7 @@ func (s *Service) connect(ctx context.Context, dir string) (*core, error) {
 		}
 		return nil, err
 	}
-	c := &core{dir: dir, conn: conn, terms: map[string]Terminal{}, preparing: map[string]bool{}}
+	c := &core{dir: dir, conn: conn, terms: map[string]Terminal{}}
 	c.client = newClient(reader, conn, c.onEvent)
 	snapshot, err := c.client.subscribe(ctx)
 	if err != nil {
@@ -258,7 +259,7 @@ func (s *Service) connect(ctx context.Context, dir string) (*core, error) {
 	}
 	// Repository spaces are made in the background: a clone can take longer
 	// than any request should wait.
-	go s.ensureRepos(context.WithoutCancel(ctx), c)
+	s.ensureRepos(context.WithoutCancel(ctx), c)
 	return c, nil
 }
 
@@ -451,6 +452,7 @@ func (s *Service) Spaces(ctx context.Context) ([]Space, error) {
 	for _, name := range order {
 		out = append(out, *bySpace[name])
 	}
+	s.ensureRepos(context.WithoutCancel(ctx), c)
 	return s.spaceFlags(c, out), nil
 }
 

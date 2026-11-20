@@ -2,10 +2,12 @@ package terminal
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -145,4 +147,43 @@ func TestEmptyFolderWithARepositoryNameIsFilled(t *testing.T) {
 		_, err := os.Stat(filepath.Join(root, "dir-alice", "ws", "app", "README"))
 		return err == nil
 	})
+}
+
+// A clone that fails says why on its space and is not retried on every
+// listing; Fetch from GitHub retries it.
+func TestFailedCopyIsShownAndRetriedOnUpdate(t *testing.T) {
+	svc, root, _ := newRepoService(t)
+	good := svc.opts.Mirror
+	var calls atomic.Int32
+	svc.opts.Mirror = func(ctx context.Context, name string) (string, error) {
+		calls.Add(1)
+		return "", errors.New("no token")
+	}
+	ctx := as("alice")
+	var app Space
+	eventually(t, "the failure shown", func() bool {
+		spaces, _ := svc.Spaces(ctx)
+		app, _ = spaceNamed(spaces, "app")
+		return app.Error != ""
+	})
+	if !strings.Contains(app.Error, "no token") || app.Preparing {
+		t.Fatalf("space: %+v", app)
+	}
+	before := calls.Load()
+	_, _ = svc.Spaces(ctx)
+	_, _ = svc.Spaces(ctx)
+	if calls.Load() != before {
+		t.Fatal("a failed copy is retried on every listing")
+	}
+	svc.opts.Mirror = good
+	if err := svc.UpdateRepo(ctx, "app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "dir-alice", "ws", "app", "README")); err != nil {
+		t.Fatal(err)
+	}
+	spaces, _ := svc.Spaces(ctx)
+	if app, _ = spaceNamed(spaces, "app"); app.Error != "" {
+		t.Fatalf("error kept after retry: %+v", app)
+	}
 }

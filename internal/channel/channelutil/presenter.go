@@ -1,4 +1,4 @@
-package bootstrap
+package channelutil
 
 import (
 	"context"
@@ -6,25 +6,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nigelteosw/eggy/internal/channel/channelutil"
 	"github.com/nigelteosw/eggy/internal/core/toolsteps"
 	"github.com/nigelteosw/eggy/internal/ports"
 )
 
-// turnPresenter is the surface-side rendering internal/core/turns asks for
+// Presenter is the surface-side rendering internal/core/turns asks for
 // (turns.Presenter). It lives here rather than in the core for two reasons:
-// the core may not import a provider package, and a typing hint and an edited-in-place
-// "Calling X..." message are affordances a channel either has or doesn't --
-// channelutil is exactly the code that degrades gracefully when it doesn't.
-type turnPresenter struct {
-	channel ports.Channel
+// the core may not import a channel package, and a typing hint and an
+// edited-in-place "Calling X..." message are affordances a channel either has
+// or doesn't -- this package is exactly the code that degrades gracefully
+// when it doesn't.
+type Presenter struct {
+	Channel ports.Channel
 }
 
 // StartTyping shows work-in-progress on whichever channel ctx resolves to,
 // and returns the function that stops it. A no-op on a channel with no
 // typing indicator.
-func (p turnPresenter) StartTyping(ctx context.Context) func() {
-	return channelutil.StartTyping(ctx, p.channel, 4*time.Second)
+func (p Presenter) StartTyping(ctx context.Context) func() {
+	return StartTyping(ctx, p.Channel, 4*time.Second)
 }
 
 // ShowToolCalls returns a tool-call callback and a matching finish function
@@ -36,14 +36,14 @@ func (p turnPresenter) StartTyping(ctx context.Context) func() {
 // coding run's progress uses, reused here so an ordinary tool call (e.g.
 // current_time) is visible mid-turn too, not folded silently into the final
 // reply. finish is always safe to call, a no-op if no tool was ever called.
-func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(ports.ToolCall), finish func()) {
+func (p Presenter) ShowToolCalls(ctx context.Context) (onToolCall func(ports.ToolCall), finish func()) {
 	var messageID string
 	var calls []string
 	render := func(text string) {
-		if messageID != "" && channelutil.EditText(ctx, p.channel, messageID, text) == nil {
+		if messageID != "" && EditText(ctx, p.Channel, messageID, text) == nil {
 			return
 		}
-		if id, err := channelutil.DeliverTrackable(ctx, p.channel, text); err == nil {
+		if id, err := DeliverTrackable(ctx, p.Channel, text); err == nil {
 			messageID = id
 		}
 	}
@@ -53,7 +53,7 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(ports
 		// as its own step. The cumulative line is only for a surface that can
 		// show nothing but one growing message.
 		step := toolsteps.For(call.Name, call.Arguments)
-		if err := channelutil.ShowProgress(ctx, p.channel, ports.Progress{Text: step.Label, Detail: step.Detail}); !errors.Is(err, channelutil.ErrProgressUnsupported) {
+		if err := ShowProgress(ctx, p.Channel, ports.Progress{Text: step.Label, Detail: step.Detail}); !errors.Is(err, ErrProgressUnsupported) {
 			return
 		}
 		render(progressLine(calls))
@@ -67,7 +67,7 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(ports
 		// A progress line that can be removed is removed: the reply is the answer,
 		// and the steps are not worth keeping in the chat. A channel that cannot
 		// delete it keeps the one-line summary.
-		if err := channelutil.DeleteText(ctx, p.channel, messageID); err == nil {
+		if err := DeleteText(ctx, p.Channel, messageID); err == nil {
 			return
 		}
 		render(progressDone(calls))
@@ -77,8 +77,8 @@ func (p turnPresenter) ShowToolCalls(ctx context.Context) (onToolCall func(ports
 
 // DeliverOutcome reports an approve/reject outcome, editing the original
 // message when the surface supports it.
-func (p turnPresenter) DeliverOutcome(ctx context.Context, messageID, text string) error {
-	return channelutil.DeliverOutcome(ctx, p.channel, messageID, text)
+func (p Presenter) DeliverOutcome(ctx context.Context, messageID, text string) error {
+	return DeliverOutcome(ctx, p.Channel, messageID, text)
 }
 
 // progressLine is the status while a turn works: each distinct action once, in

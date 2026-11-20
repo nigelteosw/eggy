@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nigelteosw/eggy/internal/channel/channelutil"
 	"github.com/nigelteosw/eggy/internal/channel/router"
 	"log/slog"
 	"net/http"
@@ -552,7 +553,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 		Context: contextStore, Store: stateStore, Runtime: agentRuntime,
 		Skills: skillsService, Loop: app.loop, Channel: app.channel,
 		Threads: database, Approvals: app.approvals, Executors: approvalExecutors,
-		Presenter: turnPresenter{channel: app.channel},
+		Presenter: channelutil.Presenter{Channel: app.channel},
 		Traces:    tracer,
 		// The one discovery built above also answers whether the active model
 		// can see images, so the panel and the turn path cannot disagree.

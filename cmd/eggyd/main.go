@@ -21,6 +21,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/bootstrap"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/home"
+	"github.com/nigelteosw/eggy/internal/logging"
 	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/sandbox"
 )
@@ -85,7 +86,7 @@ func run() error {
 	// load is itself logged and redacted. Only the secrets with fixed variable
 	// names are known this early; startup adds the rest once the file parses.
 	envSecrets := config.SecretsFromEnv(getenv)
-	logger, logFiles, err := bootstrap.NewLogger(layout, envSecrets)
+	logger, logFiles, err := logging.NewLogger(layout, envSecrets)
 	if err != nil {
 		return fmt.Errorf("open logs: %w", err)
 	}
@@ -213,7 +214,7 @@ func serveSetupMode(ctx context.Context, address string, layout home.Layout, con
 }
 
 // startup performs one attempt at becoming the real Eggy.
-func startup(layout home.Layout, configPath string, getenv func(string) string, logger *slog.Logger, logFiles *bootstrap.Logs) (*bootstrap.App, config.Config, error) {
+func startup(layout home.Layout, configPath string, getenv func(string) string, logger *slog.Logger, logFiles *logging.Logs) (*bootstrap.App, config.Config, error) {
 	cfg, secrets, err := config.LoadOrCreateConfig(configPath, getenv)
 	if err != nil {
 		return nil, config.Config{}, err

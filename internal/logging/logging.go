@@ -1,4 +1,4 @@
-package bootstrap
+package logging
 
 import (
 	"cmp"
@@ -175,8 +175,14 @@ func (r *redactor) add(secrets []string) {
 	r.secrets = merged
 }
 
-// scrub returns text with every known secret replaced. The agent runner uses
-// it for anything it stores or sends, so both paths share one redaction rule.
+// Scrubber returns a function that replaces every given secret in a text,
+// longest first. The agent runner uses it for anything it stores or sends, so
+// logs and runs share one redaction rule.
+func Scrubber(secrets []string) func(string) string {
+	return newRedactor(io.Discard, secrets).scrub
+}
+
+// scrub returns text with every known secret replaced.
 func (r *redactor) scrub(text string) string {
 	r.mu.Lock()
 	secrets := r.secrets

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/nigelteosw/eggy/internal/core/destination"
 	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"github.com/nigelteosw/eggy/internal/home"
+	"github.com/nigelteosw/eggy/internal/logging"
 	"github.com/nigelteosw/eggy/internal/panel"
 	"github.com/nigelteosw/eggy/internal/ports"
 	"github.com/nigelteosw/eggy/internal/sandbox"
@@ -80,7 +80,7 @@ func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.Agent
 		Notify: func(ctx context.Context, run ports.AgentRun, text string) error {
 			return deliverToOrigin(ctx, channel, run, text)
 		},
-		Redact:       newRedactor(io.Discard, secrets.Values()).scrub,
+		Redact:       logging.Scrubber(secrets.Values()),
 		SecretValues: secrets.Values,
 		Now:          now,
 	})

@@ -169,3 +169,34 @@ func keys[V any](m map[string]V) []string {
 	}
 	return out
 }
+
+// GitHub's tarballs open with a pax global header naming the commit. It is not
+// a repository entry and must not reject the archive.
+func TestReadArchiveSkipsGitHubGlobalHeader(t *testing.T) {
+	var raw bytes.Buffer
+	gz := gzip.NewWriter(&raw)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "pax_global_header", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "abc123"}}); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("---\nname: pdf\n---\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "o-r-abc/skills/pdf/SKILL.md", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := readArchive(&raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tree.Files["skills/pdf/SKILL.md"]; !ok {
+		t.Fatalf("files=%v", keys(tree.Files))
+	}
+}

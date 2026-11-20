@@ -74,6 +74,11 @@ func readArchive(r io.Reader) (Tree, error) {
 		if entries >= maxEntries {
 			return Tree{}, fmt.Errorf("%w: more than %d entries", ErrArchiveRejected, maxEntries)
 		}
+		// GitHub's tarballs open with a pax global header carrying the commit
+		// id. It is metadata, not a file, and names no path in the repository.
+		if header.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
 		name, err := archivePath(header.Name)
 		if err != nil {
 			return Tree{}, err

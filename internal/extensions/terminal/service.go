@@ -88,8 +88,14 @@ type Options struct {
 	// sandbox user (sandbox.PrepareTerminalDir).
 	Prepare  func(dir string) error
 	Launcher Launcher
-	Logger   *slog.Logger
-	Now      func() time.Time
+	// Repos names the configured repositories, each of which is a space in
+	// every account's workspace. Mirror brings one's read-only mirror up
+	// to date and returns its path; it is the agent runner's, as root, with
+	// the token. Both nil means no repository spaces.
+	Repos  func() []string
+	Mirror func(ctx context.Context, name string) (string, error)
+	Logger *slog.Logger
+	Now    func() time.Time
 }
 
 // Service is the one path to terminals. The panel is a thin caller of it.
@@ -141,18 +147,26 @@ type Terminal struct {
 
 // Space is a folder in the account's workspace and the terminals in it.
 type Space struct {
-	Name      string     `json:"name"`
+	Name string `json:"name"`
+	// Repo marks a configured repository's working copy: made by Eggy from
+	// the mirror, updated from it, and not deletable while configured.
+	Repo bool `json:"repo,omitempty"`
+	// Preparing means a repository space whose working copy is still being
+	// made; it has no folder yet.
+	Preparing bool       `json:"preparing,omitempty"`
 	Terminals []Terminal `json:"terminals"`
 }
 
 // core is one account's connection to its hc core and what it has learned
 // from the event stream.
 type core struct {
-	dir    string
-	conn   Conn
-	client *client
-	mu     sync.Mutex
-	terms  map[string]Terminal
+	dir string
+	// preparing names repositories whose working copy is being made now.
+	preparing map[string]bool
+	conn      Conn
+	client    *client
+	mu        sync.Mutex
+	terms     map[string]Terminal
 }
 
 func principal(ctx context.Context) (string, error) {
@@ -226,7 +240,7 @@ func (s *Service) connect(ctx context.Context, dir string) (*core, error) {
 		}
 		return nil, err
 	}
-	c := &core{dir: dir, conn: conn, terms: map[string]Terminal{}}
+	c := &core{dir: dir, conn: conn, terms: map[string]Terminal{}, preparing: map[string]bool{}}
 	c.client = newClient(reader, conn, c.onEvent)
 	snapshot, err := c.client.subscribe(ctx)
 	if err != nil {
@@ -242,6 +256,9 @@ func (s *Service) connect(ctx context.Context, dir string) (*core, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("terminal: herdr-core did not answer: %w", ctx.Err())
 	}
+	// Repository spaces are made in the background: a clone can take longer
+	// than any request should wait.
+	go s.ensureRepos(context.WithoutCancel(ctx), c)
 	return c, nil
 }
 
@@ -434,15 +451,15 @@ func (s *Service) Spaces(ctx context.Context) ([]Space, error) {
 	for _, name := range order {
 		out = append(out, *bySpace[name])
 	}
-	return out, nil
+	return s.spaceFlags(c, out), nil
 }
 
 // CreateSpace makes an empty folder in the account's workspace. The sandbox
 // user owns it, because its programs work in it.
 func (s *Service) CreateSpace(ctx context.Context, name string) error {
 	name = strings.TrimSpace(name)
-	if !spaceName.MatchString(name) {
-		return fmt.Errorf("a space name is lowercase letters, digits, '.', '_' or '-', up to 48 characters")
+	if err := s.checkNewSpace(name); err != nil {
+		return err
 	}
 	c, err := s.coreFor(ctx)
 	if err != nil {
@@ -450,9 +467,7 @@ func (s *Service) CreateSpace(ctx context.Context, name string) error {
 	}
 	// The folder is made by a program in the sandbox, as its owner, so the
 	// extension never needs coder's ownership rights itself.
-	return c.client.call(ctx, "machine.exec", map[string]any{
-		"argv": []string{"mkdir", "-p", "--", filepath.Join(c.dir, "ws", name)},
-	}, nil)
+	return c.run(ctx, "mkdir", "-p", "--", filepath.Join(c.dir, "ws", name))
 }
 
 // Start runs command in space and returns the new terminal.

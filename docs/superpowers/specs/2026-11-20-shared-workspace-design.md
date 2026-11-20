@@ -1,6 +1,6 @@
 # One workspace per account: the agent runner and the terminal share it
 
-Status: steps 1 (layout, runs as the account) and 2 (mirrors) built 2026-11-20.
+Status: steps 1 (layout, runs as the account), 2 (mirrors) and 3 (repository spaces, space delete) built 2026-11-20.
 
 ## Why
 

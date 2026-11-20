@@ -10,7 +10,7 @@ import (
 
 func TestTerminalOffCostsNothing(t *testing.T) {
 	layout := home.Layout{Root: t.TempDir()}
-	svc, err := newTerminal(config.Config{}, config.Secrets{EncryptionKey: "k"}, layout, sandboxState{ok: true})
+	svc, err := newTerminal(config.Config{}, config.Secrets{EncryptionKey: "k"}, layout, sandboxState{ok: true}, nil)
 	if err != nil || svc != nil {
 		t.Fatalf("disabled terminal = %v, %v", svc, err)
 	}
@@ -22,7 +22,7 @@ func TestTerminalOffCostsNothing(t *testing.T) {
 // A shell is only offered where the confinement was proved.
 func TestTerminalNeedsAPassingProbe(t *testing.T) {
 	cfg := config.Config{Terminal: config.TerminalConfig{Enabled: true}}
-	svc, err := newTerminal(cfg, config.Secrets{EncryptionKey: "k"}, home.Layout{Root: t.TempDir()}, sandboxState{locked: true, reason: "probe failed"})
+	svc, err := newTerminal(cfg, config.Secrets{EncryptionKey: "k"}, home.Layout{Root: t.TempDir()}, sandboxState{locked: true, reason: "probe failed"}, nil)
 	if err != nil || svc != nil {
 		t.Fatalf("terminal without a passing probe = %v, %v", svc, err)
 	}

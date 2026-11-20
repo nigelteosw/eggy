@@ -34,6 +34,8 @@ func (f *fakeTerminal) Spaces(ctx context.Context) ([]TerminalSpace, error) {
 	return []TerminalSpace{{Name: "web", Terminals: []TerminalInfo{{Address: "t1", Space: "web", Live: true}}}}, nil
 }
 func (f *fakeTerminal) CreateSpace(ctx context.Context, name string) error { f.seen(ctx); return nil }
+func (f *fakeTerminal) DeleteSpace(ctx context.Context, name string) error { f.seen(ctx); return nil }
+func (f *fakeTerminal) UpdateRepo(ctx context.Context, name string) error  { f.seen(ctx); return nil }
 func (f *fakeTerminal) Start(ctx context.Context, space, command string, cols, rows uint16) (TerminalInfo, error) {
 	f.seen(ctx)
 	f.mu.Lock()

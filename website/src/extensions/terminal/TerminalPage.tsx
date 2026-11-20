@@ -10,11 +10,13 @@ import {
   age,
   commandLabel,
   createSpace,
+  deleteSpace,
   killTerminal,
   listSpaces,
   sectionOf,
   startTerminal,
   terminalLabel,
+  updateRepo,
   type InboxSection,
   type TerminalInfo,
   type TerminalSpace,
@@ -75,7 +77,7 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
     setError(null);
     setBusy(true);
     try {
-      let target = space ?? current?.space ?? named[0]?.name ?? null;
+      let target = space ?? current?.space ?? named.find((s) => !s.preparing)?.name ?? null;
       if (!target) {
         await createSpace(FIRST_SPACE);
         target = FIRST_SPACE;
@@ -95,6 +97,27 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
     try {
       await killTerminal(address);
       setOpen((now) => (now === address ? null : now));
+      await refresh();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function removeSpace(name: string) {
+    setError(null);
+    try {
+      await deleteSpace(name);
+      setOpen((now) => (now && all.find((t) => t.address === now)?.space === name ? null : now));
+      await refresh();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function refreshRepo(name: string) {
+    setError(null);
+    try {
+      await updateRepo(name);
       await refresh();
     } catch (err) {
       fail(err);
@@ -145,7 +168,7 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
                 </section>
               )}
               {named.map((space) => (
-                <SpaceGroup key={space.name} space={space} commands={commands} open={open} busy={busy} onOpen={setOpen} onStart={start} onRemove={end} />
+                <SpaceGroup key={space.name} space={space} commands={commands} open={open} busy={busy} onOpen={setOpen} onStart={start} onRemove={end} onDelete={removeSpace} onUpdate={refreshRepo} />
               ))}
               {/* Terminals a program started itself carry no space. */}
               {(spaces.find((s) => s.name === "")?.terminals ?? []).map((t) => (
@@ -247,6 +270,8 @@ function SpaceGroup({
   onOpen,
   onStart,
   onRemove,
+  onDelete,
+  onUpdate,
 }: {
   space: TerminalSpace;
   commands: string[];
@@ -255,8 +280,13 @@ function SpaceGroup({
   onOpen: (address: string) => void;
   onStart: (space: string, command: string) => void;
   onRemove: (address: string) => void;
+  onDelete: (space: string) => void;
+  onUpdate: (space: string) => void;
 }) {
   const [menu, setMenu] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const live = space.terminals.filter((t) => t.live).length;
   const root = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!menu) return;
@@ -271,13 +301,17 @@ function SpaceGroup({
     <section aria-label={space.name} className="mb-2">
       <div ref={root} className="relative flex items-center gap-2 px-2 py-1">
         <span className="min-w-0 flex-1 truncate text-caption font-medium uppercase tracking-wide text-neutral-600">{space.name}</span>
+        {space.repo && <span title="A configured repository, copied from its mirror" className="shrink-0 rounded-full bg-neutral-100 px-1.5 text-caption text-neutral-600">repo</span>}
         <button
           type="button"
           aria-label={`Start in ${space.name}`}
           aria-expanded={menu}
           title={`Start in ${space.name}`}
-          disabled={busy}
-          onClick={() => setMenu((v) => !v)}
+          disabled={busy || space.preparing}
+          onClick={() => {
+            setConfirmDelete(false);
+            setMenu((v) => !v);
+          }}
           className="flex h-7 w-7 items-center justify-center rounded-mark text-base text-neutral-700 hover:bg-neutral-100 disabled:opacity-40"
         >
           +
@@ -298,10 +332,47 @@ function SpaceGroup({
                 {commandLabel(command)}
               </button>
             ))}
+            <div className="my-1 border-t border-border" />
+            {space.repo ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={updating}
+                onClick={async () => {
+                  setUpdating(true);
+                  await onUpdate(space.name);
+                  setUpdating(false);
+                  setMenu(false);
+                }}
+                className="flex h-10 w-full items-center rounded-control px-3 text-left text-small hover:bg-neutral-100 disabled:opacity-50"
+              >
+                {updating ? "Fetching..." : "Fetch from GitHub"}
+              </button>
+            ) : confirmDelete ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  onDelete(space.name);
+                }}
+                className="flex min-h-10 w-full items-center rounded-control px-3 py-1.5 text-left text-small font-medium text-tomato hover:bg-tomato-soft"
+              >
+                {live > 0 ? `Delete folder and end ${live} terminal${live === 1 ? "" : "s"}` : "Delete folder and its files"}
+              </button>
+            ) : (
+              <button type="button" role="menuitem" onClick={() => setConfirmDelete(true)} className="flex h-10 w-full items-center rounded-control px-3 text-left text-small text-tomato hover:bg-tomato-soft">
+                Delete space...
+              </button>
+            )}
           </div>
         )}
       </div>
-      {terminals.length === 0 ? (
+      {space.preparing ? (
+        <p className="px-2 pb-1 text-caption text-neutral-500">Copying from GitHub...</p>
+      ) : space.repo && terminals.length === 0 && !space.terminals.length ? (
+        <p className="px-2 pb-1 text-caption text-neutral-500">Press + to start Claude Code or a shell in this repository.</p>
+      ) : terminals.length === 0 ? (
         <p className="px-2 pb-1 text-caption text-neutral-500">Nothing running. Press + to start.</p>
       ) : (
         terminals.map((t) => <Row key={t.address} terminal={t} selected={open === t.address} onOpen={onOpen} onRemove={onRemove} />)

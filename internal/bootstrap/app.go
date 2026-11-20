@@ -409,7 +409,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	app.agentRunner = agentRunner
 	// The terminal: nil unless terminal.enabled and the sandbox probe passed. It
 	// has no tool: a terminal is the owner's, never the model's.
-	app.terminal, err = newTerminal(config, secrets, layout, box)
+	app.terminal, err = newTerminal(config, secrets, layout, box, agentRunner)
 	if err != nil {
 		return nil, err
 	}

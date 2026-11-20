@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/nigelteosw/eggy/internal/config"
+	"github.com/nigelteosw/eggy/internal/extensions/agentrunner"
 	"github.com/nigelteosw/eggy/internal/extensions/terminal"
 	"github.com/nigelteosw/eggy/internal/home"
 	"github.com/nigelteosw/eggy/internal/panel"
@@ -20,7 +21,7 @@ import (
 // a passing sandbox probe, there is no service, no route and no herdr-core:
 // a terminal is a shell, and a shell is only offered where the confinement has
 // been proved, as bash is for the agent runner.
-func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, box sandboxState) (*terminal.Service, error) {
+func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, box sandboxState, runner *agentrunner.Service) (*terminal.Service, error) {
 	if !cfg.Terminal.Enabled {
 		return nil, nil
 	}
@@ -32,12 +33,18 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 	if err != nil {
 		return nil, err
 	}
-	svc, err := terminal.New(terminal.Options{
+	opts := terminal.Options{
 		Root:     filepath.Join(layout.Root, sandbox.WorkspaceDir),
 		DirName:  dirName,
 		Prepare:  box.sandbox.PrepareAccountDir,
 		Launcher: terminal.SandboxLauncher{Start: box.sandbox.Terminal},
-	})
+	}
+	if runner != nil {
+		// The agent runner's repositories are spaces too, cloned from the
+		// mirrors it keeps.
+		opts.Repos, opts.Mirror = runner.RepositoryNames, runner.MirrorFor
+	}
+	svc, err := terminal.New(opts)
 	if err == nil {
 		slog.Info("terminal: ready")
 	}
@@ -94,13 +101,21 @@ func (p panelTerminal) Spaces(ctx context.Context) ([]panel.TerminalSpace, error
 		for _, t := range s.Terminals {
 			ts = append(ts, panelTerminalInfo(t))
 		}
-		out = append(out, panel.TerminalSpace{Name: s.Name, Terminals: ts})
+		out = append(out, panel.TerminalSpace{Name: s.Name, Repo: s.Repo, Preparing: s.Preparing, Terminals: ts})
 	}
 	return out, nil
 }
 
 func (p panelTerminal) CreateSpace(ctx context.Context, name string) error {
 	return panelTerminalErr(p.svc.CreateSpace(ctx, name))
+}
+
+func (p panelTerminal) DeleteSpace(ctx context.Context, name string) error {
+	return panelTerminalErr(p.svc.DeleteSpace(ctx, name))
+}
+
+func (p panelTerminal) UpdateRepo(ctx context.Context, name string) error {
+	return panelTerminalErr(p.svc.UpdateRepo(ctx, name))
 }
 
 func (p panelTerminal) Start(ctx context.Context, space, command string, cols, rows uint16) (panel.TerminalInfo, error) {

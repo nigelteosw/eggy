@@ -6,6 +6,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -339,5 +340,79 @@ func TestMigrateLayoutMovesTerminalsOnce(t *testing.T) {
 	}
 	if err := MigrateLayout(data); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An account, in a terminal or a run, reads the repository mirrors and
+// cannot write them: its working copies fetch from them, and push cannot.
+func TestAccountsReadMirrorsButCannotWriteThem(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	alice := prepareTerminal(t, sb, dataDir, "alice")
+	mirror := filepath.Join(dataDir, MirrorsDir, "app.git")
+	if err := os.MkdirAll(mirror, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mirror, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sb.LockDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := sb.Terminal(alice, []string{"sh", "-c", "cat " + filepath.Join(mirror, "HEAD") + " && touch " + filepath.Join(mirror, "x") + "; echo rc=$?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _ := cmd.CombinedOutput()
+	if !strings.Contains(string(out), "refs/heads/main") || strings.Contains(string(out), "rc=0") {
+		t.Fatalf("terminal: %s", out)
+	}
+	run := filepath.Join(alice, "runs", strings.Repeat("d", 32))
+	if err := sb.PrepareRunDir(run); err != nil {
+		t.Fatal(err)
+	}
+	r, err := sb.Run(context.Background(), Spec{RunDir: run, Argv: []string{"cat", filepath.Join(mirror, "HEAD")}})
+	if err != nil || r.ExitCode != 0 {
+		t.Fatalf("run cannot read the mirror: %v %+v", err, r)
+	}
+}
+
+// The working-copy clone Eggy runs through an account's core: as the
+// account, from a root-owned mirror, which git accepts only when named safe.
+func TestAccountClonesFromRootMirror(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("needs git")
+	}
+	alice := prepareTerminal(t, sb, dataDir, "alice")
+	src := t.TempDir()
+	gitEnv := append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+	mirror := filepath.Join(dataDir, MirrorsDir, "app.git")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", src}, {"-C", src, "commit", "-q", "--allow-empty", "-m", "one"}, {"clone", "-q", "--bare", src, mirror}} {
+		cmd := exec.Command("git", args...)
+		cmd.Env = gitEnv
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := sb.LockDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	trust, err := sb.Terminal(alice, []string{"sh", "-c", `git config --global --get-all safe.directory | grep -qxF "$1" || git config --global --add safe.directory "$1"`, "sh", mirror})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := trust.CombinedOutput(); err != nil {
+		t.Fatalf("trust: %v %s", err, out)
+	}
+	cmd, err := sb.Terminal(alice, []string{"git", "clone", "--quiet", "--no-local", mirror, filepath.Join(alice, "ws", "app")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("clone as the account: %v %s", err, out)
+	}
+	push, _ := sb.Terminal(alice, []string{"git", "-C", filepath.Join(alice, "ws", "app"), "push", "origin", "HEAD:refs/heads/evil"})
+	if out, err := push.CombinedOutput(); err == nil {
+		t.Fatalf("pushed into the mirror: %s", out)
 	}
 }

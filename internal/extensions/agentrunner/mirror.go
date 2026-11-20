@@ -39,7 +39,9 @@ func (w *Workspaces) Mirror(ctx context.Context, name, cloneURL, token string) (
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
 
-	if err := os.MkdirAll(w.mirrors, 0o700); err != nil {
+	// Readable by every account (its working copies fetch from here),
+	// writable by root alone.
+	if err := os.MkdirAll(w.mirrors, 0o755); err != nil {
 		return "", err
 	}
 	path := filepath.Join(w.mirrors, name+".git")
@@ -75,4 +77,33 @@ func (w *Workspaces) Mirror(ctx context.Context, name, cloneURL, token string) (
 		return "", err
 	}
 	return path, nil
+}
+
+// MirrorFor brings the configured repository name's mirror up to date with
+// the calling account's GitHub token and returns its path. An account with no
+// token still fetches, which works for a public repository.
+func (s *Service) MirrorFor(ctx context.Context, name string) (string, error) {
+	if s.opts.Workspaces.mirrors == "" {
+		return "", errors.New("agent runner: no repository mirrors")
+	}
+	for _, repo := range s.opts.Repositories() {
+		if repo.Name != name {
+			continue
+		}
+		token, _, err := s.opts.Credentials.token(ctx)
+		if err != nil {
+			token = ""
+		}
+		return s.opts.Workspaces.Mirror(ctx, repo.Name, repo.CloneURL, token)
+	}
+	return "", fmt.Errorf("%s is not a configured repository", name)
+}
+
+// RepositoryNames are the configured repositories, by name.
+func (s *Service) RepositoryNames() []string {
+	var out []string
+	for _, repo := range s.opts.Repositories() {
+		out = append(out, repo.Name)
+	}
+	return out
 }

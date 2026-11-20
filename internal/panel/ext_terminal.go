@@ -21,6 +21,8 @@ type TerminalService interface {
 	Commands() []string
 	Spaces(ctx context.Context) ([]TerminalSpace, error)
 	CreateSpace(ctx context.Context, name string) error
+	DeleteSpace(ctx context.Context, name string) error
+	UpdateRepo(ctx context.Context, name string) error
 	Start(ctx context.Context, space, command string, cols, rows uint16) (TerminalInfo, error)
 	Kill(ctx context.Context, address string) error
 	Attach(ctx context.Context, address string, cols, rows uint16) (TerminalStream, error)
@@ -47,6 +49,8 @@ type TerminalInfo struct {
 // TerminalSpace is a folder in the account's workspace.
 type TerminalSpace struct {
 	Name      string         `json:"name"`
+	Repo      bool           `json:"repo,omitempty"`
+	Preparing bool           `json:"preparing,omitempty"`
 	Terminals []TerminalInfo `json:"terminals"`
 }
 
@@ -68,6 +72,8 @@ func mountTerminalRoutes(mux *http.ServeMux, guard func(http.HandlerFunc) http.H
 	upgrader := terminalUpgrader(webConfig)
 	mux.Handle("GET /api/terminal/spaces", guard(terminalSpaces(svc)))
 	mux.Handle("POST /api/terminal/spaces", guard(terminalCreateSpace(svc)))
+	mux.Handle("DELETE /api/terminal/spaces/{name}", guard(terminalSpaceAction(svc.DeleteSpace)))
+	mux.Handle("POST /api/terminal/spaces/{name}/update", guard(terminalSpaceAction(svc.UpdateRepo)))
 	mux.Handle("GET /api/terminal/needs-you", guard(terminalNeedsYou(svc)))
 	mux.Handle("POST /api/terminal/terminals", guard(terminalStart(svc)))
 	mux.Handle("DELETE /api/terminal/terminals/{address}", guard(terminalKill(svc)))
@@ -293,4 +299,20 @@ func closeReason(raw string) terminalClosed {
 		out.Reason = "ended"
 	}
 	return out
+}
+
+// terminalSpaceAction runs one operation on the space the path names.
+func terminalSpaceAction(action func(context.Context, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if err := action(r.Context(), name); err != nil {
+			if errors.Is(err, ErrTerminalNotFound) {
+				writeTerminalError(w, err)
+				return
+			}
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"name": name})
+	}
 }

@@ -120,6 +120,11 @@ shipped; its *As built* section lists what did not. In order of use:
 - The terminal palette as theme tokens, checked by the contrast rule.
 - A Telegram/Discord pointer when a terminal turns `blocked`, as a link to
   the panel and never a way to answer it.
+- The herdr app as a client. It speaks hc over SSH; Railway has no sshd, and
+  `railway ssh` is root outside the sandbox. Either an sshd whose keys map
+  to accounts and run only `hc connect` as the account's uid (a second
+  ingress, to argue), or hc's framed protocol over the panel's signed-in
+  WebSocket if herdr-app can use one. Check herdr-app's transports first.
 
 ### P3 — Package boundaries that read at a glance (S)
 

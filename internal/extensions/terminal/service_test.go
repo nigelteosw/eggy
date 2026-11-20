@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -156,6 +157,8 @@ func (f *fakeCore) serve() {
 			f.reply(call.ID, map[string]any{"channel": ch, "terminal": map[string]any{}})
 			// The first paint follows the reply at once, as the real core does.
 			f.send(frame{channel: ch, kind: kindData, payload: []byte("first paint")})
+		case "machine.exec":
+			f.reply(call.ID, fakeExec(call.Params))
 		default:
 			f.reply(call.ID, map[string]any{})
 		}
@@ -470,4 +473,28 @@ func TestKillRefusesUnknownTerminal(t *testing.T) {
 	if len(l.last().callsNamed("terminal.kill")) != 0 {
 		t.Fatal("asked the core to kill a terminal the account does not have")
 	}
+}
+
+// fakeExec runs the few programs the service runs through the core (mkdir,
+// rm, git) for real, so folder operations are tested on real folders. Any
+// other program (the hook installer's sh, which writes to $HOME) is not run.
+func fakeExec(params map[string]any) map[string]any {
+	raw, _ := params["argv"].([]any)
+	var argv []string
+	for _, a := range raw {
+		s, _ := a.(string)
+		argv = append(argv, s)
+	}
+	if len(argv) == 0 || (argv[0] != "mkdir" && argv[0] != "rm" && argv[0] != "git") {
+		return map[string]any{"code": 0}
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		code = 1
+	}
+	return map[string]any{"code": code, "stdout": "", "stderr": base64.StdEncoding.EncodeToString(stderr.Bytes())}
 }

@@ -424,6 +424,19 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 			}
 			return os.Lchown(path, 0, 0)
 		}
+		if mirrors := filepath.Join(dataDir, MirrorsDir); Within(path, mirrors) {
+			// Root writes the mirrors; every account reads them.
+			if err := os.Lchown(path, 0, 0); err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return os.Chmod(path, 0o755)
+			}
+			if entry.Type().IsRegular() {
+				return os.Chmod(path, 0o644)
+			}
+			return nil
+		}
 		if Within(path, runs) {
 			// Inside a run, only the agent's own subtrees go to coder; the run
 			// directory and the publisher's checkout stay root-owned. Interrupted
@@ -540,6 +553,13 @@ func confine(runDir string, terminal bool) error {
 	// The run directory is the only writable tree.
 	if err := addPathRule(rulesetFD, runDir, fsAll); err != nil {
 		return err
+	}
+	// An account and its runs read the repository mirrors: their working
+	// copies and run checkouts fetch from them. Read only, never exec.
+	if mirrors, ok := mirrorsFor(runDir); ok {
+		if err := addPathRule(rulesetFD, mirrors, unix.LANDLOCK_ACCESS_FS_READ_FILE|unix.LANDLOCK_ACCESS_FS_READ_DIR); err != nil {
+			return err
+		}
 	}
 	// A run in the shared workspace also has its account's home and tmp, and
 	// nothing else of the account: not its working copies, not other runs.

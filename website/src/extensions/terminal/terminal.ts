@@ -16,7 +16,9 @@ export type TerminalInfo = {
   exit_code?: number;
 };
 
-export type TerminalSpace = { name: string; terminals: TerminalInfo[] };
+// repo marks a configured repository's working copy; preparing, one still
+// being copied from its mirror, which has no folder yet.
+export type TerminalSpace = { name: string; repo?: boolean; preparing?: boolean; terminals: TerminalInfo[] };
 
 export async function listSpaces(): Promise<{ spaces: TerminalSpace[]; commands: string[] }> {
   return request("/api/terminal/spaces");
@@ -24,6 +26,14 @@ export async function listSpaces(): Promise<{ spaces: TerminalSpace[]; commands:
 
 export async function createSpace(name: string): Promise<void> {
   await request("/api/terminal/spaces", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function deleteSpace(name: string): Promise<void> {
+  await request(`/api/terminal/spaces/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+export async function updateRepo(name: string): Promise<void> {
+  await request(`/api/terminal/spaces/${encodeURIComponent(name)}/update`, { method: "POST", body: "{}" });
 }
 
 export async function startTerminal(space: string, command: string, cols: number, rows: number): Promise<TerminalInfo> {

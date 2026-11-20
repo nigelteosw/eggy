@@ -57,6 +57,15 @@ func TestRealHerdrCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	{
+		c, _ := svc.coreFor(ctx)
+		if err := c.run(ctx, "sh", "-c", "echo boom >&2; exit 3"); err == nil || !strings.Contains(err.Error(), "boom") {
+			t.Fatalf("a failing exec was not reported: %v", err)
+		}
+		if err := c.run(ctx, "true"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// A second shell in the same space: hc names must be unique, labels need not be.
 	second, err := svc.Start(ctx, "web", "shell", 80, 24)
 	if err != nil {

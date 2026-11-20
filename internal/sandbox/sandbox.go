@@ -122,6 +122,23 @@ const LegacyTerminalDir = "terminal"
 // runsDir is the account subdirectory holding its agent runs.
 const runsDir = "runs"
 
+// MirrorsDir holds the read-only repository mirrors under the data directory.
+const MirrorsDir = "mirrors"
+
+// mirrorsFor is the mirrors directory a workspace path may read: for an
+// account directory or a run in one. Anything else reads no mirror.
+func mirrorsFor(dir string) (string, bool) {
+	dir = filepath.Clean(dir)
+	if account, ok := AccountOf(dir); ok {
+		dir = account
+	}
+	workspace := filepath.Dir(dir)
+	if filepath.Base(workspace) != WorkspaceDir {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(workspace), MirrorsDir), true
+}
+
 // AccountOf reports the account directory a run directory belongs to, when
 // it is <data>/workspace/<account>/runs/<id>. It is a rule on the path
 // alone, so the parent and the sandbox-exec child always agree on it.

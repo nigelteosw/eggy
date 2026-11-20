@@ -588,29 +588,3 @@ func TestOwnerOfMCPServer(t *testing.T) {
 		t.Fatalf("OwnerOf hand-added = %q, want empty", got)
 	}
 }
-
-// Browse, review and install of one item at one commit read one download.
-func TestCachedFetchDownloadsACommitOnce(t *testing.T) {
-	inner := &countingFetch{}
-	c := &cachedFetch{Fetcher: inner}
-	for range 3 {
-		if _, err := c.tarball(context.Background(), "o/r", "sha1"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i := range cachedTrees + 1 {
-		_, _ = c.tarball(context.Background(), "o/r", fmt.Sprint("other", i))
-	}
-	_, _ = c.tarball(context.Background(), "o/r", "sha1")
-	if inner.calls != cachedTrees+3 {
-		t.Fatalf("downloads=%d, want %d (one, the evicting ones, then one again)", inner.calls, cachedTrees+3)
-	}
-}
-
-type countingFetch struct{ calls int }
-
-func (f *countingFetch) resolve(context.Context, string, string) (string, error) { return "sha1", nil }
-func (f *countingFetch) tarball(context.Context, string, string) (Tree, error) {
-	f.calls++
-	return Tree{Files: map[string][]byte{}}, nil
-}

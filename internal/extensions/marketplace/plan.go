@@ -109,6 +109,9 @@ func buildPlan(in PlanInput, tree Tree) (Plan, error) {
 			return Plan{}, err
 		}
 		dirs = pluginSkillDirs(tree, root)
+		if len(in.Item.Skills) > 0 {
+			dirs = in.Item.Skills
+		}
 	}
 
 	seen := map[string]bool{}

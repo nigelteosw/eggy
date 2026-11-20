@@ -36,6 +36,11 @@ type Item struct {
 	Name, Description, Kind, Root string
 	External                      *RepoRef
 	Unsupported                   string
+	// Skills is the plugin's own "skills" list, as directories relative to
+	// the repository root. Set, it is the whole of the plugin's skills: a
+	// catalog whose plugins all share source "./" names each one's skills
+	// this way, and without it every plugin would install all of them.
+	Skills []string
 }
 
 type claudeCatalog struct {
@@ -47,6 +52,7 @@ type claudePlugin struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Source      json.RawMessage `json:"source"`
+	Skills      []string        `json:"skills"`
 }
 
 type claudeSourceObject struct {
@@ -85,6 +91,14 @@ func claudeItems(tree Tree) ([]Item, error) {
 	for _, plugin := range catalog.Plugins {
 		item := Item{Name: plugin.Name, Description: plugin.Description, Kind: "plugin"}
 		applyClaudeSource(&item, plugin.Source)
+		for _, rel := range plugin.Skills {
+			dir, ok := relativeRoot(path.Join(item.Root, rel))
+			if !ok || item.External != nil {
+				item.Unsupported = "skill path leaves the plugin: " + rel
+				break
+			}
+			item.Skills = append(item.Skills, dir)
+		}
 		items = append(items, item)
 	}
 	return items, nil

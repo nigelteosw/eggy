@@ -115,3 +115,25 @@ func TestCatalogMalformedJSON(t *testing.T) {
 		t.Fatalf("err = %v, want one naming the file", err)
 	}
 }
+
+// A plugin that shares source "./" with its siblings names its own skills; the
+// plan holds those and nothing else in the repository.
+func TestPluginSkillsListLimitsThePlan(t *testing.T) {
+	skill := func(name string) []byte { return []byte("---\nname: " + name + "\ndescription: d\n---\nbody") }
+	tree := Tree{Files: map[string][]byte{
+		claudeCatalogPath:     []byte(`{"plugins":[{"name":"docs","source":"./","skills":["./skills/pdf"]}]}`),
+		"skills/pdf/SKILL.md": skill("pdf"),
+		"skills/art/SKILL.md": skill("art"),
+	}}
+	items, err := claudeItems(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildPlan(PlanInput{Source: Source{Name: "s"}, Item: items[0], SkillExists: func(string) bool { return false }, MCPExists: func(string) bool { return false }}, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Skills) != 1 || plan.Skills[0].Name != "pdf" {
+		t.Fatalf("skills=%+v", plan.Skills)
+	}
+}

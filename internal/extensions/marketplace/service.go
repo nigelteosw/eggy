@@ -146,7 +146,6 @@ func New(opts Options) (*Service, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	opts.Fetch = &cachedFetch{Fetcher: opts.Fetch}
 	return &Service{opts: opts}, nil
 }
 
@@ -998,46 +997,4 @@ func (s *Service) Detect(ctx context.Context, repo string) (kind, skillsPath str
 		return "", "", err
 	}
 	return detectLayout(tree)
-}
-
-// cachedFetch keeps the last few downloaded trees by repository and commit.
-// A commit's content never changes, so browse, review and install of the same
-// item read one download instead of three; a large catalog was slow to plan
-// because each step fetched the whole tarball again. resolve is not cached:
-// what a ref names now is the question it answers.
-type cachedFetch struct {
-	Fetcher
-	mu    sync.Mutex
-	order []string
-	trees map[string]Tree
-}
-
-const cachedTrees = 4
-
-func (c *cachedFetch) tarball(ctx context.Context, repo, sha string) (Tree, error) {
-	key := repo + "@" + sha
-	c.mu.Lock()
-	tree, ok := c.trees[key]
-	c.mu.Unlock()
-	if ok {
-		return tree, nil
-	}
-	tree, err := c.Fetcher.tarball(ctx, repo, sha)
-	if err != nil {
-		return Tree{}, err
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.trees == nil {
-		c.trees = map[string]Tree{}
-	}
-	if _, ok := c.trees[key]; !ok {
-		c.order = append(c.order, key)
-		if len(c.order) > cachedTrees {
-			delete(c.trees, c.order[0])
-			c.order = c.order[1:]
-		}
-	}
-	c.trees[key] = tree
-	return tree, nil
 }

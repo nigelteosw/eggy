@@ -28,14 +28,14 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 		slog.Warn("terminal: not offered, the sandbox probe did not pass", "reason", box.terminalReason)
 		return nil, nil
 	}
-	dirName, err := terminalDirName(secrets.EncryptionKey)
+	dirName, err := accountDirName(secrets.EncryptionKey)
 	if err != nil {
 		return nil, err
 	}
 	svc, err := terminal.New(terminal.Options{
-		Root:     filepath.Join(layout.Root, sandbox.TerminalDir),
+		Root:     filepath.Join(layout.Root, sandbox.WorkspaceDir),
 		DirName:  dirName,
-		Prepare:  box.sandbox.PrepareTerminalDir,
+		Prepare:  box.sandbox.PrepareAccountDir,
 		Launcher: terminal.SandboxLauncher{Start: box.sandbox.Terminal},
 	})
 	if err == nil {
@@ -44,16 +44,19 @@ func newTerminal(cfg config.Config, secrets config.Secrets, layout home.Layout, 
 	return svc, err
 }
 
-// terminalDirName names each account's terminal directory with a keyed hash
+// accountDirName names each account's workspace directory, shared by its
+// terminals and its agent runs, with a keyed hash
 // of its id. Each account's terminals already run as their own uid, which is
 // what keeps accounts apart; an unguessable name is defence in depth, and keeps
 // account ids out of the paths every program in the container can see.
-func terminalDirName(key string) (func(string) string, error) {
+func accountDirName(key string) (func(string) string, error) {
 	if key == "" {
-		return nil, errors.New("terminal: needs the encryption key to name account directories")
+		return nil, errors.New("workspace: needs the encryption key to name account directories")
 	}
 	return func(account string) string {
 		mac := hmac.New(sha256.New, []byte(key))
+		// The label predates the shared workspace and stays, so existing
+		// directories keep their names.
 		mac.Write([]byte("eggy terminal directory\x00" + account))
 		return hex.EncodeToString(mac.Sum(nil))[:32]
 	}, nil

@@ -180,12 +180,12 @@ func TestTerminalModeOpensPTYAndStaysConfined(t *testing.T) {
 
 func prepareTerminal(t *testing.T, sb *Sandbox, dataDir, account string) string {
 	t.Helper()
-	root := filepath.Join(dataDir, TerminalDir)
+	root := filepath.Join(dataDir, WorkspaceDir)
 	if err := os.MkdirAll(root, 0o711); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(root, account)
-	if err := sb.PrepareTerminalDir(dir); err != nil {
+	if err := sb.PrepareAccountDir(dir); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -212,7 +212,7 @@ func TestTerminalAccountsAreSeparateUsers(t *testing.T) {
 		t.Fatalf("uids: alice %d bob %d coder %d", a, b, sb.coderUID)
 	}
 	// Preparing again keeps the uid.
-	if err := sb.PrepareTerminalDir(alice); err != nil {
+	if err := sb.PrepareAccountDir(alice); err != nil {
 		t.Fatal(err)
 	}
 	if again := ownerOf(t, filepath.Join(alice, "home")); again != a {
@@ -277,5 +277,67 @@ func TestSandboxProbeTerminalPasses(t *testing.T) {
 	sb, dataDir := requireSandbox(t)
 	if err := sb.ProbeTerminal(context.Background(), dataDir, 1); err != nil {
 		t.Fatalf("terminal probe failed on a working sandbox: %v", err)
+	}
+}
+
+// A run in an account's workspace runs as the account, shares its home, and
+// cannot touch the account's working copies or another account's run.
+func TestAccountRunSharesHomeButNotWorkingCopies(t *testing.T) {
+	sb, dataDir := requireSandbox(t)
+	alice := prepareTerminal(t, sb, dataDir, "alice")
+	bob := prepareTerminal(t, sb, dataDir, "bob")
+	run := filepath.Join(alice, "runs", strings.Repeat("a", 32))
+	if err := sb.PrepareRunDir(run); err != nil {
+		t.Fatal(err)
+	}
+	uid := ownerOf(t, filepath.Join(alice, "home"))
+	if got := ownerOf(t, filepath.Join(run, "ws")); got != uid {
+		t.Fatalf("run ws belongs to %d, not alice's %d", got, uid)
+	}
+	exec := func(script string) Result {
+		result, err := sb.Run(context.Background(), Spec{RunDir: run, Argv: []string{"sh", "-c", script}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if r := exec(`id -u; echo "$HOME"; touch "$HOME/from-run" && echo WROTE`); r.ExitCode != 0 ||
+		!strings.Contains(r.Output, strconv.Itoa(int(uid))) || !strings.Contains(r.Output, filepath.Join(alice, "home")) || !strings.Contains(r.Output, "WROTE") {
+		t.Fatalf("run identity or home: exit %d %q", r.ExitCode, r.Output)
+	}
+	if r := exec("touch " + filepath.Join(alice, "ws", "x")); r.ExitCode == 0 {
+		t.Fatal("a run wrote its account's working copies")
+	}
+	if r := exec("ls " + filepath.Join(bob, "home")); r.ExitCode == 0 {
+		t.Fatal("a run read another account's home")
+	}
+	if err := sb.Probe(context.Background(), dataDir, 1); err != nil {
+		t.Fatalf("probe with account runs: %v", err)
+	}
+	// The boot lock keeps the run's subtrees with the account.
+	if err := sb.LockDataDir(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := ownerOf(t, filepath.Join(run, "ws")); got != uid {
+		t.Fatalf("after the lock the run ws belongs to %d", got)
+	}
+	if got := ownerOf(t, run); got != 0 {
+		t.Fatalf("run directory belongs to %d", got)
+	}
+}
+
+func TestMigrateLayoutMovesTerminalsOnce(t *testing.T) {
+	data := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(data, LegacyTerminalDir, "acct", "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateLayout(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, WorkspaceDir, "acct", "home")); err != nil {
+		t.Fatalf("not moved: %v", err)
+	}
+	if err := MigrateLayout(data); err != nil {
+		t.Fatal(err)
 	}
 }

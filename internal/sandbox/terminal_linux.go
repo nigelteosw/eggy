@@ -25,12 +25,12 @@ const TerminalUIDBase = 200000
 // cannot both take the next free uid.
 var allocMu sync.Mutex
 
-// PrepareTerminalDir makes an account's terminal directory: root-owned and
+// PrepareAccountDir makes an account's workspace directory: root-owned and
 // traversable, with ws/, home/ and tmp/ owned by the account's own uid,
 // allocated on first use and read back from home/'s owner after that. It
 // never walks the subtrees, whose programs may be running: only the three
 // directories it creates are chowned, and only when they are new.
-func (s *Sandbox) PrepareTerminalDir(dir string) error {
+func (s *Sandbox) PrepareAccountDir(dir string) error {
 	if err := validRunDir(dir); err != nil {
 		return err
 	}
@@ -50,6 +50,11 @@ func (s *Sandbox) PrepareTerminalDir(dir string) error {
 		uid, err = nextTerminalUID(filepath.Dir(dir))
 	}
 	if err != nil {
+		return err
+	}
+	// runs/ is root's, like each run directory in it, so the account cannot
+	// replace a run's publisher checkout.
+	if err := os.Mkdir(filepath.Join(dir, runsDir), 0o711); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
 	for _, sub := range agentWritable {
@@ -138,7 +143,7 @@ func ensureLine(file, marker, line string) error {
 }
 
 // Terminal returns argv confined in terminal mode in dir, as the account's own
-// uid; dir must have been prepared with PrepareTerminalDir. It has no timeout
+// uid; dir must have been prepared with PrepareAccountDir. It has no timeout
 // and no output capture: the caller wires its pipes, starts it, and kills its
 // process group when done.
 func (s *Sandbox) Terminal(dir string, argv []string) (*exec.Cmd, error) {
@@ -153,4 +158,20 @@ func (s *Sandbox) Terminal(dir string, argv []string) (*exec.Cmd, error) {
 		return nil, err
 	}
 	return s.command(dir, true, argv, uid, uid), nil
+}
+
+// MigrateLayout moves the pre-workspace terminal directory into place, once:
+// <data>/terminal becomes <data>/workspace. It is a rename, so live terminals'
+// files keep their owner and contents. A workspace that already exists is
+// left alone and the old directory kept, never merged.
+func MigrateLayout(dataDir string) error {
+	from := filepath.Join(dataDir, LegacyTerminalDir)
+	to := filepath.Join(dataDir, WorkspaceDir)
+	if _, err := os.Lstat(from); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if _, err := os.Lstat(to); err == nil {
+		return nil
+	}
+	return os.Rename(from, to)
 }

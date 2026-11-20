@@ -21,6 +21,9 @@ import (
 type CommandRunner interface {
 	Run(ctx context.Context, spec sandbox.Spec) (sandbox.Result, error)
 	PrepareRunDir(runDir string) error
+	// PrepareAccountDir makes an account's workspace directory and its
+	// uid, before a run is created in it.
+	PrepareAccountDir(dir string) error
 }
 
 // Refused is the runner used when no command may run, because the sandbox
@@ -36,19 +39,34 @@ func (r Refused) Run(context.Context, sandbox.Spec) (sandbox.Result, error) {
 // PrepareRunDir refuses.
 func (r Refused) PrepareRunDir(string) error { return r.Reason }
 
+// PrepareAccountDir refuses.
+func (r Refused) PrepareAccountDir(string) error { return r.Reason }
+
 // runIDPattern is what a run id looks like: 16 random bytes, hex encoded. Dir
 // refuses anything else, so a run id can never name a path outside the root.
 var runIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// Workspaces owns the run directories under the data volume.
+// Workspaces owns the run directories under the data volume. A run lives in
+// its account's workspace, <workspace>/<account>/runs/<id>, and runs as that
+// account's uid; runs from before the shared workspace stay where they were,
+// under root, and are still found there.
 type Workspaces struct {
-	root   string
-	runner CommandRunner
+	root     string // <data>/agent-runs: older runs, and git's askpass scratch
+	accounts string // <data>/workspace; empty puts new runs under root, as before
+	dirName  func(account string) string
+	runner   CommandRunner
 }
 
 // NewWorkspaces returns the workspace store rooted at root.
 func NewWorkspaces(root string, runner CommandRunner) *Workspaces {
 	return &Workspaces{root: root, runner: runner}
+}
+
+// InAccounts puts new runs in each account's workspace under root, in the
+// directory dirName names, which must be the terminal's name for the account.
+func (w *Workspaces) InAccounts(root string, dirName func(account string) string) *Workspaces {
+	w.accounts, w.dirName = root, dirName
+	return w
 }
 
 // Dir is the run's directory. An id that is not 32 hex characters is a
@@ -58,7 +76,29 @@ func (w *Workspaces) Dir(runID string) string {
 	if !runIDPattern.MatchString(runID) {
 		panic(fmt.Sprintf("agentrunner: run id %q is not 32 hex characters", runID))
 	}
+	if w.accounts != "" {
+		// The id is 32 hex characters, so the pattern matches only itself.
+		if found, _ := filepath.Glob(filepath.Join(w.accounts, "*", "runs", runID)); len(found) == 1 {
+			return found[0]
+		}
+	}
 	return filepath.Join(w.root, runID)
+}
+
+// newDir is where a new run for account goes, its account directory
+// prepared first.
+func (w *Workspaces) newDir(account, runID string) (string, error) {
+	if w.accounts == "" || account == "" {
+		return w.Dir(runID), nil
+	}
+	if !runIDPattern.MatchString(runID) {
+		panic(fmt.Sprintf("agentrunner: run id %q is not 32 hex characters", runID))
+	}
+	accountDir := filepath.Join(w.accounts, w.dirName(account))
+	if err := w.runner.PrepareAccountDir(accountDir); err != nil {
+		return "", err
+	}
+	return filepath.Join(accountDir, "runs", runID), nil
 }
 
 // Clone creates the run's directory and checks out baseBranch of cloneURL into
@@ -66,8 +106,11 @@ func (w *Workspaces) Dir(runID string) string {
 // because it is a trusted operation holding the PAT. The token travels only in
 // the environment, through a GIT_ASKPASS helper that reads it there, so it
 // never appears in argv, a URL or the repository's config.
-func (w *Workspaces) Clone(ctx context.Context, runID, cloneURL, baseBranch, token string) (string, error) {
-	dir := w.Dir(runID)
+func (w *Workspaces) Clone(ctx context.Context, account, runID, cloneURL, baseBranch, token string) (string, error) {
+	dir, err := w.newDir(account, runID)
+	if err != nil {
+		return "", err
+	}
 	if err := sandbox.MakeRunDirs(dir); err != nil {
 		return "", err
 	}

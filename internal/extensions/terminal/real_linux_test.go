@@ -42,7 +42,7 @@ func TestRealHerdrCore(t *testing.T) {
 	svc, err := New(Options{
 		Root:     root,
 		DirName:  func(a string) string { return "acct-" + a },
-		Prepare:  box.PrepareTerminalDir,
+		Prepare:  box.PrepareAccountDir,
 		Launcher: SandboxLauncher{Start: box.Terminal},
 	})
 	if err != nil {
@@ -94,7 +94,7 @@ func TestRealHerdrCore(t *testing.T) {
 
 	// A new service, as after an in-process restart, finds the same terminal.
 	_ = svc.Close()
-	again, _ := New(Options{Root: root, DirName: func(a string) string { return "acct-" + a }, Prepare: box.PrepareTerminalDir, Launcher: SandboxLauncher{Start: box.Terminal}})
+	again, _ := New(Options{Root: root, DirName: func(a string) string { return "acct-" + a }, Prepare: box.PrepareAccountDir, Launcher: SandboxLauncher{Start: box.Terminal}})
 	defer again.Close()
 	ts, err := again.Terminals(ctx)
 	if err != nil {

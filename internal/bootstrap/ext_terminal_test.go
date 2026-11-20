@@ -29,14 +29,14 @@ func TestTerminalNeedsAPassingProbe(t *testing.T) {
 }
 
 func TestTerminalDirNamesAreKeyedAndStable(t *testing.T) {
-	if _, err := terminalDirName(""); err == nil {
+	if _, err := accountDirName(""); err == nil {
 		t.Fatal("named directories without a key")
 	}
-	name, err := terminalDirName("key-one")
+	name, err := accountDirName("key-one")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, _ := terminalDirName("key-two")
+	other, _ := accountDirName("key-two")
 	alice := name("alice")
 	if alice != name("alice") {
 		t.Fatal("the name changed between calls")

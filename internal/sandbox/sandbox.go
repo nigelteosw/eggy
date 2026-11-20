@@ -61,6 +61,11 @@ type Result struct {
 // no credential helper or system config applies.
 func runEnv(runDir string) []string {
 	home := filepath.Join(runDir, "home")
+	if account, ok := AccountOf(runDir); ok {
+		// An account's run uses the account's one home: its logins, tools
+		// and caches are the ones the owner set up in a terminal.
+		home = filepath.Join(account, "home")
+	}
 	return []string{
 		"PATH=/usr/local/go/bin:/usr/local/node/bin:/usr/bin:/bin",
 		"HOME=" + home,
@@ -104,9 +109,31 @@ func validRunDir(runDir string) error {
 	return nil
 }
 
-// TerminalDir is the terminal extension's one sandbox directory under the data
-// directory. LockDataDir keeps its ws/, home/ and tmp/ with coder.
-const TerminalDir = "terminal"
+// WorkspaceDir holds one directory per account under the data directory:
+// <account>/{ws,home,tmp} for the account's terminals and working copies,
+// and <account>/runs/<id>/ for its agent runs, all owned by the account's
+// own uid. See docs/superpowers/specs/2026-11-20-shared-workspace-design.md.
+const WorkspaceDir = "workspace"
+
+// LegacyTerminalDir is where terminals lived before the shared workspace;
+// MigrateLayout moves it once.
+const LegacyTerminalDir = "terminal"
+
+// runsDir is the account subdirectory holding its agent runs.
+const runsDir = "runs"
+
+// AccountOf reports the account directory a run directory belongs to, when
+// it is <data>/workspace/<account>/runs/<id>. It is a rule on the path
+// alone, so the parent and the sandbox-exec child always agree on it.
+func AccountOf(runDir string) (string, bool) {
+	runDir = filepath.Clean(runDir)
+	runs := filepath.Dir(runDir)
+	account := filepath.Dir(runs)
+	if filepath.Base(runs) != runsDir || filepath.Base(filepath.Dir(account)) != WorkspaceDir {
+		return "", false
+	}
+	return account, true
+}
 
 // terminalFlag selects terminal mode on the sandbox-exec command line.
 const terminalFlag = "--terminal"

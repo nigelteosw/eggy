@@ -160,8 +160,10 @@ removes or makes possible that the standard library and the current code do not.
 - Configured repositories and stdio MCP servers are trusted code running as
   Eggy's user; timeouts and environment allowlists are not a sandbox.
   `internal/sandbox` is the one place a sandbox is claimed: the agent runner's
-  commands run in it as `coder` and the terminal extension's herdr-core as
-  each account's own uid, under Landlock, and bash and terminals are offered only after a startup
+  commands and the terminal extension's herdr-core both run in it as the
+  owning account's own uid, in that account's workspace
+  (`/data/workspace/<account>/`), under Landlock (`coder` remains only for
+  runs from before the workspace and for the probe), and bash and terminals are offered only after a startup
   probe proves the confinement (terminals have their own probe, run only when
   enabled). Without a passing probe, neither is offered.
   Terminal mode adds pty and randomness devices and nothing else, and the
@@ -191,6 +193,10 @@ removes or makes possible that the standard library and the current code do not.
   account could read another's keystrokes; ownership is what stops it, and
   it makes the per-uid process limit per account. The hashed directory name
   is defence in depth, not the boundary.
+- A run in an account's workspace shares the account's `home/` and `tmp/`
+  (so it can use the logins the owner made in a terminal) and its own run
+  directory, and nothing else: Landlock keeps it out of the account's `ws/`
+  working copies and other runs. The probe proves both.
 - Nothing walks a terminal subtree as root once it exists: its programs
   outlive restarts, and a chown walk over a tree a running program controls
   can be raced through a symlink. `LockDataDir` skips them and

@@ -57,11 +57,18 @@ func newAgentRunner(cfg config.Config, secrets config.Secrets, store ports.Agent
 	if err != nil {
 		return nil, nil, err
 	}
+	dirName, err := accountDirName(secrets.EncryptionKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	// New runs live in their account's workspace, beside its terminals.
+	workspaces := agentrunner.NewWorkspaces(filepath.Join(dataDir, "agent-runs"), runner).
+		InAccounts(filepath.Join(dataDir, sandbox.WorkspaceDir), dirName)
 	service, err := agentrunner.New(agentrunner.Options{
 		Store:         store,
 		Credentials:   creds,
 		GitHub:        gh,
-		Workspaces:    agentrunner.NewWorkspaces(filepath.Join(dataDir, "agent-runs"), runner),
+		Workspaces:    workspaces,
 		Repositories:  func() []config.RepositoryConfig { return cfg.Repositories },
 		Models:        targets,
 		Model:         cfg.AgentRunner.Model,
@@ -106,6 +113,9 @@ func setupSandbox(cfg config.Config, layout home.Layout) sandboxState {
 	box, err := sandbox.New()
 	if err != nil {
 		return sandboxState{reason: err.Error()}
+	}
+	if err := sandbox.MigrateLayout(layout.Root); err != nil {
+		return sandboxState{reason: "workspace not moved into place: " + err.Error()}
 	}
 	if err := box.LockDataDir(layout.Root); err != nil {
 		return sandboxState{reason: "data directory not locked: " + err.Error()}

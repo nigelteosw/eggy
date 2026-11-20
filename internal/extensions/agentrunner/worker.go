@@ -245,7 +245,7 @@ func (s *Service) execute(ctx context.Context, run ports.AgentRun) error {
 		if generation != run.PATGeneration {
 			return s.finish(ctx, run, ports.AgentRunFailed, "GitHub token changed since the run started", "")
 		}
-		base, err := s.opts.Workspaces.Clone(runCtx, run.ID, repo.CloneURL, run.BaseBranch, token)
+		base, err := s.opts.Workspaces.Clone(runCtx, run.AccountID, run.ID, repo.CloneURL, run.BaseBranch, token)
 		if err != nil {
 			return s.finish(ctx, run, ports.AgentRunFailed, s.opts.Redact("clone failed: "+err.Error()), "")
 		}

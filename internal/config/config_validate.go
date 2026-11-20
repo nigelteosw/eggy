@@ -525,8 +525,9 @@ func (c Config) validateSecrets(s Secrets) error {
 			require(c.Google.ClientSecretEnv, s.GoogleClientSecret)
 		}
 	}
-	if c.Terminal.Enabled {
-		// Each account's terminal directory is named with a hash keyed by it.
+	if c.Terminal.Enabled || c.AgentRunner.Enabled {
+		// Each account's workspace directory, where its terminals and agent
+		// runs live, is named with a hash keyed by it.
 		require("EGGY_ENCRYPTION_KEY", s.EncryptionKey)
 	}
 	if c.Tavily.Enabled && c.Tavily.APIKeyEnv != "" {

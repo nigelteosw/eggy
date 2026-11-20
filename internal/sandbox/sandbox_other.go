@@ -30,8 +30,11 @@ func (s *Sandbox) PrepareRunDir(string) error { return ErrUnsupported }
 // ProbeTerminal refuses: nothing can be verified here.
 func (s *Sandbox) ProbeTerminal(context.Context, string, int) error { return ErrUnsupported }
 
-// PrepareTerminalDir refuses.
-func (s *Sandbox) PrepareTerminalDir(string) error { return ErrUnsupported }
+// PrepareAccountDir refuses.
+func (s *Sandbox) PrepareAccountDir(string) error { return ErrUnsupported }
+
+// MigrateLayout has nothing to move where nothing can run.
+func MigrateLayout(string) error { return nil }
 
 // Terminal refuses.
 func (s *Sandbox) Terminal(string, []string) (*exec.Cmd, error) { return nil, ErrUnsupported }

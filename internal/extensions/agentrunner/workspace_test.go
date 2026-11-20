@@ -26,6 +26,8 @@ func (f *fakeRunner) Run(_ context.Context, spec sandbox.Spec) (sandbox.Result, 
 
 func (f *fakeRunner) PrepareRunDir(runDir string) error { return sandbox.MakeRunDirs(runDir) }
 
+func (f *fakeRunner) PrepareAccountDir(dir string) error { return sandbox.MakeRunDirs(dir) }
+
 const runIDA = "0123456789abcdef0123456789abcdef"
 
 func TestResolveInsideRejectsEscapes(t *testing.T) {
@@ -88,7 +90,7 @@ exit 0
 	const token = "ghp_TOKEN_MUST_NOT_LEAK"
 	root := t.TempDir()
 	w := NewWorkspaces(root, &fakeRunner{})
-	base, err := w.Clone(context.Background(), runIDA, "https://github.com/o/r.git", "main", token)
+	base, err := w.Clone(context.Background(), "", runIDA, "https://github.com/o/r.git", "main", token)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,5 +137,29 @@ func TestSweepHonorsRetention(t *testing.T) {
 	}
 	if _, err := os.Stat(w.Dir(gone)); !os.IsNotExist(err) {
 		t.Fatal("expired run was kept")
+	}
+}
+
+// A new run goes in its account's workspace, and Dir finds it there; a run
+// from before the shared workspace is still found under the old root.
+func TestRunsLiveInTheirAccountWorkspace(t *testing.T) {
+	legacy, accounts := t.TempDir(), filepath.Join(t.TempDir(), "workspace")
+	w := NewWorkspaces(legacy, &fakeRunner{}).InAccounts(accounts, func(a string) string { return "acct-" + a })
+	dir, err := w.newDir("alice", runIDA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(accounts, "acct-alice", "runs", runIDA)
+	if dir != want {
+		t.Fatalf("new run dir = %s, want %s", dir, want)
+	}
+	if err := sandbox.MakeRunDirs(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.Dir(runIDA); got != want {
+		t.Fatalf("Dir = %s, want %s", got, want)
+	}
+	if got := w.Dir(strings.Repeat("b", 32)); got != filepath.Join(legacy, strings.Repeat("b", 32)) {
+		t.Fatalf("an older run is looked for at %s", got)
 	}
 }

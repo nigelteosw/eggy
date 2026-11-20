@@ -118,8 +118,12 @@ func (s *Sandbox) PrepareRunDir(runDir string) error {
 	if err := os.Chmod(runDir, 0o711); err != nil {
 		return err
 	}
+	uid, gid, err := s.ownerFor(runDir)
+	if err != nil {
+		return err
+	}
 	for _, sub := range agentWritable {
-		if err := s.chownTree(filepath.Join(runDir, sub)); err != nil {
+		if err := chownTree(filepath.Join(runDir, sub), uid, gid); err != nil {
 			return err
 		}
 	}
@@ -129,13 +133,24 @@ func (s *Sandbox) PrepareRunDir(runDir string) error {
 // agentWritable are the only parts of a run directory coder may touch.
 var agentWritable = []string{"ws", "home", "tmp"}
 
-// chownTree gives coder every entry under root, and leaves root's parent alone.
-func (s *Sandbox) chownTree(root string) error {
+// ownerFor is who a run directory's commands run as: the owning account's
+// uid for a run in the shared workspace, coder for any other.
+func (s *Sandbox) ownerFor(runDir string) (uint32, uint32, error) {
+	if account, ok := AccountOf(runDir); ok {
+		uid, err := terminalOwner(account)
+		return uid, uid, err
+	}
+	return s.coderUID, s.coderGID, nil
+}
+
+// chownTree gives uid every entry under root, and leaves root's parent alone.
+// It is only for trees no sandboxed program is running in yet.
+func chownTree(root string, uid, gid uint32) error {
 	return filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		return os.Lchown(path, int(s.coderUID), int(s.coderGID))
+		return os.Lchown(path, int(uid), int(gid))
 	})
 }
 
@@ -160,7 +175,11 @@ func (s *Sandbox) run(ctx context.Context, spec Spec, terminal bool) (Result, er
 	if capBytes <= 0 {
 		capBytes = outputTailBytes
 	}
-	cmd := s.command(spec.RunDir, terminal, spec.Argv, s.coderUID, s.coderGID)
+	uid, gid, err := s.ownerFor(spec.RunDir)
+	if err != nil {
+		return Result{}, err
+	}
+	cmd := s.command(spec.RunDir, terminal, spec.Argv, uid, gid)
 	var fullFile io.Writer
 	var fullPath string
 	if spec.FullOutputDir != "" {
@@ -351,10 +370,10 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 	if err := os.MkdirAll(runs, 0o711); err != nil {
 		return err
 	}
-	// Made here, traversable, rather than on first use: a terminal directory
-	// created later by PrepareRunDir's MkdirAll would leave its parent 0700
-	// and root's, and coder could never reach its own directory below it.
-	terminal := filepath.Join(dataDir, TerminalDir)
+	// Made here, traversable, rather than on first use: a directory created
+	// later by a MkdirAll would leave its parent 0700 and root's, and no
+	// account could reach its own directory below it.
+	terminal := filepath.Join(dataDir, WorkspaceDir)
 	if err := os.MkdirAll(terminal, 0o711); err != nil {
 		return err
 	}
@@ -375,11 +394,13 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 			return os.Chmod(path, 0o711)
 		}
 		if Within(path, terminal) {
-			// <terminal>/<account>/{ws,home,tmp}. The account directory is
-			// root's and traversable; its three subtrees belong to the
-			// account's own uid and are never walked: their programs outlive
-			// restarts and may be running now, and a chown walk over a tree a
-			// running program controls can be raced through a symlink.
+			// <workspace>/<account>/{ws,home,tmp} and
+			// <workspace>/<account>/runs/<id>/{ws,home,tmp,publish...}. The
+			// account, runs and run directories are root's and traversable;
+			// the subtrees an account owns are never walked: their programs
+			// outlive restarts and may be running now, and a chown walk over a
+			// tree a running program controls can be raced through a symlink.
+			// The publisher's own directories in a run are root's, as ever.
 			rel, err := filepath.Rel(terminal, path)
 			if err != nil {
 				return err
@@ -392,6 +413,13 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 				}
 				return os.Chmod(path, 0o711)
 			case len(parts) == 2 && entry.IsDir() && slices.Contains(agentWritable, parts[1]):
+				return fs.SkipDir
+			case (len(parts) == 2 && parts[1] == runsDir || len(parts) == 3 && parts[1] == runsDir) && entry.IsDir():
+				if err := os.Lchown(path, 0, 0); err != nil {
+					return err
+				}
+				return os.Chmod(path, 0o711)
+			case len(parts) == 4 && parts[1] == runsDir && entry.IsDir() && slices.Contains(agentWritable, parts[3]):
 				return fs.SkipDir
 			}
 			return os.Lchown(path, 0, 0)
@@ -409,7 +437,7 @@ func (s *Sandbox) LockDataDir(dataDir string) error {
 				return os.Lchown(path, 0, 0)
 			}
 			if len(parts) == 2 && slices.Contains(agentWritable, parts[1]) && entry.IsDir() {
-				return s.chownTree(path)
+				return chownTree(path, s.coderUID, s.coderGID)
 			}
 			if len(parts) > 2 && slices.Contains(agentWritable, parts[1]) {
 				return nil // already handed to coder by its parent's chownTree
@@ -512,6 +540,15 @@ func confine(runDir string, terminal bool) error {
 	// The run directory is the only writable tree.
 	if err := addPathRule(rulesetFD, runDir, fsAll); err != nil {
 		return err
+	}
+	// A run in the shared workspace also has its account's home and tmp, and
+	// nothing else of the account: not its working copies, not other runs.
+	if account, ok := AccountOf(runDir); ok {
+		for _, sub := range []string{"home", "tmp"} {
+			if err := addPathRule(rulesetFD, filepath.Join(account, sub), fsAll); err != nil {
+				return err
+			}
+		}
 	}
 	for _, port := range webPorts {
 		net := landlockNetPortAttr{AllowedAccess: unix.LANDLOCK_ACCESS_NET_CONNECT_TCP, Port: port}

@@ -1,6 +1,6 @@
 # One workspace per account: the agent runner and the terminal share it
 
-Status: design, 2026-11-20. Not started.
+Status: step 1 (layout, runs as the account, migration) built 2026-11-20.
 
 ## Why
 

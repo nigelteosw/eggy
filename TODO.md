@@ -95,20 +95,6 @@ by the person after a preview. First step is the browser escape tests.
 Deletion budget: ~600–900 production lines, 1 config key, 1 extension-gated
 tool, 2 tables, 0 loops.
 
-### P2 — "Needs you" includes waiting coding runs (S)
-
-Herdr's best idea is one place that says which agents are blocked on you. The
-home page's "Needs you" section shows approvals only; a coding run in
-`waiting_for_user` is visible only on the agent runner page.
-
-- List waiting runs beside the approvals card, linking to the run. Only when
-  the agent runner is enabled, so a disabled extension still costs nothing.
-- The same for terminals whose program reported `blocked`, from
-  `GET /api/terminal/needs-you`, only when the terminal extension runs.
-
-Deletion budget: ~40–80 web lines, 0 Go lines if the runs route already
-answers it, 0 config keys/tools/records/loops.
-
 ### P2 — Terminal: the rest of the design (M)
 
 The first slice of `docs/superpowers/specs/2026-11-19-terminal-design.md`
@@ -189,8 +175,7 @@ Take on demonstrated use, one at a time. None may add a tool.
 ## Delivery order
 
 1. Voice and inbound attachments, then outbound documents.
-2. Themes evidence and the Appearance docs, then "Needs you" includes waiting
-   coding runs.
+2. Themes evidence and the Appearance docs.
 3. Measurement, then the typed config contract.
 4. Package boundaries, whenever the code nearby is being touched anyway.
 

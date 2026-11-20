@@ -1,6 +1,6 @@
 # One workspace per account: the agent runner and the terminal share it
 
-Status: steps 1 (layout, runs as the account), 2 (mirrors), 3 (repository spaces, space delete) and 4 (runs in the terminal) built 2026-11-20.
+Status: steps 1 (layout, runs as the account), 2 (mirrors), 3 (repository spaces, space delete), 4 (runs in the terminal) and 5 (Needs you) built 2026-11-20.
 
 ## Why
 
@@ -134,7 +134,10 @@ verified web session. The terminal never pushes.
 ## Needs you
 
 `GET /api/terminal/needs-you` and the agent runner's waiting runs are listed
-together on the home page and at the top of the Terminal page. This is the
+together on the home page and at the top of the Terminal page. As built, the
+two are joined in the browser (`needsYouItems`), each read only while its
+extension runs, so neither extension depends on the other and an extension
+that is off is never asked. This is the
 `TODO.md` item "Needs you includes waiting coding runs", done once for both.
 
 ## Safety

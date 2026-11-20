@@ -78,6 +78,9 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
   const all = (spaces ?? []).flatMap((s) => s.terminals);
   const current = open ? all.find((t) => t.address === open) : undefined;
   const waiting = all.filter((t) => sectionOf(t) === "needs_you");
+  // Runs waiting for an answer are in the same box: the owner answers in the
+  // agent runner, or opens a shell in the run to look first.
+  const waitingRuns = (spaces ?? []).flatMap((s) => s.runs ?? []).filter((r) => r.state === "waiting_for_user");
 
   async function start(space: string | null, command: string) {
     setError(null);
@@ -182,11 +185,14 @@ export function TerminalPage({ onClose, onOpenSidebar, onSessionExpired }: { onC
             <p className="px-2 text-small text-neutral-700">Loading...</p>
           ) : (
             <>
-              {waiting.length > 0 && (
+              {waiting.length + waitingRuns.length > 0 && (
                 <section aria-label="Needs you" className="mb-3 rounded-card bg-yolk-soft/60 p-1">
                   <h2 className="px-2 pb-0.5 pt-1 text-caption font-medium text-yolk-ink">Needs you</h2>
                   {waiting.map((t) => (
                     <Row key={t.address} terminal={t} selected={open === t.address} onOpen={setOpen} showSpace />
+                  ))}
+                  {waitingRuns.map((run) => (
+                    <RunRow key={run.id} run={run} busy={busy} onShell={startInRun} />
                   ))}
                 </section>
               )}

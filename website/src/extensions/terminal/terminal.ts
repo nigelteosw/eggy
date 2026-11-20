@@ -183,3 +183,10 @@ export function runState(state: string): { label: string; agentWorking: boolean 
       return { label: state.charAt(0).toUpperCase() + state.slice(1).replace(/_/g, " "), agentWorking: false };
   }
 }
+
+// listNeedsYou is the account's blocked terminals, without listing every
+// space; Home reads it.
+export async function listNeedsYou(): Promise<TerminalInfo[]> {
+  const out = await request<{ terminals: TerminalInfo[] }>("/api/terminal/needs-you");
+  return out.terminals ?? [];
+}

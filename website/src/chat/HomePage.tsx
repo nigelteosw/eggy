@@ -20,6 +20,7 @@ import { TrashIcon } from "../components/ui/icons";
 import { FIELD_COMPACT } from "../components/ui/form";
 import { rewriteWatch, watchItems, type WatchItem } from "./watch-edit";
 import { WeatherCard } from "../weather/WeatherCard";
+import { NeedsYouCard } from "../extensions/NeedsYouCard";
 
 // The home page answers what a person wants when they open Eggy: what the
 // weather is doing, what needs them, what Eggy is keeping an eye on, and what
@@ -44,7 +45,12 @@ export function HomePage({
   onNewChat,
   onOpenSidebar,
   name,
+  features = [],
+  onOpenExtension,
 }: {
+  // The running features, so Home asks only extensions that are on.
+  features?: string[];
+  onOpenExtension?: (id: string) => void;
   onOpenSidebar?: () => void;
   // The signed-in person's name, for the greeting.
   name?: string;
@@ -178,7 +184,8 @@ export function HomePage({
           </section>
         )}
 
-        <section aria-label="Needs you">
+        <section aria-label="Needs you" className="flex flex-col gap-3">
+          {onOpenExtension && <NeedsYouCard features={features} onOpenExtension={onOpenExtension} onSessionExpired={onSessionExpired} />}
           <ApprovalsCard onSessionExpired={onSessionExpired} />
         </section>
 

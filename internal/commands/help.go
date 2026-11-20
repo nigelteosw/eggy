@@ -26,6 +26,7 @@ var telegramCommands = []struct {
 	{"google", "Configure and authorize shared Google Workspace", "Shared administration", false},
 	{"mode", "Set your approval mode: strict, normal or auto", "Personal settings", false},
 	{"heartbeat", "Turn your check-ins on or off", "Personal settings", false},
+	{"plugin", "Add marketplaces and install skills after review", "Shared administration", false},
 	{"restart", "Reload shared config for everyone", "Shared administration", true},
 }
 

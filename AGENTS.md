@@ -133,9 +133,10 @@ removes or makes possible that the standard library and the current code do not.
   `internal/channel/discord/client.go` behind a fakeable transport.
 - Any protected mutation retains an independent payload-bound approval, with one
   `approvals.Action` and one executor per operation. Consolidating tools never
-  consolidates their approvals. A marketplace install is the one owner-panel
+  consolidates their approvals. A marketplace install is the one owner
   exception: its payload-bound approval is the digest review described under
-  *Decided*, not an `approvals.Action`, because no model tool call is involved.
+  *Security decisions*, not an `approvals.Action`, because no model tool call
+  is involved.
 - Generic Telegram selections can never satisfy an approval, authorize a
   mutation, or be read as approve/reject. Discord has no decision surface at
   all: an approval raised there is a notice pointing at the web panel.
@@ -304,8 +305,16 @@ which runs a downloaded program, is listed and skipped; no credential is sent on
 catalog traffic. Eggy publishes no catalog of its own. Source:
 `docs/superpowers/specs/2026-10-16-marketplace-design.md`.
 The owner's review is the approval for a marketplace install. It is a payload-bound
-review of the digest in the web panel, not an `approvals.Action`: it is an owner
-action at a verified session, not a model tool call. For an update, the choice to
+review of the digest, not an `approvals.Action`: it is an owner action at a verified
+ingress, not a model tool call. It happens either in the web panel or in chat:
+`/plugin install` in a private Telegram chat or web chat shows a review card for
+one plan at one commit, and `/plugin approve <code>`, typed by the same account
+within 30 minutes, installs exactly that digest. The code is random, single-use,
+account-bound and held in memory only; it is typed, never a button, so the
+generic-selection rule still holds, and Discord can read a card but not approve
+one. The accepted risk is that a phone-sized card invites approving without
+reading a skill in full, which `/plugin show` mitigates rather than removes. A
+plan with conflicts needs renames, and those happen only in the panel's review. For an update, the choice to
 replace an owner-edited skill is made in the same review but is not part of the
 digest; it can only overwrite a skill the owner already edited, and what is written
 is still the reviewed content. Enabling a catalog MCP server pins its

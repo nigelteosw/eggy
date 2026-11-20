@@ -71,9 +71,12 @@ type Options struct {
 	Conversation ConversationResetter
 	// Code is the agent runner for /code. Nil means the extension is off, and
 	// /code says so rather than failing.
-	Code      CodeRunner
-	Turns     TurnStopper
-	Restarter Restarter
+	Code CodeRunner
+	// Marketplace is the marketplace extension for /plugin. Nil means the
+	// extension is off, and /plugin says so.
+	Marketplace Marketplace
+	Turns       TurnStopper
+	Restarter   Restarter
 	// RestartPending reports whether config.yaml differs from what this process
 	// loaded. Nil means the process cannot tell, so /status says nothing about it.
 	RestartPending func() bool
@@ -117,6 +120,8 @@ type CommandService struct {
 	// aliasSet is ModelAliases as a lookup, so the model tool can tell a
 	// loaded alias from one only written to config without a linear scan.
 	aliasSet map[string]struct{}
+	// pluginReviews holds /plugin install review cards awaiting approve.
+	pluginReviews *pluginReviews
 }
 
 func New(options Options) *CommandService {
@@ -132,7 +137,7 @@ func New(options Options) *CommandService {
 	for _, alias := range options.ModelAliases {
 		aliasSet[alias] = struct{}{}
 	}
-	return &CommandService{Options: options, aliasSet: aliasSet}
+	return &CommandService{Options: options, aliasSet: aliasSet, pluginReviews: &pluginReviews{}}
 }
 
 // Execute handles every slash command, including unknown ones. Ordinary prose
@@ -202,6 +207,8 @@ func (s *CommandService) Execute(ctx context.Context, input string) (string, boo
 		return s.heartbeatCommand(ctx, args)
 	case "code":
 		return s.codeCommand(ctx, args)
+	case "plugin":
+		return s.pluginCommand(ctx, args)
 	default:
 		return "Unknown command. Send /help for commands.", true, nil
 	}

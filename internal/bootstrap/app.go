@@ -500,6 +500,7 @@ func NewApp(config config.Config, secrets config.Secrets, options AppOptions) (*
 	discovery := newModelDiscovery(config, catalog.providers)
 	app.commands = commands.New(commands.Options{
 		Code:           codeRunnerFor(app.agentRunner),
+		Marketplace:    commandsMarketplaceFor(marketplaceService),
 		ConfigPath:     options.ConfigPath,
 		MCP:            mcpAdministration.commandsView(),
 		Google:         googleAdministration.commandsView(),

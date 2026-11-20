@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/nigelteosw/eggy/internal/commands"
 	"github.com/nigelteosw/eggy/internal/config"
 	"github.com/nigelteosw/eggy/internal/core/services"
 	"github.com/nigelteosw/eggy/internal/extensions/marketplace"
@@ -246,4 +247,90 @@ func statusToPanel(status marketplace.InstallStatus) panel.MarketplaceInstallSta
 		edited = append(edited, panel.MarketplaceFileRef{Kind: f.Kind, Target: f.Target})
 	}
 	return panel.MarketplaceInstallStatus{Install: installToPanel(status.Install), Status: status.Status, Edited: edited}
+}
+
+// commandsMarketplace adapts the marketplace service to /plugin. Install is the
+// service's own digest-checked write, so chat and the panel share one path.
+type commandsMarketplace struct {
+	svc *marketplace.Service
+}
+
+// commandsMarketplaceFor returns nil when the extension is off, so /plugin
+// says so instead of holding a typed nil.
+func commandsMarketplaceFor(svc *marketplace.Service) commands.Marketplace {
+	if svc == nil {
+		return nil
+	}
+	return commandsMarketplace{svc: svc}
+}
+
+func (c commandsMarketplace) Sources(ctx context.Context) ([]commands.MarketplaceSourceStatus, error) {
+	statuses, err := c.svc.Sources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]commands.MarketplaceSourceStatus, 0, len(statuses))
+	for _, s := range statuses {
+		out = append(out, commands.MarketplaceSourceStatus{Name: s.Source.Name, Repo: s.Source.Repo, SHA: s.SHA, Error: s.Error})
+	}
+	return out, nil
+}
+
+func (c commandsMarketplace) Items(ctx context.Context, source string) ([]commands.MarketplaceItem, error) {
+	items, err := c.svc.Items(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]commands.MarketplaceItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, commands.MarketplaceItem{Name: item.Name, Description: item.Description, Kind: item.Kind, Unsupported: item.Unsupported})
+	}
+	return out, nil
+}
+
+func (c commandsMarketplace) Plan(ctx context.Context, source, item string) (commands.MarketplacePlan, error) {
+	plan, err := c.svc.Plan(ctx, marketplace.PlanRequest{Source: source, Item: item})
+	if err != nil {
+		return commands.MarketplacePlan{}, err
+	}
+	out := commands.MarketplacePlan{
+		Source: plan.Source, Repo: plan.Repo, SHA: plan.SHA, Item: plan.Item, Digest: plan.Digest,
+		Conflicts: plan.Conflicts, IndexBytes: plan.IndexBytes,
+	}
+	for _, s := range plan.Skills {
+		out.Skills = append(out.Skills, commands.MarketplacePlanSkill{
+			Name: s.Name, Description: s.Description, Body: s.Body, Files: len(s.Files), Warnings: s.Warnings,
+		})
+	}
+	for _, m := range plan.MCP {
+		out.MCP = append(out.MCP, struct{ Name, URL string }{m.Name, m.URL})
+	}
+	for _, s := range plan.Skipped {
+		out.Skipped = append(out.Skipped, s.Path+" — "+s.Reason)
+	}
+	return out, nil
+}
+
+func (c commandsMarketplace) Install(ctx context.Context, source, item, sha, digest string) error {
+	_, err := c.svc.Install(ctx, marketplace.ApproveRequest{
+		PlanRequest: marketplace.PlanRequest{Source: source, Item: item}, SHA: sha, Digest: digest,
+	})
+	return err
+}
+
+func (c commandsMarketplace) Installs(ctx context.Context) ([]ports.MarketplaceInstall, error) {
+	statuses, err := c.svc.Installs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ports.MarketplaceInstall, 0, len(statuses))
+	for _, s := range statuses {
+		out = append(out, s.Install)
+	}
+	return out, nil
+}
+
+// Remove names no edited files, so anything the owner changed is kept as theirs.
+func (c commandsMarketplace) Remove(ctx context.Context, id string) error {
+	return c.svc.Remove(ctx, id, nil)
 }

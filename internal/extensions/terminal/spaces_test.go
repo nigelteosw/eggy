@@ -129,3 +129,20 @@ func TestSpaceCreateAndDeleteStayInSync(t *testing.T) {
 		t.Fatalf("second delete: %v", err)
 	}
 }
+
+// A space made with a repository's name before it was one is an empty
+// folder; the working copy is cloned into it rather than the folder being
+// taken for a copy.
+func TestEmptyFolderWithARepositoryNameIsFilled(t *testing.T) {
+	svc, root, _ := newRepoService(t)
+	if err := os.MkdirAll(filepath.Join(root, "dir-alice", "ws", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Spaces(as("alice")); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "working copy in the empty folder", func() bool {
+		_, err := os.Stat(filepath.Join(root, "dir-alice", "ws", "app", "README"))
+		return err == nil
+	})
+}

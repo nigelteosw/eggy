@@ -33,7 +33,7 @@ func (s *Service) isRepo(name string) bool { return slices.Contains(s.repos(), n
 // account does not have yet. It runs after a core connects.
 func (s *Service) ensureRepos(ctx context.Context, c *core) {
 	for _, name := range s.repos() {
-		if _, err := os.Stat(filepath.Join(c.dir, "ws", name)); err == nil {
+		if hasCopy(c.dir, name) {
 			continue
 		}
 		if err := s.cloneRepo(ctx, c, name); err != nil {
@@ -86,7 +86,7 @@ func (s *Service) UpdateRepo(ctx context.Context, name string) error {
 		return err
 	}
 	dir := filepath.Join(c.dir, "ws", name)
-	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+	if !hasCopy(c.dir, name) {
 		return s.cloneRepo(ctx, c, name)
 	}
 	mirror, err := s.opts.Mirror(ctx, name)
@@ -168,4 +168,14 @@ func (s *Service) spaceFlags(c *core, spaces []Space) []Space {
 // and its runs' fetches work too.
 func trustMirror(ctx context.Context, c *core, mirror string) error {
 	return c.run(ctx, "sh", "-c", `git config --global --get-all safe.directory | grep -qxF "$1" || git config --global --add safe.directory "$1"`, "sh", mirror)
+}
+
+// hasCopy reports whether the repository's working copy is there: a git
+// repository, not merely a folder of that name. A space the owner made with
+// the same name before it was a repository is an empty folder, and git
+// clones into an empty folder; one with files in it is left alone and the
+// clone's refusal says why.
+func hasCopy(dir, name string) bool {
+	_, err := os.Stat(filepath.Join(dir, "ws", name, ".git"))
+	return err == nil
 }

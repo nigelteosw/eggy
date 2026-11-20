@@ -101,9 +101,13 @@ func skillsUpdateRoute(admin SkillsAdmin) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if err := admin.Write(r.Context(), name, input.Description, input.Body); err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
-			return
+		// A toggle sends the text back unchanged. Rewriting it anyway could
+		// normalize it, and a marketplace skill would then read as edited.
+		if input.Description != current.Description || input.Body != current.Body {
+			if err := admin.Write(r.Context(), name, input.Description, input.Body); err != nil {
+				writeWebError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 		if input.Disabled != current.Disabled {
 			if err := admin.SetDisabled(r.Context(), name, input.Disabled); err != nil {

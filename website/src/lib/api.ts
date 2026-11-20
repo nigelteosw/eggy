@@ -999,7 +999,7 @@ export function updateFinanceCategory(name: string, change: { color?: string; re
 // Skills are owner-authored Markdown shared by the whole deployment. A row with
 // `invalid` set is a file the server could not load; it can be deleted but not
 // opened, and the reason is shown instead.
-export type SkillRow = { name: string; description: string; disabled: boolean; invalid?: string };
+export type SkillRow = { name: string; description: string; disabled: boolean; invalid?: string; source?: string };
 export type SkillDetail = { name: string; description: string; body: string; disabled: boolean };
 export type SkillInput = { description: string; body: string; disabled: boolean };
 

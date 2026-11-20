@@ -87,6 +87,11 @@ export function SkillsPanel({
                   ) : row.disabled ? (
                     <span className="rounded-control bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700">Disabled</span>
                   ) : null}
+                  {row.source && (
+                    <span className="rounded-control bg-neutral-100 px-1.5 py-0.5 text-caption text-neutral-700" title="Installed from the marketplace">
+                      {row.source}
+                    </span>
+                  )}
                 </span>
                 <span className="line-clamp-2 text-small leading-5 text-neutral-700">{row.invalid ? `Could not load: ${row.invalid}` : row.description}</span>
               </span>

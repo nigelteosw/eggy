@@ -16,6 +16,7 @@ import (
 
 type fakeSkillsAdmin struct {
 	skills map[string]ports.Skill
+	writes int
 }
 
 func newFakeSkillsAdmin() *fakeSkillsAdmin {
@@ -42,6 +43,7 @@ func (f *fakeSkillsAdmin) Write(_ context.Context, name, description, body strin
 	if name == "bad name" {
 		return errors.New("skill name must be 1-64 lowercase letters, digits, or hyphens")
 	}
+	f.writes++
 	disabled := f.skills[name].Disabled
 	f.skills[name] = ports.Skill{Name: name, Description: description, Body: body, Disabled: disabled}
 	return nil
@@ -169,5 +171,19 @@ func TestWebSkillsRoutesRequireSessionAndCSRF(t *testing.T) {
 	}
 	if _, ok := admin.skills["brief"]; !ok {
 		t.Fatal("skill deleted without CSRF token")
+	}
+}
+
+// A toggle sends the text back unchanged and must not rewrite it: a rewrite
+// could normalize a marketplace skill and mark it as edited by the owner.
+func TestSkillToggleDoesNotRewriteText(t *testing.T) {
+	admin := newFakeSkillsAdmin()
+	admin.skills["pdf"] = ports.Skill{Name: "pdf", Description: "Read PDFs", Body: "steps", Source: "skills/document-skills"}
+	rec := skillRequest(t, skillsUpdateRoute(admin), http.MethodPut, "/api/skills/pdf", `{"description":"Read PDFs","body":"steps","disabled":true}`, "pdf")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body)
+	}
+	if admin.writes != 0 || !admin.skills["pdf"].Disabled {
+		t.Fatalf("writes=%d skill=%+v", admin.writes, admin.skills["pdf"])
 	}
 }

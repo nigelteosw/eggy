@@ -480,7 +480,7 @@ export function RailFrame({ open, children }: { open: boolean; children: ReactNo
     <div
       {...({ inert: open ? undefined : "" } as Record<string, string | undefined>)}
       data-rail-frame
-      className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none lg:static lg:grid lg:translate-x-0 ${
+      className={`absolute inset-y-0 left-0 z-30 shrink-0 transition-[transform,grid-template-columns] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none lg:static lg:grid lg:grid-rows-[minmax(0,1fr)] lg:translate-x-0 ${
         open ? "translate-x-0 shadow-lift lg:grid-cols-[1fr] lg:shadow-none" : "-translate-x-full lg:grid-cols-[0fr]"
       }`}
     >

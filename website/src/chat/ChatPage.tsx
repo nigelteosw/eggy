@@ -710,7 +710,7 @@ export function ChatPage({
   }, [threadId]);
 
   useEffect(() => {
-    if (atBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (atBottomRef.current) scrollTranscriptToEnd();
   }, [messages]);
 
   function onTranscriptScroll() {
@@ -721,10 +721,18 @@ export function ChatPage({
     setAtBottom(near);
   }
 
+  // Scrolls the transcript alone. scrollIntoView also scrolled every ancestor,
+  // overflow-hidden ones included, so opening a chat pushed the whole app's
+  // shell, rail and all, up the window.
+  function scrollTranscriptToEnd() {
+    const host = transcriptRef.current;
+    host?.scrollTo({ top: host.scrollHeight, behavior: "smooth" });
+  }
+
   function jumpToBottom() {
     atBottomRef.current = true;
     setAtBottom(true);
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    scrollTranscriptToEnd();
   }
 
   function rename(next: string) {
